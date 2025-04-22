@@ -9,6 +9,8 @@ app = FastAPI()
 # Get environment variables (Render will inject them)
 DATABASE_URL = os.getenv("DATABASE_URL")
 IMAGE_BASE = os.getenv("IMAGE_BASE")
+DATABASE_URL = "postgresql://postgres:Potato6200$supabase@db.uqdwcxizabmxwflkbfrb.supabase.co:5432/postgres?sslmode=verify-full"
+
 
 # Establish a connection to PostgreSQL
 def get_db_connection():
