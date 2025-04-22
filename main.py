@@ -8,7 +8,8 @@ import uvicorn  # Import uvicorn to run the app
 app = FastAPI()
 
 # Get environment variables (Render will inject them)
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Potato6200$supabase@db.uqdwcxizabmxwflkbfrb.supabase.co:5432/postgres?sslmode=verify-full"
+DATABASE_URL = "postgresql://postgres:Potato6200$supabase@db.uqdwcxizabmxwflkbfrb.supabase.co:5432/postgres?sslmode=require"
+
 IMAGE_BASE = os.getenv("IMAGE_BASE", "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images"
 
 # Establish a connection to PostgreSQL
