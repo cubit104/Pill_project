@@ -3,12 +3,12 @@ from fastapi.responses import HTMLResponse
 import psycopg2
 import os
 
-# Database configuration
-DATABASE_URL = "postgresql://postgres:Potato6200$supabase@db.uqdwcxizabmxwflkbfrb.supabase.co:5432/postgres"
-IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images"
-
 # FastAPI instance
 app = FastAPI()
+
+# Get the environment variables (from Render)
+DATABASE_URL = os.getenv("DATABASE_URL")  # Render will automatically set this
+IMAGE_BASE = os.getenv("IMAGE_BASE")  # Render will automatically set this
 
 # Establish a connection to PostgreSQL
 def get_db_connection():
