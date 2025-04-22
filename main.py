@@ -1,14 +1,14 @@
+import os
+import psycopg2
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
-import psycopg2
-import os
 
 # FastAPI instance
 app = FastAPI()
 
-# Get the environment variables (from Render)
-DATABASE_URL = os.getenv("DATABASE_URL")  # Render will automatically set this
-IMAGE_BASE = os.getenv("IMAGE_BASE")  # Render will automatically set this
+# Get environment variables (Render will inject them)
+DATABASE_URL = os.getenv("DATABASE_URL")
+IMAGE_BASE = os.getenv("IMAGE_BASE")
 
 # Establish a connection to PostgreSQL
 def get_db_connection():
@@ -45,7 +45,7 @@ async def search(medicine_name: str):
     """
     cursor.execute(query, (medicine_name,))
     records = cursor.fetchall()
-    
+
     conn.close()
 
     if not records:
