@@ -1,22 +1,33 @@
 import os
-import psycopg2
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
-import uvicorn  # Import uvicorn to run the app
+from sqlalchemy import create_engine, Column, String
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
 # FastAPI instance
 app = FastAPI()
 
-# Get environment variables (Render will inject them)
-IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images"
+# Database configuration
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Potato6200$supabase@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=verify-full")
+IMAGE_BASE = os.getenv("IMAGE_BASE", "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images")
 
-# Database connection settings (update with your actual credentials)
-DATABASE_URL = "postgres://postgres:Potato6200$supabase@db.uqdwcxizabmxwflkbfrb.supabase.co:6543/postgres
+# SQLAlchemy setup
+Base = declarative_base()
 
-# Establish a connection to PostgreSQL
-def get_db_connection():
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+# Define the pillfinder table as a SQLAlchemy model
+class PillFinder(Base):
+    __tablename__ = 'pillfinder'
+
+    medicine_name = Column(String, primary_key=True)
+    splshape_text = Column(String)
+    splcolor_text = Column(String)
+    splimprint = Column(String)
+    image_filename = Column(String)
+
+# Create SQLAlchemy engine and session
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Home route with search form
 @app.get("/", response_class=HTMLResponse)
@@ -37,50 +48,31 @@ async def home():
 # Search route to fetch data from the database and display results
 @app.get("/search", response_class=HTMLResponse)
 async def search(medicine_name: str):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    db = SessionLocal()  # Get database session
+    try:
+        # Query the pillfinder table using SQLAlchemy
+        pill = db.query(PillFinder).filter(PillFinder.medicine_name == medicine_name).first()
 
-    # Change query to use exact match instead of ILIKE
-    query = """
-        SELECT medicine_name, splshape_text, splcolor_text, splimprint, image_filename 
-        FROM pillfinder
-        WHERE medicine_name = %s;
-    """
-    cursor.execute(query, (medicine_name,))
-    records = cursor.fetchall()
+        if pill is None:
+            return "<h3>No results found</h3>"
 
-    conn.close()
-
-    if not records:
-        return "<h3>No results found</h3>"
-
-    # Start constructing the HTML content
-    html_content = "<h2>Search Results:</h2>"
-    for record in records:
-        medicine_name = record[0]
-        shape = record[1]
-        color = record[2]
-        imprint = record[3]
-        image_filename = record[4]
-
-        # Handle various image formats (jpg, jpeg, png, etc.)
-        if image_filename:
-            image_url = f"{IMAGE_BASE}/{image_filename}"
-        else:
-            image_url = None
-
-        html_content += f"""
+        # Construct HTML response
+        html_content = f"""
+        <h2>Search Results:</h2>
         <div>
-            <h3>{medicine_name}</h3>
-            <p>Shape: {shape}</p>
-            <p>Color: {color}</p>
-            <p>Imprint: {imprint}</p>
-            {f'<img src="{image_url}" alt="{medicine_name}" width="200">' if image_url else '<p>No image available</p>'}
+            <h3>{pill.medicine_name}</h3>
+            <p>Shape: {pill.splshape_text}</p>
+            <p>Color: {pill.splcolor_text}</p>
+            <p>Imprint: {pill.splimprint}</p>
+            {"<img src='" + IMAGE_BASE + "/" + pill.image_filename + "' alt='" + pill.medicine_name + "' width='200'>" if pill.image_filename else "<p>No image available</p>"}
         </div>
         """
 
-    return html_content
+        return html_content
+    finally:
+        db.close()
 
 # To run the server, bind to the correct port (for Render)
 if __name__ == "__main__":
+    import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=10000, reload=True)
