@@ -3,32 +3,18 @@ import psycopg2
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
 import uvicorn  # Import uvicorn to run the app
-import logging
-
-# Configure logging
-logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # FastAPI instance
 app = FastAPI()
 
 # Get environment variables (Render will inject them)
-DATABASE_URL = "postgresql://postgres:Potato6200$supabase@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=verify-full"
-
-
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Potato6200$supabase@db.uqdwcxizabmxwflkbfrb.supabase.co:5432/postgres?sslmode=verify-full")
 IMAGE_BASE = os.getenv("IMAGE_BASE", "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images")
 
 # Establish a connection to PostgreSQL
 def get_db_connection():
-    try:
-        conn = psycopg2.connect(DATABASE_URL)
-        logging.info("Successfully connected to the database")
-        return conn
-    except psycopg2.OperationalError as e:
-        logging.error(f"Operational error connecting to the database: {e}")
-        raise
-    except Exception as e:
-        logging.error(f"Unexpected error connecting to the database: {e}")
-        raise
+    conn = psycopg2.connect(DATABASE_URL)
+    return conn
 
 # Home route with search form
 @app.get("/", response_class=HTMLResponse)
@@ -49,55 +35,49 @@ async def home():
 # Search route to fetch data from the database and display results
 @app.get("/search", response_class=HTMLResponse)
 async def search(medicine_name: str):
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+    conn = get_db_connection()
+    cursor = conn.cursor()
 
-        # Change query to use exact match instead of ILIKE
-        query = """
-            SELECT medicine_name, splshape_text, splcolor_text, splimprint, image_filename 
-            FROM pillfinder
-            WHERE medicine_name = %s;
+    # Change query to use exact match instead of ILIKE
+    query = """
+        SELECT medicine_name, splshape_text, splcolor_text, splimprint, image_filename 
+        FROM pillfinder
+        WHERE medicine_name = %s;
+    """
+    cursor.execute(query, (medicine_name,))
+    records = cursor.fetchall()
+
+    conn.close()
+
+    if not records:
+        return "<h3>No results found</h3>"
+
+    # Start constructing the HTML content
+    html_content = "<h2>Search Results:</h2>"
+    for record in records:
+        medicine_name = record[0]
+        shape = record[1]
+        color = record[2]
+        imprint = record[3]
+        image_filename = record[4]
+
+        # Handle various image formats (jpg, jpeg, png, etc.)
+        if image_filename:
+            image_url = f"{IMAGE_BASE}/{image_filename}"
+        else:
+            image_url = None
+
+        html_content += f"""
+        <div>
+            <h3>{medicine_name}</h3>
+            <p>Shape: {shape}</p>
+            <p>Color: {color}</p>
+            <p>Imprint: {imprint}</p>
+            {f'<img src="{image_url}" alt="{medicine_name}" width="200">' if image_url else '<p>No image available</p>'}
+        </div>
         """
-        cursor.execute(query, (medicine_name,))
-        records = cursor.fetchall()
 
-        conn.close()
-
-        if not records:
-            return "<h3>No results found</h3>"
-
-        html_content = "<h2>Search Results:</h2>"
-        for record in records:
-            medicine_name = record[0]
-            shape = record[1]
-            color = record[2]
-            imprint = record[3]
-            image_filename = record[4]
-
-            # Handle various image formats (jpg, jpeg, png, etc.)
-            if image_filename:
-                image_url = f"{IMAGE_BASE}/{image_filename}"
-            else:
-                image_url = None
-
-            html_content += f"""
-            <div>
-                <h3>{medicine_name}</h3>
-                <p>Shape: {shape}</p>
-                <p>Color: {color}</p>
-                <p>Imprint: {imprint}</p>
-                {f'<img src="{image_url}" alt="{medicine_name}" width="200">' if image_url else '<p>No image available</p>'}
-            </div>
-            """
-
-        return html_content
-    except psycopg2.OperationalError as e:
-        logging.error(f"Operational error during search: {e}")
-        return "<h3>Operational error during search</h3>", 500
-    except Exception as e:
-        logging.error(f"Unexpected error during search: {e}")
-        return "<h3>An unexpected error occurred during the search</h3>", 500
+    return html_content
 
 # To run the server, bind to the correct port (for Render)
 if __name__ == "__main__":
