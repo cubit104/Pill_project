@@ -2,6 +2,7 @@ import os
 import psycopg2
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
+import uvicorn  # Import uvicorn to run the app
 
 # FastAPI instance
 app = FastAPI()
@@ -79,4 +80,6 @@ async def search(medicine_name: str):
 
     return html_content
 
-# To run the server: uvicorn main:app --reload
+# To run the server, bind to the correct port (for Render)
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=10000, reload=True)
