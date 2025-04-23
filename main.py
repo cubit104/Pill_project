@@ -11,7 +11,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:8000",
+        "http://localhost:8080",
         "https://your-production-domain.com"
     ],
     allow_credentials=True,
@@ -155,3 +155,7 @@ async def search(medicine_name: str):
         
     except Exception as e:
         return f"<h3>Error: {str(e)}</h3><p><a href='/'>Back to Search</a></p>"
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8080)
