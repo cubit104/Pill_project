@@ -1,80 +1,157 @@
-import os
-from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse
-from sqlalchemy import create_engine, Column, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, RedirectResponse
+import psycopg2
+from datetime import datetime
 
-# FastAPI instance
+# Initialize FastAPI app
 app = FastAPI()
+
+# CORS settings - allow all origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:8000",
+        "https://your-production-domain.com"
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 # Supabase Storage Base URL
 IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images"
 
 # Database connection settings
-DATABASE_URL = "postgresql://postgres.uqdwcxizabmxwflkbfrb:Potato6200$supabase@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+DATABASE_URL = "postgresql://postgres:Potato6200$supabase@db.uqdwcxizabmxwflkbfrb.supabase.co:5432/postgres"
 
-# SQLAlchemy setup
-Base = declarative_base()
+def get_db_connection():
+    conn = psycopg2.connect(DATABASE_URL)
+    return conn
 
-# Define the pillfinder table as a SQLAlchemy model
-class PillFinder(Base):
-    __tablename__ = 'pillfinder'
-
-    medicine_name = Column(String, primary_key=True)
-    splshape_text = Column(String)
-    splcolor_text = Column(String)
-    splimprint = Column(String)
-    image_filename = Column(String)
-
-# Create SQLAlchemy engine and session
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Home route with search form
 @app.get("/", response_class=HTMLResponse)
 async def home():
-    return """
+    # Get current datetime for display
+    current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    
+    return f"""
     <html>
-        <head><title>Pill Search</title></head>
+        <head>
+            <title>Pill Search</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                .search-form {{ margin: 20px 0; }}
+                input {{ padding: 8px; width: 300px; }}
+                button {{ padding: 8px 16px; background: #4CAF50; color: white; border: none; cursor: pointer; }}
+                .footer {{ margin-top: 20px; font-size: 0.8em; color: #666; }}
+            </style>
+        </head>
         <body>
             <h2>Search for Medicine</h2>
-            <form action="/search">
+            <form class="search-form" action="/search">
                 <input type="text" name="medicine_name" placeholder="Enter medicine name" required>
                 <button type="submit">Search</button>
             </form>
+            <div class="footer">Current UTC Time: {current_time}</div>
         </body>
     </html>
     """
 
-# Search route to fetch data from the database and display results
+# Simple image endpoint - no query parameters needed
+@app.get("/image/{image_filename}")
+async def get_image(image_filename: str):
+    # Create direct URL to Supabase storage
+    image_url = f"{IMAGE_BASE}/{image_filename}"
+    return RedirectResponse(url=image_url)
+
 @app.get("/search", response_class=HTMLResponse)
 async def search(medicine_name: str):
-    db = SessionLocal()  # Get database session
     try:
-        # Query the pillfinder table using SQLAlchemy
-        pill = db.query(PillFinder).filter(PillFinder.medicine_name == medicine_name).first()
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-        if pill is None:
+        query = """
+            SELECT medicine_name, splshape_text, splcolor_text, splimprint, image_filename 
+            FROM pillfinder
+            WHERE LOWER(medicine_name) = LOWER(%s);
+        """
+        cursor.execute(query, (medicine_name,))
+        records = cursor.fetchall()
+        
+        conn.close()
+
+        if not records:
             return "<h3>No results found</h3>"
 
-        # Construct HTML response
         html_content = f"""
-        <h2>Search Results:</h2>
-        <div>
-            <h3>{pill.medicine_name}</h3>
-            <p>Shape: {pill.splshape_text}</p>
-            <p>Color: {pill.splcolor_text}</p>
-            <p>Imprint: {pill.splimprint}</p>
-            {"<img src='" + IMAGE_BASE + "/" + pill.image_filename + "' alt='" + pill.medicine_name + "' width='200'>" if pill.image_filename else "<p>No image available</p>"}
-        </div>
+        <html>
+            <head>
+                <title>Results for {medicine_name}</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                    .pill-card {{ border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 5px; }}
+                    .pill-images {{ display: flex; flex-wrap: wrap; gap: 10px; }}
+                    .pill-images img {{ max-width: 200px; height: auto; border: 1px solid #eee; }}
+                </style>
+            </head>
+            <body>
+                <h2>Search Results for "{medicine_name}":</h2>
+                <a href="/">Back to Search</a>
+        """
+
+        for record in records:
+            medicine_name = record[0]
+            shape = record[1] or "Not specified"
+            color = record[2] or "Not specified"
+            imprint = record[3] or "Not specified"
+            image_filenames = record[4]  # Comma-separated list of image filenames
+
+            html_content += f"""
+            <div class="pill-card">
+                <h3>{medicine_name}</h3>
+                <p><strong>Shape:</strong> {shape}</p>
+                <p><strong>Color:</strong> {color}</p>
+                <p><strong>Imprint:</strong> {imprint}</p>
+                <p><strong>Images:</strong></p>
+                <div class="pill-images">
+            """
+
+            # Process image filenames
+            if image_filenames:
+                # Set to track unique filenames
+                processed_images = set()
+                
+                for filename in image_filenames.split(','):
+                    # Clean up the filename
+                    clean_filename = filename.strip()
+                    
+                    # Add extension if missing
+                    if not clean_filename.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                        clean_filename += '.jpg'
+                    
+                    # Skip if we've already processed this filename
+                    if clean_filename in processed_images:
+                        continue
+                    
+                    processed_images.add(clean_filename)
+                    
+                    # Simple direct image link - no extra parameters needed
+                    html_content += f"""
+                    <img src="/image/{clean_filename}" alt="{medicine_name}" />
+                    """
+            else:
+                html_content += "<p>No images available</p>"
+
+            html_content += "</div></div>"
+
+        current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        html_content += f"""
+                <div class="footer">Current UTC Time: {current_time}</div>
+            </body>
+        </html>
         """
 
         return html_content
-    finally:
-        db.close()
-
-# To run the server, bind to the correct port (for Render)
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=10000, reload=True)
+        
+    except Exception as e:
+        return f"<h3>Error: {str(e)}</h3><p><a href='/'>Back to Search</a></p>"
