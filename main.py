@@ -8,9 +8,11 @@ from sqlalchemy.orm import sessionmaker
 # FastAPI instance
 app = FastAPI()
 
-# Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Potato6200$supabase@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=verify-full")
-IMAGE_BASE = os.getenv("IMAGE_BASE", "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images")
+# Supabase Storage Base URL
+IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images"
+
+# Database connection settings
+DATABASE_URL = "postgresql://postgres.uqdwcxizabmxwflkbfrb:Potato6200$supabase@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
 
 # SQLAlchemy setup
 Base = declarative_base()
