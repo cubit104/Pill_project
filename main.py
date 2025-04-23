@@ -1,11 +1,10 @@
 """
 Supabase-backed FastAPI Application
 
-Replaces CSV data load with direct Supabase table queries (table: "pillfinder")
-and uses Supabase Storage for images.
+Replaces CSV data load with direct Supabase table queries (
+using table: "pillfinder") and uses Supabase Storage for images.
 
-Ensure the following in your `.env`:
-
+.env configuration:
 SUPABASE_URL=https://<your-project-ref>.supabase.co
 SUPABASE_KEY=<your-anon-or-service-role-key>
 SUPABASE_TABLE=pillfinder
@@ -18,6 +17,7 @@ import logging
 import psycopg2
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+
 from fastapi import FastAPI, Query, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -25,21 +25,25 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Connection Details
-# -----------------------------------------------------------------------------
-# Supabase Storage Base URL (public)
+# ----------------------------------------------------------------------------
+# Public Supabase Storage base URL for images
 IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images"
 
-# Database connection (for any direct SQL needs)
-DATABASE_URL = "postgresql://postgres.uqdwcxizabmxwflkbfrb:Potato6200$supabase@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+# Direct Postgres connection (optional, for raw SQL needs)
+DATABASE_URL = (
+    "postgresql://postgres.uqdwcxizabmxwflkbfrb:Potato6200$"
+    "supabase@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+)
 
 def get_db_connection():
+    """Get a raw psycopg2 connection to the Postgres database."""
     return psycopg2.connect(DATABASE_URL)
 
-# -----------------------------------------------------------------------------
-# Load environment variables
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Environment & Supabase Client Initialization
+# ----------------------------------------------------------------------------
 load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -49,14 +53,11 @@ STORAGE_BUCKET = os.getenv("STORAGE_BUCKET", "images")
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Supabase credentials (SUPABASE_URL & SUPABASE_KEY) must be set in .env")
 
-# -----------------------------------------------------------------------------
-# Initialize Supabase client
-# -----------------------------------------------------------------------------
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# -----------------------------------------------------------------------------
-# Logging configuration
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Logging Configuration
+# ----------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -64,9 +65,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# -----------------------------------------------------------------------------
-# FastAPI app & CORS
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# FastAPI App and CORS
+# ----------------------------------------------------------------------------
 app = FastAPI(
     title="Pill Identifier API (Supabase)",
     description="Identify pills via Supabase-managed metadata and images",
@@ -80,35 +81,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -----------------------------------------------------------------------------
-# Static file mounting (frontend)
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Static Files Mounting (for frontend HTML, CSS, JS)
+# ----------------------------------------------------------------------------
 BASE_DIR = Path(__file__).parent
 static_dir = BASE_DIR / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-# -----------------------------------------------------------------------------
-# Middleware: normalize internal redirects
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Middleware: Normalize Internal Redirects
+# ----------------------------------------------------------------------------
 @app.middleware("http")
 async def fix_port_redirects(request: Request, call_next):
     response = await call_next(request)
-    if response.status_code in (301,302,307,308) and 'location' in response.headers:
+    if response.status_code in (301, 302, 307, 308) and 'location' in response.headers:
         loc = response.headers['location']
         if ':8001' in loc:
             response.headers['location'] = loc.replace(':8001', ':8000')
     return response
 
-# -----------------------------------------------------------------------------
-# In-memory cache for pill records
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# In-Memory Cache for Pill Records
+# ----------------------------------------------------------------------------
 pills: List[Dict[str, Any]] = []
 
-# -----------------------------------------------------------------------------
-# Helper functions: normalization, image URL assembly, data load
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Helper Functions
+# ----------------------------------------------------------------------------
 def normalize_text(text: str) -> str:
+    """Capitalize first letter, lowercase the rest."""
     if not text or not isinstance(text, str):
         return ""
     text = text.strip()
@@ -116,18 +118,21 @@ def normalize_text(text: str) -> str:
 
 
 def normalize_imprint(value: str) -> str:
+    """Uppercase alphanumeric imprint, remove special chars."""
     if not value or not isinstance(value, str):
         return ""
     return re.sub(r'[^A-Za-z0-9]+', ' ', value).strip().upper()
 
 
 def normalize_name(value: str) -> str:
+    """Lowercase and strip drug names."""
     if not value or not isinstance(value, str):
         return ""
     return value.strip().lower()
 
 
 def split_image_filenames(filenames: str) -> List[str]:
+    """Split on commas/semicolons and strip whitespace."""
     if not filenames or not isinstance(filenames, str):
         return []
     parts = re.split(r"[,;]+", filenames)
@@ -135,17 +140,14 @@ def split_image_filenames(filenames: str) -> List[str]:
 
 
 def get_image_urls(filenames: str) -> List[str]:
+    """Construct public image URLs from stored filenames."""
     names = split_image_filenames(filenames)
-    urls = []
-    for name in names:
-        urls.append(f"{IMAGE_BASE}/{name}")
+    urls = [f"{IMAGE_BASE}/{name}" for name in names]
     return urls or ["https://via.placeholder.com/400x300?text=No+Image+Available"]
 
 
 def load_data() -> bool:
-    """
-    Load all pill records from Supabase table into `pills` cache.
-    """
+    """Fetch all pill records from Supabase into memory."""
     global pills
     try:
         resp = supabase.table(SUPABASE_TABLE).select("*").execute()
@@ -164,25 +166,26 @@ def load_data() -> bool:
 # Initial data load
 load_data()
 
-# -----------------------------------------------------------------------------
-# Health & reload endpoints
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Health & Reload Endpoints
+# ----------------------------------------------------------------------------
 @app.get("/health")
 def health_check():
-    return {"status":"healthy","version":app.version,"count":len(pills)}
+    return {"status": "healthy", "version": app.version, "count": len(pills)}
 
 @app.get("/reload-data")
-async def reload_data(background_tasks: BackgroundTasks):
-    ok = load_data()
-    return {"message": "reload " + ("succeeded" if ok else "failed"), "count": len(pills)}
+async def reload_data_endpoint(background_tasks: BackgroundTasks):
+    success = load_data()
+    return {"message": "reload " + ("succeeded" if success else "failed"), "count": len(pills)}
 
-# -----------------------------------------------------------------------------
-# Frontend HTML routes
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Frontend HTML Routes
+# ----------------------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
     path = BASE_DIR / "index.html"
-    if path.exists(): return FileResponse(path)
+    if path.exists():
+        return FileResponse(path)
     raise HTTPException(status_code=404, detail="index.html not found")
 
 @app.get("/index.html")
@@ -192,12 +195,13 @@ async def redirect_index():
 @app.get("/details.html", response_class=HTMLResponse)
 async def serve_details():
     path = BASE_DIR / "details.html"
-    if path.exists(): return FileResponse(path)
+    if path.exists():
+        return FileResponse(path)
     raise HTTPException(status_code=404, detail="details.html not found")
 
-# -----------------------------------------------------------------------------
-# Core API endpoints
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Core API Endpoints
+# ----------------------------------------------------------------------------
 @app.get("/details")
 def get_pill_details(
     imprint: Optional[str] = Query(None),
@@ -205,33 +209,41 @@ def get_pill_details(
     rxcui: Optional[str] = Query(None),
     ndc: Optional[str] = Query(None)
 ) -> Dict[str, Any]:
-    if not pills and not load_data(): raise HTTPException(500, "no data")
+    if not pills and not load_data():
+        raise HTTPException(status_code=500, detail="No data available")
     data = pills.copy()
     used_ndc = False
 
     if ndc:
         used_ndc = True
-        c = re.sub(r"[^0-9]","", ndc)
-        data = [p for p in data if re.sub(r"[^0-9]","",str(p.get("ndc11","")))==c or re.sub(r"[^0-9]","",str(p.get("ndc9","")))==c]
+        c = re.sub(r"[^0-9]", "", ndc)
+        data = [p for p in data
+                if re.sub(r"[^0-9]", "", str(p.get("ndc11", ""))) == c
+                or re.sub(r"[^0-9]", "", str(p.get("ndc9", ""))) == c]
     elif rxcui:
-        data = [p for p in data if str(p.get("rxcui",""))==str(rxcui)]
+        data = [p for p in data if str(p.get("rxcui", "")) == str(rxcui)]
     elif imprint and drug_name:
-        imp = normalize_imprint(imprint); nm = normalize_name(drug_name)
-        data = [p for p in data if normalize_imprint(p.get("splimprint",""))==imp and normalize_name(p.get("medicine_name",""))==nm]
+        imp_norm = normalize_imprint(imprint)
+        name_norm = normalize_name(drug_name)
+        data = [p for p in data
+                if normalize_imprint(p.get("splimprint", "")) == imp_norm
+                and normalize_name(p.get("medicine_name", "")) == name_norm]
     elif imprint:
-        imp = normalize_imprint(imprint)
-        data = [p for p in data if normalize_imprint(p.get("splimprint",""))==imp]
+        imp_norm = normalize_imprint(imprint)
+        data = [p for p in data if normalize_imprint(p.get("splimprint", "")) == imp_norm]
     elif drug_name:
-        nm = normalize_name(drug_name)
-        data = [p for p in data if normalize_name(p.get("medicine_name",""))==nm]
+        name_norm = normalize_name(drug_name)
+        data = [p for p in data if normalize_name(p.get("medicine_name", "")) == name_norm]
     else:
-        raise HTTPException(400, "provide imprint, drug_name, rxcui or ndc")
+        raise HTTPException(status_code=400, detail="Provide imprint, drug_name, rxcui, or ndc")
 
-    if not data: raise HTTPException(404, "no match")
-    rec = data[0].copy()
-    files = rec.get("image_filename","") if used_ndc else ",".join([p.get("image_filename","") for p in data])
-    rec["image_urls"] = get_image_urls(files)
-    return rec
+    if not data:
+        raise HTTPException(status_code=404, detail="No matching pill found")
+
+    record = data[0].copy()
+    filenames = record.get("image_filename", "") if used_ndc else ",".join([p.get("image_filename", "") for p in data])
+    record["image_urls"] = get_image_urls(filenames)
+    return record
 
 @app.get("/search")
 def search(
@@ -242,84 +254,138 @@ def search(
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=100)
 ) -> Dict[str, Any]:
-    if not pills and not load_data(): raise HTTPException(500, "no data")
+    if not pills and not load_data():
+        raise HTTPException(status_code=500, detail="No data available")
     filtered = pills.copy()
     if q:
-        qq = q.strip()
-        if type=="imprint": filtered=[p for p in filtered if normalize_imprint(p.get("splimprint",""))==normalize_imprint(qq)]
-        elif type=="drug": filtered=[p for p in filtered if normalize_name(p.get("medicine_name",""))==normalize_name(qq)]
-        elif type=="ndc":
-            c=re.sub(r"[^0-9]","",qq)
-            filtered=[p for p in filtered if c in re.sub(r"[^0-9]","",str(p.get("ndc11",""))) or c in re.sub(r"[^0-9]","",str(p.get("ndc9","")))]
-    if color: filtered=[p for p in filtered if p.get("splcolor_text","""].strip().lower()==color.strip().lower()]
-    if shape: filtered=[p for p in filtered if p.get("splshape_text","""].strip().lower()==shape.strip().lower()]
+        query = q.strip()
+        if type == "imprint":
+            norm = normalize_imprint(query)
+            filtered = [p for p in filtered if normalize_imprint(p.get("splimprint", "")) == norm]
+        elif type == "drug":
+            norm = normalize_name(query)
+            filtered = [p for p in filtered if normalize_name(p.get("medicine_name", "")) == norm]
+        elif type == "ndc":
+            c = re.sub(r"[^0-9]", "", query)
+            filtered = [p for p in filtered
+                        if c in re.sub(r"[^0-9]", "", str(p.get("ndc11", "")))
+                        or c in re.sub(r"[^0-9]", "", str(p.get("ndc9", "")))]
+    if color:
+        filtered = [p for p in filtered if p.get("splcolor_text", "").strip().lower() == color.strip().lower()]
+    if shape:
+        filtered = [p for p in filtered if p.get("splshape_text", "").strip().lower() == shape.strip().lower()]
 
-    # dedupe & attach images
-    seen=set(); results=[]
+    # Deduplicate & attach images
+    seen = set()
+    results = []
     for p in filtered:
-        key=(normalize_name(p.get("medicine_name","")), normalize_imprint(p.get("splimprint","")), p.get("splcolor_text",""), p.get("splshape_text",""), str(p.get("rxcui","")))
+        key = (
+            normalize_name(p.get("medicine_name", "")),
+            normalize_imprint(p.get("splimprint", "")),
+            p.get("splcolor_text", ""),
+            p.get("splshape_text", ""),
+            str(p.get("rxcui", ""))
+        )
         if key not in seen:
             seen.add(key)
-            item=p.copy()
-            item["image_urls"]=get_image_urls(item.get("image_filename",""))
+            item = p.copy()
+            item["image_urls"] = get_image_urls(item.get("image_filename", ""))
             results.append(item)
-    total=len(results)
-    start=(page-1)*per_page; end=start+per_page
-    return {"results":results[start:end],"total":total,"page":page,"per_page":per_page,"total_pages":(total+per_page-1)//per_page}
+    total = len(results)
+    start = (page - 1) * per_page
+    end = start + per_page
+    return {"results": results[start:end], "total": total, "page": page, "per_page": per_page, "total_pages": (total + per_page - 1) // per_page}
 
 @app.get("/filters")
-def get_filters():
-    if not pills and not load_data(): raise HTTPException(500, "no data")
-    std_colors={"White":"#FFF","Blue":"#00F","Green":"#080","Red":"#F00","Yellow":"#FF0","Pink":"#FFC","Orange":"#FA0","Purple":"#80F","Gray":"#888","Brown":"#A52","Beige":"#F5F"}
-    colors=[{"name":n,"hex":h} for n,h in std_colors.items()]
-    def mk_shape(s):return {"name":s.title(),"icon":"🔹"}
-    shapes=[]; seen=set()
+def get_filters() -> Dict[str, Any]:
+    if not pills and not load_data():
+        raise HTTPException(status_code=500, detail="No data available")
+    standard_colors = {
+        "White": "#FFFFFF", "Blue": "#0000FF", "Green": "#008000",
+        "Red": "#FF0000", "Yellow": "#FFFF00", "Pink": "#FFC0CB",
+        "Orange": "#FFA500", "Purple": "#800080", "Gray": "#808080",
+        "Brown": "#A52A2A", "Beige": "#F5F5DC"
+    }
+    colors = [{"name": n, "hex": h} for n, h in standard_colors.items()]
+    shapes = []
+    seen_shapes = set()
     for p in pills:
-        s=p.get("splshape_text","""".strip());
-        if s and s.lower() not in seen: shapes.append(mk_shape(s));seen.add(s.lower())
-    return {"colors":colors,"shapes":sorted(shapes,key=lambda x:x["name"]) }
+        s = p.get("splshape_text", "").strip()
+        if s and s.lower() not in seen_shapes:
+            seen_shapes.add(s.lower())
+            shapes.append({"name": s.title(), "icon": "🔹"})
+    shapes.sort(key=lambda x: x["name"])
+    return {"colors": colors, "shapes": shapes}
 
 @app.get("/suggestions")
-def get_suggestions(q: str = Query(...),type: str = Query(...)):
-    if not pills and not load_data(): return []
-    qq=q.strip();res=[];seen=set()
-    if type=="imprint":
+def get_suggestions(q: str = Query(...), type: str = Query(...)) -> List[str]:
+    if not pills and not load_data():
+        return []
+    query = q.strip()
+    if not query:
+        return []
+    suggestions = []
+    seen = set()
+    if type == "imprint":
         for p in pills:
-            imp=p.get("splimprint","""";norm=normalize_imprint(imp)
-            if norm and norm not in seen and (norm==normalize_imprint(qq) or normalize_imprint(qq) in norm):seen.add(norm);res.append(imp);
-    elif type=="drug":
+            imp = p.get("splimprint", "").strip()
+            norm = normalize_imprint(imp)
+            if norm and norm not in seen and (norm == normalize_imprint(query) or normalize_imprint(query) in norm):
+                seen.add(norm)
+                suggestions.append(imp)
+                if len(suggestions) >= 10:
+                    break
+    elif type == "drug":
         for p in pills:
-            nm=p.get("medicine_name","""";norm=normalize_name(nm)
-            if norm and norm not in seen and (norm==normalize_name(qq) or normalize_name(qq) in norm):seen.add(norm);res.append(nm);
-    elif type=="ndc":
-        c=re.sub(r"[^0-9]","",qq)
+            nm = p.get("medicine_name", "").strip()
+            norm = normalize_name(nm)
+            if norm and norm not in seen and (norm == normalize_name(query) or normalize_name(query) in norm):
+                seen.add(norm)
+                suggestions.append(nm)
+                if len(suggestions) >= 10:
+                    break
+    elif type == "ndc":
+        c = re.sub(r"[^0-9]", "", query)
         for p in pills:
-            for f in ("ndc9","ndc11"): val=re.sub(r"[^0-9]","",str(p.get(f,"")))
-                if val.startswith(c) and val not in seen:seen.add(val);res.append(val)
-    return res[:10]
+            for field in ["ndc9", "ndc11"]:
+                val = re.sub(r"[^0-9]", "", str(p.get(field, "")))
+                if val.startswith(c) and val not in seen:
+                    seen.add(val)
+                    suggestions.append(val)
+                    if len(suggestions) >= 10:
+                        break
+            if len(suggestions) >= 10:
+                break
+    return suggestions
 
 @app.get("/ndc_lookup")
-def ndc_lookup(ndc: str = Query(...)):
-    if not ndc or (not pills and not load_data()): return {"found":False}
-    c=re.sub(r"[^0-9]","",ndc)
-    m=next((p for p in pills if c in re.sub(r"[^0-9]","",str(p.get("ndc11",""))) or c in re.sub(r"[^0-9]","",str(p.get("ndc9","")))),None)
-    if not m: return {"found":False}
-    m["image_urls"]=get_image_urls(m.get("image_filename",""))
-    m["found"]=True
-    return m
+def ndc_lookup(ndc: str = Query(...)) -> Dict[str, Any]:
+    if not ndc or (not pills and not load_data()):
+        return {"found": False}
+    c = re.sub(r"[^0-9]", "", ndc)
+    match = next((p for p in pills if c in re.sub(r"[^0-9]", "", str(p.get("ndc11", ""))) or c in re.sub(r"[^0-9]", "", str(p.get("ndc9", "")))), None)
+    if not match:
+        return {"found": False}
+    result = match.copy()
+    result["image_urls"] = get_image_urls(result.get("image_filename", ""))
+    result["found"] = True
+    return result
 
 @app.get("/ndc_diagnostic")
-def ndc_diagnostic(ndc: str = Query(...)):
-    if not ndc or (not pills and not load_data()):return {"error":"no data/ndc"}
-    images=get_image_urls(ndc)
-    c=re.sub(r"[^0-9]","",ndc)
-    m=next((p for p in pills if c in re.sub(r"[^0-9]","",str(p.get("ndc11",""))) or c in re.sub(r"[^0-9]","",str(p.get("ndc9","")))),None)
-    return {"ndc":ndc,"images_found":bool(images),"image_urls":images,"record":m}
+def ndc_diagnostic(ndc: str = Query(...)) -> Dict[str, Any]:
+    if not ndc or (not pills and not load_data()):
+        return {"error": "no data or ndc"}
+    images = get_image_urls(ndc)
+    c = re.sub(r"[^0-9]", "", ndc)
+    record = next((p for p in pills if c in re.sub(r"[^0-9]", "", str(p.get("ndc11", ""))) or c in re.sub(r"[^0-9]", "", str(p.get("ndc9", "")))), None)
+    return {"ndc": ndc, "images_found": bool(images), "image_urls": images, "record": record}
 
+# Redirect compatibility
 @app.get("/index.html")
 async def redirect_index2():
     return RedirectResponse(url="/")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app,host="0.0.0.0",port=int(os.getenv("PORT",10000)))
+    logger.info("Starting FastAPI with Supabase integration on port 8000")
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
