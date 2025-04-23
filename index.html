@@ -3,643 +3,532 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PillFinder - Search Pills by Name or Imprint</title>
+    <title>Pill Identifier</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .pill-card {
-            transition: transform 0.2s;
-            height: 100%;
+        /* Ensure images fit well inside the carousel */
+        .carousel-inner .carousel-item img {
+            width: 100%;          /* Make image take up full width */
+            height: auto;         /* Maintain aspect ratio */
+            object-fit: contain;  /* Ensure images don't get distorted */
         }
-        .pill-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+
+        /* Optional: Adjust the height of the carousel container */
+        .carousel-inner {
+            max-height: 400px; /* Set a max height for the carousel */
         }
-        .pill-image {
-            height: 200px;
-            object-fit: contain;
-            background: #f8f9fa;
+
+        /* Styling for carousel navigation arrows */
+        .carousel-control-prev-icon,
+        .carousel-control-next-icon {
+            background-color: rgba(0, 0, 0, 0.5); /* Make arrows more visible */
+            border-radius: 50%; /* Rounded arrows */
+            width: 40px; /* Adjust size */
+            height: 40px;
         }
+
+        .drug-card {
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .drug-image {
+            max-width: 200px;
+            height: auto;
+            margin: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
         .search-container {
-            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
-            padding: 2rem 0;
-            margin-bottom: 2rem;
-        }
-        .loading {
-            display: none;
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 1000;
-        }
-        .pagination {
-            margin-top: 2rem;
-        }
-        .search-type-toggle {
-            margin-bottom: 1rem;
-        }
-        /* Placeholder for missing images */
-        .img-placeholder {
-            height: 200px;
             background-color: #f8f9fa;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #6c757d;
-            font-size: 1rem;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .filters {
+            margin-bottom: 20px;
+        }
+        
+        .color-box {
+            width: 20px;
+            height: 20px;
+            display: inline-block;
+            margin-right: 5px;
+            border: 1px solid #ddd;
+        }
+        
+        #loading {
+            display: none;
             text-align: center;
-            padding: 10px;
+            padding: 20px;
         }
-        /* Special case for known problematic drugs */
-        .highlight-drug {
-            border: 2px solid #0d6efd;
-            box-shadow: 0 0 8px rgba(13, 110, 253, 0.5);
+        
+        .suggestion-item {
+            cursor: pointer;
+            padding: 5px 10px;
         }
-        /* Quick lookup section */
-        .quick-lookup {
-            background: rgba(255,255,255,0.1);
-            padding: 0.5rem;
-            border-radius: 0.3rem;
-            margin-top: 1rem;
+        
+        .suggestion-item:hover {
+            background-color: #f0f0f0;
         }
-        .quick-lookup .form-select {
-            background-color: rgba(255,255,255,0.9);
-        }
-        .version-info {
-            font-size: 0.7rem;
-            color: rgba(255,255,255,0.6);
+        
+        .suggestions-container {
             position: absolute;
-            bottom: 5px;
-            right: 10px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            width: 100%;
+            z-index: 1000;
+            display: none;
+        }
+        
+        /* Styling for search tabs */
+        .search-tabs .nav-link {
+            font-weight: bold;
+            color: #43596e;
+        }
+        
+        .search-tabs .nav-link.active {
+            color: #c71818;
+            border-bottom: 3px solid #007bff;
+        }
+        
+        /* Remove standard tab styling */
+        .search-tabs .nav-link:focus, 
+        .search-tabs .nav-link:hover {
+            border-color: transparent;
+        }
+        
+        .tab-pane {
+            padding-top: 20px;
         }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </head>
 <body>
-    <div class="loading">
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Loading...</span>
-        </div>
-    </div>
+    <div class="container mt-4">
+        <h1 class="mb-4">Pill Identifier</h1>
 
-    <div class="search-container text-white">
-        <div class="container position-relative">
-            <h1 class="text-center mb-4">PillFinder</h1>
-            <div class="search-type-toggle text-center">
-                <div class="btn-group" role="group">
-                    <input type="radio" class="btn-check" name="search-type" id="name-search" value="name" checked>
-                    <label class="btn btn-outline-light" for="name-search">Search by Name</label>
-                    <input type="radio" class="btn-check" name="search-type" id="imprint-search" value="imprint">
-                    <label class="btn btn-outline-light" for="imprint-search">Search by Imprint</label>
-                </div>
-            </div>
-            <div class="row justify-content-center">
-                <div class="col-md-6">
-                    <div class="input-group">
-                        <input type="text" id="search-input" class="form-control" placeholder="Enter medicine name or imprint..." list="search-suggestions">
-                        <button class="btn btn-primary" id="search-button">Search</button>
-                    </div>
-                    <datalist id="search-suggestions"></datalist>
-                </div>
-            </div>
-            <div class="row justify-content-center mt-3">
-                <div class="col-md-6">
-                    <div class="d-flex justify-content-center gap-2">
-                        <select id="color-filter" class="form-select w-auto">
-                            <option value="">Any Color</option>
-                            <option value="white">White</option>
-                            <option value="blue">Blue</option>
-                            <option value="yellow">Yellow</option>
-                            <option value="pink">Pink</option>
-                            <option value="orange">Orange</option>
-                            <option value="green">Green</option>
-                            <option value="brown">Brown</option>
-                        </select>
-                        <select id="shape-filter" class="form-select w-auto">
-                            <option value="">Any Shape</option>
-                            <option value="round">Round</option>
-                            <option value="oval">Oval</option>
-                            <option value="capsule">Capsule</option>
-                            <option value="rectangle">Rectangle</option>
-                            <option value="triangle">Triangle</option>
-                            <option value="diamond">Diamond</option>
-                        </select>
+        <div class="search-container">
+            <!-- Search Tabs -->
+            <ul class="nav nav-tabs search-tabs" id="searchTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="imprint-tab" data-bs-toggle="tab" data-bs-target="#imprint-search" type="button" role="tab">
+                        <i class="bi bi-search"></i> Search by Imprint
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="drug-tab" data-bs-toggle="tab" data-bs-target="#drug-search" type="button" role="tab">
+                        <i class="bi bi-capsule"></i> Search by Drug Name
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="ndc-tab" data-bs-toggle="tab" data-bs-target="#ndc-search" type="button" role="tab">
+                        <i class="bi bi-upc-scan"></i> Search by NDC
+                    </button>
+                </li>
+            </ul>
+            
+            <!-- Tab Content -->
+            <div class="tab-content" id="searchTabsContent">
+                <!-- Imprint Search -->
+                <div class="tab-pane fade show active" id="imprint-search" role="tabpanel">
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <div class="form-group position-relative">
+                                <label for="imprintQuery">Imprint Code:</label>
+                                <input type="text" class="form-control" id="imprintQuery" placeholder="Enter imprint code (e.g., G32)">
+                                <div id="imprintSuggestions" class="suggestions-container"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-
-            <!-- Quick lookup feature for common medications -->
-            <div class="row justify-content-center">
-                <div class="col-md-6">
-                    <div class="quick-lookup mt-3">
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text">Quick Lookup</span>
-                            <select class="form-select form-select-sm" id="common-drugs">
-                                <option value="">Select medication...</option>
-                                <option value="azathioprine">Azathioprine</option>
-                                <option value="methotrexate">Methotrexate</option>
-                                <option value="prednisone">Prednisone</option>
-                                <option value="ibuprofen">Ibuprofen</option>
-                                <option value="acetaminophen">Acetaminophen</option>
-                                <option value="lisinopril">Lisinopril</option>
-                                <option value="atorvastatin">Atorvastatin</option>
-                                <option value="levothyroxine">Levothyroxine</option>
-                            </select>
-                            <button class="btn btn-sm btn-outline-light" id="direct-lookup-btn">Find</button>
+                
+                <!-- Drug Name Search -->
+                <div class="tab-pane fade" id="drug-search" role="tabpanel">
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <div class="form-group position-relative">
+                                <label for="drugNameQuery">Drug Name:</label>
+                                <input type="text" class="form-control" id="drugNameQuery" placeholder="Enter drug name (e.g., Lisinopril)">
+                                <div id="drugNameSuggestions" class="suggestions-container"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- NDC Search -->
+                <div class="tab-pane fade" id="ndc-search" role="tabpanel">
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <div class="form-group position-relative">
+                                <label for="ndcQuery">NDC Code:</label>
+                                <input type="text" class="form-control" id="ndcQuery" placeholder="Enter NDC code (e.g., 00093-0311)">
+                                <div id="ndcSuggestions" class="suggestions-container"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-            
-            <div class="version-info">Updated: 2025-04-21 (cubit104)</div>
-        </div>
-    </div>
 
-    <div class="container">
-        <div id="results-info" class="text-center mb-3" style="display: none;">
-            <p>Found <span id="total-results">0</span> results</p>
+            <!-- Common Filters Section -->
+            <div class="filters mt-4">
+                <h5>Filter Results</h5>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group mb-3">
+                            <label for="colorFilter">Color:</label>
+                            <select class="form-control" id="colorFilter">
+                                <option value="">All Colors</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group mb-3">
+                            <label for="shapeFilter">Shape:</label>
+                            <select class="form-control" id="shapeFilter">
+                                <option value="">All Shapes</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn btn-primary" onclick="search()">Search</button>
         </div>
-        <div id="results" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4"></div>
-        <nav aria-label="Page navigation" class="my-4">
-            <ul class="pagination justify-content-center" id="pagination"></ul>
-        </nav>
+
+        <div id="loading">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+
+        <div id="results" class="row"></div>
+        
+        <div id="pagination" class="mt-4 text-center">
+            <button class="btn btn-secondary me-2" onclick="previousPage()" id="prevButton">Previous</button>
+            <span id="pageInfo">Page 1</span>
+            <button class="btn btn-secondary ms-2" onclick="nextPage()" id="nextButton">Next</button>
+        </div>
     </div>
 
     <script>
         let currentPage = 1;
         let totalPages = 1;
-        const perPage = 12;
-        
-        // Track blocked image counts for debug
-        let blockedImageCount = 0;
-        
-        // Special drug mapping for problematic cases
-        const specialDrugMapping = {
-            // Map problematic filenames to correct ones
-            '548.jpg': 'cubit104548084.jpg',
-            '084.jpg': 'cubit104548084.jpg',
-            // Add more mappings as needed
-        };
+        const perPage = 25;
+        let activeSearchType = 'imprint'; // Default search type
 
-        // Special cases for known drugs with issues
-        const specialDrugs = [
-            { 
-                name: 'azathioprine',
-                imageUrls: ['cubit104548084.jpg'],
-                imprint: "Varies by manufacturer",
-                color: "Usually white",
-                shape: "Usually round"
-            },
-            // Add more problematic drugs as needed
-        ];
-        
-        // Helper function for safe image loading
-        function createSafeImageElement(src, alt, className) {
-            const img = document.createElement('img');
-            img.alt = alt || 'Medication';
-            img.className = className || '';
+        // Load filters when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            loadFilters();
             
-            // Set up error handler before setting src
-            img.onerror = function() {
-                // Replace with placeholder
-                this.replaceWith(createPlaceholderElement());
+            // Add event listeners for search inputs
+            document.getElementById('imprintQuery').addEventListener('input', debounce(() => getSuggestions('imprint'), 300));
+            document.getElementById('drugNameQuery').addEventListener('input', debounce(() => getSuggestions('drug'), 300));
+            document.getElementById('ndcQuery').addEventListener('input', debounce(() => getSuggestions('ndc'), 300));
+            
+            // Update active search type when tabs change
+            const searchTabs = document.querySelectorAll('[data-bs-toggle="tab"]');
+            searchTabs.forEach(tab => {
+                tab.addEventListener('shown.bs.tab', function(event) {
+                    if (event.target.id === 'imprint-tab') activeSearchType = 'imprint';
+                    else if (event.target.id === 'drug-tab') activeSearchType = 'drug';
+                    else if (event.target.id === 'ndc-tab') activeSearchType = 'ndc';
+                });
+            });
+            
+            // Close suggestions when clicking outside
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('#imprintQuery') && 
+                    !e.target.closest('#drugNameQuery') && 
+                    !e.target.closest('#ndcQuery')) {
+                    document.querySelectorAll('.suggestions-container').forEach(el => {
+                        el.style.display = 'none';
+                    });
+                }
+            });
+        });
+
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
             };
-            
-            // Set the src last
-            img.src = src;
-            return img;
-        }
-        
-        // Create a placeholder element instead of using external service
-        function createPlaceholderElement() {
-            const placeholder = document.createElement('div');
-            placeholder.className = 'img-placeholder';
-            placeholder.innerHTML = '<div>Image Not Available</div>';
-            return placeholder;
-        }
-        
-        // Helper function to handle image URLs properly
-        function getProxiedImageUrl(url) {
-            if (!url) return null;
-            url = url.trim();
-            
-            // Check for special cases
-            if (specialDrugMapping[url]) {
-                console.log(`Remapping ${url} to ${specialDrugMapping[url]}`);
-                url = specialDrugMapping[url];
-            }
-            
-            // If it's just a filename (like "548.jpg")
-            if (!url.includes('/') && !url.includes('://')) {
-                return `/images/${url}`;
-            }
-            
-            // If it's a relative URL but not starting with '/'
-            if (!url.startsWith('/') && !url.includes('://')) {
-                return `/${url}`;
-            }
-            
-            return url;
         }
 
-        async function searchPills() {
-            const searchInput = document.getElementById('search-input');
-            const searchType = document.querySelector('input[name="search-type"]:checked').value;
-            const colorFilter = document.getElementById('color-filter').value;
-            const shapeFilter = document.getElementById('shape-filter').value;
+        async function loadFilters() {
+            try {
+                const response = await fetch('/filters');
+                const data = await response.json();
+                
+                const colorSelect = document.getElementById('colorFilter');
+                const shapeSelect = document.getElementById('shapeFilter');
+                
+                // Load colors
+                data.colors.forEach(color => {
+                    const option = new Option(color.name, color.name.toLowerCase());
+                    colorSelect.add(option);
+                });
+                
+                // Load shapes
+                data.shapes.forEach(shape => {
+                    const option = new Option(`${shape.icon} ${shape.name}`, shape.name.toLowerCase());
+                    shapeSelect.add(option);
+                });
+            } catch (error) {
+                console.error('Error loading filters:', error);
+            }
+        }
 
-            if (!searchInput.value.trim()) {
+        async function getSuggestions(type) {
+            let queryElement;
+            let suggestionsElement;
+            
+            switch (type) {
+                case 'imprint':
+                    queryElement = document.getElementById('imprintQuery');
+                    suggestionsElement = document.getElementById('imprintSuggestions');
+                    break;
+                case 'drug':
+                    queryElement = document.getElementById('drugNameQuery');
+                    suggestionsElement = document.getElementById('drugNameSuggestions');
+                    break;
+                case 'ndc':
+                    queryElement = document.getElementById('ndcQuery');
+                    suggestionsElement = document.getElementById('ndcSuggestions');
+                    break;
+            }
+            
+            const query = queryElement.value.trim();
+            
+            if (query.length === 0) {
+                suggestionsElement.style.display = 'none';
+                return;
+            }
+
+            try {
+                const response = await fetch(`/suggestions?q=${encodeURIComponent(query)}&type=${type}`);
+                const suggestions = await response.json();
+                
+                suggestionsElement.innerHTML = '';
+                
+                if (suggestions.length > 0) {
+                    suggestions.forEach(suggestion => {
+                        const div = document.createElement('div');
+                        div.className = 'suggestion-item';
+                        div.textContent = suggestion;
+                        div.onclick = () => {
+                            queryElement.value = suggestion;
+                            suggestionsElement.style.display = 'none';
+                            search();
+                        };
+                        suggestionsElement.appendChild(div);
+                    });
+                    suggestionsElement.style.display = 'block';
+                } else {
+                    suggestionsElement.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error getting suggestions:', error);
+            }
+        }
+
+        async function search(page = 1) {
+            currentPage = page;
+            let query = "";
+            
+            // Get the query based on active search type
+            switch (activeSearchType) {
+                case 'imprint':
+                    query = document.getElementById('imprintQuery').value;
+                    break;
+                case 'drug':
+                    query = document.getElementById('drugNameQuery').value;
+                    break;
+                case 'ndc':
+                    query = document.getElementById('ndcQuery').value;
+                    break;
+            }
+            
+            const color = document.getElementById('colorFilter').value;
+            const shape = document.getElementById('shapeFilter').value;
+            
+            if (!query) {
                 alert('Please enter a search term');
                 return;
             }
 
-            showLoading();
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').innerHTML = '';
+
             try {
-                const params = new URLSearchParams({
-                    page: currentPage,
-                    per_page: perPage,
-                    type: searchType,
-                    q: searchInput.value
-                });
-                if (colorFilter) params.append('color', colorFilter);
-                if (shapeFilter) params.append('shape', shapeFilter);
+                const url = new URL('/search', window.location.origin);
+                url.searchParams.append('q', query);
+                url.searchParams.append('type', activeSearchType);
+                url.searchParams.append('page', currentPage);
+                url.searchParams.append('per_page', perPage);
+                
+                if (color) url.searchParams.append('color', color);
+                if (shape) url.searchParams.append('shape', shape);
 
-                const response = await fetch(`/search?${params}`);
-                
-                if (!response.ok) {
-                    throw new Error(`API returned status ${response.status}`);
-                }
-                
+                const response = await fetch(url);
                 const data = await response.json();
-
-                // Check for API response format
-                if (!data || !Array.isArray(data.results)) {
-                    console.error('Unexpected API response format:', data);
-                    throw new Error('Unexpected API response format');
-                }
-
-                // Extend the data with special drugs if needed
-                const searchTerm = searchInput.value.toLowerCase().trim();
                 
-                // Check if we should inject special drugs that might be missing from results
-                specialDrugs.forEach(specialDrug => {
-                    if (searchTerm.includes(specialDrug.name)) {
-                        // Check if the drug is already in results
-                        const exists = data.results.some(pill => 
-                            pill.medicine_name && pill.medicine_name.toLowerCase().includes(specialDrug.name));
-                        
-                        if (!exists) {
-                            console.log(`Injecting missing special drug: ${specialDrug.name}`);
-                            data.results.push({
-                                medicine_name: specialDrug.name.charAt(0).toUpperCase() + specialDrug.name.slice(1),
-                                image_urls: specialDrug.imageUrls,
-                                splimprint: specialDrug.imprint,
-                                splcolor_text: specialDrug.color,
-                                splshape_text: specialDrug.shape
-                            });
-                            
-                            // Update total count
-                            data.total = (data.total || 0) + 1;
-                        }
-                    }
-                });
-
-                displayResults(data);
-                updatePagination(data);
+                displayResults(data.results);
+                updatePagination(data.page, data.total_pages);
             } catch (error) {
-                console.error('Search error:', error);
-                alert(`An error occurred while searching: ${error.message}. Please try again.`);
+                console.error('Error performing search:', error);
+                document.getElementById('results').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error performing search</div></div>';
             } finally {
-                hideLoading();
+                document.getElementById('loading').style.display = 'none';
             }
         }
 
-        function displayResults(data) {
-            const resultsContainer = document.getElementById('results');
-            resultsContainer.innerHTML = '';
-            
-            // Reset blocked image counter for this search
-            blockedImageCount = 0;
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '';  // Clear previous results
 
-            if (!data.results || data.results.length === 0) {
-                resultsContainer.innerHTML = '<div class="col-12 text-center"><p>No results found</p></div>';
-                showResultsInfo(0);
+            if (!results || results.length === 0) {
+                resultsDiv.innerHTML = '<div class="col-12"><div class="alert alert-info">No results found</div></div>';
                 return;
             }
 
-            // Enhanced deduplication logic
-            const seen = new Set();
-            const uniqueResults = [];
-            
-            data.results.forEach(pill => {
-                if (!pill || typeof pill !== 'object') return;
-                
-                const name = (pill.medicine_name || "").trim().toLowerCase();
-                const imprint = (pill.splimprint || "").trim().toLowerCase();
-                const key = `${name}|${imprint}`;
-                
-                if (!seen.has(key)) {
-                    seen.add(key);
-                    uniqueResults.push(pill);
-                }
-            });
+            results.forEach(drug => {
+                const col = document.createElement('div');
+                col.className = 'col-md-6 col-lg-4';
 
-            // Display unique results
-            uniqueResults.forEach((pill, index) => {
-                const card = document.createElement('div');
-                card.className = 'col mb-4';
+                // Handle images for the carousel
+                let imagesHtml = '';
+                const showArrows = drug.image_urls && drug.image_urls.length > 1; // Only show arrows if there are multiple images
                 
-                const pillCard = document.createElement('div');
-                pillCard.className = 'card pill-card';
-                
-                // Check if this is a special case drug
-                const isSpecialDrug = specialDrugs.some(drug => 
-                    pill.medicine_name && pill.medicine_name.toLowerCase().includes(drug.name));
-                
-                if (isSpecialDrug) {
-                    pillCard.classList.add('highlight-drug');
+                if (drug.image_urls && drug.image_urls.length > 0) {
+                    imagesHtml = `
+                        <div id="carousel-${drug.ndc11}" class="carousel slide" data-bs-ride="carousel">
+                            <div class="carousel-inner">
+                                ${drug.image_urls.map((url, index) => `
+                                    <div class="carousel-item ${index === 0 ? 'active' : ''}">
+                                        <img src="${url}" class="d-block w-100 drug-image" alt="Pill Image">
+                                    </div>
+                                `).join('')}
+                            </div>
+                            ${showArrows ? `
+                                <button class="carousel-control-prev" type="button" data-bs-target="#carousel-${drug.ndc11}" data-bs-slide="prev">
+                                    <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                                    <span class="visually-hidden">Previous</span>
+                                </button>
+                                <button class="carousel-control-next" type="button" data-bs-target="#carousel-${drug.ndc11}" data-bs-slide="next">
+                                    <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                                    <span class="visually-hidden">Next</span>
+                                </button>
+                            ` : ''}
+                        </div>
+                    `;
                 }
-                
-                // Process image URLs
-                let imageUrls = [];
-                try {
-                    if (pill.image_urls) {
-                        if (typeof pill.image_urls === 'string') {
-                            try {
-                                imageUrls = JSON.parse(pill.image_urls);
-                            } catch {
-                                imageUrls = [pill.image_urls];
-                            }
-                        } else if (Array.isArray(pill.image_urls)) {
-                            imageUrls = pill.image_urls;
-                        }
-                        
-                        // Filter out empty or invalid URLs
-                        imageUrls = imageUrls
-                            .filter(url => url && typeof url === 'string' && url.trim() !== '')
-                            .map(url => getProxiedImageUrl(url));
-                    }
-                } catch (error) {
-                    console.error('Error processing image URLs:', error);
-                    imageUrls = [];
-                }
-                
-                // Add image content
-                if (imageUrls.length > 1) {
-                    const carouselId = `carousel${index}`;
-                    const carousel = document.createElement('div');
-                    carousel.id = carouselId;
-                    carousel.className = 'carousel slide';
-                    carousel.setAttribute('data-bs-ride', 'carousel');
-                    
-                    // Create indicators
-                    const indicators = document.createElement('div');
-                    indicators.className = 'carousel-indicators';
-                    
-                    // Create inner carousel
-                    const carouselInner = document.createElement('div');
-                    carouselInner.className = 'carousel-inner';
-                    
-                    // Add images to carousel
-                    imageUrls.forEach((url, i) => {
-                        // Create indicator button
-                        const button = document.createElement('button');
-                        button.type = 'button';
-                        button.setAttribute('data-bs-target', `#${carouselId}`);
-                        button.setAttribute('data-bs-slide-to', i);
-                        if (i === 0) {
-                            button.className = 'active';
-                            button.setAttribute('aria-current', 'true');
-                        }
-                        button.setAttribute('aria-label', `Slide ${i+1}`);
-                        indicators.appendChild(button);
-                        
-                        // Create carousel item
-                        const item = document.createElement('div');
-                        item.className = i === 0 ? 'carousel-item active' : 'carousel-item';
-                        
-                        // Create image with safe loading
-                        const imgWrapper = document.createElement('div');
-                        imgWrapper.className = 'd-block w-100';
-                        try {
-                            const img = createSafeImageElement(url, pill.medicine_name, 'pill-image');
-                            imgWrapper.appendChild(img);
-                        } catch (e) {
-                            imgWrapper.appendChild(createPlaceholderElement());
-                        }
-                        
-                        item.appendChild(imgWrapper);
-                        carouselInner.appendChild(item);
-                    });
-                    
-                    carousel.appendChild(indicators);
-                    carousel.appendChild(carouselInner);
-                    
-                    // Add controls
-                    const prevButton = document.createElement('button');
-                    prevButton.className = 'carousel-control-prev';
-                    prevButton.type = 'button';
-                    prevButton.setAttribute('data-bs-target', `#${carouselId}`);
-                    prevButton.setAttribute('data-bs-slide', 'prev');
-                    prevButton.innerHTML = '<span class="carousel-control-prev-icon" aria-hidden="true"></span><span class="visually-hidden">Previous</span>';
-                    
-                    const nextButton = document.createElement('button');
-                    nextButton.className = 'carousel-control-next';
-                    nextButton.type = 'button';
-                    nextButton.setAttribute('data-bs-target', `#${carouselId}`);
-                    nextButton.setAttribute('data-bs-slide', 'next');
-                    nextButton.innerHTML = '<span class="carousel-control-next-icon" aria-hidden="true"></span><span class="visually-hidden">Next</span>';
-                    
-                    carousel.appendChild(prevButton);
-                    carousel.appendChild(nextButton);
-                    
-                    pillCard.appendChild(carousel);
-                } else if (imageUrls.length === 1) {
-                    try {
-                        const img = createSafeImageElement(imageUrls[0], pill.medicine_name, 'card-img-top pill-image');
-                        pillCard.appendChild(img);
-                    } catch (e) {
-                        pillCard.appendChild(createPlaceholderElement());
-                    }
-                } else {
-                    pillCard.appendChild(createPlaceholderElement());
-                }
-                
-                // Add card body with pill details
-                const cardBody = document.createElement('div');
-                cardBody.className = 'card-body';
-                
-                // If no images, add special class to the card body
-                if (imageUrls.length === 0) {
-                    cardBody.classList.add('no-image-card');
-                }
-                
-                const title = document.createElement('h5');
-                title.className = 'card-title';
-                title.textContent = pill.medicine_name || 'Unnamed Medication';
-                cardBody.appendChild(title);
-                
-                if (pill.splimprint) {
-                    const imprint = document.createElement('p');
-                    imprint.className = 'card-text';
-                    imprint.innerHTML = `<strong>Imprint:</strong> ${pill.splimprint}`;
-                    cardBody.appendChild(imprint);
-                }
-                
-                if (pill.splcolor_text) {
-                    const color = document.createElement('p');
-                    color.className = 'card-text';
-                    color.innerHTML = `<strong>Color:</strong> ${pill.splcolor_text}`;
-                    cardBody.appendChild(color);
-                }
-                
-                if (pill.splshape_text) {
-                    const shape = document.createElement('p');
-                    shape.className = 'card-text';
-                    shape.innerHTML = `<strong>Shape:</strong> ${pill.splshape_text}`;
-                    cardBody.appendChild(shape);
-                }
-                
-                pillCard.appendChild(cardBody);
-                card.appendChild(pillCard);
-                resultsContainer.appendChild(card);
+
+                // Adding the View Details button below each card
+                col.innerHTML = `
+                    <div class="card drug-card">
+                        <div class="card-body">
+                            <h5 class="card-title">${drug.medicine_name || 'N/A'}</h5>
+                            <p class="card-text">
+                                <strong>Imprint:</strong> ${drug.splimprint || 'N/A'}<br>
+                                <strong>Color:</strong> ${drug.splcolor_text || 'N/A'}<br>
+                                <strong>Shape:</strong> ${drug.splshape_text || 'N/A'}<br>
+                                <strong>NDC:</strong> ${drug.ndc11 || 'N/A'}<br>
+                                <strong>RxCUI:</strong> ${drug.rxcui || 'N/A'}
+                            </p>
+                            <div class="images-container">
+                                ${imagesHtml || '<p>No images available</p>'}
+                            </div>
+                            <!-- View Details Button -->
+                            <a href="http://localhost:8000/details.html?imprint=${drug.splimprint}&drug_name=${drug.medicine_name}" class="btn btn-primary w-100">View Details</a>
+                        </div>
+                    </div>
+                `;
+
+                resultsDiv.appendChild(col);
             });
-            
-            // Update result info
-            showResultsInfo(uniqueResults.length);
         }
 
-        function updatePagination(data) {
-            const pagination = document.getElementById('pagination');
-            totalPages = data.total_pages || 1;
-            let html = '';
-            html += `
-                <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-                    <a class="page-link" href="#" data-page="${currentPage - 1}">Previous</a>
-                </li>`;
-            for (let i = 1; i <= totalPages; i++) {
-                if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
-                    html += `
-                        <li class="page-item ${i === currentPage ? 'active' : ''}">
-                            <a class="page-link" href="#" data-page="${i}">${i}</a>
-                        </li>`;
-                } else if (i === currentPage - 3 || i === currentPage + 3) {
-                    html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
-                }
+        function updatePagination(currentPage, totalPages) {
+            document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+            document.getElementById('prevButton').disabled = currentPage <= 1;
+            document.getElementById('nextButton').disabled = currentPage >= totalPages;
+        }
+
+        function previousPage() {
+            if (currentPage > 1) {
+                search(currentPage - 1);
             }
-            html += `
-                <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-                    <a class="page-link" href="#" data-page="${currentPage + 1}">Next</a>
-                </li>`;
-            pagination.innerHTML = html;
         }
 
-        function showResultsInfo(total) {
-            const resultsInfo = document.getElementById('results-info');
-            document.getElementById('total-results').textContent = total;
-            resultsInfo.style.display = 'block';
+        function nextPage() {
+            search(currentPage + 1);
         }
 
-        async function updateSuggestions() {
-            const input = document.getElementById('search-input');
-            const searchType = document.querySelector('input[name="search-type"]:checked').value;
-            const query = input.value.trim();
-            if (query.length < 2) return;
+        // Function to get URL parameters
+        function getUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                imprint: params.get('imprint'),
+                drug_name: params.get('drug_name'),
+                rxcui: params.get('rxcui'),
+                ndc: params.get('ndc')
+            };
+        }
+
+        // Use the parameters to fetch data from backend
+        async function fetchPillDetails() {
+            const { imprint, drug_name, rxcui, ndc } = getUrlParams();
+            let url = '/details?';
+
+            // Add parameters to the URL
+            if (imprint && rxcui) url += `imprint=${imprint}&rxcui=${rxcui}`;
+            else if (drug_name && rxcui) url += `drug_name=${drug_name}&rxcui=${rxcui}`;
+            else if (ndc) url += `ndc=${ndc}`;
+
             try {
-                const response = await fetch(
-                    `/api/suggestions/${searchType === 'name' ? 'names' : 'imprints'}?query=${encodeURIComponent(query)}`
-                );
-                if (!response.ok) {
-                    throw new Error(`API returned status ${response.status}`);
-                }
+                const response = await fetch(url);
                 const data = await response.json();
-                if (!data || !Array.isArray(data.suggestions)) {
-                    console.error('Unexpected suggestions format:', data);
-                    return;
-                }
-                const datalist = document.getElementById('search-suggestions');
-                datalist.innerHTML = '';
-                data.suggestions.forEach(suggestion => {
-                    const option = document.createElement('option');
-                    option.value = suggestion;
-                    datalist.appendChild(option);
-                });
+
+                // Display the fetched pill data
+                displayPillDetails(data);
             } catch (error) {
-                console.error('Error fetching suggestions:', error);
+                console.error('Error fetching pill details:', error);
             }
         }
 
-        function showLoading() {
-            document.querySelector('.loading').style.display = 'block';
-        }
+        // Function to display pill details
+        function displayPillDetails(data) {
+            document.getElementById('pill-name').innerText = data.medicine_name;
+            document.getElementById('pill-description').innerText = data.description || 'No description available';
+            document.getElementById('pill-image').src = data.image_filename || 'default-image.jpg';
 
-        function hideLoading() {
-            document.querySelector('.loading').style.display = 'none';
+            // Populate metadata
+            document.getElementById('drug-name').innerText = data.medicine_name;
+            document.getElementById('imprint').innerText = data.splimprint;
+            document.getElementById('strength').innerText = data.spl_strength;
+            document.getElementById('pharma-class').innerText = data.dailymed_pharma_class_epc || data.pharmclass_fda_epc;
+            document.getElementById('color').innerText = data.splcolor_text;
+            document.getElementById('shape').innerText = data.splshape_text;
+            document.getElementById('size').innerText = data.splsize;
+            document.getElementById('dea').innerText = data.dea_class;
+            document.getElementById('availability').innerText = data.availability;
+            document.getElementById('ndc').innerText = data.ndc11 || data.ndc9;
+            document.getElementById('dosage-form').innerText = data.dosage_form;
+            document.getElementById('active-ingredients').innerText = data.spl_ingredients;
+            document.getElementById('inactive-ingredients').innerText = data.spl_inactive_ing;
+            document.getElementById('manufacturer').innerText = data.author;
         }
-
-        // Set up event listeners
-        document.addEventListener('DOMContentLoaded', function() {
-            // Regular search button
-            document.getElementById('search-button').addEventListener('click', () => {
-                currentPage = 1;
-                searchPills();
-            });
-    
-            // Search on Enter key
-            document.getElementById('search-input').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    currentPage = 1;
-                    searchPills();
-                }
-            });
-    
-            // Update suggestions as user types
-            document.getElementById('search-input').addEventListener('input', updateSuggestions);
-    
-            // Pagination
-            document.getElementById('pagination').addEventListener('click', (e) => {
-                e.preventDefault();
-                const pageLink = e.target.closest('[data-page]');
-                if (pageLink) {
-                    const newPage = parseInt(pageLink.dataset.page);
-                    if (newPage >= 1 && newPage <= totalPages) {
-                        currentPage = newPage;
-                        searchPills();
-                        window.scrollTo(0, 0);
-                    }
-                }
-            });
-    
-            // Filters
-            ['color-filter', 'shape-filter'].forEach(id => {
-                document.getElementById(id).addEventListener('change', () => {
-                    currentPage = 1;
-                    searchPills();
-                });
-            });
-            
-            // Quick lookup button
-            document.getElementById('direct-lookup-btn').addEventListener('click', () => {
-                const selectedDrug = document.getElementById('common-drugs').value;
-                if (!selectedDrug) return;
-                
-                // Set the search input to the selected drug
-                document.getElementById('search-input').value = selectedDrug;
-                
-                // Make sure we're searching by name
-                document.getElementById('name-search').checked = true;
-                
-                // Clear filters
-                document.getElementById('color-filter').value = '';
-                document.getElementById('shape-filter').value = '';
-                
-                // Reset to page 1
-                currentPage = 1;
-                
-                // Perform the search
-                searchPills();
-            });
-        });
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
