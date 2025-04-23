@@ -220,6 +220,8 @@
         let totalPages = 1;
         const perPage = 25;
         let activeSearchType = 'imprint'; // Default search type
+        // Define Supabase image base URL
+        const IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images";
 
         // Load filters when page loads
         document.addEventListener('DOMContentLoaded', function() {
@@ -449,7 +451,7 @@
                                 ${imagesHtml || '<p>No images available</p>'}
                             </div>
                             <!-- View Details Button -->
-                            <a href="http://localhost:10000/details.html?imprint=${drug.splimprint}&drug_name=${drug.medicine_name}" class="btn btn-primary w-100">View Details</a>
+                            <a href="/details.html?imprint=${encodeURIComponent(drug.splimprint || '')}&drug_name=${encodeURIComponent(drug.medicine_name || '')}" class="btn btn-primary w-100">View Details</a>
                         </div>
                     </div>
                 `;
