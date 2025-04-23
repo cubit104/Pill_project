@@ -251,6 +251,9 @@
     let allImages = [];
     let currentImageIndex = 0;
     
+    // Supabase image base URL
+    const IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images";
+    
     // Function to extract URL parameters
     function getUrlParams() {
         const params = new URLSearchParams(window.location.search);
