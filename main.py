@@ -23,7 +23,7 @@ app.add_middleware(
 IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images"
 
 # Database connection settings
-DATABASE_URL = "postgresql://postgres:Potato6200$supabase@db.uqdwcxizabmxwflkbfrb.supabase.co:5432/postgres"
+DATABASE_URL = "postgresql://postgres.uqdwcxizabmxwflkbfrb:Potato6200$supabase@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
 
 def get_db_connection():
     conn = psycopg2.connect(DATABASE_URL)
