@@ -48,7 +48,7 @@ IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", "
 MAX_SUGGESTIONS = 10
 MAX_IMAGES_PER_DRUG = 20
 CONFIG = {
-    "current_timestamp": "2025-04-18 04:52:38",
+    "current_timestamp": "2025-04-24 01:33:12",
     "current_user": "cubit104"
 }
 
@@ -403,7 +403,7 @@ async def get_pill_details(
                 norm_name = normalize_name(drug_name)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE UPPER(TRIM(splimprint)) = UPPER(:imprint)
+                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:imprint)
                     AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)
                     LIMIT 1
                 """)
@@ -412,7 +412,7 @@ async def get_pill_details(
                 norm_imp = normalize_imprint(imprint)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE UPPER(TRIM(splimprint)) = UPPER(:imprint)
+                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:imprint)
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"imprint": norm_imp})
@@ -461,9 +461,17 @@ async def get_pill_details(
                 filenames = ",".join(filenames_list)
 
             valid = get_valid_images_from_supabase(filenames)
-            pill_info["image_urls"] = [
-                f"{IMAGE_BASE}/{img}" for img in valid
-            ][:MAX_IMAGES_PER_DRUG] or ["https://via.placeholder.com/400x300?text=No+Image+Available"]
+            image_urls = [f"{IMAGE_BASE}/{img}" for img in valid][:MAX_IMAGES_PER_DRUG]
+
+            if not image_urls:
+                image_urls = ["https://via.placeholder.com/400x300?text=No+Image+Available"]
+
+            # Add carousel-specific data format
+            pill_info["image_urls"] = image_urls
+            pill_info["has_multiple_images"] = len(image_urls) > 1
+            pill_info["carousel_images"] = [
+                {"id": i, "url": url} for i, url in enumerate(image_urls)
+            ]
 
             return pill_info
 
@@ -541,7 +549,8 @@ def search(
                 query = q.strip()
                 if type == "imprint":
                     norm = normalize_imprint(query)
-                    base_sql += " AND UPPER(TRIM(splimprint)) = UPPER(:imprint)"
+                    # Fix: Use consistent normalization for comparison in SQL
+                    base_sql += " AND UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:imprint)"
                     params["imprint"] = norm
                 elif type == "drug":
                     base_sql += " AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)"
@@ -598,7 +607,14 @@ def search(
                 item["splcolor_text"] = item["splcolor_text"].title()
                 item["splshape_text"] = item["splshape_text"].title()
                 imgs = sorted(image_map[key])
-                item["image_urls"] = [f"{IMAGE_BASE}/{i}" for i in imgs[:MAX_IMAGES_PER_DRUG]] or ["https://via.placeholder.com/400x300?text=No+Image+Available"]
+                image_urls = [f"{IMAGE_BASE}/{i}" for i in imgs[:MAX_IMAGES_PER_DRUG]] or ["https://via.placeholder.com/400x300?text=No+Image+Available"]
+
+                # Fix: Add carousel-specific data format
+                item["image_urls"] = image_urls
+                item["has_multiple_images"] = len(image_urls) > 1
+                item["carousel_images"] = [
+                    {"id": i, "url": url} for i, url in enumerate(image_urls)
+                ]
                 deduped.append(item)
 
         # 4) Apply Option A: only use NDC results when searching by NDC
@@ -765,20 +781,26 @@ def get_suggestions(
 
     elif type == "imprint":
         try:
+            # Fix: Use the raw query for display but normalize for comparison
+            raw_query = query
             norm_query = normalize_imprint(query)
             with db_engine.connect() as conn:
                 if norm_query:
+                    # Fix: Normalize database values the same way for comparison
                     imprint_query = text("""
                         SELECT DISTINCT splimprint FROM pillfinder
                         WHERE splimprint IS NOT NULL 
-                        AND (UPPER(splimprint) = UPPER(:exact) OR UPPER(splimprint) LIKE UPPER(:like_query))
+                        AND (
+                            UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:norm_query)
+                            OR UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) LIKE UPPER(:like_query)
+                        )
                         ORDER BY 
-                            CASE WHEN UPPER(splimprint) = UPPER(:exact) THEN 0 ELSE 1 END,
+                            CASE WHEN UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:norm_query) THEN 0 ELSE 1 END,
                             length(splimprint)
                         LIMIT :limit
                     """)
                     result = conn.execute(imprint_query, {
-                        "exact": norm_query,
+                        "norm_query": norm_query,
                         "like_query": f"%{norm_query}%",
                         "limit": MAX_SUGGESTIONS
                     })
@@ -907,7 +929,14 @@ def ndc_lookup(
 
         # Find images using our helper function
         with db_engine.connect() as conn:
-            drug_info["image_urls"] = find_images_for_ndc(ndc, conn)
+            image_urls = find_images_for_ndc(ndc, conn)
+            drug_info["image_urls"] = image_urls
+
+            # Add carousel-specific data format
+            drug_info["has_multiple_images"] = len(image_urls) > 1
+            drug_info["carousel_images"] = [
+                {"id": i, "url": url} for i, url in enumerate(image_urls)
+            ]
 
         return drug_info
 
@@ -1046,5 +1075,5 @@ async def redirect_to_index():
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info(f"Starting server on port 10000")
-    uvicorn.run(app, host="0.0.0.0", port=10000)
+    logger.info(f"Starting server on port 8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)
