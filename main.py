@@ -48,7 +48,7 @@ IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", "
 MAX_SUGGESTIONS = 10
 MAX_IMAGES_PER_DRUG = 20
 CONFIG = {
-    "current_timestamp": "2025-04-18 04:52:38",
+    "current_timestamp": "2025-04-24 02:21:19",
     "current_user": "cubit104"
 }
 
@@ -92,16 +92,16 @@ def normalize_text(text):
     2. Capitalize first letter of each sentence
     3. Preserve acronyms and proper capitalization for names (heuristically)
     4. Handle special medical terms appropriately
-    
+
     Args:
         text (str): The input text to normalize
-        
+
     Returns:
         str: Normalized text
     """
     if not text or not isinstance(text, str):
         return ""
-    
+
     # List of terms to preserve capitalization (common drug name components, acronyms)
     preserve_terms = {
         'hcl': 'HCl',
@@ -123,30 +123,30 @@ def normalize_text(text):
         'ir': 'IR',  # Immediate Release
         'ph': 'pH',
     }
-    
+
     # Convert to lowercase first
     text = text.lower()
-    
+
     # Split into sentences and capitalize first letter of each sentence
     sentences = re.split(r'([.!?]\s+)', text)
     result = []
-    
+
     for i, part in enumerate(sentences):
         if i % 2 == 0:  # This is the sentence content
             if part:
                 # Capitalize first letter of the sentence
                 part = part[0].upper() + part[1:] if part else part
-                
+
                 # Replace preserved terms with their proper capitalization
                 for term, replacement in preserve_terms.items():
                     # Make sure we only replace whole words, not substrings
                     part = re.sub(r'\b' + term + r'\b', replacement, part)
-                
+
         result.append(part)
-    
+
     # Join sentences back together
     normalized = ''.join(result)
-    
+
     # If the text didn't have sentence endings, make sure at least the first character is capitalized
     if not normalized:
         return ""
@@ -161,7 +161,7 @@ def find_images_for_ndc(ndc_code, db_conn=None):
     # Clean the NDC for matching without dashes
     clean_ndc = re.sub(r'[^0-9]', '', ndc_code)
     images = []
-    
+
     try:
         # Query Supabase for images associated with this NDC code
         if db_conn:
@@ -172,25 +172,25 @@ def find_images_for_ndc(ndc_code, db_conn=None):
                 OR REPLACE(ndc9, '-', '') = :clean_ndc 
                 OR REPLACE(ndc11, '-', '') = :clean_ndc
             """)
-            
+
             result = db_conn.execute(query, {"ndc_code": ndc_code, "clean_ndc": clean_ndc})
-            
+
             all_filenames = []
             for row in result:
                 if row[0]:  # image_filename
                     all_filenames.append(row[0])
-            
+
             if all_filenames:
                 combined = ",".join(all_filenames)
                 valid_images = get_valid_images_from_supabase(combined)
                 images = [f"{IMAGE_BASE}/{img}" for img in valid_images]
     except Exception as e:
         logger.error(f"Error finding images for NDC {ndc_code}: {e}")
-    
+
     # Return placeholder if no images
     if not images:
         images = ["https://via.placeholder.com/400x300?text=No+Image+Available"]
-        
+
     return images
 
 def clean_filename(filename: str) -> str:
@@ -204,7 +204,7 @@ def split_image_filenames(filename: str) -> List[str]:
     """Split image filenames considering various separators"""
     if pd.isna(filename) or not filename:
         return []
-    
+
     # Handle multiple separator types (comma, semicolon)
     parts = re.split(r'[,;]+', str(filename))
     # Clean each part and remove empty strings
@@ -238,9 +238,9 @@ def check_image_exists_in_supabase(image_name: str) -> bool:
     """Check if an image exists in Supabase storage"""
     if not image_name:
         return False
-    
+
     image_name = clean_filename(image_name)
-    
+
     # Try with and without extensions
     for ext in IMAGE_EXTENSIONS:
         possible_paths = [
@@ -248,7 +248,7 @@ def check_image_exists_in_supabase(image_name: str) -> bool:
             f"{image_name}.{ext}",
             image_name
         ]
-        
+
         for path in possible_paths:
             # Check if image exists in Supabase
             url = f"{IMAGE_BASE}/{path}"
@@ -258,21 +258,21 @@ def check_image_exists_in_supabase(image_name: str) -> bool:
                     return path
             except Exception:
                 pass
-    
+
     return ""
 
 def get_valid_images_from_supabase(filename: str) -> Set[str]:
     """Get set of valid image paths from filename"""
     valid_images = set()
-    
+
     # Split the filename on multiple delimiters
     image_names = split_image_filenames(filename)
-    
+
     for image_name in image_names:
         valid_path = check_image_exists_in_supabase(image_name)
         if valid_path:
             valid_images.add(valid_path)
-    
+
     return valid_images
 
 def normalize_fields(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -285,11 +285,11 @@ def normalize_fields(data: Dict[str, Any]) -> Dict[str, Any]:
         "dosage_form", "spl_strength", "spl_ingredients", "spl_inactive_ing",
         "status_rx_otc", "dea_schedule_name", "splroute", "route"
     ]
-    
+
     for field in fields_to_normalize:
         if field in data and data[field]:
             data[field] = normalize_text(str(data[field]))
-    
+
     return data
 
 def initialize_ndc_handler():
@@ -298,7 +298,7 @@ def initialize_ndc_handler():
     try:
         drugs_csv = os.path.join(BASE_DIR, "drugs.csv")
         ndc_csv = os.path.join(BASE_DIR, "ndc_relationships.csv")
-        
+
         if os.path.exists(drugs_csv) and os.path.exists(ndc_csv):
             ndc_handler = NDCHandler(drugs_csv, ndc_csv)
             logger.info(f"NDC handler initialized successfully")
@@ -318,16 +318,16 @@ def connect_to_database():
     try:
         logger.info("Connecting to Supabase PostgreSQL database...")
         db_engine = create_engine(DATABASE_URL)
-        
+
         # Test the connection
         with db_engine.connect() as conn:
             result = conn.execute(text("SELECT COUNT(*) FROM pillfinder"))
             count = result.scalar()
             logger.info(f"Connected to database successfully. Found {count} records in pillfinder table.")
-        
+
         # Initialize NDC handler
         initialize_ndc_handler()
-        
+
         return True
     except Exception as e:
         logger.error(f"Error connecting to database: {e}")
@@ -340,14 +340,14 @@ connect_to_database()
 async def fix_port_redirects(request: Request, call_next):
     """Middleware to ensure all internal redirects use port 8000"""
     response = await call_next(request)
-    
+
     # If the response is a redirect, ensure it uses port 8000
     if response.status_code in (301, 302, 307, 308) and 'location' in response.headers:
         location = response.headers['location']
         if ':8001' in location:
             new_location = location.replace(':8001', ':8000')
             response.headers['location'] = new_location
-    
+
     return response
 
 @app.get("/details.html", response_class=HTMLResponse)
@@ -367,15 +367,15 @@ async def get_pill_details(
 ):
     """Get details about a pill"""
     global db_engine
-    
+
     # 1) Ensure database connection is available
     if not db_engine:
         if not connect_to_database():
             raise HTTPException(status_code=500, detail="Database connection not available")
-    
+
     used_ndc = False
     pill_info = None
-    
+
     try:
         with db_engine.connect() as conn:
             # 2) Build the query based on search parameters
@@ -403,7 +403,7 @@ async def get_pill_details(
                 norm_name = normalize_name(drug_name)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE UPPER(TRIM(splimprint)) = UPPER(:imprint)
+                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:imprint)
                     AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)
                     LIMIT 1
                 """)
@@ -412,7 +412,7 @@ async def get_pill_details(
                 norm_imp = normalize_imprint(imprint)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE UPPER(TRIM(splimprint)) = UPPER(:imprint)
+                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:imprint)
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"imprint": norm_imp})
@@ -426,17 +426,17 @@ async def get_pill_details(
                 result = conn.execute(query, {"drug_name": norm_name})
             else:
                 raise HTTPException(status_code=400, detail="At least one search parameter is required")
-            
+
             # 3) Process the result
             row = result.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="No pills found matching your criteria")
-            
+
             # Convert row to dict
             columns = result.keys()
             pill_info = dict(zip(columns, row))
             pill_info = normalize_fields(pill_info)
-            
+
             # 4) Get images for the pill
             if used_ndc:
                 # Option B: NDC → only first row
@@ -452,27 +452,167 @@ async def get_pill_details(
                     "medicine_name": pill_info.get("medicine_name", ""),
                     "splimprint": pill_info.get("splimprint", "")
                 })
-                
+
                 filenames_list = []
                 for img_row in image_result:
                     if img_row[0]:
                         filenames_list.append(img_row[0])
-                
+
                 filenames = ",".join(filenames_list)
-            
+
             valid = get_valid_images_from_supabase(filenames)
-            pill_info["image_urls"] = [
-                f"{IMAGE_BASE}/{img}" for img in valid
-            ][:MAX_IMAGES_PER_DRUG] or ["https://via.placeholder.com/400x300?text=No+Image+Available"]
-            
+            image_urls = [f"{IMAGE_BASE}/{img}" for img in valid][:MAX_IMAGES_PER_DRUG]
+
+            if not image_urls:
+                image_urls = ["https://via.placeholder.com/400x300?text=No+Image+Available"]
+
+            # Add carousel-specific data format
+            pill_info["image_urls"] = image_urls
+            pill_info["has_multiple_images"] = len(image_urls) > 1
+            pill_info["carousel_images"] = [
+                {"id": i, "url": url} for i, url in enumerate(image_urls)
+            ]
+
             return pill_info
-            
+
     except SQLAlchemyError as e:
         logger.error(f"Database error in get_pill_details: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
     except Exception as e:
         logger.error(f"Error in get_pill_details: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {e}")
+from fastapi import Query
+from typing import List
+from sqlalchemy import text
+import re
+
+from fastapi import Query, HTTPException
+from typing import List
+from sqlalchemy import text
+import re
+
+from fastapi import Query, HTTPException
+from typing import List
+from sqlalchemy import text
+import re
+
+@app.get("/suggestions")
+def get_suggestions(
+    q: str = Query(..., description="Search query"),
+    type: str = Query(..., description="Search type (imprint, drug, or ndc)")
+) -> List[str]:
+    """Get search suggestions based on query and type"""
+    logger.info(f"[suggestions] q={q!r}, type={type!r}")
+    global db_engine, ndc_handler
+
+    # 1) Normalize type aliases
+    if type == "name":
+        type = "drug"
+
+    # 2) Bail early on too-short queries
+    norm_q = (q or "").strip()
+    if len(norm_q) < 2:
+        return []
+
+    # 3) Ensure database connection
+    if not db_engine and not connect_to_database():
+        raise HTTPException(503, "Database unavailable")
+
+    # 4) NDC suggestions
+    if type == "ndc":
+        logger.info("→ branch: ndc")
+        clean_q = re.sub(r"[^0-9]", "", norm_q)
+        if ndc_handler:
+            try:
+                return ndc_handler.get_ndc_suggestions(clean_q, MAX_SUGGESTIONS)
+            except Exception:
+                logger.warning("ndc_handler failed, falling back to SQL")
+
+        with db_engine.connect() as conn:
+            sql = text("""
+                SELECT DISTINCT ndc9 AS code
+                  FROM pillfinder
+                 WHERE ndc9 IS NOT NULL
+                   AND REPLACE(ndc9, '-', '') LIKE :like_q
+                UNION
+                SELECT DISTINCT ndc11 AS code
+                  FROM pillfinder
+                 WHERE ndc11 IS NOT NULL
+                   AND REPLACE(ndc11, '-', '') LIKE :like_q
+                LIMIT :lim
+            """)
+            rows = conn.execute(sql, {
+                "like_q": f"{clean_q}%",
+                "lim": MAX_SUGGESTIONS
+            })
+            out = []
+            for r in rows:
+                code = r[0]
+                if code:
+                    out.append(code)
+            return out
+
+    # 5) Imprint suggestions
+    elif type == "imprint":
+        logger.info("→ branch: imprint")
+        norm_imp = normalize_imprint(norm_q)
+        if not norm_imp:
+            return []
+        with db_engine.connect() as conn:
+            sql = text("""
+                SELECT DISTINCT splimprint
+                  FROM pillfinder
+                 WHERE splimprint IS NOT NULL
+                   AND UPPER(
+                     REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')
+                   ) LIKE UPPER(:like_imp)
+                 ORDER BY splimprint
+                 LIMIT :lim
+            """)
+            rows = conn.execute(sql, {
+                "like_imp": f"%{norm_imp}%",
+                "lim": MAX_SUGGESTIONS
+            })
+            out = []
+            seen = set()
+            for r in rows:
+                imp = r[0]
+                norm2 = normalize_imprint(imp)
+                if norm2 and norm2 not in seen:
+                    seen.add(norm2)
+                    out.append(imp)
+            return out
+
+    # 6) Drug‐name suggestions (fixed)
+    elif type == "drug":
+        logger.info("→ branch: drug")
+        lower_q = norm_q.lower()
+        with db_engine.connect() as conn:
+            sql = text("""
+                SELECT DISTINCT medicine_name
+                  FROM pillfinder
+                 WHERE LOWER(medicine_name) LIKE :like_q
+                 ORDER BY medicine_name
+                 LIMIT :lim
+            """)
+            rows = conn.execute(sql, {
+                "like_q": f"%{lower_q}%",
+                "lim": MAX_SUGGESTIONS
+            })
+            out = []
+            seen = set()
+            for r in rows:
+                name = r[0]
+                nl = normalize_name(name)
+                if nl and nl not in seen:
+                    seen.add(nl)
+                    out.append(name)
+            return out
+
+    # 7) Unrecognized type → no suggestions
+    logger.info("→ branch: default (no suggestions)")
+    return []
+
 
 @app.get("/search")
 def search(
@@ -485,14 +625,14 @@ def search(
 ) -> dict:
     """Search for pills based on various criteria"""
     global db_engine, ndc_handler
-    
+
     # Ensure database connection is available
     if not db_engine:
         if not connect_to_database():
             raise HTTPException(status_code=500, detail="Database connection not available")
-    
+
     logger.info(f"Search request - Query: {q}, Type: {type}, Color: {color}, Shape: {shape}")
-    
+
     try:
         # 1) Collect NDC-specific results without early return
         ndc_results = []
@@ -509,7 +649,7 @@ def search(
                         "ndc11": drug_info.get("related_ndcs", [""])[0] if drug_info.get("related_ndcs") else "",
                         "rxcui": drug_info.get("rxcui", "")
                     }
-                    
+
                     # Patch missing imprint from database
                     if not result["splimprint"]:
                         with db_engine.connect() as conn:
@@ -520,28 +660,29 @@ def search(
                                 OR REPLACE(ndc9, '-', '') = :clean_ndc
                                 LIMIT 1
                             """)
-                            
+
                             imprint_result = conn.execute(query, {"ndc": q, "clean_ndc": clean_ndc})
                             imprint_row = imprint_result.fetchone()
                             if imprint_row:
                                 result["splimprint"] = imprint_row[0]
-                    
+
                     ndc_results.append(result)
             except Exception as e:
                 logger.debug(f"NDC handler error, falling back to standard search: {e}")
-        
+
         # 2) Standard search using database
         with db_engine.connect() as conn:
             # Build the SQL query
             base_sql = "SELECT medicine_name, splimprint, splcolor_text, splshape_text, ndc11, rxcui, image_filename FROM pillfinder WHERE 1=1"
             params = {}
-            
+
             # Add filters based on search parameters
             if q:
                 query = q.strip()
                 if type == "imprint":
                     norm = normalize_imprint(query)
-                    base_sql += " AND UPPER(TRIM(splimprint)) = UPPER(:imprint)"
+                    # Fix: Use consistent normalization for comparison in SQL
+                    base_sql += " AND UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:imprint)"
                     params["imprint"] = norm
                 elif type == "drug":
                     base_sql += " AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)"
@@ -551,20 +692,20 @@ def search(
                     base_sql += " AND (ndc11 = :ndc OR ndc9 = :ndc OR REPLACE(ndc11, '-', '') LIKE :like_ndc OR REPLACE(ndc9, '-', '') LIKE :like_ndc)"
                     params["ndc"] = query
                     params["like_ndc"] = f"%{clean_ndc}%"
-            
+
             if color:
                 base_sql += " AND LOWER(TRIM(splcolor_text)) = LOWER(:color)"
                 params["color"] = color.lower().strip()
-            
+
             if shape:
                 base_sql += " AND LOWER(TRIM(splshape_text)) = LOWER(:shape)"
                 params["shape"] = shape.lower().strip()
-            
+
             # Execute query with sorting and limit
             final_sql = f"{base_sql} ORDER BY ndc11, rxcui NULLS LAST"
             query = text(final_sql)
             result = conn.execute(query, params)
-            
+
             # Process results
             records = []
             for row in result:
@@ -578,19 +719,19 @@ def search(
                     "image_filename": row[6] or ""
                 }
                 records.append(record)
-            
+
         # 3) Dedupe and collect images
         deduped = []
         seen = set()
         image_map = defaultdict(set)
-        
+
         for item in records:
             key = get_unique_key(item)
             for name in split_image_filenames(item.get("image_filename", "")):
                 img = check_image_exists_in_supabase(name)
                 if img:
                     image_map[key].add(img)
-        
+
         for item in records:
             key = get_unique_key(item)
             if key not in seen:
@@ -598,21 +739,28 @@ def search(
                 item["splcolor_text"] = item["splcolor_text"].title()
                 item["splshape_text"] = item["splshape_text"].title()
                 imgs = sorted(image_map[key])
-                item["image_urls"] = [f"{IMAGE_BASE}/{i}" for i in imgs[:MAX_IMAGES_PER_DRUG]] or ["https://via.placeholder.com/400x300?text=No+Image+Available"]
+                image_urls = [f"{IMAGE_BASE}/{i}" for i in imgs[:MAX_IMAGES_PER_DRUG]] or ["https://via.placeholder.com/400x300?text=No+Image+Available"]
+
+                # Fix: Add carousel-specific data format
+                item["image_urls"] = image_urls
+                item["has_multiple_images"] = len(image_urls) > 1
+                item["carousel_images"] = [
+                    {"id": i, "url": url} for i, url in enumerate(image_urls)
+                ]
                 deduped.append(item)
-        
+
         # 4) Apply Option A: only use NDC results when searching by NDC
         if type == "ndc" and ndc_results:
             final_results = ndc_results
         else:
             final_results = deduped
-        
+
         # 5) Apply pagination
         total = len(final_results)
         start = (page - 1) * per_page
         end = start + per_page
         page_data = final_results[start:end]
-        
+
         return {
             "results": page_data,
             "total": total,
@@ -620,7 +768,7 @@ def search(
             "per_page": per_page,
             "total_pages": (total + per_page - 1) // per_page
         }
-        
+
     except SQLAlchemyError as e:
         logger.error(f"Database error in search: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
@@ -632,12 +780,12 @@ def search(
 def get_filters():
     """Get available filters for colors and shapes"""
     global db_engine
-    
+
     # Ensure database connection is available
     if not db_engine:
         if not connect_to_database():
             raise HTTPException(status_code=500, detail="Database connection not available")
-    
+
     try:
         def clean_shape(shape):
             shape = str(shape).strip().lower()
@@ -675,7 +823,7 @@ def get_filters():
         }
 
         colors = [{"name": name, "hex": hexcode} for name, hexcode in standard_colors.items()]
-        
+
         # Get shapes from the database
         with db_engine.connect() as conn:
             shape_query = text("""
@@ -683,10 +831,10 @@ def get_filters():
                 WHERE splshape_text IS NOT NULL AND splshape_text != ''
             """)
             result = conn.execute(shape_query)
-            
+
             seen = set()
             unique_shapes = []
-            
+
             for row in result:
                 shape = row[0]
                 if shape:
@@ -694,12 +842,12 @@ def get_filters():
                     if item["name"] not in seen:
                         unique_shapes.append(item)
                         seen.add(item["name"])
-        
+
         return {
             "colors": colors,
             "shapes": sorted(unique_shapes, key=lambda x: x["name"])
         }
-    
+
     except SQLAlchemyError as e:
         logger.error(f"Database error in get_filters: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
@@ -707,181 +855,30 @@ def get_filters():
         logger.error(f"Error getting filters: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error getting filters: {str(e)}")
 
-@app.get("/suggestions")
-def get_suggestions(
-    q: str = Query(..., description="Search query"),
-    type: str = Query(..., description="Search type (imprint, drug, or ndc)")
-) -> List[str]:
-    """Get search suggestions based on query and type"""
-    global db_engine, ndc_handler
-    
-    # Ensure database connection is available
-    if not db_engine:
-        if not connect_to_database():
-            return []
-    
-    if not q:
-        return []
-
-    query = q.strip()
-    
-    # Special handling for NDC suggestions
-    if type == "ndc" and ndc_handler:
-        try:
-            # Get NDC suggestions using the NDC handler
-            ndc_suggestions = ndc_handler.get_ndc_suggestions(query, MAX_SUGGESTIONS)
-            return ndc_suggestions
-        except Exception as e:
-            logger.error(f"Error getting NDC suggestions: {e}")
-            # Fall back to basic suggestions if handler fails
-            
-            # Basic NDC lookup from database
-            if len(query) < 3:
-                return []
-            
-            try:
-                clean_query = re.sub(r'[^0-9]', '', query)
-                with db_engine.connect() as conn:
-                    ndc_query = text("""
-                        (SELECT ndc9 FROM pillfinder 
-                         WHERE ndc9 IS NOT NULL AND REPLACE(ndc9, '-', '') LIKE :ndc_query
-                         LIMIT :limit)
-                        UNION
-                        (SELECT ndc11 FROM pillfinder 
-                         WHERE ndc11 IS NOT NULL AND REPLACE(ndc11, '-', '') LIKE :ndc_query
-                         LIMIT :limit)
-                    """)
-                    
-                    result = conn.execute(ndc_query, {
-                        "ndc_query": f"{clean_query}%",
-                        "limit": MAX_SUGGESTIONS // 2
-                    })
-                    
-                    results = [row[0] for row in result if row[0]]
-                    return list(dict.fromkeys(results))[:MAX_SUGGESTIONS]  # Remove duplicates
-            except Exception as e2:
-                logger.error(f"Error in fallback NDC query: {e2}")
-                return []
-    
-    elif type == "imprint":
-        try:
-            norm_query = normalize_imprint(query)
-            with db_engine.connect() as conn:
-                if norm_query:
-                    imprint_query = text("""
-                        SELECT DISTINCT splimprint FROM pillfinder
-                        WHERE splimprint IS NOT NULL 
-                        AND (UPPER(splimprint) = UPPER(:exact) OR UPPER(splimprint) LIKE UPPER(:like_query))
-                        ORDER BY 
-                            CASE WHEN UPPER(splimprint) = UPPER(:exact) THEN 0 ELSE 1 END,
-                            length(splimprint)
-                        LIMIT :limit
-                    """)
-                    result = conn.execute(imprint_query, {
-                        "exact": norm_query,
-                        "like_query": f"%{norm_query}%",
-                        "limit": MAX_SUGGESTIONS
-                    })
-                else:
-                    # If query is empty, return some default imprints
-                    imprint_query = text("""
-                        SELECT DISTINCT splimprint FROM pillfinder
-                        WHERE splimprint IS NOT NULL
-                        LIMIT :limit
-                    """)
-                    result = conn.execute(imprint_query, {"limit": MAX_SUGGESTIONS})
-                
-                results = [row[0] for row in result if row[0]]
-                seen = set()
-                deduped = []
-                
-                for imp in results:
-                    norm_imp = normalize_imprint(imp)
-                    if norm_imp and norm_imp not in seen:
-                        seen.add(norm_imp)
-                        deduped.append(imp)
-                
-                return deduped[:MAX_SUGGESTIONS]
-        except Exception as e:
-            logger.error(f"Error getting imprint suggestions: {e}")
-            return []
-    
-    elif type == "drug":
-        try:
-            query_lower = query.lower()
-            with db_engine.connect() as conn:
-                if query_lower:
-                    drug_query = text("""
-                        SELECT DISTINCT medicine_name FROM pillfinder
-                        WHERE medicine_name IS NOT NULL 
-                        AND (LOWER(medicine_name) = LOWER(:exact) 
-                             OR LOWER(medicine_name) LIKE LOWER(:starts_with)
-                             OR LOWER(medicine_name) LIKE LOWER(:contains))
-                        ORDER BY 
-                            CASE 
-                                WHEN LOWER(medicine_name) = LOWER(:exact) THEN 0
-                                WHEN LOWER(medicine_name) LIKE LOWER(:starts_with) THEN 1
-                                ELSE 2
-                            END,
-                            length(medicine_name)
-                        LIMIT :limit
-                    """)
-                    result = conn.execute(drug_query, {
-                        "exact": query_lower,
-                        "starts_with": f"{query_lower}%",
-                        "contains": f"%{query_lower}%",
-                        "limit": MAX_SUGGESTIONS
-                    })
-                else:
-                    # If query is empty, return some popular drugs
-                    drug_query = text("""
-                        SELECT DISTINCT medicine_name FROM pillfinder
-                        WHERE medicine_name IS NOT NULL
-                        LIMIT :limit
-                    """)
-                    result = conn.execute(drug_query, {"limit": MAX_SUGGESTIONS})
-                
-                results = [row[0] for row in result if row[0]]
-                seen = set()
-                deduped = []
-                
-                for drug in results:
-                    drug_lower = normalize_name(drug)
-                    if drug_lower and drug_lower not in seen:
-                        seen.add(drug_lower)
-                        deduped.append(drug)
-                
-                return deduped[:MAX_SUGGESTIONS]
-        except Exception as e:
-            logger.error(f"Error getting drug suggestions: {e}")
-            return []
-    
-    return []
-
 @app.get("/ndc_lookup")
 def ndc_lookup(
     ndc: str = Query(..., description="NDC code to look up")
 ):
     """Dedicated endpoint for NDC lookups"""
     global ndc_handler, db_engine
-    
+
     if not ndc:
         return {"found": False, "error": "No NDC code provided"}
-    
+
     if not db_engine:
         if not connect_to_database():
             return {"found": False, "error": "Database connection not available"}
-    
+
     # Use the NDC handler for looking up the drug
     try:
         drug_info = {}
         if ndc_handler:
             drug_info = ndc_handler.find_drug_by_ndc(ndc) or {}
-        
+
         # If not found in handler or missing details, look in database
         if not drug_info:
             drug_info = {}
-            
+
             with db_engine.connect() as conn:
                 clean_ndc = re.sub(r'[^0-9]', '', ndc)
                 query = text("""
@@ -891,10 +888,10 @@ def ndc_lookup(
                     OR REPLACE(ndc9, '-', '') = :clean_ndc
                     LIMIT 1
                 """)
-                
+
                 result = conn.execute(query, {"ndc": ndc, "clean_ndc": clean_ndc})
                 row = result.fetchone()
-                
+
                 if row:
                     # Convert row to dict
                     columns = result.keys()
@@ -904,13 +901,20 @@ def ndc_lookup(
                     return {"found": False}
         else:
             drug_info["found"] = True
-        
+
         # Find images using our helper function
         with db_engine.connect() as conn:
-            drug_info["image_urls"] = find_images_for_ndc(ndc, conn)
-                
+            image_urls = find_images_for_ndc(ndc, conn)
+            drug_info["image_urls"] = image_urls
+
+            # Add carousel-specific data format
+            drug_info["has_multiple_images"] = len(image_urls) > 1
+            drug_info["carousel_images"] = [
+                {"id": i, "url": url} for i, url in enumerate(image_urls)
+            ]
+
         return drug_info
-    
+
     except Exception as e:
         logger.exception(f"Error in NDC lookup: {e}")
         return {"found": False, "error": str(e)}
@@ -927,11 +931,11 @@ async def serve_frontend():
 def health_check():
     """Health check endpoint"""
     global db_engine
-    
+
     # Try to connect to database if it's not connected
     if not db_engine:
         connect_to_database()
-    
+
     # Check database connection
     db_connected = False
     record_count = 0
@@ -943,7 +947,7 @@ def health_check():
                 db_connected = True
         except:
             db_connected = False
-    
+
     return {
         "status": "healthy" if db_connected else "degraded",
         "version": "1.0.0",
@@ -960,7 +964,7 @@ def health_check():
 async def reload_data(background_tasks: BackgroundTasks):
     """Reload database connection and recreate handlers"""
     success = connect_to_database()
-    
+
     record_count = 0
     if success and db_engine:
         try:
@@ -969,7 +973,7 @@ async def reload_data(background_tasks: BackgroundTasks):
                 record_count = result.scalar()
         except:
             pass
-    
+
     return {
         "message": "Data reload " + ("succeeded" if success else "failed"),
         "record_count": record_count,
@@ -982,11 +986,11 @@ def ndc_diagnostic(
 ):
     """Diagnostic endpoint for NDC search issues"""
     global db_engine, ndc_handler
-    
+
     if not db_engine:
         if not connect_to_database():
             return {"error": "Database connection not available"}
-    
+
     try:
         # Get database information
         db_info = {}
@@ -1000,10 +1004,10 @@ def ndc_diagnostic(
                 OR REPLACE(ndc9, '-', '') = :clean_ndc
                 LIMIT 1
             """)
-            
+
             result = conn.execute(query, {"ndc": ndc, "clean_ndc": clean_ndc})
             row = result.fetchone()
-            
+
             if row:
                 db_info = {
                     "ndc9": row[0],
@@ -1012,16 +1016,16 @@ def ndc_diagnostic(
                     "imprint": row[3],
                     "image_filename": row[4]
                 }
-        
+
         # Test the image helper function
         images = []
         if db_engine:
             with db_engine.connect() as conn:
                 images = find_images_for_ndc(ndc, conn)
-        
+
         # Get drug info from NDC handler
         drug_info = ndc_handler.find_drug_by_ndc(ndc) if ndc_handler else None
-        
+
         # Return diagnostic info
         return {
             "ndc": ndc,
@@ -1043,6 +1047,12 @@ def ndc_diagnostic(
 async def redirect_to_index():
     """Redirect to the index page"""
     return RedirectResponse(url="/")
+
+@app.get("/__routes__")
+async def list_routes():
+    # Return all the paths FastAPI knows about
+    return sorted(route.path for route in app.router.routes)
+
 
 if __name__ == "__main__":
     import uvicorn
