@@ -184,10 +184,10 @@
     <div id="pill-info-container" style="display: none;">
         <!-- Pill Information Header -->
         <h1 id="pill-name" class="mb-2">Pill Name</h1>
-        
+
         <!-- New H2 with Imprint -->
         <h2 class="mb-3"><span id="imprint-header-label">Imprint<span id="imprint-header-value"> Not available</span></span></h2>
-        
+
         <!-- New Summary Section -->
         <div class="pill-summary" id="pill-summary">
             <div class="summary-text">
@@ -201,15 +201,15 @@
             <div class="col-md-6 mb-4">
                 <!-- Main Image Display -->
                 <img id="main-pill-image" src="" alt="Pill Image" class="pill-image">
-                
+
                 <!-- Image Carousel for Multiple Images -->
                 <div id="image-carousel" class="image-carousel"></div>
-                
+
                 <!-- No Images Message -->
                 <div id="no-images-message" style="display: none;">
                     <p>No images available for this medication.</p>
                 </div>
-                
+
                 <!-- Debug Info -->
                 <div id="image-debug" class="image-debug"></div>
             </div>
@@ -250,10 +250,10 @@
     // Global state to store all image URLs
     let allImages = [];
     let currentImageIndex = 0;
-    
+
     // Supabase image base URL
     const IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images";
-    
+
     // Function to extract URL parameters
     function getUrlParams() {
         const params = new URLSearchParams(window.location.search);
@@ -298,7 +298,7 @@
                 resolve(false);
                 return;
             }
-            
+
             const img = new Image();
             img.onload = () => {
                 console.log(`Image loaded successfully: ${url}`);
@@ -309,7 +309,7 @@
                 resolve(false);
             };
             img.src = url;
-            
+
             // Set a timeout in case the image loading hangs
             setTimeout(() => {
                 console.log(`Timeout for image: ${url}`);
@@ -317,16 +317,16 @@
             }, 3000);
         });
     }
-    
+
     // Function to set up the image carousel for multiple images
     async function setupImageCarousel(imageUrls) {
         updateImageDebug(`Processing ${imageUrls.length} possible image URLs...`);
-        
+
         if (!imageUrls || imageUrls.length === 0) {
             updateImageDebug('No image URLs provided');
             const noImagesMessage = document.getElementById('no-images-message');
             const mainImageElement = document.getElementById('main-pill-image');
-            
+
             if (noImagesMessage) noImagesMessage.style.display = 'block';
             if (mainImageElement) {
                 mainImageElement.style.display = 'none';
@@ -334,27 +334,27 @@
             }
             return;
         }
-        
+
         // Test each URL and keep only the ones that load successfully
         const validationPromises = imageUrls.map(url => 
             checkImageExists(url).then(valid => valid ? url : null)
         );
-        
+
         const results = await Promise.all(validationPromises);
         const validUrls = results.filter(url => url !== null);
-        
+
         // Store only valid URLs
         allImages = [...new Set(validUrls)]; // Remove duplicates
-        
+
         updateImageDebug(`Found ${allImages.length} valid images out of ${imageUrls.length} URLs`);
-        
+
         // Clear any existing content
         const carouselElement = document.getElementById('image-carousel');
         const mainImageElement = document.getElementById('main-pill-image');
         const noImagesMessage = document.getElementById('no-images-message');
-        
+
         if (carouselElement) carouselElement.innerHTML = '';
-        
+
         // Check if we have any images
         if (allImages.length === 0) {
             // Show no images message and hide main image
@@ -366,46 +366,46 @@
             updateImageDebug('No valid images available');
             return;
         }
-        
+
         // Hide no images message and show main image
         if (noImagesMessage) noImagesMessage.style.display = 'none';
         if (mainImageElement) mainImageElement.style.display = 'block';
-        
+
         // Set the first image as the main image
         currentImageIndex = 0;
         if (mainImageElement) {
             mainImageElement.src = allImages[currentImageIndex];
             mainImageElement.alt = `Pill Image ${currentImageIndex + 1}`;
         }
-        
+
         // Create thumbnails for all images
         if (carouselElement) {
             allImages.forEach((url, index) => {
                 const thumbnailContainer = document.createElement('div');
                 thumbnailContainer.className = `thumbnail-container ${index === 0 ? 'active' : ''}`;
                 thumbnailContainer.dataset.index = index;
-                
+
                 const thumbnail = document.createElement('img');
                 thumbnail.src = url;
                 thumbnail.alt = `Thumbnail ${index + 1}`;
                 thumbnail.className = 'thumbnail';
-                
+
                 // Add click event to switch the main image
                 thumbnailContainer.addEventListener('click', function() {
                     if (!mainImageElement) return;
-                    
+
                     // Update main image
                     mainImageElement.src = allImages[index];
                     mainImageElement.alt = `Pill Image ${index + 1}`;
                     currentImageIndex = index;
-                    
+
                     // Update active state
                     document.querySelectorAll('.thumbnail-container').forEach(el => {
                         el.classList.remove('active');
                     });
                     this.classList.add('active');
                 });
-                
+
                 thumbnailContainer.appendChild(thumbnail);
                 carouselElement.appendChild(thumbnailContainer);
             });
@@ -416,63 +416,63 @@
     function generatePillSummary(data) {
         // Basic pill description with normal (non-bold) and consistent color
         let summary = `<div class="summary-text">This medication is `;
-        
+
         // Add article based on first letter of color
         const vowels = ['a','e','i','o','u'];
         const color = data.splcolor_text || '';
         const article = vowels.includes(color.toLowerCase()[0]) ? 'an' : 'a';
-        
+
         summary += `${article} ${data.splcolor_text || 'unknown color'} ${data.splshape_text || 'unknown shape'} `;
-        
+
         // Add size if available
         if (data.splsize) {
             summary += `${data.splsize} mm, `;
         }
-        
+
         // Add dosage form if available
         if (data.dosage_form) {
             summary += `${data.dosage_form} `;
         }
-        
+
         // Add route if available
         const route = data.splroute || data.route;
         if (route) {
             summary += `taken by ${route} route `;
         }
-        
+
         // Add imprint
         if (data.splimprint) {
             summary += `with imprint "${data.splimprint}". `;
         } else {
             summary += `with no visible imprint. `;
         }
-        
+
         // Add strength if available
         if (data.spl_strength) {
             summary += `It contains ${data.spl_strength} `;
         }
-        
+
         // Add active ingredients
         if (data.spl_ingredients) {
             summary += `of ${data.spl_ingredients}. `;
         }
-        
+
         // Add pharmacologic class
         const pharmaClass = data.dailymed_pharma_class_epc || data.pharmclass_fda_epc;
         if (pharmaClass) {
             summary += `This belongs to the ${pharmaClass} pharmacologic class. `;
         }
-        
+
         // Add manufacturer
         if (data.author) {
             summary += `It is manufactured by ${data.author}. `;
         }
-        
+
         // Add DEA schedule if applicable
         if (data.dea_schedule_name && data.dea_schedule_name !== 'Not applicable') {
             summary += `This is a ${data.dea_schedule_name} controlled substance. `;
         }
-        
+
         // Add availability (Rx/OTC)
         if (data.status_rx_otc) {
             const availability = data.status_rx_otc.toLowerCase() === 'prescription' ? 
@@ -480,10 +480,10 @@
                 'over-the-counter medication';
             summary += `It's a ${availability}. For details please contact your physician.`;
         }
-        
+
         // Close the div
         summary += `</div>`;
-        
+
         return summary;
     }
 
@@ -498,7 +498,7 @@
             url += `imprint=${encodeURIComponent(imprint)}`;
             hasParams = true;
         }
-        
+
         if (drug_name) {
             url += hasParams ? `&drug_name=${encodeURIComponent(drug_name)}` : `drug_name=${encodeURIComponent(drug_name)}`;
             hasParams = true;
@@ -509,7 +509,7 @@
             url += hasParams ? `&rxcui=${encodeURIComponent(rxcui)}` : `rxcui=${encodeURIComponent(rxcui)}`;
             hasParams = true;
         }
-        
+
         if (ndc) {
             url += hasParams ? `&ndc=${encodeURIComponent(ndc)}` : `ndc=${encodeURIComponent(ndc)}`;
             hasParams = true;
@@ -524,7 +524,7 @@
         try {
             updateImageDebug('Fetching pill details from server...');
             const response = await fetch(url);
-            
+
             if (!response.ok) {
                 if (response.status === 404) {
                     showError('Pill not found. Please check your search criteria and try again.');
@@ -533,39 +533,39 @@
                 }
                 return;
             }
-            
+
             const data = await response.json();
             updateImageDebug('Received data from server. Processing...');
-            
+
             // If we have debug info about images, show it
             if (data.image_debug && Array.isArray(data.image_debug)) {
                 updateImageDebug('Image debug info: ' + data.image_debug.join(', '));
             }
-            
+
             // Hide loading indicator and show pill information
             const loadingIndicator = document.getElementById('loading-indicator');
             const pillInfoContainer = document.getElementById('pill-info-container');
-            
+
             if (loadingIndicator) loadingIndicator.style.display = 'none';
             if (pillInfoContainer) pillInfoContainer.style.display = 'block';
-            
+
             // Populate the details page with fetched data
             // Text should be normalized from the backend already
             safeUpdateText('pill-name', data.medicine_name);
-            
+
             // Set the H2 with imprint - split into label and value for styling
             const imprintHeader = document.getElementById('imprint-header-value');
             if (imprintHeader) {
                 imprintHeader.textContent = ' ' + (data.splimprint || 'Not available');
             }
-            
+
             // Generate and set the summary with normalized text from backend
             const summaryText = generatePillSummary(data);
             const summaryElement = document.getElementById('pill-summary');
             if (summaryElement) {
                 summaryElement.innerHTML = summaryText;
             }
-            
+
             // Set up the image carousel with all valid images
             if (data.image_urls && Array.isArray(data.image_urls)) {
                 await setupImageCarousel(data.image_urls);
@@ -573,7 +573,7 @@
                 updateImageDebug('No image URLs in response');
                 setupImageCarousel([]);
             }
-            
+
             // Populate metadata fields with normalized text from backend
             safeUpdateText('drug-name', data.medicine_name);
             safeUpdateText('imprint', data.splimprint); // Keep imprint as is (no normalization)
@@ -590,7 +590,7 @@
             safeUpdateText('active-ingredients', data.spl_ingredients);
             safeUpdateText('inactive-ingredients', data.spl_inactive_ing);
             safeUpdateText('manufacturer', data.author);
-            
+
         } catch (error) {
             console.error('Error fetching pill details:', error);
             showError('Failed to load pill information. Please try again later.');
