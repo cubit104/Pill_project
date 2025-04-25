@@ -204,6 +204,23 @@ def clean_filename(filename: str) -> str:
     # Remove any whitespace and invalid characters
     return re.sub(r'[^\w.-]', '', str(filename).strip())
 
+
+
+def get_clean_image_list(image_str: str) -> List[str]:
+    """Clean and normalize image filenames from DB (handles commas, semicolons, bad spacing)."""
+    if not image_str:
+        return ["placeholder.jpg"]
+    split_chars = re.split(r'[;,]', image_str)
+    cleaned = []
+
+    for name in split_chars:
+        name = name.strip()
+        if name.lower().endswith((".jpg", ".jpeg", ".png")):
+            cleaned.append(name)
+
+    return cleaned or ["placeholder.jpg"]
+
+
 def split_image_filenames(filename: str) -> List[str]:
     """Split image filenames considering various separators"""
     if pd.isna(filename) or not filename:
@@ -337,13 +354,6 @@ def connect_to_database():
         logger.error(f"Error connecting to database: {e}")
         return False
 
-def get_clean_image_list(image_str: str) -> List[str]:
-    """Return cleaned list of image filenames or a fallback."""
-    if not image_str:
-        return ["placeholder.jpg"]
-    images = [img.strip() for img in image_str.split(",") if img.strip()]
-    valid = [img for img in images if img.lower().endswith((".jpg", ".jpeg", ".png"))]
-    return valid or ["placeholder.jpg"]
 
 # Connect to database on startup
 connect_to_database()
@@ -616,55 +626,27 @@ def get_suggestions(
 
 @app.get("/search")
 def search(
-    q: Optional[str] = Query(None, description="Search query"),
-    type: Optional[str] = Query("imprint", description="Search type"),
-    color: Optional[str] = Query(None, description="Pill color"),
-    shape: Optional[str] = Query(None, description="Pill shape"),
-    page: int = Query(1, description="Page number", ge=1),
-    per_page: int = Query(25, description="Items per page", ge=1, le=100)
+    q: Optional[str] = Query(None),
+    type: Optional[str] = Query("imprint"),
+    color: Optional[str] = Query(None),
+    shape: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(25, ge=1, le=100)
 ) -> dict:
-    """Search for pills based on various criteria"""
     global db_engine, ndc_handler
 
     if not db_engine and not connect_to_database():
-        raise HTTPException(status_code=500, detail="Database connection not available")
+        raise HTTPException(500, "Database connection not available")
 
-    logger.info(f"Search request - Query: {q}, Type: {type}, Color: {color}, Shape: {shape}")
+    logger.info(f"[SEARCH] q={q}, type={type}, color={color}, shape={shape}")
 
     try:
-        ndc_results = []
-        if type == "ndc" and ndc_handler and q:
-            try:
-                clean_ndc = re.sub(r'[^0-9]', '', q)
-                drug_info = ndc_handler.find_drug_by_ndc(q)
-                if drug_info:
-                    result = {
-                        "medicine_name": drug_info.get("medicine_name", ""),
-                        "splimprint": drug_info.get("splimprint", ""),
-                        "splcolor_text": drug_info.get("color", "").title(),
-                        "splshape_text": drug_info.get("form", "").title(),
-                        "ndc11": drug_info.get("related_ndcs", [""])[0] if drug_info.get("related_ndcs") else "",
-                        "rxcui": drug_info.get("rxcui", "")
-                    }
-                    if not result["splimprint"]:
-                        with db_engine.connect() as conn:
-                            query = text("""
-                                SELECT splimprint FROM pillfinder
-                                WHERE ndc11 = :ndc OR ndc9 = :ndc 
-                                OR REPLACE(ndc11, '-', '') = :clean_ndc 
-                                OR REPLACE(ndc9, '-', '') = :clean_ndc
-                                LIMIT 1
-                            """)
-                            imprint_result = conn.execute(query, {"ndc": q, "clean_ndc": clean_ndc})
-                            imprint_row = imprint_result.fetchone()
-                            if imprint_row:
-                                result["splimprint"] = imprint_row[0]
-                    ndc_results.append(result)
-            except Exception as e:
-                logger.debug(f"NDC handler error, falling back to standard search: {e}")
-
         with db_engine.connect() as conn:
-            base_sql = "SELECT medicine_name, splimprint, splcolor_text, splshape_text, ndc11, rxcui, image_filename FROM pillfinder WHERE 1=1"
+            base_sql = """
+                SELECT medicine_name, splimprint, splcolor_text, splshape_text, ndc11, rxcui, image_filename
+                FROM pillfinder
+                WHERE 1=1
+            """
             params = {}
 
             if q:
@@ -674,28 +656,34 @@ def search(
                     base_sql += " AND UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:imprint)"
                     params["imprint"] = norm
                 elif type == "drug":
-                    base_sql += " AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)"
-                    params["drug_name"] = query.lower().strip()
+                    base_sql += " AND LOWER(medicine_name) LIKE LOWER(:drug_name)"
+                    params["drug_name"] = f"{query.lower().strip()}%"
                 elif type == "ndc":
                     clean_ndc = re.sub(r'[^0-9]', '', query)
-                    base_sql += " AND (ndc11 = :ndc OR ndc9 = :ndc OR REPLACE(ndc11, '-', '') LIKE :like_ndc OR REPLACE(ndc9, '-', '') LIKE :like_ndc)"
+                    base_sql += """
+                        AND (
+                            ndc11 = :ndc OR ndc9 = :ndc OR
+                            REPLACE(ndc11, '-', '') LIKE :like_ndc OR
+                            REPLACE(ndc9, '-', '') LIKE :like_ndc
+                        )
+                    """
                     params["ndc"] = query
                     params["like_ndc"] = f"%{clean_ndc}%"
 
             if color:
                 base_sql += " AND LOWER(TRIM(splcolor_text)) = LOWER(:color)"
-                params["color"] = color.lower().strip()
+                params["color"] = color.strip().lower()
 
             if shape:
                 base_sql += " AND LOWER(TRIM(splshape_text)) = LOWER(:shape)"
-                params["shape"] = shape.lower().strip()
+                params["shape"] = shape.strip().lower()
 
             final_sql = f"{base_sql} ORDER BY ndc11, rxcui NULLS LAST"
             result = conn.execute(text(final_sql), params)
 
             records = []
             for row in result:
-                records.append({
+                item = {
                     "medicine_name": row[0] or "",
                     "splimprint": row[1] or "",
                     "splcolor_text": row[2] or "",
@@ -703,53 +691,38 @@ def search(
                     "ndc11": row[4] or "",
                     "rxcui": row[5] or "",
                     "image_filename": row[6] or ""
-                })
+                }
 
-        deduped = []
-        seen = set()
-        image_map = defaultdict(set)
-
-        for item in records:
-            key = get_unique_key(item)
-            for name in get_clean_image_list(item.get("image_filename", "")):
-                image_map[key].add(name)
-
-
-        for item in records:
-            key = get_unique_key(item)
-            if key not in seen:
-                seen.add(key)
-                item["splcolor_text"] = item["splcolor_text"].title()
-                item["splshape_text"] = item["splshape_text"].title()
-                imgs = sorted(image_map[key])
+                # ✅ Build cleaned image list from current row
+                imgs = get_clean_image_list(item["image_filename"])
                 image_urls = [f"{IMAGE_BASE}/{i}" for i in imgs[:MAX_IMAGES_PER_DRUG]]
                 item["image_urls"] = image_urls
-                item["has_multiple_images"] = len(image_urls) > 1
-                item["carousel_images"] = [{"id": i, "url": url} for i, url in enumerate(image_urls)]
+                item["has_multiple_images"] = len(imgs) > 1  # 🛠 FIX HERE - use original imgs
+                item["carousel_images"] = [{"id": idx, "url": url} for idx, url in enumerate(image_urls)]
 
-                deduped.append(item)
 
-        final_results = ndc_results if type == "ndc" and ndc_results else deduped
+                records.append(item)
 
-        total = len(final_results)
+        # Pagination
+        total = len(records)
         start = (page - 1) * per_page
         end = start + per_page
+        page_data = records[start:end]
+
         return {
-            "results": final_results[start:end],
+            "results": page_data,
             "total": total,
             "page": page,
             "per_page": per_page,
             "total_pages": (total + per_page - 1) // per_page
         }
 
-    except SQLAlchemyError as e:
-        logger.error(f"Database error in search: {e}")
-        raise HTTPException(status_code=500, detail=f"Database error: {e}")
     except Exception as e:
-        logger.error(f"Error in search: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Search error: {e}")
+        logger.error(f"[SEARCH ERROR] {e}", exc_info=True)
+        raise HTTPException(500, f"Search error: {e}")
 
-@app.get("/filters")
+
+@app.get("/filters") 
 def get_filters():
     """Get available filters for colors and shapes"""
     global db_engine
