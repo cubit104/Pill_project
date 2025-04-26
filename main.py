@@ -613,7 +613,6 @@ def search(
 
     try:
         with db_engine.connect() as conn:
-            # Base query
             base_sql = """
                 SELECT 
                     medicine_name, 
@@ -659,74 +658,61 @@ def search(
 
             result = conn.execute(text(base_sql), params)
             rows = result.fetchall()
+            columns = result.keys()
 
+        # Now rows are tuples, so convert
+        records_raw = [dict(zip(columns, row)) for row in rows]
+
+        # Group by (medicine_name, splimprint)
         grouped = {}
-        for row in rows:
-            key = (row["medicine_name"], row["splimprint"])
+        for row in records_raw:
+            key = (row.get("medicine_name", ""), row.get("splimprint", ""))
             if key not in grouped:
                 grouped[key] = {
-                    "medicine_name": row["medicine_name"] or "",
-                    "splimprint": row["splimprint"] or "",
-                    "splcolor_text": row["splcolor_text"] or "",
-                    "splshape_text": row["splshape_text"] or "",
-                    "ndc11": row["ndc11"] or "",
-                    "rxcui": row["rxcui"] or "",
+                    "medicine_name": row.get("medicine_name", ""),
+                    "splimprint": row.get("splimprint", ""),
+                    "splcolor_text": row.get("splcolor_text", ""),
+                    "splshape_text": row.get("splshape_text", ""),
+                    "ndc11": row.get("ndc11", ""),
+                    "rxcui": row.get("rxcui", ""),
                     "image_filenames": []
                 }
-            if row["image_filename"]:
+            if row.get("image_filename"):
                 grouped[key]["image_filenames"].append(row["image_filename"])
 
-        records = []
+        # Process groups
+        results = []
         for data in grouped.values():
             merged_images = []
             for filename in data["image_filenames"]:
                 merged_images.extend(split_image_filenames(filename))
 
-            valid_images = []
+            image_urls = []
             for img in merged_images:
-                clean_img = clean_filename(img)
-                if clean_img:
-                    base_name, ext = os.path.splitext(clean_img.lower())
+                img_clean = clean_filename(img)
+                if img_clean:
+                    image_urls.append(f"{IMAGE_BASE}/{img_clean}")
 
-                    # Try .jpg and .jpeg first
-                    variations = [f"{base_name}.jpg", f"{base_name}.jpeg"]
-                    found = False
-                    for variant in variations:
-                        url = f"{IMAGE_BASE}/{variant}"
-                        valid_images.append(variant)
-                        found = True
-                        break
+            if not image_urls:
+                image_urls = ["https://via.placeholder.com/400x300?text=No+Image+Available"]
 
-                    if not found:
-                        for ext2 in IMAGE_EXTENSIONS:
-                            url = f"{IMAGE_BASE}/{base_name}{ext2}"
-                            valid_images.append(f"{base_name}{ext2}")
-                            break
-
-            # Always fallback if no valid
-            if not valid_images:
-                valid_images = ["placeholder.jpg"]
-
-            image_urls = [f"{IMAGE_BASE}/{img}" for img in valid_images][:MAX_IMAGES_PER_DRUG]
-
-            item = {
+            results.append({
                 "medicine_name": data["medicine_name"],
                 "splimprint": data["splimprint"],
                 "splcolor_text": data["splcolor_text"],
                 "splshape_text": data["splshape_text"],
                 "ndc11": data["ndc11"],
                 "rxcui": data["rxcui"],
-                "image_urls": image_urls,
+                "image_urls": image_urls[:MAX_IMAGES_PER_DRUG],
                 "has_multiple_images": len(image_urls) > 1,
                 "carousel_images": [{"id": i, "url": url} for i, url in enumerate(image_urls)]
-            }
-            records.append(item)
+            })
 
         # Pagination
-        total = len(records)
+        total = len(results)
         start = (page - 1) * per_page
         end = start + per_page
-        page_data = records[start:end]
+        page_data = results[start:end]
 
         return {
             "results": page_data,
@@ -739,6 +725,7 @@ def search(
     except Exception as e:
         logger.error(f"Search error: {str(e)}", exc_info=True)
         raise HTTPException(500, detail=f"Search error: {str(e)}")
+
 
 
 
