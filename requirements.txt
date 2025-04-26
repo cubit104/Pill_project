@@ -11,4 +11,4 @@ python-dotenv==1.0.0
 httpx==0.25.1
 aiofiles==23.2.1
 psycopg2-binary==2.9.9
-aiohttp
+aiohttp==3.8.4
