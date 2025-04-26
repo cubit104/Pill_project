@@ -11,6 +11,8 @@ python-dotenv==1.0.0
 httpx==0.25.1
 aiofiles==23.2.1
 psycopg2-binary==2.9.9
-import asyncio
-import aiohttp
-from fastapi import BackgroundTasks
+-click==8.1.3
+-fastapi==0.95.2
+-uvicorn==0.22.0
+-pandas==2.0.3
+-aiohttp==3.8.4
