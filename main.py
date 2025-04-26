@@ -1,21 +1,21 @@
-    from fastapi import FastAPI, Query, HTTPException, Request, BackgroundTasks
-    from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.staticfiles import StaticFiles
-    from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-    from typing import List, Optional, Dict, Any, Set
-    import pandas as pd
-    import os
-    import re
-    import logging
-    import time
-    from collections import defaultdict
-    from pathlib import Path
-    import sqlalchemy
-    from sqlalchemy import create_engine, text
-    from sqlalchemy.exc import SQLAlchemyError
-    import requests
-    from ndc_module import NDCHandler  # Import the NDC handler
-    import concurrent.futures
+from fastapi import FastAPI, Query, HTTPException, Request, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from typing import List, Optional, Dict, Any, Set
+import pandas as pd
+import os
+import re
+import logging
+import time
+from collections import defaultdict
+from pathlib import Path
+import sqlalchemy
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
+import requests
+from ndc_module import NDCHandler  # Import the NDC handler
+import concurrent.futures
 
     # Set up logging
     logging.basicConfig(
