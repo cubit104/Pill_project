@@ -613,6 +613,7 @@ def search(
 
     try:
         with db_engine.connect() as conn:
+            # Base query
             base_sql = """
                 SELECT 
                     medicine_name, 
@@ -656,11 +657,9 @@ def search(
                 base_sql += " AND LOWER(TRIM(splshape_text)) = LOWER(:shape)"
                 params["shape"] = shape.strip().lower()
 
-            # ⬇️ THE IMPORTANT FIX HERE:
             result = conn.execute(text(base_sql), params)
-            rows = result.mappings().all()  # ✅ return dicts not tuples
+            rows = result.fetchall()
 
-        # Grouping (by medicine_name + imprint)
         grouped = {}
         for row in rows:
             key = (row["medicine_name"], row["splimprint"])
@@ -677,19 +676,36 @@ def search(
             if row["image_filename"]:
                 grouped[key]["image_filenames"].append(row["image_filename"])
 
-        # Process groups
         records = []
         for data in grouped.values():
             merged_images = []
             for filename in data["image_filenames"]:
                 merged_images.extend(split_image_filenames(filename))
 
-            valid_images = set()
+            valid_images = []
             for img in merged_images:
-                valid_images.update(get_valid_images_from_supabase(img))
+                clean_img = clean_filename(img)
+                if clean_img:
+                    base_name, ext = os.path.splitext(clean_img.lower())
 
+                    # Try .jpg and .jpeg first
+                    variations = [f"{base_name}.jpg", f"{base_name}.jpeg"]
+                    found = False
+                    for variant in variations:
+                        url = f"{IMAGE_BASE}/{variant}"
+                        valid_images.append(variant)
+                        found = True
+                        break
+
+                    if not found:
+                        for ext2 in IMAGE_EXTENSIONS:
+                            url = f"{IMAGE_BASE}/{base_name}{ext2}"
+                            valid_images.append(f"{base_name}{ext2}")
+                            break
+
+            # Always fallback if no valid
             if not valid_images:
-                valid_images = {"placeholder.jpg"}
+                valid_images = ["placeholder.jpg"]
 
             image_urls = [f"{IMAGE_BASE}/{img}" for img in valid_images][:MAX_IMAGES_PER_DRUG]
 
@@ -704,7 +720,6 @@ def search(
                 "has_multiple_images": len(image_urls) > 1,
                 "carousel_images": [{"id": i, "url": url} for i, url in enumerate(image_urls)]
             }
-
             records.append(item)
 
         # Pagination
@@ -724,6 +739,7 @@ def search(
     except Exception as e:
         logger.error(f"Search error: {str(e)}", exc_info=True)
         raise HTTPException(500, detail=f"Search error: {str(e)}")
+
 
 
 @app.get("/filters") 
