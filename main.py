@@ -613,7 +613,6 @@ def search(
 
     try:
         with db_engine.connect() as conn:
-            # Build base query
             base_sql = """
                 SELECT 
                     medicine_name, 
@@ -628,7 +627,6 @@ def search(
             """
             params = {}
 
-            # Apply filters
             if q:
                 query = q.strip()
                 if type == "imprint":
@@ -658,11 +656,11 @@ def search(
                 base_sql += " AND LOWER(TRIM(splshape_text)) = LOWER(:shape)"
                 params["shape"] = shape.strip().lower()
 
-            # Execute query
+            # ⬇️ THE IMPORTANT FIX HERE:
             result = conn.execute(text(base_sql), params)
-            rows = result.fetchall()
+            rows = result.mappings().all()  # ✅ return dicts not tuples
 
-        # Now group results by (medicine_name, splimprint)
+        # Grouping (by medicine_name + imprint)
         grouped = {}
         for row in rows:
             key = (row["medicine_name"], row["splimprint"])
@@ -679,15 +677,13 @@ def search(
             if row["image_filename"]:
                 grouped[key]["image_filenames"].append(row["image_filename"])
 
-        # Process groups into final output
+        # Process groups
         records = []
         for data in grouped.values():
-            # Merge all images
             merged_images = []
             for filename in data["image_filenames"]:
                 merged_images.extend(split_image_filenames(filename))
 
-            # Validate images
             valid_images = set()
             for img in merged_images:
                 valid_images.update(get_valid_images_from_supabase(img))
@@ -728,10 +724,6 @@ def search(
     except Exception as e:
         logger.error(f"Search error: {str(e)}", exc_info=True)
         raise HTTPException(500, detail=f"Search error: {str(e)}")
-
-
-
-
 
 
 @app.get("/filters") 
