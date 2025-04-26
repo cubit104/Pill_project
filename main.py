@@ -7,15 +7,14 @@ import pandas as pd
 import os
 import re
 import logging
-import time
-from collections import defaultdict
 from pathlib import Path
-import sqlalchemy
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 import requests
 from ndc_module import NDCHandler  # Import the NDC handler
-import concurrent.futures
+import asyncio
+import aiohttp
+from fastapi import BackgroundTasks
 
     # Set up logging
 logging.basicConfig(
@@ -240,44 +239,38 @@ def check_image_exists_in_supabase(image_name: str) -> str:
 
     return ""
 
-def get_valid_images_from_supabase(filename: str) -> Set[str]:
-    """Get a set of valid image paths from Supabase storage with smart extension fallback."""
-    if not filename:
-        return {"placeholder.jpg"}
+def get_valid_images_from_supabase(filename: str) -> List[str]:
+    try:
+        if not filename:
+            return ["placeholder.jpg"]
 
-    image_names = split_image_filenames(filename)
-    valid_images = set()
+        names = split_image_filenames(filename)
+        valid = []
+        seen  = set()
 
-    for image_name in image_names:
-        clean_name = clean_filename(image_name)
-        if not clean_name:
-            continue
+        for raw in names:
+            cleaned = clean_filename(raw)
+            if not cleaned or cleaned in seen:
+                continue
 
-        base_name, ext = os.path.splitext(clean_name.lower())
+            # check cache first
+            if cleaned in _image_exists_cache:
+                fixed = _image_exists_cache[cleaned]
+            else:
+                fixed = check_image_exists_in_supabase(cleaned)
+                _image_exists_cache[cleaned] = fixed or ""
 
-        # Always prioritize both .jpeg and .jpg versions
-        variations = []
-        if ext in {".jpg", ".jpeg"}:
-            variations = [f"{base_name}.jpeg", f"{base_name}.jpg"]
-        else:
-            variations = [clean_name]
+            if fixed:
+                seen.add(fixed)
+                valid.append(fixed)
 
-        # Try variations first
-        for variation in variations:
-            url = f"{IMAGE_BASE}/{variation}"
-            if is_valid_image_url(url):
-                valid_images.add(variation)
-                break
-        else:
-            # If none found, try other known extensions
-            for alt_ext in IMAGE_EXTENSIONS:
-                test_name = f"{base_name}{alt_ext}"
-                url = f"{IMAGE_BASE}/{test_name}"
-                if is_valid_image_url(url):
-                    valid_images.add(test_name)
-                    break
+        return valid or ["placeholder.jpg"]
 
-    return valid_images or {"placeholder.jpg"}
+    except Exception as e:
+        logger.error(f"Error in get_valid_images_from_supabase: {e}", exc_info=True)
+        return ["placeholder.jpg"]
+
+
 
 
 def normalize_fields(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -314,6 +307,54 @@ def initialize_ndc_handler():
         logger.error(f"Error initializing NDC handler: {e}")
         ndc_handler = None
         return False
+
+
+async def async_is_valid_image_url(session, url):
+    """Async check if URL points to a valid image"""
+    try:
+        async with session.head(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            if resp.status == 405:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp2:
+                    return resp2.status == 200 and "image" in resp2.headers.get("content-type", "").lower()
+            return resp.status == 200 and "image" in resp.headers.get("content-type", "").lower()
+    except Exception:
+        return False
+
+async def async_fix_image_filename(img_name: str) -> str:
+    """Try the exact name first, then probe .jpg/.jpeg/.png until one works."""
+    img_name = img_name.strip()
+    base, ext = os.path.splitext(img_name)
+    ext = ext.lower()
+
+    # list of extensions to try, in order
+    exts_to_try = []
+    if ext in IMAGE_EXTENSIONS:
+        exts_to_try.append(ext)
+    # ensure we try jpg/jpeg if needed
+    for e in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
+        if e not in exts_to_try:
+            exts_to_try.append(e)
+
+    async with aiohttp.ClientSession() as session:
+        for e in exts_to_try:
+            candidate = f"{base}{e}"
+            url = f"{IMAGE_BASE}/{candidate}"
+            try:
+                async with session.head(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    # if HEAD isn’t allowed, fall back to GET
+                    if resp.status == 405:
+                        async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp2:
+                            ok = resp2.status == 200 and "image" in resp2.headers.get("content-type","")
+                            if ok:
+                                return candidate
+                    elif resp.status == 200 and "image" in resp.headers.get("content-type",""):
+                        return candidate
+            except asyncio.TimeoutError:
+                continue
+
+    # if nothing worked, fall back to .jpg
+    return f"{base}.jpg"
+
 
 def connect_to_database():
     """Connect to Supabase PostgreSQL database"""
@@ -368,17 +409,18 @@ async def get_pill_details(
     rxcui: Optional[str] = Query(None),
     ndc: Optional[str] = Query(None)
 ):
-    """Get details about a pill"""
+    """Get details about a pill, probing Supabase for the real image extensions."""
     global db_engine
 
+    # Ensure DB connection
     if not db_engine:
         if not connect_to_database():
             raise HTTPException(status_code=500, detail="Database connection not available")
 
     used_ndc = False
-    pill_info = None
 
     try:
+        # 1) Fetch the pill row
         with db_engine.connect() as conn:
             if ndc:
                 used_ndc = True
@@ -386,12 +428,13 @@ async def get_pill_details(
                 query = text("""
                     SELECT * FROM pillfinder
                     WHERE ndc11 = :ndc 
-                    OR ndc9 = :ndc
-                    OR REPLACE(ndc11, '-', '') = :clean_ndc
-                    OR REPLACE(ndc9, '-', '') = :clean_ndc
+                       OR ndc9  = :ndc
+                       OR REPLACE(ndc11, '-', '') = :clean_ndc
+                       OR REPLACE(ndc9,  '-', '') = :clean_ndc
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"ndc": ndc, "clean_ndc": clean_ndc})
+
             elif rxcui:
                 query = text("""
                     SELECT * FROM pillfinder
@@ -399,24 +442,27 @@ async def get_pill_details(
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"rxcui": rxcui})
+
             elif imprint and drug_name:
-                norm_imp = normalize_imprint(imprint)
+                norm_imp  = normalize_imprint(imprint)
                 norm_name = normalize_name(drug_name)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:imprint)
-                    AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)
+                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
+                      AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"imprint": norm_imp, "drug_name": norm_name})
+
             elif imprint:
                 norm_imp = normalize_imprint(imprint)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:imprint)
+                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"imprint": norm_imp})
+
             elif drug_name:
                 norm_name = normalize_name(drug_name)
                 query = text("""
@@ -425,6 +471,7 @@ async def get_pill_details(
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"drug_name": norm_name})
+
             else:
                 raise HTTPException(status_code=400, detail="At least one search parameter is required")
 
@@ -432,52 +479,54 @@ async def get_pill_details(
             if not row:
                 raise HTTPException(status_code=404, detail="No pills found matching your criteria")
 
-            columns = result.keys()
+            columns   = result.keys()
             pill_info = dict(zip(columns, row))
             pill_info = normalize_fields(pill_info)
 
+            # 2) Build the raw filename string
             if used_ndc:
                 filenames = pill_info.get("image_filename", "")
             else:
-                query = text("""
+                image_q = text("""
                     SELECT image_filename FROM pillfinder
                     WHERE medicine_name = :medicine_name
-                    AND splimprint = :splimprint
+                      AND splimprint    = :splimprint
                 """)
-                image_result = conn.execute(query, {
+                img_rows = conn.execute(image_q, {
                     "medicine_name": pill_info.get("medicine_name", ""),
-                    "splimprint": pill_info.get("splimprint", "")
+                    "splimprint":    pill_info.get("splimprint", "")
                 })
+                filenames = ",".join(r[0] for r in img_rows if r[0])
 
-                filenames_list = []
-                for img_row in image_result:
-                    if img_row[0]:
-                        filenames_list.append(img_row[0])
+        # 3) PROBE for real extensions ASYNC, just like your index/search
+        raw_list     = split_image_filenames(filenames)
+        fixed_images = await asyncio.gather(
+            *(async_fix_image_filename(img) for img in raw_list),
+            return_exceptions=False
+        )
 
-                filenames = ",".join(filenames_list)
+        if not fixed_images:
+            fixed_images = ["placeholder.jpg"]
 
-            valid = get_valid_images_from_supabase(filenames)
-            image_urls = [f"{IMAGE_BASE}/{img}" for img in valid][:MAX_IMAGES_PER_DRUG]
+        image_urls = [f"{IMAGE_BASE}/{img}" for img in fixed_images][:MAX_IMAGES_PER_DRUG]
 
-            if not image_urls:
-                image_urls = ["https://via.placeholder.com/400x300?text=No+Image+Available"]
+        # 4) Attach to pill_info
+        pill_info["image_urls"]          = image_urls
+        pill_info["has_multiple_images"] = len(image_urls) > 1
+        pill_info["carousel_images"]     = [
+            {"id": i, "url": url} for i, url in enumerate(image_urls)
+        ]
 
-            pill_info["image_urls"] = image_urls
-            pill_info["has_multiple_images"] = len(image_urls) > 1
-            pill_info["carousel_images"] = [
-                {"id": i, "url": url} for i, url in enumerate(image_urls)
-            ]
+        logger.info(f"Details for {pill_info.get('medicine_name')}: {len(image_urls)} images")
 
-            logger.info(f"Drug: {pill_info.get('medicine_name')} - Images: {len(image_urls)} - Has multiple: {pill_info['has_multiple_images']}")
-
-            return pill_info
+        return pill_info
 
     except SQLAlchemyError as e:
-        logger.error(f"Database error in get_pill_details: {e}")
-        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+        logger.error(f"Database error in get_pill_details: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
     except Exception as e:
-        logger.error(f"Error in get_pill_details: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {e}")
+        logger.error(f"Error in get_pill_details: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # [Rest of your existing routes (suggestions, search, filters, etc.) remain unchanged...]
 @app.get("/suggestions")
@@ -597,14 +646,17 @@ def get_suggestions(
     logger.info("→ branch: default (no suggestions)")
     return []
 
+
+
 @app.get("/search")
-def search(
+async def search(
     q: Optional[str] = Query(None),
     type: Optional[str] = Query("imprint"),
     color: Optional[str] = Query(None),
     shape: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    per_page: int = Query(25, ge=1, le=100)
+    per_page: int = Query(25, ge=1, le=100),
+    background_tasks: BackgroundTasks = None,
 ) -> dict:
     global db_engine
 
@@ -658,61 +710,57 @@ def search(
 
             result = conn.execute(text(base_sql), params)
             rows = result.fetchall()
-            columns = result.keys()
 
-        # Now rows are tuples, so convert
-        records_raw = [dict(zip(columns, row)) for row in rows]
-
-        # Group by (medicine_name, splimprint)
         grouped = {}
-        for row in records_raw:
-            key = (row.get("medicine_name", ""), row.get("splimprint", ""))
+        for row in rows:
+            key = (row["medicine_name"], row["splimprint"])
             if key not in grouped:
                 grouped[key] = {
-                    "medicine_name": row.get("medicine_name", ""),
-                    "splimprint": row.get("splimprint", ""),
-                    "splcolor_text": row.get("splcolor_text", ""),
-                    "splshape_text": row.get("splshape_text", ""),
-                    "ndc11": row.get("ndc11", ""),
-                    "rxcui": row.get("rxcui", ""),
+                    "medicine_name": row["medicine_name"] or "",
+                    "splimprint": row["splimprint"] or "",
+                    "splcolor_text": row["splcolor_text"] or "",
+                    "splshape_text": row["splshape_text"] or "",
+                    "ndc11": row["ndc11"] or "",
+                    "rxcui": row["rxcui"] or "",
                     "image_filenames": []
                 }
-            if row.get("image_filename"):
+            if row["image_filename"]:
                 grouped[key]["image_filenames"].append(row["image_filename"])
 
-        # Process groups
-        results = []
+        records = []
         for data in grouped.values():
             merged_images = []
             for filename in data["image_filenames"]:
                 merged_images.extend(split_image_filenames(filename))
 
-            image_urls = []
-            for img in merged_images:
-                img_clean = clean_filename(img)
-                if img_clean:
-                    image_urls.append(f"{IMAGE_BASE}/{img_clean}")
+            clean_imgs = [clean_filename(img) for img in merged_images]
 
-            if not image_urls:
-                image_urls = ["https://via.placeholder.com/400x300?text=No+Image+Available"]
+            # Async check all images in parallel
+            fixed_imgs = await asyncio.gather(*(async_fix_image_filename(img) for img in clean_imgs))
 
-            results.append({
+            valid_images = [f"{IMAGE_BASE}/{img}" for img in fixed_imgs if img]
+
+            if not valid_images:
+                valid_images = ["https://via.placeholder.com/400x300?text=No+Image+Available"]
+
+            item = {
                 "medicine_name": data["medicine_name"],
                 "splimprint": data["splimprint"],
                 "splcolor_text": data["splcolor_text"],
                 "splshape_text": data["splshape_text"],
                 "ndc11": data["ndc11"],
                 "rxcui": data["rxcui"],
-                "image_urls": image_urls[:MAX_IMAGES_PER_DRUG],
-                "has_multiple_images": len(image_urls) > 1,
-                "carousel_images": [{"id": i, "url": url} for i, url in enumerate(image_urls)]
-            })
+                "image_urls": valid_images[:MAX_IMAGES_PER_DRUG],
+                "has_multiple_images": len(valid_images) > 1,
+                "carousel_images": [{"id": i, "url": url} for i, url in enumerate(valid_images[:MAX_IMAGES_PER_DRUG])]
+            }
 
-        # Pagination
-        total = len(results)
+            records.append(item)
+
+        total = len(records)
         start = (page - 1) * per_page
         end = start + per_page
-        page_data = results[start:end]
+        page_data = records[start:end]
 
         return {
             "results": page_data,
