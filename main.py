@@ -711,34 +711,52 @@ async def search(
             result = conn.execute(text(base_sql), params)
             rows = result.fetchall()
 
+        # Group by normalized medicine name and imprint
         grouped = {}
         for row in rows:
-            key = (row["medicine_name"], row["splimprint"])
+            # Access by index for SQLAlchemy 1.4 compatibility
+            medicine_name = row[0] if row[0] else ""  # medicine_name is first column
+            splimprint = row[1] if row[1] else ""     # splimprint is second column
+            
+            # Normalize for grouping
+            norm_name = normalize_name(medicine_name)
+            norm_imprint = normalize_imprint(splimprint)
+            key = (norm_name, norm_imprint)
+            
             if key not in grouped:
                 grouped[key] = {
-                    "medicine_name": row["medicine_name"] or "",
-                    "splimprint": row["splimprint"] or "",
-                    "splcolor_text": row["splcolor_text"] or "",
-                    "splshape_text": row["splshape_text"] or "",
-                    "ndc11": row["ndc11"] or "",
-                    "rxcui": row["rxcui"] or "",
-                    "image_filenames": []
+                    "medicine_name": medicine_name,
+                    "splimprint": splimprint,
+                    "splcolor_text": row[2] if row[2] else "",  # splcolor_text
+                    "splshape_text": row[3] if row[3] else "",  # splshape_text
+                    "ndc11": row[4] if row[4] else "",          # ndc11
+                    "rxcui": row[5] if row[5] else "",          # rxcui
+                    "image_filenames": set()                    # Use set to avoid duplicates
                 }
-            if row["image_filename"]:
-                grouped[key]["image_filenames"].append(row["image_filename"])
+            
+            # Handle image filenames - 6th index
+            if row[6]:  # image_filename
+                filenames = split_image_filenames(row[6])
+                for fname in filenames:
+                    if fname:
+                        grouped[key]["image_filenames"].add(fname)
 
         records = []
         for data in grouped.values():
-            merged_images = []
-            for filename in data["image_filenames"]:
-                merged_images.extend(split_image_filenames(filename))
-
+            # Convert the set of image filenames back to a list
+            merged_images = list(data["image_filenames"])
             clean_imgs = [clean_filename(img) for img in merged_images]
 
             # Async check all images in parallel
             fixed_imgs = await asyncio.gather(*(async_fix_image_filename(img) for img in clean_imgs))
 
-            valid_images = [f"{IMAGE_BASE}/{img}" for img in fixed_imgs if img]
+            # Remove duplicates and empty values
+            valid_images = []
+            seen = set()
+            for img in fixed_imgs:
+                if img and img not in seen:
+                    seen.add(img)
+                    valid_images.append(f"{IMAGE_BASE}/{img}")
 
             if not valid_images:
                 valid_images = ["https://via.placeholder.com/400x300?text=No+Image+Available"]
@@ -773,7 +791,6 @@ async def search(
     except Exception as e:
         logger.error(f"Search error: {str(e)}", exc_info=True)
         raise HTTPException(500, detail=f"Search error: {str(e)}")
-
 
 
 
