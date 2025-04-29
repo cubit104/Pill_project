@@ -4,130 +4,480 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pill Identifier</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        /* Ensure images fit well inside the carousel */
-        .carousel-inner .carousel-item img {
-            width: 100%;          /* Make image take up full width */
-            height: auto;         /* Maintain aspect ratio */
-            object-fit: contain;  /* Ensure images don't get distorted */
+        :root {
+            --primary: #5d05e2;
+            --primary-dark: #4d04b9;
+            --secondary: #6c757d;
+            --accent: #8a43ff;
+            --light: #f8f9fa;
+            --dark: #212529;
+            --success: #198754;
+            --danger: #dc3545;
+            --warning: #ffc107;
+            --info: #0dcaf0;
+            --shadow: rgba(0, 0, 0, 0.1);
+            --radius: 0.5rem;
+            --transition: all 0.3s ease;
         }
-
-        /* Optional: Adjust the height of the carousel container */
-        .carousel-inner {
-            max-height: 400px; /* Set a max height for the carousel */
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f5f7fa;
+            color: var(--dark);
+            line-height: 1.6;
         }
-
-        /* Styling for carousel navigation arrows */
-        .carousel-control-prev-icon,
-        .carousel-control-next-icon {
-            background-color: rgba(0, 0, 0, 0.5); /* Make arrows more visible */
-            border-radius: 50%; /* Rounded arrows */
-            width: 40px; /* Adjust size */
-            height: 40px;
+        
+        /* Header Styling */
+        .app-header {
+            background-color: white;
+            box-shadow: 0 2px 15px var(--shadow);
+            padding: 1rem 0;
+            margin-bottom: 2rem;
         }
-
+        
+        .app-header h1 {
+            font-weight: 600;
+            color: var(--primary-dark);
+            margin: 0;
+            font-size: 1.75rem;
+        }
+        
+        /* Search Container Styling */
+        .search-container {
+            background-color: white;
+            border-radius: var(--radius);
+            box-shadow: 0 4px 12px var(--shadow);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+        
+        /* Custom Tab Styling */
+        .search-tabs {
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+            margin-bottom: 1.5rem;
+        }
+        
+        .search-tabs .nav-link {
+            color: var(--secondary);
+            font-weight: 500;
+            padding: 0.75rem 1rem;
+            margin-right: 1rem;
+            border: none;
+            position: relative;
+            transition: var(--transition);
+        }
+        
+        .search-tabs .nav-link:hover {
+            color: var(--primary);
+        }
+        
+        .search-tabs .nav-link.active {
+            color: var(--primary);
+            background: transparent;
+            border: none;
+        }
+        
+        .search-tabs .nav-link.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background-color: var(--primary);
+            border-top-left-radius: 3px;
+            border-top-right-radius: 3px;
+        }
+        
+        .search-tabs .nav-link i {
+            margin-right: 0.5rem;
+        }
+        
+        /* Form Controls */
+        .form-control {
+            border-radius: var(--radius);
+            padding: 0.75rem 1rem;
+            border: 1px solid #ced4da;
+            transition: var(--transition);
+        }
+        
+        .form-control:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 0.25rem rgba(93, 5, 226, 0.25);
+        }
+        
+        .form-label {
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+        
+        /* Filters Section */
+        .filters-section {
+            background-color: rgba(93, 5, 226, 0.05);
+            border-radius: var(--radius);
+            padding: 1.25rem;
+            margin: 1.5rem 0;
+        }
+        
+        .filters-section h5 {
+            color: var(--primary-dark);
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        
+        /* Search Button */
+        .btn-search {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            font-weight: 500;
+            border-radius: var(--radius);
+            transition: var(--transition);
+            width: 100%;
+        }
+        
+        .btn-search:hover, .btn-search:focus {
+            background-color: var(--primary-dark);
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+        
+        /* Results Section */
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .results-header h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--dark);
+            margin: 0;
+        }
+        
+        .results-count {
+            color: var(--primary);
+            font-weight: 600;
+        }
+        
+        /* Card Styling */
         .drug-card {
-            margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: none;
+            border-radius: var(--radius);
+            box-shadow: 0 4px 12px var(--shadow);
+            transition: var(--transition);
+            margin-bottom: 2rem;
+            overflow: hidden;
+        }
+        
+        .drug-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.15);
+        }
+        
+        .card-img-container {
+            background-color: #f8f9fa;
+            padding: 1.5rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 200px;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
         }
         
         .drug-image {
-            max-width: 200px;
-            height: auto;
-            margin: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            max-width: 100%;
+            max-height: 180px;
+            object-fit: contain;
         }
         
-        .search-container {
+        .drug-card .card-body {
+            padding: 1.5rem;
+        }
+        
+        .drug-card .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--primary-dark);
+        }
+        
+        .pill-info {
+            margin-bottom: 1rem;
+        }
+        
+        .pill-info-item {
+            display: flex;
+            margin-bottom: 0.5rem;
+        }
+        
+        .pill-info-label {
+            font-weight: 500;
+            width: 80px;
+            color: var(--secondary);
+        }
+        
+        .pill-info-value {
+            font-weight: 400;
+        }
+        
+        .btn-details {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: var(--radius);
+            padding: 0.75rem 1.5rem;
+            font-weight: 500;
+            transition: var(--transition);
+            width: 100%;
+        }
+        
+        .btn-details:hover {
+            background-color: var(--primary-dark);
+            color: white;
+        }
+        
+        /* Carousel Styling */
+        .carousel {
+            border-radius: var(--radius) var(--radius) 0 0;
+            overflow: hidden;
+        }
+        
+        .carousel-item {
             background-color: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+            text-align: center;
+            padding: 1.5rem;
+            height: 250px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
-        .filters {
-            margin-bottom: 20px;
+        .carousel-item img {
+            max-width: 100%;
+            max-height: 220px;
+            object-fit: contain;
         }
         
-        .color-box {
-            width: 20px;
-            height: 20px;
-            display: inline-block;
-            margin-right: 5px;
-            border: 1px solid #ddd;
+        .carousel-control-prev,
+        .carousel-control-next {
+            width: 10%;
         }
         
+        .carousel-control-prev-icon,
+        .carousel-control-next-icon {
+            background-color: rgba(0, 0, 0, 0.3);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+        }
+        
+        /* Pagination */
+        .pagination-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 1rem;
+            margin-bottom: 3rem;
+        }
+        
+        .pagination-info {
+            margin: 0 1rem;
+            font-weight: 500;
+        }
+        
+        .btn-pagination {
+            background-color: white;
+            color: var(--primary);
+            border: 1px solid var(--primary);
+            border-radius: var(--radius);
+            padding: 0.5rem 1rem;
+            font-weight: 500;
+            transition: var(--transition);
+        }
+        
+        .btn-pagination:hover:not([disabled]) {
+            background-color: var(--primary);
+            color: white;
+        }
+        
+        .btn-pagination:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        /* Loading Spinner */
         #loading {
             display: none;
             text-align: center;
-            padding: 20px;
+            padding: 2rem;
         }
         
-        .suggestion-item {
-            cursor: pointer;
-            padding: 5px 10px;
+        .spinner-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
         }
         
-        .suggestion-item:hover {
-            background-color: #f0f0f0;
+        .spinner {
+            width: 3rem;
+            height: 3rem;
+            border: 4px solid rgba(93, 5, 226, 0.2);
+            border-left-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
         }
         
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        
+        /* Suggestions */
         .suggestions-container {
             position: absolute;
             background: white;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            border: 1px solid #ced4da;
+            border-radius: var(--radius);
             max-height: 200px;
             overflow-y: auto;
             width: 100%;
             z-index: 1000;
             display: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
         
-        /* Styling for search tabs */
-        .search-tabs .nav-link {
-            font-weight: bold;
-            color: #43596e;
+        .suggestion-item {
+            cursor: pointer;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            transition: var(--transition);
         }
         
-        .search-tabs .nav-link.active {
-            color: #c71818;
-            border-bottom: 3px solid #007bff;
+        .suggestion-item:last-child {
+            border-bottom: none;
         }
         
-        /* Remove standard tab styling */
-        .search-tabs .nav-link:focus, 
-        .search-tabs .nav-link:hover {
-            border-color: transparent;
+        .suggestion-item:hover {
+            background-color: rgba(93, 5, 226, 0.1);
         }
         
-        .tab-pane {
-            padding-top: 20px;
+        /* Color and shape display */
+        .color-box {
+            width: 20px;
+            height: 20px;
+            display: inline-block;
+            margin-right: 8px;
+            border-radius: 4px;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+        
+        /* Emblem styling */
+        .app-emblem {
+            color: var(--primary);
+            margin-right: 12px;
+            font-size: 1.75rem;
+            vertical-align: middle;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .app-header h1 {
+                font-size: 1.5rem;
+            }
+            
+            .search-tabs .nav-link {
+                padding: 0.6rem 0.75rem;
+                margin-right: 0.5rem;
+                font-size: 0.9rem;
+            }
+            
+            .carousel-item {
+                height: 200px;
+            }
+            
+            .drug-card .card-title {
+                font-size: 1.1rem;
+            }
+            
+            .pill-info-label {
+                width: 70px;
+            }
+        }
+        
+        @media (max-width: 576px) {
+            .search-container {
+                padding: 1rem;
+            }
+            
+            .filters-section {
+                padding: 1rem;
+            }
+            
+            .drug-card {
+                margin-bottom: 1.5rem;
+            }
+            
+            .carousel-item {
+                height: 180px;
+            }
+            
+            .carousel-item img {
+                max-height: 160px;
+            }
+            
+            .pagination-container {
+                flex-wrap: wrap;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container mt-4">
-        <h1 class="mb-4">Pill Identifier</h1>
+    <!-- Header Section -->
+    <header class="app-header">
+        <div class="container">
+            <div class="d-flex align-items-center">
+                <h1><i class="fas fa-mortar-pestle app-emblem"></i> Pill Identifier</h1>
+            </div>
+        </div>
+    </header>
 
+    <!-- Main Content -->
+    <div class="container">
+        <!-- Search Section -->
         <div class="search-container">
             <!-- Search Tabs -->
             <ul class="nav nav-tabs search-tabs" id="searchTabs" role="tablist">
                 <li class="nav-item" role="presentation">
                     <button class="nav-link active" id="imprint-tab" data-bs-toggle="tab" data-bs-target="#imprint-search" type="button" role="tab">
-                        <i class="bi bi-search"></i> Search by Imprint
+                        <i class="fas fa-fingerprint"></i> Imprint
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="drug-tab" data-bs-toggle="tab" data-bs-target="#drug-search" type="button" role="tab">
-                        <i class="bi bi-capsule"></i> Search by Drug Name
+                        <i class="fas fa-capsules"></i> Drug Name
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="ndc-tab" data-bs-toggle="tab" data-bs-target="#ndc-search" type="button" role="tab">
-                        <i class="bi bi-upc-scan"></i> Search by NDC
+                        <i class="fas fa-barcode"></i> NDC
                     </button>
                 </li>
             </ul>
@@ -136,10 +486,10 @@
             <div class="tab-content" id="searchTabsContent">
                 <!-- Imprint Search -->
                 <div class="tab-pane fade show active" id="imprint-search" role="tabpanel">
-                    <div class="row mb-3">
+                    <div class="row">
                         <div class="col-md-12">
                             <div class="form-group position-relative">
-                                <label for="imprintQuery">Imprint Code:</label>
+                                <label for="imprintQuery" class="form-label">Imprint Code:</label>
                                 <input type="text" class="form-control" id="imprintQuery" placeholder="Enter imprint code (e.g., G32)">
                                 <div id="imprintSuggestions" class="suggestions-container"></div>
                             </div>
@@ -149,10 +499,10 @@
                 
                 <!-- Drug Name Search -->
                 <div class="tab-pane fade" id="drug-search" role="tabpanel">
-                    <div class="row mb-3">
+                    <div class="row">
                         <div class="col-md-12">
                             <div class="form-group position-relative">
-                                <label for="drugNameQuery">Drug Name:</label>
+                                <label for="drugNameQuery" class="form-label">Drug Name:</label>
                                 <input type="text" class="form-control" id="drugNameQuery" placeholder="Enter drug name (e.g., Lisinopril)">
                                 <div id="drugNameSuggestions" class="suggestions-container"></div>
                             </div>
@@ -162,10 +512,10 @@
                 
                 <!-- NDC Search -->
                 <div class="tab-pane fade" id="ndc-search" role="tabpanel">
-                    <div class="row mb-3">
+                    <div class="row">
                         <div class="col-md-12">
                             <div class="form-group position-relative">
-                                <label for="ndcQuery">NDC Code:</label>
+                                <label for="ndcQuery" class="form-label">NDC Code:</label>
                                 <input type="text" class="form-control" id="ndcQuery" placeholder="Enter NDC code (e.g., 00093-0311)">
                                 <div id="ndcSuggestions" class="suggestions-container"></div>
                             </div>
@@ -174,44 +524,67 @@
                 </div>
             </div>
 
-            <!-- Common Filters Section -->
-            <div class="filters mt-4">
-                <h5>Filter Results</h5>
+            <!-- Filters Section -->
+            <div class="filters-section">
+                <h5><i class="fas fa-filter me-2"></i>Filter Results</h5>
                 <div class="row">
-                    <div class="col-md-6">
-                        <div class="form-group mb-3">
-                            <label for="colorFilter">Color:</label>
-                            <select class="form-control" id="colorFilter">
-                                <option value="">All Colors</option>
-                            </select>
-                        </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="colorFilter" class="form-label">Color:</label>
+                        <select class="form-select" id="colorFilter">
+                            <option value="">All Colors</option>
+                        </select>
                     </div>
-                    <div class="col-md-6">
-                        <div class="form-group mb-3">
-                            <label for="shapeFilter">Shape:</label>
-                            <select class="form-control" id="shapeFilter">
-                                <option value="">All Shapes</option>
-                            </select>
-                        </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="shapeFilter" class="form-label">Shape:</label>
+                        <select class="form-select" id="shapeFilter">
+                            <option value="">All Shapes</option>
+                        </select>
                     </div>
                 </div>
             </div>
 
-            <button class="btn btn-primary" onclick="search()">Search</button>
-        </div>
-
-        <div id="loading">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
+            <!-- Search Button -->
+            <div class="row mt-4">
+                <div class="col-md-12">
+                    <button class="btn btn-search" onclick="search()">
+                        <i class="fas fa-search me-2"></i>Search Pills
+                    </button>
+                </div>
             </div>
         </div>
 
-        <div id="results" class="row"></div>
-        
-        <div id="pagination" class="mt-4 text-center">
-            <button class="btn btn-secondary me-2" onclick="previousPage()" id="prevButton">Previous</button>
-            <span id="pageInfo">Page 1</span>
-            <button class="btn btn-secondary ms-2" onclick="nextPage()" id="nextButton">Next</button>
+        <!-- Loading Indicator -->
+        <div id="loading">
+            <div class="spinner-container">
+                <div class="spinner"></div>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div class="results-section">
+            <div class="results-header d-none" id="resultsHeaderContainer">
+                <h2>Search Results <span class="results-count" id="resultsCount">(0)</span></h2>
+                <div class="results-actions">
+                    <select class="form-select form-select-sm" id="sortResults">
+                        <option value="relevance">Sort by Relevance</option>
+                        <option value="name_asc">Name (A-Z)</option>
+                        <option value="name_desc">Name (Z-A)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div id="results" class="row"></div>
+            
+            <!-- Pagination -->
+            <div class="pagination-container" id="paginationContainer">
+                <button class="btn btn-pagination me-2" onclick="previousPage()" id="prevButton" disabled>
+                    <i class="fas fa-chevron-left me-1"></i>Previous
+                </button>
+                <div class="pagination-info" id="pageInfo">Page 1</div>
+                <button class="btn btn-pagination ms-2" onclick="nextPage()" id="nextButton" disabled>
+                    Next<i class="fas fa-chevron-right ms-1"></i>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -220,6 +593,7 @@
         let totalPages = 1;
         const perPage = 25;
         let activeSearchType = 'imprint'; // Default search type
+        let searchResults = []; // Store search results
         // Define Supabase image base URL
         const IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images";
 
@@ -252,6 +626,24 @@
                     });
                 }
             });
+            
+            // Handle Enter key press in search inputs
+            document.getElementById('imprintQuery').addEventListener('keyup', function(e) {
+                if (e.key === 'Enter') search();
+            });
+            document.getElementById('drugNameQuery').addEventListener('keyup', function(e) {
+                if (e.key === 'Enter') search();
+            });
+            document.getElementById('ndcQuery').addEventListener('keyup', function(e) {
+                if (e.key === 'Enter') search();
+            });
+            
+            // Handle sort change
+            document.getElementById('sortResults').addEventListener('change', function() {
+                if (searchResults.length > 0) {
+                    sortAndDisplayResults();
+                }
+            });
         });
 
         function debounce(func, wait) {
@@ -276,14 +668,18 @@
                 
                 // Load colors
                 data.colors.forEach(color => {
-                    const option = new Option(color.name, color.name.toLowerCase());
-                    colorSelect.add(option);
+                    const option = document.createElement('option');
+                    option.value = color.name.toLowerCase();
+                    option.innerHTML = `<span class="color-box" style="background-color: ${color.hex};"></span> ${color.name}`;
+                    colorSelect.appendChild(option);
                 });
                 
                 // Load shapes
                 data.shapes.forEach(shape => {
-                    const option = new Option(`${shape.icon} ${shape.name}`, shape.name.toLowerCase());
-                    shapeSelect.add(option);
+                    const option = document.createElement('option');
+                    option.value = shape.name.toLowerCase();
+                    option.innerHTML = `${shape.icon} ${shape.name}`;
+                    shapeSelect.appendChild(option);
                 });
             } catch (error) {
                 console.error('Error loading filters:', error);
@@ -343,6 +739,30 @@
             }
         }
 
+        // Sort and display results based on current sort option
+        function sortAndDisplayResults() {
+            const sortBy = document.getElementById('sortResults').value;
+            
+            // Clone the array to avoid modifying the original
+            const sortedResults = [...searchResults];
+            
+            // Sort based on selected option
+            switch (sortBy) {
+                case 'name_asc':
+                    sortedResults.sort((a, b) => a.medicine_name.localeCompare(b.medicine_name));
+                    break;
+                case 'name_desc':
+                    sortedResults.sort((a, b) => b.medicine_name.localeCompare(a.medicine_name));
+                    break;
+                // Default to relevance (original order)
+                default:
+                    break;
+            }
+            
+            // Display the sorted results
+            displayResults(sortedResults);
+        }
+
         async function search(page = 1) {
             currentPage = page;
             let query = "";
@@ -370,6 +790,7 @@
 
             document.getElementById('loading').style.display = 'block';
             document.getElementById('results').innerHTML = '';
+            document.getElementById('resultsHeaderContainer').classList.add('d-none');
 
             try {
                 const url = new URL('/search', window.location.origin);
@@ -384,11 +805,25 @@
                 const response = await fetch(url);
                 const data = await response.json();
                 
+                // Store results for potential sorting
+                searchResults = data.results || [];
+                
+                // Show results count
+                document.getElementById('resultsHeaderContainer').classList.remove('d-none');
+                document.getElementById('resultsCount').textContent = `(${data.total_count || 0})`;
+                
+                // Display results
                 displayResults(data.results);
                 updatePagination(data.page, data.total_pages);
             } catch (error) {
                 console.error('Error performing search:', error);
-                document.getElementById('results').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error performing search</div></div>';
+                document.getElementById('results').innerHTML = `
+                    <div class="col-12">
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle me-2"></i>Error performing search. Please try again.
+                        </div>
+                    </div>
+                `;
             } finally {
                 document.getElementById('loading').style.display = 'none';
             }
@@ -399,7 +834,13 @@
             resultsDiv.innerHTML = '';  // Clear previous results
 
             if (!results || results.length === 0) {
-                resultsDiv.innerHTML = '<div class="col-12"><div class="alert alert-info">No results found</div></div>';
+                resultsDiv.innerHTML = `
+                    <div class="col-12">
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>No results found. Please try a different search.
+                        </div>
+                    </div>
+                `;
                 return;
             }
 
@@ -413,11 +854,11 @@
                 
                 if (drug.image_urls && drug.image_urls.length > 0) {
                     imagesHtml = `
-                        <div id="carousel-${drug.ndc11}" class="carousel slide" data-bs-ride="carousel">
+                        <div id="carousel-${drug.ndc11}" class="carousel slide" data-bs-ride="false">
                             <div class="carousel-inner">
                                 ${drug.image_urls.map((url, index) => `
                                     <div class="carousel-item ${index === 0 ? 'active' : ''}">
-                                        <img src="${url}" class="d-block w-100 drug-image" alt="Pill Image">
+                                        <img src="${url}" class="drug-image" alt="${drug.medicine_name || 'Pill'} Image">
                                     </div>
                                 `).join('')}
                             </div>
@@ -433,37 +874,93 @@
                             ` : ''}
                         </div>
                     `;
+                } else {
+                    imagesHtml = `
+                        <div class="card-img-container">
+                            <div class="text-center text-muted">
+                                <i class="fas fa-pills fa-4x mb-3"></i>
+                                <p>No image available</p>
+                            </div>
+                        </div>
+                    `;
                 }
 
-                // Adding the View Details button below each card
                 col.innerHTML = `
-                    <div class="card drug-card">
+                    <div class="drug-card">
+                        ${imagesHtml}
                         <div class="card-body">
-                            <h5 class="card-title">${drug.medicine_name || 'N/A'}</h5>
-                            <p class="card-text">
-                                <strong>Imprint:</strong> ${drug.splimprint || 'N/A'}<br>
-                                <strong>Color:</strong> ${drug.splcolor_text || 'N/A'}<br>
-                                <strong>Shape:</strong> ${drug.splshape_text || 'N/A'}<br>
-                                <strong>NDC:</strong> ${drug.ndc11 || 'N/A'}<br>
-                                <strong>RxCUI:</strong> ${drug.rxcui || 'N/A'}
-                            </p>
-                            <div class="images-container">
-                                ${imagesHtml || '<p>No images available</p>'}
+                            <h5 class="card-title">${drug.medicine_name || 'Unknown Drug'}</h5>
+                            
+                            <div class="pill-info">
+                                <div class="pill-info-item">
+                                    <div class="pill-info-label">Imprint:</div>
+                                    <div class="pill-info-value">${drug.splimprint || 'N/A'}</div>
+                                </div>
+                                
+                                <div class="pill-info-item">
+                                    <div class="pill-info-label">Color:</div>
+                                    <div class="pill-info-value">
+                                        ${drug.splcolor_text ? `
+                                            <span class="color-box" style="background-color: ${getColorHex(drug.splcolor_text)};"></span> ${drug.splcolor_text}
+                                        ` : 'N/A'}
+                                    </div>
+                                </div>
+                                
+                                <div class="pill-info-item">
+                                    <div class="pill-info-label">Shape:</div>
+                                    <div class="pill-info-value">${drug.splshape_text || 'N/A'}</div>
+                                </div>
                             </div>
-                            <!-- View Details Button -->
-                            <a href="/details.html?imprint=${encodeURIComponent(drug.splimprint || '')}&drug_name=${encodeURIComponent(drug.medicine_name || '')}" class="btn btn-primary w-100">View Details</a>
+                            
+                            <a href="/details.html?imprint=${encodeURIComponent(drug.splimprint || '')}&drug_name=${encodeURIComponent(drug.medicine_name || '')}" class="btn btn-details">
+                                <i class="fas fa-info-circle me-2"></i>View Details
+                            </a>
                         </div>
                     </div>
                 `;
 
                 resultsDiv.appendChild(col);
             });
+            
+            // Initialize tooltips
+            document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(tooltip => {
+                new bootstrap.Tooltip(tooltip);
+            });
+        }
+
+        // Helper function to get color hex code from name (simplified example)
+        function getColorHex(colorName) {
+            const colorMap = {
+                'white': '#FFFFFF',
+                'black': '#000000',
+                'red': '#FF0000',
+                'blue': '#0000FF',
+                'green': '#008000',
+                'yellow': '#FFFF00',
+                'orange': '#FFA500',
+                'purple': '#800080',
+                'pink': '#FFC0CB',
+                'brown': '#A52A2A',
+                'gray': '#808080',
+                'tan': '#D2B48C'
+            };
+            
+            const colorLower = colorName.toLowerCase();
+            for (const [key, value] of Object.entries(colorMap)) {
+                if (colorLower.includes(key)) {
+                    return value;
+                }
+            }
+            return '#CCCCCC'; // Default
         }
 
         function updatePagination(currentPage, totalPages) {
             document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
             document.getElementById('prevButton').disabled = currentPage <= 1;
             document.getElementById('nextButton').disabled = currentPage >= totalPages;
+            
+            // Show/hide pagination container based on whether there are multiple pages
+            document.getElementById('paginationContainer').style.display = totalPages > 1 ? 'flex' : 'none';
         }
 
         function previousPage() {
@@ -475,62 +972,7 @@
         function nextPage() {
             search(currentPage + 1);
         }
-
-        // Function to get URL parameters
-        function getUrlParams() {
-            const params = new URLSearchParams(window.location.search);
-            return {
-                imprint: params.get('imprint'),
-                drug_name: params.get('drug_name'),
-                rxcui: params.get('rxcui'),
-                ndc: params.get('ndc')
-            };
-        }
-
-        // Use the parameters to fetch data from backend
-        async function fetchPillDetails() {
-            const { imprint, drug_name, rxcui, ndc } = getUrlParams();
-            let url = '/details?';
-
-            // Add parameters to the URL
-            if (imprint && rxcui) url += `imprint=${imprint}&rxcui=${rxcui}`;
-            else if (drug_name && rxcui) url += `drug_name=${drug_name}&rxcui=${rxcui}`;
-            else if (ndc) url += `ndc=${ndc}`;
-
-            try {
-                const response = await fetch(url);
-                const data = await response.json();
-
-                // Display the fetched pill data
-                displayPillDetails(data);
-            } catch (error) {
-                console.error('Error fetching pill details:', error);
-            }
-        }
-
-        // Function to display pill details
-        function displayPillDetails(data) {
-            document.getElementById('pill-name').innerText = data.medicine_name;
-            document.getElementById('pill-description').innerText = data.description || 'No description available';
-            document.getElementById('pill-image').src = data.image_filename || 'default-image.jpg';
-
-            // Populate metadata
-            document.getElementById('drug-name').innerText = data.medicine_name;
-            document.getElementById('imprint').innerText = data.splimprint;
-            document.getElementById('strength').innerText = data.spl_strength;
-            document.getElementById('pharma-class').innerText = data.dailymed_pharma_class_epc || data.pharmclass_fda_epc;
-            document.getElementById('color').innerText = data.splcolor_text;
-            document.getElementById('shape').innerText = data.splshape_text;
-            document.getElementById('size').innerText = data.splsize;
-            document.getElementById('dea').innerText = data.dea_class;
-            document.getElementById('availability').innerText = data.availability;
-            document.getElementById('ndc').innerText = data.ndc11 || data.ndc9;
-            document.getElementById('dosage-form').innerText = data.dosage_form;
-            document.getElementById('active-ingredients').innerText = data.spl_ingredients;
-            document.getElementById('inactive-ingredients').innerText = data.spl_inactive_ing;
-            document.getElementById('manufacturer').innerText = data.author;
-        }
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
