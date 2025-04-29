@@ -5,600 +5,763 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pill Details</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
     <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            color: #333333;
-            font-size: 14px;
-        }
-        .pill-image {
-            width: 100%;
-            max-height: 400px;
-            object-fit: contain;
+        /* Main image styling */
+        .main-image-container {
+            position: relative;
+            overflow: hidden;
+            margin-bottom: 15px;
             border: 1px solid #ddd;
             border-radius: 8px;
-            padding: 10px;
-            margin-bottom: 15px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            background-color: #fff;
+            height: 350px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        .back-button {
-            margin-bottom: 20px;
+        
+        .main-image {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            transition: transform 0.3s ease;
+            cursor: zoom-in;
         }
-        .metadata-item {
-            margin-bottom: 10px;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 8px;
-            font-size: 1.0rem;
-            font-weight: bold;
+        
+        .main-image:hover {
+            transform: scale(1.3);
         }
-        .metadata-value {
-            font-weight: 400; /* Normal font weight, not bold */
-            text-transform: capitalize;
-        }
-        .metadata-label {
-            font-weight: 500; /* Medium weight, not too bold */
-            color: #3a3a3a;
-            font-weight: bold;
-        }
-        .error-message {
-            color: #dc3545;
-            padding: 15px;
-            border: 1px solid #dc3545;
-            border-radius: 5px;
-            margin: 20px 0;
-            display: none;
-        }
-        .loading {
-            text-align: center;
-            padding: 40px;
-            font-size: 1.1em;
-            color: #6c757d;
-        }
-        .image-debug {
-            font-size: 12px;
-            color: #6c757d;
-            margin-top: 10px;
-        }
-        .pill-summary {
-            background-color: #f8f9fa;
-            padding: 16px;
-            border-radius: 8px;
-            border-left: 4px solid #fa3838;
-            margin-bottom: 20px;
-            font-size: 1rem;
-            line-height: 1.6;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-        .image-carousel {
+        
+        /* Thumbnails styling */
+        .thumbnails-container {
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
             margin-bottom: 20px;
+            padding: 10px 0;
             justify-content: flex-start;
         }
-        .thumbnail-container {
-            width: 80px;
-            cursor: pointer;
-            border: 2px solid transparent;
-            border-radius: 6px;
-            transition: all 0.2s;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        
+        .thumbnail-wrapper {
+            width: 70px;
+            height: 70px;
+            flex: 0 0 auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
             overflow: hidden;
-        }
-        .thumbnail-container:hover {
-            transform: translateY(-2px);
-        }
-        .thumbnail-container.active {
-            border-color: #5a7cdf;
-        }
-        .thumbnail {
-            width: 100%;
-            height: 65px;
-            object-fit: contain;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            padding: 3px;
             background-color: white;
         }
-        #no-images-message {
+        
+        .thumbnail-wrapper:hover {
+            border-color: #007bff;
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+        
+        .thumbnail-wrapper.active {
+            border: 2px solid #007bff;
+        }
+        
+        .thumbnail {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            transition: transform 0.2s ease;
+        }
+        
+        .thumbnail:hover {
+            transform: scale(1.1);
+        }
+        
+        /* Back to search button */
+        .back-button {
+            margin-bottom: 15px;
+            display: inline-flex;
+            align-items: center;
+            font-weight: 500;
+        }
+        
+        .back-button i {
+            margin-right: 5px;
+        }
+        
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
+            .main-image-container {
+                height: 250px;
+            }
+            
+            .thumbnail-wrapper {
+                width: 60px;
+                height: 60px;
+            }
+            
+            .pill-header h2 {
+                font-size: 1.5rem;
+            }
+            
+            .pill-header h3 {
+                font-size: 1.2rem;
+            }
+        }
+        
+        @media (max-width: 576px) {
+            .main-image-container {
+                height: 200px;
+            }
+            
+            .thumbnail-wrapper {
+                width: 50px;
+                height: 50px;
+            }
+        }
+        
+        /* Detail sections styling */
+        .detail-section {
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .detail-header {
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+        }
+        
+        .pill-property {
+            margin-bottom: 10px;
+        }
+        
+        .pill-property label {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .pill-property p {
+            margin-bottom: 0;
+        }
+        
+        #loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+        }
+        
+        .pill-summary {
+            line-height: 1.6;
+            font-size: 1.1rem;
+        }
+        
+        .pill-header {
+            background-color: #f0f8ff;
             padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .value-text {
+        font-weight: normal;
+        }
+
+        h3 {
+        color: #5d05e2;
+        }
+        .pill-header h2 {
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        
+        .pill-header h3 {
+            color: #5d05e2;
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+        }
+        
+        /* No images message */
+        .no-images-container {
+            height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             background-color: #f8f9fa;
             border-radius: 8px;
+            border: 1px dashed #ced4da;
+            margin-bottom: 20px;
+        }
+        
+        .no-images-message {
             text-align: center;
+        }
+        
+        .no-images-message i {
+            font-size: 3rem;
             color: #6c757d;
-        }
-        h1 {
-            color: #2d3748;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            font-size: 1.8rem;
-        }
-        h2 {
-            color: #f60707; /* Blue color for H2 as requested */
-            font-weight: 500;
-            font-size: 1.4rem;
-            margin-bottom: 1rem;
-        }
-        h2 span:after {
-            content: 
-            font-weight: 500;
-        }
-        h2 span span {
-            font-weight: 400; /* Normal weight after the colon */
-            margin-left: 5px;
-        }
-        h3 {
-            color: #3a4f7a;
-            font-weight: 500;
-            font-size: 1.2rem;
-        }
-        .card {
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            overflow: hidden;
-        }
-        .card-header {
-            background-color: #f0f4ff;
-            color: #3a4f7a;
-            border-bottom: 1px solid #e2e8f0;
-            padding: 10px 16px;
-        }
-        .card-body {
-            padding: 16px;
-        }
-        .summary-text {
-            color: #333333; /* Consistent color throughout the paragraph */
-            font-weight: 400; /* Normal weight, not bold */
-        }
-        .summary-text span {
-            font-weight: 400; /* Override any highlight styling */
-            color: #333333; /* Same color as the rest of text */
-        }
-        .colon-after {
-            font-weight: inherit;
-        }
-        .colon-after::after {
-            content: ": ";
-        }
-        .value-after-colon {
-            font-weight: normal;
+            margin-bottom: 15px;
+            display: block;
         }
     </style>
 </head>
 <body>
-
-<div class="container mt-4">
-    <!-- Back Button - Now using root URL -->
-    <a href="/" class="btn btn-secondary back-button">Back to Search</a>
-
-    <!-- Loading Indicator -->
-    <div id="loading-indicator" class="loading">
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Loading...</span>
-        </div>
-        <p class="mt-2">Loading pill information...</p>
-    </div>
-
-    <!-- Error Message -->
-    <div id="error-message" class="error-message"></div>
-
-    <!-- Pill Information (Hidden until loaded) -->
-    <div id="pill-info-container" style="display: none;">
-        <!-- Pill Information Header -->
-        <h1 id="pill-name" class="mb-2">Pill Name</h1>
-
-        <!-- New H2 with Imprint -->
-        <h2 class="mb-3"><span id="imprint-header-label">Imprint<span id="imprint-header-value"> Not available</span></span></h2>
-
-        <!-- New Summary Section -->
-        <div class="pill-summary" id="pill-summary">
-            <div class="summary-text">
-                This medication is a white round pill with imprint ABC 123. 
-                It contains active ingredients and is manufactured by Manufacturer.
+    <div class="container mt-4 mb-5">
+        <!-- Back to Search Button -->
+        <a href="/" class="btn btn-primary back-button mb-3">
+            <i class="bi bi-arrow-left"></i> Back to Search
+        </a>
+        
+        <div id="loading">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading pill details...</span>
             </div>
         </div>
 
-        <div class="row mt-4">
-            <!-- Left Column: Pill Image and Thumbnails -->
+        <div id="pill-details" class="row" style="display: none;">
+            <!-- Pill Header Section -->
+            <div class="col-12 mb-4">
+                <div class="pill-header">
+                    <h2 id="header-drug-name">Loading...</h2>
+                    <h3 id="header-imprint">Imprint: -</h3>
+                    <p id="pill-description" class="pill-summary">
+                        Loading pill description...
+                    </p>
+                </div>
+            </div>
+            
+            <!-- Pill Images Section -->
             <div class="col-md-6 mb-4">
-                <!-- Main Image Display -->
-                <img id="main-pill-image" src="" alt="Pill Image" class="pill-image">
-
-                <!-- Image Carousel for Multiple Images -->
-                <div id="image-carousel" class="image-carousel"></div>
-
-                <!-- No Images Message -->
-                <div id="no-images-message" style="display: none;">
-                    <p>No images available for this medication.</p>
-                </div>
-
-                <!-- Debug Info -->
-                <div id="image-debug" class="image-debug"></div>
-            </div>
-
-            <!-- Right Column: Metadata -->
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title mb-0">Pill Information</h3>
+                <div id="images-container">
+                    <!-- Main large image -->
+                    <div class="main-image-container">
+                        <img id="main-image" class="main-image" src="" alt="Pill Image">
                     </div>
-                    <div class="card-body">
-                        <ul id="metadata" class="list-unstyled">
-                            <li class="metadata-item"><span class="metadata-label">Drug Name:</span> <span id="drug-name" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">Imprint:</span> <span id="imprint" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">Strength:</span> <span id="strength" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">Pharmacologic Class:</span> <span id="pharma-class" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">Color:</span> <span id="color" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">Shape:</span> <span id="shape" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">Size:</span> <span id="size" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">Route:</span> <span id="route" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">DEA:</span> <span id="dea" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">Availability:</span> <span id="availability" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">NDC:</span> <span id="ndc" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">Dosage Form:</span> <span id="dosage-form" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">Active Ingredients:</span> <span id="active-ingredients" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">Inactive Ingredients:</span> <span id="inactive-ingredients" class="metadata-value">-</span></li>
-                            <li class="metadata-item"><span class="metadata-label">Manufacturer:</span> <span id="manufacturer" class="metadata-value">-</span></li>
-                        </ul>
+                    
+                    <!-- Thumbnails row -->
+                    <div id="thumbnails-container" class="thumbnails-container">
+                        <!-- Thumbnails will be added here dynamically -->
                     </div>
                 </div>
             </div>
+            
+            <!-- Pill information -->
+<div class="col-md-6">
+    <div class="detail-section">
+        <div class="detail-header">
+            <h3>Basic Information</h3>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-6 pill-property">
+                <label>Imprint: <span class="value-text" id="imprint">-</span></label>
+            </div>
+            <div class="col-md-6 pill-property">
+                <label>Color: <span class="value-text" id="color">-</span></label>
+            </div>
+            <div class="col-md-6 pill-property">
+                <label>Shape: <span class="value-text" id="shape">-</span></label>
+            </div>
+            <div class="col-md-6 pill-property">
+                <label>Size: <span class="value-text" id="size">-</span></label>
+            </div>
+        </div>
+    </div>
+    
+    <div class="detail-section">
+        <div class="detail-header">
+            <h3>Drug Information</h3>
+        </div>
+        <div class="row">
+            <div class="col-md-6 pill-property">
+                <label>Strength: <span class="value-text" id="strength">-</span></label>
+            </div>
+            <div class="col-md-6 pill-property">
+                <label>RxCUI: <span class="value-text" id="rxcui">-</span></label>
+            </div>
+            <div class="col-md-6 pill-property">
+                <label>DEA Schedule: <span class="value-text" id="dea-schedule">-</span></label>
+            </div>
+            <div class="col-md-6 pill-property">
+                <label>Dosage Form: <span class="value-text" id="dosage-form">-</span></label>
+            </div>
+        </div>
+    </div>
+    
+    <div class="detail-section">
+        <div class="detail-header">
+            <h3>Pharmaceutical Classification</h3>
+        </div>
+        <div class="pill-property">
+            <label>Pharmaceutical Class: <span class="value-text" id="pharma-class">-</span></label>
         </div>
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-    // Global state to store all image URLs
-    let allImages = [];
-    let currentImageIndex = 0;
+        <!-- Full width sections -->
+        <div class="col-12 mt-4">
+            <div class="detail-section">
+                <div class="detail-header">
+                    <h3>Ingredients</h3>
+                </div>
+                <div class="pill-property">
+                    <label>Active Ingredients: <span class="value-text" id="active-ingredients">-</span></label>
+                </div>
+                <div class="pill-property">
+                    <label>Inactive Ingredients: <span class="value-text" id="inactive-ingredients">-</span></label>
+                </div>
+            </div>
+            
+            <div class="detail-section">
+                <div class="detail-header">
+                    <h3>Additional Information</h3>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 pill-property">
+                        <label>Manufacturer: <span class="value-text" id="manufacturer">-</span></label>
+                    </div>
+                    <div class="col-md-6 pill-property">
+                        <label>Status: <span class="value-text" id="status">-</span></label>
+                    </div>
+                    <div class="col-md-6 pill-property">
+                        <label>NDC Code: <span class="value-text" id="pill-ndc">-</span></label>
+                    </div>
+                    <div class="col-md-6 pill-property">
+                        <label>Brand Names: <span class="value-text" id="brand-names">-</span></label>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-    // Supabase image base URL
-    const IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images";
-
-    // Function to extract URL parameters
-    function getUrlParams() {
-        const params = new URLSearchParams(window.location.search);
-        return {
-            imprint: params.get('imprint'),
-            drug_name: params.get('drug_name'),
-            rxcui: params.get('rxcui'),
-            ndc: params.get('ndc')
-        };
-    }
-
-    // Function to safely update text content (handling null/undefined values)
-    function safeUpdateText(elementId, value) {
-        const element = document.getElementById(elementId);
-        if (element) {
-            // Text should already be normalized from the backend
-            // Just handle nulls/undefined here
-            element.innerText = value || 'Not available';
+        <!-- Add this in your <head> or top of your page -->
+        <style>
+        .value-text {
+            font-weight: normal;
         }
-    }
+        </style>
 
-    // Function to show error message
-    function showError(message) {
-        const errorElement = document.getElementById('error-message');
-        errorElement.innerText = message;
-        errorElement.style.display = 'block';
-        document.getElementById('loading-indicator').style.display = 'none';
-    }
+                        
+                        <div class="alert alert-info mt-3">
+                            <i class="bi bi-info-circle-fill"></i> This information is for educational purposes only. Always consult with a healthcare professional before taking any medication.
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-    // Function to update image debug info
-    function updateImageDebug(message) {
-        const debugElement = document.getElementById('image-debug');
-        if (debugElement) {
-            debugElement.innerText = message;
-        }
-    }
-
-    // Check if an image exists
-    function checkImageExists(url) {
-        return new Promise(resolve => {
-            if (!url) {
-                resolve(false);
+    <script>
+        // Constants
+        const IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images";
+        const TIMESTAMP = "2025-04-29 02:19:13";
+        const USER = "cubit104";
+        const PLACEHOLDER_IMAGE = "https://via.placeholder.com/400x300?text=No+Image+Available";
+        
+        document.addEventListener('DOMContentLoaded', async function() {
+            // Get query parameters - focus only on imprint and drug_name
+            const urlParams = new URLSearchParams(window.location.search);
+            const imprint = urlParams.get('imprint');
+            const drugName = urlParams.get('drug_name');
+            
+            console.log(`Details page loaded at ${TIMESTAMP} for user ${USER}`);
+            console.log("URL parameters:", { imprint, drugName });
+            
+            // Validate we have at least one of the required parameters
+            if (!imprint && !drugName) {
+                document.getElementById('loading').innerHTML = `
+                    <div class="alert alert-warning">
+                        <h4>Missing Information</h4>
+                        <p>Please provide either an imprint code or a drug name to view details.</p>
+                        <a href="/" class="btn btn-primary mt-2">Return to Search</a>
+                    </div>
+                `;
                 return;
             }
-
-            const img = new Image();
-            img.onload = () => {
-                console.log(`Image loaded successfully: ${url}`);
-                resolve(true);
-            };
-            img.onerror = () => {
-                console.log(`Failed to load image: ${url}`);
-                resolve(false);
-            };
-            img.src = url;
-
-            // Set a timeout in case the image loading hangs
-            setTimeout(() => {
-                console.log(`Timeout for image: ${url}`);
-                resolve(false);
-            }, 3000);
+            
+            try {
+                // Build API parameters with just imprint and drug_name
+                let apiParams = [];
+                
+                if (imprint) apiParams.push(`imprint=${encodeURIComponent(imprint)}`);
+                if (drugName) apiParams.push(`drug_name=${encodeURIComponent(drugName)}`);
+                
+                const apiUrl = `/details?${apiParams.join('&')}`;
+                console.log("Fetching pill details from API:", apiUrl);
+                
+                const response = await fetch(apiUrl);
+                
+                if (!response.ok) {
+                    throw new Error(`API Error ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log("API response received:", data);
+                
+                // Display the pill details
+                displayPillDetails(data);
+                
+                // Always fetch additional images for the drug and imprint
+                if (data.medicine_name && data.splimprint) {
+                    console.log(`Fetching all related images for ${data.medicine_name} with imprint ${data.splimprint}`);
+                    
+                    // Directly search for all related images
+                    await fetchAllRelatedImages(data.medicine_name, data.splimprint);
+                }
+            } catch (error) {
+                console.error("Error fetching pill details:", error);
+                document.getElementById('loading').innerHTML = `
+                    <div class="alert alert-danger">
+                        <h4>Error Loading Pill Details</h4>
+                        <p>${error.message || "We couldn't retrieve information for this pill. Please try again."}</p>
+                        <a href="/" class="btn btn-primary mt-2">Return to Search</a>
+                    </div>
+                `;
+            }
         });
-    }
-
-    // Function to set up the image carousel for multiple images
-    async function setupImageCarousel(imageUrls) {
-        updateImageDebug(`Processing ${imageUrls.length} possible image URLs...`);
-
-        if (!imageUrls || imageUrls.length === 0) {
-            updateImageDebug('No image URLs provided');
-            const noImagesMessage = document.getElementById('no-images-message');
-            const mainImageElement = document.getElementById('main-pill-image');
-
-            if (noImagesMessage) noImagesMessage.style.display = 'block';
-            if (mainImageElement) {
-                mainImageElement.style.display = 'none';
-                mainImageElement.src = 'https://via.placeholder.com/400x300?text=No+Image+Available';
+        
+        // Fetch all related images for the same medicine name and imprint
+        async function fetchAllRelatedImages(medicineName, imprint) {
+            try {
+                // Use the search API to find all pills with the same imprint
+                const searchUrl = `/search?q=${encodeURIComponent(imprint)}&type=imprint&per_page=100`;
+                console.log("Searching for related pills:", searchUrl);
+                
+                const response = await fetch(searchUrl);
+                
+                if (!response.ok) {
+                    throw new Error(`Search API Error ${response.status}`);
+                }
+                
+                const searchData = await response.json();
+                console.log(`Search found ${searchData.results?.length || 0} results`);
+                
+                if (!searchData.results || !Array.isArray(searchData.results)) {
+                    return;
+                }
+                
+                // Collect all unique image URLs from the results
+                const allImageUrls = collectAllImageUrls(searchData.results, medicineName, imprint);
+                
+                // Add all collected images to the thumbnails
+                if (allImageUrls.length > 0) {
+                    addAllToThumbnails(allImageUrls);
+                }
+                
+            } catch (error) {
+                console.error("Error fetching related images:", error);
             }
-            return;
         }
-
-        // Test each URL and keep only the ones that load successfully
-        const validationPromises = imageUrls.map(url => 
-            checkImageExists(url).then(valid => valid ? url : null)
-        );
-
-        const results = await Promise.all(validationPromises);
-        const validUrls = results.filter(url => url !== null);
-
-        // Store only valid URLs
-        allImages = [...new Set(validUrls)]; // Remove duplicates
-
-        updateImageDebug(`Found ${allImages.length} valid images out of ${imageUrls.length} URLs`);
-
-        // Clear any existing content
-        const carouselElement = document.getElementById('image-carousel');
-        const mainImageElement = document.getElementById('main-pill-image');
-        const noImagesMessage = document.getElementById('no-images-message');
-
-        if (carouselElement) carouselElement.innerHTML = '';
-
-        // Check if we have any images
-        if (allImages.length === 0) {
-            // Show no images message and hide main image
-            if (noImagesMessage) noImagesMessage.style.display = 'block';
-            if (mainImageElement) {
-                mainImageElement.style.display = 'none';
-                mainImageElement.src = 'https://via.placeholder.com/400x300?text=No+Image+Available';
-            }
-            updateImageDebug('No valid images available');
-            return;
-        }
-
-        // Hide no images message and show main image
-        if (noImagesMessage) noImagesMessage.style.display = 'none';
-        if (mainImageElement) mainImageElement.style.display = 'block';
-
-        // Set the first image as the main image
-        currentImageIndex = 0;
-        if (mainImageElement) {
-            mainImageElement.src = allImages[currentImageIndex];
-            mainImageElement.alt = `Pill Image ${currentImageIndex + 1}`;
-        }
-
-        // Create thumbnails for all images
-        if (carouselElement) {
-            allImages.forEach((url, index) => {
-                const thumbnailContainer = document.createElement('div');
-                thumbnailContainer.className = `thumbnail-container ${index === 0 ? 'active' : ''}`;
-                thumbnailContainer.dataset.index = index;
-
-                const thumbnail = document.createElement('img');
-                thumbnail.src = url;
-                thumbnail.alt = `Thumbnail ${index + 1}`;
-                thumbnail.className = 'thumbnail';
-
-                // Add click event to switch the main image
-                thumbnailContainer.addEventListener('click', function() {
-                    if (!mainImageElement) return;
-
-                    // Update main image
-                    mainImageElement.src = allImages[index];
-                    mainImageElement.alt = `Pill Image ${index + 1}`;
-                    currentImageIndex = index;
-
-                    // Update active state
-                    document.querySelectorAll('.thumbnail-container').forEach(el => {
-                        el.classList.remove('active');
+        
+        // Collect all unique image URLs from search results
+        function collectAllImageUrls(results, targetMedicineName, targetImprint) {
+            // Track unique URLs to avoid duplicates
+            const uniqueUrls = new Set();
+            const allUrls = [];
+            
+            // First add exact matches
+            results.forEach(item => {
+                if (!item) return;
+                
+                // Check if medicine name and imprint match
+                const medicineNameMatch = (item.medicine_name && 
+                    item.medicine_name.toLowerCase() === targetMedicineName.toLowerCase());
+                    
+                const imprintMatch = (item.splimprint && 
+                    item.splimprint.toLowerCase() === targetImprint.toLowerCase());
+                
+                // Collect image URLs from this item
+                if (Array.isArray(item.image_urls)) {
+                    item.image_urls.forEach(url => {
+                        if (url && !url.includes('placeholder') && !uniqueUrls.has(url)) {
+                            uniqueUrls.add(url);
+                            // Add exact matches first
+                            if (medicineNameMatch && imprintMatch) {
+                                allUrls.unshift(url);
+                            } else {
+                                allUrls.push(url);
+                            }
+                        }
                     });
-                    this.classList.add('active');
-                });
-
-                thumbnailContainer.appendChild(thumbnail);
-                carouselElement.appendChild(thumbnailContainer);
+                }
+                
+                if (item.image_filename && !uniqueUrls.has(`${IMAGE_BASE}/${item.image_filename}`)) {
+                    const url = `${IMAGE_BASE}/${item.image_filename}`;
+                    uniqueUrls.add(url);
+                    // Add exact matches first
+                    if (medicineNameMatch && imprintMatch) {
+                        allUrls.unshift(url);
+                    } else {
+                        allUrls.push(url);
+                    }
+                }
+            });
+            
+            return allUrls;
+        }
+        
+        // Add all collected images to the thumbnails section
+        function addAllToThumbnails(imageUrls) {
+            const thumbnailsContainer = document.getElementById('thumbnails-container');
+            const mainImage = document.getElementById('main-image');
+            
+            // Get currently displayed thumbnails to avoid duplicates
+            const existingUrls = new Set();
+            document.querySelectorAll('.thumbnail').forEach(img => {
+                existingUrls.add(img.src);
+            });
+            
+            // Add each new image that isn't already displayed
+            imageUrls.forEach(url => {
+                if (!existingUrls.has(url)) {
+                    const thumbnailWrapper = document.createElement('div');
+                    thumbnailWrapper.className = 'thumbnail-wrapper';
+                    
+                    const thumbnail = document.createElement('img');
+                    thumbnail.className = 'thumbnail';
+                    thumbnail.src = url;
+                    thumbnail.alt = 'Pill Image';
+                    thumbnail.loading = "lazy";
+                    
+                    thumbnail.onerror = function() {
+                        thumbnailWrapper.style.display = 'none';
+                    };
+                    
+                    thumbnailWrapper.appendChild(thumbnail);
+                    
+                    thumbnailWrapper.addEventListener('click', function() {
+                        // Change main image
+                        mainImage.src = url;
+                        
+                        // Update active state
+                        document.querySelectorAll('.thumbnail-wrapper').forEach(w => {
+                            w.classList.remove('active');
+                        });
+                        this.classList.add('active');
+                    });
+                    
+                    thumbnailsContainer.appendChild(thumbnailWrapper);
+                    existingUrls.add(url);
+                }
             });
         }
-    }
-
-    // Generate a descriptive summary of the pill with normalized text from backend
-    function generatePillSummary(data) {
-        // Basic pill description with normal (non-bold) and consistent color
-        let summary = `<div class="summary-text">This medication is `;
-
-        // Add article based on first letter of color
-        const vowels = ['a','e','i','o','u'];
-        const color = data.splcolor_text || '';
-        const article = vowels.includes(color.toLowerCase()[0]) ? 'an' : 'a';
-
-        summary += `${article} ${data.splcolor_text || 'unknown color'} ${data.splshape_text || 'unknown shape'} `;
-
-        // Add size if available
-        if (data.splsize) {
-            summary += `${data.splsize} mm, `;
+        
+        // Create a human-readable description of the pill
+        function generatePillDescription(data) {
+            // Start with a basic sentence about the medication
+            let description = `This medication is a ${data.splcolor_text || ''} ${data.splshape_text || ''} `;
+            
+            // Add size if available
+            if (data.splsize) {
+                description += `${data.splsize} mm, `;
+            }
+            
+            // Add dosage form
+            description += `${data.dosage_form || 'Pill'} `;
+            
+            // Add imprint
+            if (data.splimprint) {
+                description += `with imprint "${data.splimprint}". `;
+            } else {
+                description += `. `;
+            }
+            
+            // Add strength and active ingredients
+            if (data.spl_strength && data.spl_ingredients) {
+                description += `It contains ${data.spl_strength} of ${data.spl_ingredients}. `;
+            } else if (data.spl_ingredients) {
+                description += `It contains ${data.spl_ingredients}. `;
+            }
+            
+            // Add pharmaceutical class
+            if (data.dailymed_pharma_class_epc || data.pharmclass_fda_epc) {
+                description += `This belongs to the ${data.dailymed_pharma_class_epc || data.pharmclass_fda_epc} pharmacologic class. `;
+            }
+            
+            // Add manufacturer
+            if (data.author) {
+                description += `It is manufactured by ${data.author}. `;
+            }
+            
+            // Add final note
+            description += `For details please contact your physician.`;
+            
+            return description;
         }
-
-        // Add dosage form if available
-        if (data.dosage_form) {
-            summary += `${data.dosage_form} `;
+        
+        // Show "No images available" message
+        function showNoImagesMessage(container) {
+            container.innerHTML = `
+                <div class="no-images-container">
+                    <div class="no-images-message">
+                        <i class="bi bi-image"></i>
+                        <h4>No Image Available</h4>
+                        <p class="text-muted">FDA database does not contain an image for this medication.</p>
+                    </div>
+                </div>
+            `;
         }
-
-        // Add route if available
-        const route = data.splroute || data.route;
-        if (route) {
-            summary += `taken by ${route} route `;
+        
+        // Display all pill details
+        function displayPillDetails(data) {
+            // Hide loading, show details
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('pill-details').style.display = 'block';
+            
+            // Update the header section
+            document.getElementById('header-drug-name').innerText = data.medicine_name || 'Unknown Pill';
+            document.getElementById('header-imprint').innerText = `Imprint: ${data.splimprint || 'N/A'}`;
+            
+            // Generate and set the pill description
+            const pillDescription = generatePillDescription(data);
+            document.getElementById('pill-description').innerText = pillDescription;
+            
+            // Fill in the basic information fields
+            document.getElementById('imprint').innerText = data.splimprint || 'N/A';
+            document.getElementById('color').innerText = data.splcolor_text || 'N/A';
+            document.getElementById('shape').innerText = data.splshape_text || 'N/A';
+            document.getElementById('size').innerText = data.splsize ? `${data.splsize} mm` : 'N/A';
+            
+            // Drug information
+            document.getElementById('strength').innerText = data.spl_strength || 'N/A';
+            document.getElementById('rxcui').innerText = data.rxcui || 'N/A';
+            document.getElementById('dea-schedule').innerText = data.dea_schedule_name || 'N/A';
+            document.getElementById('dosage-form').innerText = data.dosage_form || 'N/A';
+            document.getElementById('brand-names').innerText = data.brand_names || 'N/A';
+            
+            // Pharmaceutical classification
+            document.getElementById('pharma-class').innerText = 
+                data.dailymed_pharma_class_epc || data.pharmclass_fda_epc || 'N/A';
+            
+            // Ingredients
+            document.getElementById('active-ingredients').innerText = data.spl_ingredients || 'N/A';
+            document.getElementById('inactive-ingredients').innerText = data.spl_inactive_ing || 'N/A';
+            
+            // Additional information
+            document.getElementById('manufacturer').innerText = data.author || 'N/A';
+            document.getElementById('status').innerText = data.status_rx_otc || 'N/A';
+            document.getElementById('pill-ndc').innerText = data.ndc11 || data.ndc9 || 'N/A';
+            
+            // Display initial images
+            displayInitialImages(data);
+            
+            // Update page title
+            document.title = `${data.medicine_name || 'Pill'} Details`;
         }
-
-        // Add imprint
-        if (data.splimprint) {
-            summary += `with imprint "${data.splimprint}". `;
-        } else {
-            summary += `with no visible imprint. `;
-        }
-
-        // Add strength if available
-        if (data.spl_strength) {
-            summary += `It contains ${data.spl_strength} `;
-        }
-
-        // Add active ingredients
-        if (data.spl_ingredients) {
-            summary += `of ${data.spl_ingredients}. `;
-        }
-
-        // Add pharmacologic class
-        const pharmaClass = data.dailymed_pharma_class_epc || data.pharmclass_fda_epc;
-        if (pharmaClass) {
-            summary += `This belongs to the ${pharmaClass} pharmacologic class. `;
-        }
-
-        // Add manufacturer
-        if (data.author) {
-            summary += `It is manufactured by ${data.author}. `;
-        }
-
-        // Add DEA schedule if applicable
-        if (data.dea_schedule_name && data.dea_schedule_name !== 'Not applicable') {
-            summary += `This is a ${data.dea_schedule_name} controlled substance. `;
-        }
-
-        // Add availability (Rx/OTC)
-        if (data.status_rx_otc) {
-            const availability = data.status_rx_otc.toLowerCase() === 'prescription' ? 
-                'prescription-only medication' : 
-                'over-the-counter medication';
-            summary += `It's a ${availability}. For details please contact your physician.`;
-        }
-
-        // Close the div
-        summary += `</div>`;
-
-        return summary;
-    }
-
-    // Fetch pill details from backend
-    async function fetchPillDetails() {
-        const { imprint, drug_name, rxcui, ndc } = getUrlParams();
-        let url = '/details?';  // Use relative URL for backend endpoint
-        let hasParams = false;
-
-        // Add parameters to URL if they exist
-        if (imprint) {
-            url += `imprint=${encodeURIComponent(imprint)}`;
-            hasParams = true;
-        }
-
-        if (drug_name) {
-            url += hasParams ? `&drug_name=${encodeURIComponent(drug_name)}` : `drug_name=${encodeURIComponent(drug_name)}`;
-            hasParams = true;
-        }
-
-        // Optional parameters
-        if (rxcui) {
-            url += hasParams ? `&rxcui=${encodeURIComponent(rxcui)}` : `rxcui=${encodeURIComponent(rxcui)}`;
-            hasParams = true;
-        }
-
-        if (ndc) {
-            url += hasParams ? `&ndc=${encodeURIComponent(ndc)}` : `ndc=${encodeURIComponent(ndc)}`;
-            hasParams = true;
-        }
-
-        // Check if we have sufficient parameters
-        if (!hasParams) {
-            showError('Missing search parameters. Please return to the search page and try again.');
-            return;
-        }
-
-        try {
-            updateImageDebug('Fetching pill details from server...');
-            const response = await fetch(url);
-
-            if (!response.ok) {
-                if (response.status === 404) {
-                    showError('Pill not found. Please check your search criteria and try again.');
-                } else {
-                    showError(`Error: ${response.status} - ${response.statusText}`);
-                }
+        
+        // Display initial images for the main view
+        function displayInitialImages(data) {
+            const imagesContainer = document.getElementById('images-container');
+            const mainImage = document.getElementById('main-image');
+            const thumbnailsContainer = document.getElementById('thumbnails-container');
+            
+            // Clear thumbnails container first
+            thumbnailsContainer.innerHTML = "";
+            
+            // Collect all image URLs
+            let imageUrls = [];
+            
+            // Use image_urls from API if available
+            if (Array.isArray(data.image_urls) && data.image_urls.length > 0) {
+                data.image_urls.forEach(url => {
+                    if (url && typeof url === 'string' && !url.includes('placeholder')) {
+                        imageUrls.push(url);
+                    }
+                });
+            }
+            
+            // Use carousel_images if available and no image_urls
+            if (imageUrls.length === 0 && Array.isArray(data.carousel_images) && data.carousel_images.length > 0) {
+                data.carousel_images.forEach(item => {
+                    if (item && item.url && typeof item.url === 'string' && !item.url.includes('placeholder')) {
+                        imageUrls.push(item.url);
+                    }
+                });
+            }
+            
+            // Use image_filename if available and no other images
+            if (imageUrls.length === 0 && data.image_filename && typeof data.image_filename === 'string' && data.image_filename.trim()) {
+                const url = `${IMAGE_BASE}/${data.image_filename.trim()}`;
+                imageUrls.push(url);
+            }
+            
+            console.log(`Found ${imageUrls.length} initial images for display`);
+            
+            // If no images available
+            if (imageUrls.length === 0) {
+                showNoImagesMessage(imagesContainer);
                 return;
             }
-
-            const data = await response.json();
-            updateImageDebug('Received data from server. Processing...');
-
-            // If we have debug info about images, show it
-            if (data.image_debug && Array.isArray(data.image_debug)) {
-                updateImageDebug('Image debug info: ' + data.image_debug.join(', '));
-            }
-
-            // Hide loading indicator and show pill information
-            const loadingIndicator = document.getElementById('loading-indicator');
-            const pillInfoContainer = document.getElementById('pill-info-container');
-
-            if (loadingIndicator) loadingIndicator.style.display = 'none';
-            if (pillInfoContainer) pillInfoContainer.style.display = 'block';
-
-            // Populate the details page with fetched data
-            // Text should be normalized from the backend already
-            safeUpdateText('pill-name', data.medicine_name);
-
-            // Set the H2 with imprint - split into label and value for styling
-            const imprintHeader = document.getElementById('imprint-header-value');
-            if (imprintHeader) {
-                imprintHeader.textContent = ' ' + (data.splimprint || 'Not available');
-            }
-
-            // Generate and set the summary with normalized text from backend
-            const summaryText = generatePillSummary(data);
-            const summaryElement = document.getElementById('pill-summary');
-            if (summaryElement) {
-                summaryElement.innerHTML = summaryText;
-            }
-
-            // Set up the image carousel with all valid images
-            if (data.image_urls && Array.isArray(data.image_urls)) {
-                await setupImageCarousel(data.image_urls);
+            
+            // Set the main image
+            mainImage.src = imageUrls[0];
+            mainImage.alt = `${data.medicine_name || 'Pill'} Image`;
+            
+            // Add click functionality for zoom
+            mainImage.onclick = function() {
+                window.open(this.src, '_blank');
+            };
+            
+            // Handle errors
+            mainImage.onerror = function() {
+                this.onerror = null;
+                if (imageUrls.length > 1) {
+                    this.src = imageUrls[1];
+                } else {
+                    this.src = PLACEHOLDER_IMAGE;
+                    this.style.cursor = 'default';
+                    this.onclick = null;
+                }
+            };
+            
+            // Add thumbnails for all images we have initially
+            if (imageUrls.length > 0) {
+                imageUrls.forEach((url, index) => {
+                    const thumbnailWrapper = document.createElement('div');
+                    thumbnailWrapper.className = `thumbnail-wrapper ${index === 0 ? 'active' : ''}`;
+                    
+                    const thumbnail = document.createElement('img');
+                    thumbnail.className = 'thumbnail';
+                    thumbnail.src = url;
+                    thumbnail.alt = `${data.medicine_name || 'Pill'} Image ${index + 1}`;
+                    thumbnail.loading = "lazy";
+                    
+                    thumbnail.onerror = function() {
+                        thumbnailWrapper.style.display = 'none';
+                    };
+                    
+                    thumbnailWrapper.appendChild(thumbnail);
+                    
+                    thumbnailWrapper.addEventListener('click', function() {
+                        // Change main image
+                        mainImage.src = url;
+                        
+                        // Update active state
+                        document.querySelectorAll('.thumbnail-wrapper').forEach(w => {
+                            w.classList.remove('active');
+                        });
+                        this.classList.add('active');
+                    });
+                    
+                    thumbnailsContainer.appendChild(thumbnailWrapper);
+                });
+                
+                thumbnailsContainer.style.display = 'flex';
             } else {
-                updateImageDebug('No image URLs in response');
-                setupImageCarousel([]);
+                thumbnailsContainer.style.display = 'none';
             }
-
-            // Populate metadata fields with normalized text from backend
-            safeUpdateText('drug-name', data.medicine_name);
-            safeUpdateText('imprint', data.splimprint); // Keep imprint as is (no normalization)
-            safeUpdateText('strength', data.spl_strength);
-            safeUpdateText('pharma-class', data.dailymed_pharma_class_epc || data.pharmclass_fda_epc);
-            safeUpdateText('color', data.splcolor_text);
-            safeUpdateText('shape', data.splshape_text);
-            safeUpdateText('size', data.splsize);
-            safeUpdateText('route', data.splroute || data.route);
-            safeUpdateText('dea', data.dea_schedule_name);
-            safeUpdateText('availability', data.status_rx_otc);
-            safeUpdateText('ndc', data.ndc9 || data.ndc11);
-            safeUpdateText('dosage-form', data.dosage_form);
-            safeUpdateText('active-ingredients', data.spl_ingredients);
-            safeUpdateText('inactive-ingredients', data.spl_inactive_ing);
-            safeUpdateText('manufacturer', data.author);
-
-        } catch (error) {
-            console.error('Error fetching pill details:', error);
-            showError('Failed to load pill information. Please try again later.');
         }
-    }
-
-    // Call the function on page load
-    document.addEventListener('DOMContentLoaded', fetchPillDetails);
-</script>
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
