@@ -65,6 +65,7 @@
         .search-tabs {
             border-bottom: 1px solid rgba(0,0,0,0.1);
             margin-bottom: 1.5rem;
+            flex-wrap: nowrap;
         }
         
         .search-tabs .nav-link {
@@ -75,6 +76,7 @@
             border: none;
             position: relative;
             transition: var(--transition);
+            white-space: nowrap;
         }
         
         .search-tabs .nav-link:hover {
@@ -215,6 +217,9 @@
             font-weight: 600;
             margin-bottom: 1rem;
             color: var(--primary-dark);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         
         .pill-info {
@@ -230,10 +235,25 @@
             font-weight: 500;
             width: 80px;
             color: var(--secondary);
+            flex-shrink: 0;
         }
         
         .pill-info-value {
             font-weight: 400;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        /* Color box styling */
+        .color-box {
+            width: 16px;
+            height: 16px;
+            display: inline-block;
+            margin-right: 6px;
+            border-radius: 3px;
+            border: 1px solid rgba(0,0,0,0.1);
+            vertical-align: middle;
         }
         
         .btn-details {
@@ -289,7 +309,7 @@
         
         /* Pagination */
         .pagination-container {
-            display: flex;
+            display: none; /* Hidden by default, only shown after search with pagination */
             justify-content: center;
             align-items: center;
             margin-top: 1rem;
@@ -379,16 +399,6 @@
             background-color: rgba(93, 5, 226, 0.1);
         }
         
-        /* Color and shape display */
-        .color-box {
-            width: 20px;
-            height: 20px;
-            display: inline-block;
-            margin-right: 8px;
-            border-radius: 4px;
-            border: 1px solid rgba(0,0,0,0.1);
-        }
-        
         /* Emblem styling */
         .app-emblem {
             color: var(--primary);
@@ -400,25 +410,67 @@
         /* Responsive adjustments */
         @media (max-width: 768px) {
             .app-header h1 {
-                font-size: 1.5rem;
+                font-size: 1.35rem;
+            }
+            
+            .app-emblem {
+                font-size: 1.35rem;
+                margin-right: 8px;
+            }
+            
+            .search-tabs {
+                margin-bottom: 1rem;
             }
             
             .search-tabs .nav-link {
-                padding: 0.6rem 0.75rem;
-                margin-right: 0.5rem;
+                padding: 0.5rem;
+                margin-right: 0;
+                font-size: 0.85rem;
+                text-align: center;
+            }
+            
+            .search-tabs .nav-item {
+                flex: 1;
+            }
+            
+            .search-tabs .nav-link i {
+                margin-right: 4px;
                 font-size: 0.9rem;
             }
             
             .carousel-item {
-                height: 200px;
+                height: 180px;
+            }
+            
+            .results-header h2 {
+                font-size: 1rem;
+            }
+            
+            .results-count {
+                font-size: 0.9rem;
             }
             
             .drug-card .card-title {
-                font-size: 1.1rem;
+                font-size: 1rem;
+                margin-bottom: 0.75rem;
             }
             
             .pill-info-label {
-                width: 70px;
+                width: 65px;
+                font-size: 0.85rem;
+            }
+            
+            .pill-info-value {
+                font-size: 0.85rem;
+            }
+            
+            .btn-details {
+                padding: 0.5rem 1rem;
+                font-size: 0.9rem;
+            }
+            
+            .drug-card .card-body {
+                padding: 1rem;
             }
         }
         
@@ -429,22 +481,50 @@
             
             .filters-section {
                 padding: 1rem;
+                margin: 1rem 0;
+            }
+            
+            .filters-section h5 {
+                font-size: 0.9rem;
+            }
+            
+            .form-label {
+                font-size: 0.9rem;
+                margin-bottom: 0.25rem;
             }
             
             .drug-card {
-                margin-bottom: 1.5rem;
+                margin-bottom: 1rem;
             }
             
             .carousel-item {
-                height: 180px;
+                height: 160px;
+                padding: 1rem;
             }
             
             .carousel-item img {
-                max-height: 160px;
+                max-height: 140px;
             }
             
-            .pagination-container {
-                flex-wrap: wrap;
+            .btn-search {
+                padding: 0.5rem 1rem;
+            }
+            
+            .results-header h2 {
+                font-size: 0.9rem;
+            }
+            
+            .results-count {
+                font-size: 0.8rem;
+            }
+            
+            .pagination-info {
+                font-size: 0.9rem;
+            }
+            
+            .btn-pagination {
+                font-size: 0.9rem;
+                padding: 0.4rem 0.75rem;
             }
         }
     </style>
@@ -670,7 +750,15 @@
                 data.colors.forEach(color => {
                     const option = document.createElement('option');
                     option.value = color.name.toLowerCase();
-                    option.innerHTML = `<span class="color-box" style="background-color: ${color.hex};"></span> ${color.name}`;
+                    
+                    // Create span element for color box
+                    const colorBox = document.createElement('span');
+                    colorBox.className = 'color-box';
+                    colorBox.style.backgroundColor = color.hex;
+                    
+                    option.textContent = color.name;
+                    option.prepend(colorBox);
+                    
                     colorSelect.appendChild(option);
                 });
                 
@@ -791,6 +879,7 @@
             document.getElementById('loading').style.display = 'block';
             document.getElementById('results').innerHTML = '';
             document.getElementById('resultsHeaderContainer').classList.add('d-none');
+            document.getElementById('paginationContainer').style.display = 'none';
 
             try {
                 const url = new URL('/search', window.location.origin);
@@ -808,13 +897,14 @@
                 // Store results for potential sorting
                 searchResults = data.results || [];
                 
-                // Show results count
+                // Show results count - Use the actual length of results array
+                const resultCount = searchResults.length;
                 document.getElementById('resultsHeaderContainer').classList.remove('d-none');
-                document.getElementById('resultsCount').textContent = `(${data.total_count || 0})`;
+                document.getElementById('resultsCount').textContent = `(${resultCount})`;
                 
                 // Display results
-                displayResults(data.results);
-                updatePagination(data.page, data.total_pages);
+                displayResults(searchResults);
+                updatePagination(data.page, data.total_pages || 1);
             } catch (error) {
                 console.error('Error performing search:', error);
                 document.getElementById('results').innerHTML = `
@@ -885,46 +975,48 @@
                     `;
                 }
 
-                col.innerHTML = `
-                    <div class="drug-card">
-                        ${imagesHtml}
-                        <div class="card-body">
-                            <h5 class="card-title">${drug.medicine_name || 'Unknown Drug'}</h5>
-                            
-                            <div class="pill-info">
-                                <div class="pill-info-item">
-                                    <div class="pill-info-label">Imprint:</div>
-                                    <div class="pill-info-value">${drug.splimprint || 'N/A'}</div>
-                                </div>
+                // Find this code in the displayResults function
+                    col.innerHTML = `
+                        <div class="drug-card">
+                            ${imagesHtml}
+                            <div class="card-body">
+                                <h5 class="card-title" title="${drug.medicine_name || 'Unknown Drug'}">${drug.medicine_name || 'Unknown Drug'}</h5>
                                 
-                                <div class="pill-info-item">
-                                    <div class="pill-info-label">Color:</div>
-                                    <div class="pill-info-value">
-                                        ${drug.splcolor_text ? `
-                                            <span class="color-box" style="background-color: ${getColorHex(drug.splcolor_text)};"></span> ${drug.splcolor_text}
-                                        ` : 'N/A'}
+                                <div class="pill-info">
+                                    <div class="pill-info-item">
+                                        <div class="pill-info-label">Imprint:</div>
+                                        <div class="pill-info-value" title="${drug.splimprint || 'N/A'}">${drug.splimprint || 'N/A'}</div>
+                                    </div>
+                                    
+                                    <div class="pill-info-item">
+                                        <div class="pill-info-label">Color:</div>
+                                        <div class="pill-info-value">
+                                            ${drug.splcolor_text ? 
+                                                (() => {
+                                                    // Handle multiple colors
+                                                    const colors = drug.splcolor_text.split(/,\s*/);
+                                                    return colors.map(color => 
+                                                        `${color} <span class="color-box" style="background-color: ${getColorHex(color)};"></span>`
+                                                    ).join(', ');
+                                                })() 
+                                                : 'N/A'}
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="pill-info-item">
+                                        <div class="pill-info-label">Shape:</div>
+                                        <div class="pill-info-value" title="${drug.splshape_text || 'N/A'}">${drug.splshape_text || 'N/A'}</div>
                                     </div>
                                 </div>
                                 
-                                <div class="pill-info-item">
-                                    <div class="pill-info-label">Shape:</div>
-                                    <div class="pill-info-value">${drug.splshape_text || 'N/A'}</div>
-                                </div>
+                                <a href="/details.html?imprint=${encodeURIComponent(drug.splimprint || '')}&drug_name=${encodeURIComponent(drug.medicine_name || '')}" class="btn btn-details">
+                                    <i class="fas fa-info-circle me-2"></i>View Details
+                                </a>
                             </div>
-                            
-                            <a href="/details.html?imprint=${encodeURIComponent(drug.splimprint || '')}&drug_name=${encodeURIComponent(drug.medicine_name || '')}" class="btn btn-details">
-                                <i class="fas fa-info-circle me-2"></i>View Details
-                            </a>
                         </div>
-                    </div>
-                `;
+                    `;
 
                 resultsDiv.appendChild(col);
-            });
-            
-            // Initialize tooltips
-            document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(tooltip => {
-                new bootstrap.Tooltip(tooltip);
             });
         }
 
@@ -959,7 +1051,7 @@
             document.getElementById('prevButton').disabled = currentPage <= 1;
             document.getElementById('nextButton').disabled = currentPage >= totalPages;
             
-            // Show/hide pagination container based on whether there are multiple pages
+            // Show pagination only if there are multiple pages
             document.getElementById('paginationContainer').style.display = totalPages > 1 ? 'flex' : 'none';
         }
 
