@@ -61,7 +61,7 @@ IMAGE_MIME_TYPES = {
 MAX_SUGGESTIONS = 10
 MAX_IMAGES_PER_DRUG = 20
 CONFIG = {
-    "current_timestamp": "2025-04-29 20:55:47",
+    "current_timestamp": "2025-05-01 04:30:46",
     "current_user": "cubit104"
 }
 
@@ -98,11 +98,9 @@ except Exception as e:
 db_engine = None
 ndc_handler = None
 
-# Image URL validation cache
-_image_exists_cache = {}
-_filename_cache = {}
+# Filename caches
 _common_drug_cache = {}
-_missing_files_log = set()  # Track missing files to avoid repeated logging
+_missing_files_log = set()  # Track missing files for logging purposes only
 
 @lru_cache(maxsize=1000)
 def normalize_text(text):
@@ -202,137 +200,57 @@ def get_unique_key(item: Dict) -> tuple:
         str(item.get("rxcui", "")).strip()
     )
 
-def is_valid_image_url(url: str) -> bool:
-    """Check if URL points to a valid image with proper timeout and redirect handling."""
-    try:
-        with requests.Session() as session:
-            response = session.head(url, allow_redirects=True, timeout=3)
-            if response.status_code == 405:
-                response = session.get(url, stream=True, timeout=3)
-                response.close()
-            if response.status_code == 200:
-                content_type = response.headers.get('content-type', '').lower()
-                return 'image' in content_type  # Loosened: accepts any 'image/*'
-    except Exception as e:
-        logger.debug(f"Image URL validation failed for {url}: {str(e)}")
-    return False
+# NEW OPTIMIZED IMAGE HANDLING FUNCTIONS
 
-# Enhanced version to handle more leading zero variants
-def generate_filename_variants(base_name: str) -> List[str]:
-    """Generate variants of a filename to handle leading zeros and other common patterns."""
-    variants = []
+def get_image_url(filename: str) -> str:
+    """Get image URL from filename, removing validation"""
+    if not filename:
+        return f"{IMAGE_BASE}/placeholder.jpg"
     
-    # First extract the numeric part if it exists
-    numeric_match = re.search(r'(\d+)', base_name)
-    if numeric_match:
-        numeric_part = numeric_match.group(1)
-        prefix = base_name[:numeric_match.start(1)]
-        suffix = base_name[numeric_match.end(1):]
-        
-        # Original number
-        variants.append(f"{prefix}{numeric_part}{suffix}")
-        
-        # Without leading zeros
-        stripped = numeric_part.lstrip('0')
-        if stripped and stripped != numeric_part:
-            variants.append(f"{prefix}{stripped}{suffix}")
-        
-        # With leading zeros (try different padding lengths)
-        # Enhanced to try more padding options (especially handling 00XXXXXX formats)
-        for pad_len in [3, 5, 6, 8, 9, 10]:
-            padded = numeric_part.zfill(pad_len)
-            if padded != numeric_part:
-                variants.append(f"{prefix}{padded}{suffix}")
-                
-        # Special case for "00" prefix which seems common
-        if not numeric_part.startswith("00"):
-            variants.append(f"{prefix}00{numeric_part}{suffix}")
-            
-        # Also try with single "0" prefix if original doesn't have it
-        if not numeric_part.startswith("0"):
-            variants.append(f"{prefix}0{numeric_part}{suffix}")
-        
-        # Due to the example of 001431262 -> 14311262 (possible typo in db or file)
-        # Try removing one digit specifically for numbers longer than 7 digits
-        if len(numeric_part) >= 7:
-            for i in range(len(numeric_part)):
-                modified = numeric_part[:i] + numeric_part[i+1:]
-                variants.append(f"{prefix}{modified}{suffix}")
-                # Also try with added leading zeros to these modified versions
-                variants.append(f"{prefix}00{modified}{suffix}")
+    # Extract just the first part before any comma
+    first_filename = filename.split(',')[0].strip()
+    if not first_filename:
+        return f"{IMAGE_BASE}/placeholder.jpg"
     
-    # Add original filename
-    if base_name not in variants:
-        variants.append(base_name)
+    # Trust the database - use the filename directly
+    return f"{IMAGE_BASE}/{first_filename}"
+
+def get_image_urls(filenames_str: str) -> List[str]:
+    """Get multiple image URLs from a comma/semicolon separated string"""
+    if not filenames_str:
+        return [f"{IMAGE_BASE}/placeholder.jpg"]
     
-    return variants
-
-# Cached image existence checker for supabase
-@lru_cache(maxsize=500)
-def check_image_exists_in_supabase(image_name: str) -> str:
-    """Check if an image exists in Supabase storage with any extension"""
-    if not image_name:
-        return ""
-
-    image_name = clean_filename(image_name)
-    base_name, ext = os.path.splitext(image_name)
+    # Split by commas or semicolons
+    parts = re.split(r'[,;]+', filenames_str)
+    urls = []
     
-    # If no extension provided, try all supported extensions
-    extensions_to_try = [ext] if ext.lower() in IMAGE_EXTENSIONS else IMAGE_EXTENSIONS
+    for part in parts:
+        clean_part = part.strip()
+        if clean_part:
+            # Trust the database - use the filename directly
+            urls.append(f"{IMAGE_BASE}/{clean_part}")
     
-    # Generate filename variants
-    variants = generate_filename_variants(base_name)
+    return urls or [f"{IMAGE_BASE}/placeholder.jpg"]
+
+def process_image_filenames(image_filename: str) -> dict:
+    """Process image filenames into required format for API responses"""
+    if not image_filename:
+        placeholder = f"{IMAGE_BASE}/placeholder.jpg"
+        return {
+            "image_urls": [placeholder],
+            "has_multiple_images": False,
+            "carousel_images": [{"id": 0, "url": placeholder}]
+        }
     
-    # Try all combinations of variants and extensions
-    for variant in variants:
-        for ext_to_try in extensions_to_try:
-            # Skip if the variant already has this extension
-            if variant.lower().endswith(ext_to_try.lower()):
-                test_name = variant
-            else:
-                test_name = f"{variant}{ext_to_try}"
-            
-            url = f"{IMAGE_BASE}/{test_name}"
-            if is_valid_image_url(url):
-                return test_name
-
-    # If we've gotten here, we couldn't find the image
-    if image_name not in _missing_files_log:
-        _missing_files_log.add(image_name)
-        logger.warning(f"Image not found after trying variants: {image_name}")
-        
-    return ""
-
-def get_valid_images_from_supabase(filename: str) -> List[str]:
-    try:
-        if not filename:
-            return ["placeholder.jpg"]
-
-        names = split_image_filenames(filename)
-        valid = []
-        seen  = set()
-
-        for raw in names:
-            cleaned = clean_filename(raw)
-            if not cleaned or cleaned in seen:
-                continue
-
-            # check cache first
-            if cleaned in _image_exists_cache:
-                fixed = _image_exists_cache[cleaned]
-            else:
-                fixed = check_image_exists_in_supabase(cleaned)
-                _image_exists_cache[cleaned] = fixed or ""
-
-            if fixed:
-                seen.add(fixed)
-                valid.append(fixed)
-
-        return valid or ["placeholder.jpg"]
-
-    except Exception as e:
-        logger.error(f"Error in get_valid_images_from_supabase: {e}", exc_info=True)
-        return ["placeholder.jpg"]
+    image_urls = get_image_urls(image_filename)
+    
+    return {
+        "image_urls": image_urls[:MAX_IMAGES_PER_DRUG],
+        "has_multiple_images": len(image_urls) > 1,
+        "carousel_images": [
+            {"id": i, "url": url} for i, url in enumerate(image_urls[:MAX_IMAGES_PER_DRUG])
+        ]
+    }
 
 def normalize_fields(data: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize text fields in a data dictionary"""
@@ -369,73 +287,6 @@ def initialize_ndc_handler():
         ndc_handler = None
         return False
 
-# Efficient async image validation using connection pooling
-async def async_is_valid_image_url(session, url):
-    """Async check if URL points to a valid image"""
-    try:
-        async with session.head(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=3)) as resp:
-            if resp.status == 405:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=3)) as resp2:
-                    return resp2.status == 200 and "image" in resp2.headers.get("content-type", "").lower()
-            return resp.status == 200 and "image" in resp.headers.get("content-type", "").lower()
-    except Exception:
-        return False
-
-# Enhanced async_fix_image_filename with more aggressive leading zero handling
-async def async_fix_image_filename(img_name: str) -> str:
-    """Try the exact name first, then probe .jpg/.jpeg/.png until one works."""
-    # Check cache first
-    if img_name in _filename_cache:
-        return _filename_cache[img_name]
-    
-    img_name = img_name.strip()
-    base, ext = os.path.splitext(img_name)
-    
-    # Generate filename variants for the base name
-    base_variants = generate_filename_variants(base)
-    
-    # If an extension was provided and it's valid, add it to the list to try first
-    exts_to_try = []
-    if ext.lower() in IMAGE_EXTENSIONS:
-        exts_to_try.append(ext)
-    
-    # Add other common extensions to try
-    for e in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
-        if e not in exts_to_try:
-            exts_to_try.append(e)
-
-    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=50)) as session:
-        # Try all combinations of base variants and extensions
-        for base_variant in base_variants:
-            for e in exts_to_try:
-                candidate = f"{base_variant}{e}"
-                url = f"{IMAGE_BASE}/{candidate}"
-                
-                try:
-                    async with session.head(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=3)) as resp:
-                        # if HEAD isn't allowed, fall back to GET
-                        if resp.status == 405:
-                            async with session.get(url, timeout=aiohttp.ClientTimeout(total=3)) as resp2:
-                                ok = resp2.status == 200 and "image" in resp2.headers.get("content-type","")
-                                if ok:
-                                    _filename_cache[img_name] = candidate
-                                    return candidate
-                        elif resp.status == 200 and "image" in resp.headers.get("content-type",""):
-                            _filename_cache[img_name] = candidate
-                            return candidate
-                except asyncio.TimeoutError:
-                    continue
-    
-    # If we still couldn't find a match, log this as a problematic file
-    if img_name not in _missing_files_log:
-        _missing_files_log.add(img_name)
-        logger.warning(f"Failed to find image after trying all variants: {img_name}")
-
-    # if nothing worked, fall back to original name with .jpg extension
-    result = f"{base}.jpg"
-    _filename_cache[img_name] = result
-    return result
-
 def find_images_for_ndc(ndc, conn):
     """Find images for a given NDC code"""
     try:
@@ -448,38 +299,25 @@ def find_images_for_ndc(ndc, conn):
         """)
         
         rows = conn.execute(query, {"ndc": ndc, "clean_ndc": clean_ndc})
-        filenames = []
+        all_filenames = []
+        
         for row in rows:
             if row[0]:
-                filenames.extend(split_image_filenames(row[0]))
+                all_filenames.append(row[0])
         
-        if not filenames:
+        if not all_filenames:
             return ["https://via.placeholder.com/400x300?text=No+Image+Available"]
             
-        # Process the filenames asynchronously
-        async def process_images():
-            tasks = [async_fix_image_filename(clean_filename(fname)) for fname in filenames]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            valid_images = []
-            seen = set()
-            
-            for result in results:
-                if isinstance(result, str) and result and result not in seen:
-                    seen.add(result)
-                    valid_images.append(f"{IMAGE_BASE}/{result}")
-            
-            return valid_images or ["https://via.placeholder.com/400x300?text=No+Image+Available"]
+        # Use our optimized function to get URLs
+        all_urls = []
+        for filename_str in all_filenames:
+            urls = get_image_urls(filename_str)
+            all_urls.extend(urls)
         
-        # Run the async function in the event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            image_urls = loop.run_until_complete(process_images())
-        finally:
-            loop.close()
+        # Remove duplicates
+        unique_urls = list(dict.fromkeys(all_urls))
         
-        return image_urls
+        return unique_urls or ["https://via.placeholder.com/400x300?text=No+Image+Available"]
     except Exception as e:
         logger.error(f"Error finding images for NDC {ndc}: {e}")
         return ["https://via.placeholder.com/400x300?text=No+Image+Available"]
@@ -539,41 +377,6 @@ async def warmup_system():
                 _common_drug_cache[drug_name.lower()] = drug_name
                 # Normalize to warm up the cache
                 normalize_name(drug_name)
-            
-            # Get some common imprints
-            common_imprints_query = text("""
-                SELECT DISTINCT splimprint FROM pillfinder
-                WHERE splimprint IS NOT NULL
-                LIMIT 50
-            """)
-            common_imprints = conn.execute(common_imprints_query).fetchall()
-            for imprint in common_imprints:
-                if imprint[0]:
-                    # Normalize to warm up the cache
-                    normalize_imprint(imprint[0])
-            
-            # Fetch some common images to warm up the image cache
-            common_images_query = text("""
-                SELECT DISTINCT image_filename FROM pillfinder
-                WHERE image_filename IS NOT NULL AND image_filename != ''
-                LIMIT 20
-            """)
-            image_rows = conn.execute(common_images_query).fetchall()
-            
-            # Extract and process image filenames
-            image_filenames = []
-            for row in image_rows:
-                if row[0]:
-                    filenames = split_image_filenames(row[0])
-                    image_filenames.extend(filenames)
-            
-            # Remove duplicates
-            image_filenames = list(set(image_filenames))[:20]
-            
-            # Warm up the image validation cache asynchronously
-            if image_filenames:
-                tasks = [async_fix_image_filename(img) for img in image_filenames]
-                await asyncio.gather(*tasks)
         
         elapsed = time.time() - start_time
         logger.info(f"System warm-up complete in {elapsed:.2f} seconds")
@@ -614,7 +417,7 @@ async def get_pill_details(
     rxcui: Optional[str] = Query(None),
     ndc: Optional[str] = Query(None)
 ):
-    """Get details about a pill, probing Supabase for the real image extensions."""
+    """Get details about a pill, trusting the database for image filenames."""
     global db_engine
 
     # Ensure DB connection
@@ -684,11 +487,11 @@ async def get_pill_details(
             if not row:
                 raise HTTPException(status_code=404, detail="No pills found matching your criteria")
 
-            columns   = result.keys()
+            columns = result.keys()
             pill_info = dict(zip(columns, row))
             pill_info = normalize_fields(pill_info)
 
-            # 2) Build the raw filename string
+            # 2) Handle image filenames
             if used_ndc:
                 filenames = pill_info.get("image_filename", "")
             else:
@@ -699,31 +502,17 @@ async def get_pill_details(
                 """)
                 img_rows = conn.execute(image_q, {
                     "medicine_name": pill_info.get("medicine_name", ""),
-                    "splimprint":    pill_info.get("splimprint", "")
+                    "splimprint": pill_info.get("splimprint", "")
                 })
                 filenames = ",".join(r[0] for r in img_rows if r[0])
 
-        # 3) PROBE for real extensions ASYNC, just like your index/search
-        raw_list     = split_image_filenames(filenames)
-        tasks = [async_fix_image_filename(img) for img in raw_list]
-        fixed_images = await asyncio.gather(*tasks, return_exceptions=False)
-
-        # Filter out any None values 
-        fixed_images = [img for img in fixed_images if img]
+        # 3) Process images (now trusting the database)
+        image_data = process_image_filenames(filenames)
         
-        if not fixed_images:
-            fixed_images = ["placeholder.jpg"]
-
-        image_urls = [f"{IMAGE_BASE}/{img}" for img in fixed_images][:MAX_IMAGES_PER_DRUG]
-
         # 4) Attach to pill_info
-        pill_info["image_urls"]          = image_urls
-        pill_info["has_multiple_images"] = len(image_urls) > 1
-        pill_info["carousel_images"]     = [
-            {"id": i, "url": url} for i, url in enumerate(image_urls)
-        ]
+        pill_info.update(image_data)
 
-        logger.info(f"Details for {pill_info.get('medicine_name')}: {len(image_urls)} images")
+        logger.info(f"Details for {pill_info.get('medicine_name')}: {len(pill_info['image_urls'])} images")
 
         return pill_info
 
@@ -975,48 +764,16 @@ async def search(
                     if fname:
                         grouped[key]["image_filenames"].add(fname)
 
-        # Process all image filenames in parallel
-        all_image_tasks = []
-        for data in grouped.values():
-            # Convert the set of image filenames back to a list
-            merged_images = list(data["image_filenames"])
-            clean_imgs = [clean_filename(img) for img in merged_images]
-            
-            for img in clean_imgs:
-                if img:
-                    all_image_tasks.append((img, async_fix_image_filename(img)))
-        
-        # Execute all image validation tasks in parallel
-        if all_image_tasks:
-            img_results = []
-            for img_name, task in all_image_tasks:
-                try:
-                    result = await task
-                    img_results.append((img_name, result))
-                except Exception as e:
-                    logger.error(f"Error processing image {img_name}: {e}")
-                    
-            # Create a mapping for quick lookup
-            img_mapping = {img: result for img, result in img_results if result}
-        else:
-            img_mapping = {}
-
+        # Process the records
         records = []
         for data in grouped.values():
-            merged_images = list(data["image_filenames"])
-            clean_imgs = [clean_filename(img) for img in merged_images]
+            # Convert the set of filenames to a comma-separated string
+            merged_images = ",".join(data["image_filenames"])
             
-            # Use the pre-computed results
-            valid_images = []
-            seen = set()
-            for img in clean_imgs:
-                if img in img_mapping and img_mapping[img] not in seen:
-                    seen.add(img_mapping[img])
-                    valid_images.append(f"{IMAGE_BASE}/{img_mapping[img]}")
-
-            if not valid_images:
-                valid_images = ["https://via.placeholder.com/400x300?text=No+Image+Available"]
-
+            # Process images using our new optimized function
+            image_data = process_image_filenames(merged_images)
+            
+            # Create the record with all required data
             item = {
                 "medicine_name": data["medicine_name"],
                 "splimprint": data["splimprint"],
@@ -1024,9 +781,7 @@ async def search(
                 "splshape_text": data["splshape_text"],
                 "ndc11": data["ndc11"],
                 "rxcui": data["rxcui"],
-                "image_urls": valid_images[:MAX_IMAGES_PER_DRUG],
-                "has_multiple_images": len(valid_images) > 1,
-                "carousel_images": [{"id": i, "url": url} for i, url in enumerate(valid_images[:MAX_IMAGES_PER_DRUG])]
+                **image_data  # Include all image URLs and related fields
             }
 
             records.append(item)
@@ -1169,12 +924,12 @@ def ndc_lookup(
         else:
             drug_info["found"] = True
 
-        # Find images using our helper function
+        # Find images using our optimized helper function
         with db_engine.connect() as conn:
             image_urls = find_images_for_ndc(ndc, conn)
             drug_info["image_urls"] = image_urls
 
-            # FIXED: Add carousel-specific data format based on actual image URLs
+            # Add carousel-specific data format
             drug_info["has_multiple_images"] = len(image_urls) > 1
             drug_info["carousel_images"] = [
                 {"id": i, "url": url} for i, url in enumerate(image_urls)
@@ -1226,7 +981,8 @@ def health_check():
         "images_dir_exists": os.path.exists(IMAGES_DIR),
         "using_supabase": True,
         "timestamp": CONFIG["current_timestamp"],
-        "user": CONFIG["current_user"]
+        "user": CONFIG["current_user"],
+        "image_validation": "disabled"  # Added flag to show validation is off
     }
 
 @app.get("/reload-data")
@@ -1234,8 +990,6 @@ async def reload_data(background_tasks: BackgroundTasks):
     """Reload database connection and recreate handlers"""
     global _missing_files_log
     # Clear all caches
-    _image_exists_cache.clear()
-    _filename_cache.clear()
     _common_drug_cache.clear()
     _missing_files_log.clear()
     
@@ -1243,7 +997,6 @@ async def reload_data(background_tasks: BackgroundTasks):
     normalize_text.cache_clear()
     normalize_imprint.cache_clear()
     normalize_name.cache_clear()
-    check_image_exists_in_supabase.cache_clear()
     
     # Update timestamp
     CONFIG["current_timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1272,176 +1025,6 @@ async def reload_data(background_tasks: BackgroundTasks):
         "user": CONFIG["current_user"]
     }
 
-@app.get("/ndc_diagnostic")
-def ndc_diagnostic(
-    ndc: str = Query(..., description="NDC code to diagnose")
-):
-    """Diagnostic endpoint for NDC search issues"""
-    global db_engine, ndc_handler
-
-    if not db_engine:
-        if not connect_to_database():
-            return {"error": "Database connection not available"}
-
-    try:
-        # Get database information
-        db_info = {}
-        with db_engine.connect() as conn:
-            clean_ndc = re.sub(r'[^0-9]', '', ndc)
-            query = text("""
-                SELECT ndc9, ndc11, medicine_name, splimprint, image_filename 
-                FROM pillfinder
-                WHERE ndc11 = :ndc OR ndc9 = :ndc 
-                OR REPLACE(ndc11, '-', '') = :clean_ndc 
-                OR REPLACE(ndc9, '-', '') = :clean_ndc
-                LIMIT 1
-            """)
-
-            result = conn.execute(query, {"ndc": ndc, "clean_ndc": clean_ndc})
-            row = result.fetchone()
-
-            if row:
-                db_info = {
-                    "ndc9": row[0],
-                    "ndc11": row[1],
-                    "medicine_name": row[2],
-                    "imprint": row[3],
-                    "image_filename": row[4]
-                }
-
-                # Log the raw image filename for debugging
-                logger.info(f"NDC Diagnostic - Raw image filename: {db_info['image_filename']}")
-
-                # Get cleaned image list
-                imgs = get_clean_image_list(db_info["image_filename"])
-                logger.info(f"NDC Diagnostic - Cleaned images: {imgs}")
-
-        # Test the image helper function
-        images = []
-        if db_engine:
-            with db_engine.connect() as conn:
-                images = find_images_for_ndc(ndc, conn)
-
-        # Get drug info from NDC handler
-        drug_info = ndc_handler.find_drug_by_ndc(ndc) if ndc_handler else None
-
-        # Return diagnostic info
-        return {
-            "ndc": ndc,
-            "database_found": bool(db_info),
-            "database_info": db_info,
-            "images_found": images != ["https://via.placeholder.com/400x300?text=No+Image+Available"],
-            "image_urls": images,
-            "image_count": len(images),
-            "should_use_carousel": len(images) > 1,
-            "drug_found_in_handler": drug_info is not None,
-            "drug_name": drug_info.get("medicine_name") if drug_info else None,
-            "has_imprint": bool(drug_info.get("splimprint")) if drug_info else False,
-            "imprint": drug_info.get("splimprint") if drug_info else None,
-            "related_ndcs_count": len(drug_info.get("related_ndcs", [])) if drug_info else 0
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-# Cache stats endpoint to help optimize
-@app.get("/cache_stats")
-def get_cache_stats():
-    """Get statistics about the various caches"""
-    return {
-        "image_exists_cache_size": len(_image_exists_cache),
-        "filename_cache_size": len(_filename_cache),
-        "common_drug_cache_size": len(_common_drug_cache),
-        "missing_files_count": len(_missing_files_log),
-        "normalize_text_cache_info": {
-            "hits": normalize_text.cache_info().hits,
-            "misses": normalize_text.cache_info().misses,
-            "size": normalize_text.cache_info().currsize,
-            "max_size": normalize_text.cache_info().maxsize
-        },
-        "normalize_imprint_cache_info": {
-            "hits": normalize_imprint.cache_info().hits,
-            "misses": normalize_imprint.cache_info().misses,
-            "size": normalize_imprint.cache_info().currsize,
-            "max_size": normalize_imprint.cache_info().maxsize
-        },
-        "normalize_name_cache_info": {
-            "hits": normalize_name.cache_info().hits,
-            "misses": normalize_name.cache_info().misses, 
-            "size": normalize_name.cache_info().currsize,
-            "max_size": normalize_name.cache_info().maxsize
-        },
-        "image_exists_supabase_cache_info": {
-            "hits": check_image_exists_in_supabase.cache_info().hits,
-            "misses": check_image_exists_in_supabase.cache_info().misses,
-            "size": check_image_exists_in_supabase.cache_info().currsize, 
-            "max_size": check_image_exists_in_supabase.cache_info().maxsize
-        },
-        "last_updated": datetime.now().isoformat(),
-        "config": CONFIG
-    }
-
-# New diagnostic endpoint to test filename matching
-@app.get("/image_test")
-async def test_image_filename(
-    filename: str = Query(..., description="Image filename to test"),
-):
-    """Test filename matching for a specific image"""
-    
-    if not filename:
-        raise HTTPException(400, "Filename is required")
-    
-    # Clean and prepare the filename
-    clean_name = clean_filename(filename)
-    base_name, ext = os.path.splitext(clean_name)
-    
-    # Generate all variants to test
-    variants = generate_filename_variants(base_name)
-    
-    # Test each variant with different extensions
-    results = []
-    
-    for variant in variants:
-        for ext_to_try in IMAGE_EXTENSIONS:
-            test_name = f"{variant}{ext_to_try}"
-            test_url = f"{IMAGE_BASE}/{test_name}"
-            
-            # Check if it exists
-            exists = is_valid_image_url(test_url)
-            
-            if exists:
-                results.append({
-                    "variant": test_name,
-                    "url": test_url,
-                    "exists": True
-                })
-            else:
-                results.append({
-                    "variant": test_name,
-                    "url": test_url,
-                    "exists": False
-                })
-    
-    # Try async resolution
-    fixed_name = await async_fix_image_filename(clean_name)
-    
-    return {
-        "original": clean_name,
-        "resolved": fixed_name,
-        "resolved_url": f"{IMAGE_BASE}/{fixed_name}",
-        "variants_tested": len(results),
-        "matches_found": sum(1 for r in results if r["exists"]),
-        "all_results": [r for r in results if r["exists"]],  # Only show successful matches
-    }
-
-# New endpoint to report missing images
-@app.get("/missing_images")
-async def get_missing_images():
-    """Get list of image files that failed to resolve"""
-    return {
-        "missing_count": len(_missing_files_log),
-        "missing_files": sorted(list(_missing_files_log))
-    }
-
 # Redirects for compatibility
 @app.get("/index.html")
 async def redirect_to_index():
@@ -1452,7 +1035,6 @@ async def redirect_to_index():
 async def list_routes():
     # Return all the paths FastAPI knows about
     return sorted(route.path for route in app.router.routes)
-
 
 if __name__ == "__main__":
     import uvicorn
