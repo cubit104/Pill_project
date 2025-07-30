@@ -19,6 +19,14 @@ from functools import lru_cache
 import time
 from datetime import datetime
 
+# Import cardiac device integration
+try:
+    from cardiac_device_api import cardiac_router, initialize_cardiac_integration
+    CARDIAC_INTEGRATION_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"Cardiac device integration not available: {e}")
+    CARDIAC_INTEGRATION_AVAILABLE = False
+
 # Set up logging
 logging.basicConfig(
         level=logging.INFO,
@@ -67,9 +75,9 @@ CONFIG = {
 
 # Create FastAPI app
 app = FastAPI(
-    title="Pill Identifier API",
-    description="API for identifying pills based on various characteristics",
-    version="1.0.0"
+    title="Pill Identifier & Cardiac Device Monitoring API",
+    description="API for identifying pills and monitoring cardiac devices with Boston Scientific integration",
+    version="2.0.0"
 )
 
 # Enable CORS
@@ -93,6 +101,11 @@ try:
     logger.info(f"Successfully mounted /images directory from {IMAGES_DIR}")
 except Exception as e:
     logger.error(f"Error mounting images directory: {e}")
+
+# Include cardiac device router if available
+if CARDIAC_INTEGRATION_AVAILABLE:
+    app.include_router(cardiac_router)
+    logger.info("Cardiac device router included")
 
 # Global database connection and NDC handler
 db_engine = None
@@ -390,6 +403,19 @@ connect_to_database()
 async def startup_event():
     """Run tasks when the application starts"""
     await warmup_system()
+    
+    # Initialize cardiac device integration if available
+    if CARDIAC_INTEGRATION_AVAILABLE:
+        try:
+            success = await initialize_cardiac_integration(DATABASE_URL)
+            if success:
+                logger.info("Cardiac device integration initialized successfully")
+            else:
+                logger.warning("Failed to initialize cardiac device integration")
+        except Exception as e:
+            logger.error(f"Error initializing cardiac device integration: {e}")
+    else:
+        logger.info("Cardiac device integration not available")
 
 @app.middleware("http")
 async def fix_port_redirects(request: Request, call_next):
