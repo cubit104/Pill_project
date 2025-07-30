@@ -13,7 +13,6 @@ from sqlalchemy.exc import SQLAlchemyError
 import requests
 from ndc_module import NDCHandler  # Import the NDC handler
 import asyncio
-import aiohttp
 from fastapi import BackgroundTasks
 from functools import lru_cache
 import time

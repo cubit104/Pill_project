@@ -1,0 +1,16 @@
+# Extended requirements including aiohttp
+# Use this file if you need aiohttp for async HTTP operations
+# Install with: pip install -r requirements-full.txt
+
+# Include all base requirements
+-r requirements.txt
+
+# Additional HTTP client with stable wheel support
+aiohttp==3.8.6
+
+# Alternative: if 3.8.6 doesn't work on your platform, try these versions
+# aiohttp==3.8.5  # Even more stable
+# aiohttp==3.7.4  # For older Python versions (3.7+)
+
+# If you encounter compilation errors, try:
+# pip install --only-binary=aiohttp aiohttp==3.8.6
