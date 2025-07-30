@@ -1,46 +1,188 @@
-# Getting Started with Create React App
+# Cardiac Device Monitoring System
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A comprehensive full-stack application for real-time cardiac device monitoring with manufacturer-agnostic API integration. This system provides monitoring capabilities for cardiac devices from various manufacturers including Boston Scientific.
+
+## Architecture
+
+The system is split into two main components:
+- **Frontend**: React-based dashboard for real-time visualization
+- **Backend**: FastAPI server for device integration and data management
+
+## Prerequisites
+
+- Python 3.8+
+- Node.js 16+
+- npm or yarn
+- PostgreSQL database
+
+## Quick Start
+
+### 1. Backend Setup
+
+```bash
+# Navigate to backend directory
+cd backend
+
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Set up environment variables (optional)
+export DATABASE_URL="your_postgresql_connection_string"
+
+# Start the backend server
+python main.py
+```
+
+The backend will be available at `http://localhost:8001`
+
+### 2. Frontend Setup
+
+```bash
+# Navigate to the cardiac-monitor root directory
+cd ../
+
+# Install Node.js dependencies
+npm install
+
+# Start the React development server
+npm start
+```
+
+The frontend will be available at `http://localhost:3000`
 
 ## Available Scripts
 
-In the project directory, you can run:
+### Backend Scripts
 
-### `npm start`
+From the `backend/` directory:
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+- `python main.py` - Start the FastAPI server
+- `python test_cardiac_integration.py` - Run integration tests
+- `python setup_cardiac_integration.py` - Setup and configure device integrations
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+### Frontend Scripts
 
-### `npm test`
+From the cardiac-monitor root directory:
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+- `npm start` - Start development server (port 3000)
+- `npm test` - Run tests
+- `npm run build` - Build for production
+- `npm run dev:backend` - Start backend server (requires script configuration)
+- `npm run dev:full` - Start both frontend and backend (requires script configuration)
 
-### `npm run build`
+## Development Workflow
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### Running Both Services
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+1. **Terminal 1 - Backend**:
+   ```bash
+   cd backend
+   python main.py
+   ```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+2. **Terminal 2 - Frontend**:
+   ```bash
+   npm start
+   ```
 
-### `npm run eject`
+### Production Build
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+1. Build the frontend:
+   ```bash
+   npm run build
+   ```
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+2. The backend can serve the built files or you can deploy them separately.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+## API Documentation
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+Once the backend is running, visit `http://localhost:8001/docs` for interactive API documentation.
 
-## Learn More
+### Key Endpoints
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+- `GET /` - Backend status dashboard
+- `GET /patients/{patient_id}/devices` - Get patient devices
+- `GET /patients/{patient_id}/readings` - Get device readings
+- `GET /patients/{patient_id}/alerts` - Get device alerts
+- `POST /credentials/{manufacturer}` - Store manufacturer credentials
+- `GET /status` - Integration status
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Configuration
+
+### Database Configuration
+
+The system uses a PostgreSQL database. Configure the connection via:
+
+1. Environment variable:
+   ```bash
+   export DATABASE_URL="postgresql://user:password@host:port/database"
+   ```
+
+2. Or modify the `DATABASE_URL` in `backend/main.py`
+
+### Manufacturer Integration
+
+To add a new device manufacturer:
+
+1. Store credentials via the API:
+   ```bash
+   POST /credentials/{manufacturer}
+   ```
+
+2. The system currently supports:
+   - Boston Scientific (built-in)
+   - Extensible architecture for additional manufacturers
+
+## Security Features
+
+- **Encrypted Credential Storage**: All API credentials are encrypted
+- **CORS Configuration**: Properly configured for frontend-backend communication
+- **HIPAA Compliance**: Designed with healthcare data protection in mind
+- **Token Management**: Automatic token refresh and secure storage
+
+## Monitoring and Alerts
+
+The system provides:
+- Real-time device status monitoring
+- Automated alert generation
+- Device battery level tracking
+- Communication status monitoring
+- Historical data analysis
+
+## Troubleshooting
+
+### Backend Issues
+
+1. **Import errors**: Ensure all dependencies are installed via `pip install -r requirements.txt`
+2. **Database connection**: Verify DATABASE_URL is correctly configured
+3. **Port conflicts**: Backend runs on port 8001 by default
+
+### Frontend Issues
+
+1. **Build errors**: Run `npm install` to ensure dependencies are up to date
+2. **API connection**: Ensure backend is running on port 8001
+3. **CORS issues**: Backend is configured to allow localhost:3000
+
+### System Integration
+
+1. **Authentication failures**: Check manufacturer credentials are properly stored
+2. **Data ingestion issues**: Review logs in the backend terminal
+3. **Device communication**: Verify network connectivity and API endpoints
+
+## Documentation
+
+Additional documentation is available in the `docs/` directory:
+- `docs/BOSTON_SCIENTIFIC_INTEGRATION.md` - Detailed Boston Scientific integration guide
+- `docs/IMPLEMENTATION_SUMMARY.md` - Complete implementation overview
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test both frontend and backend
+5. Submit a pull request
+
+## License
+
+This project is developed for medical device monitoring and should comply with relevant healthcare regulations in your jurisdiction.

@@ -23,11 +23,18 @@
     "typescript": "^4.9.5",
     "web-vitals": "^2.1.4"
   },
+  "devDependencies": {
+    "concurrently": "^7.6.0"
+  },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "dev:backend": "cd backend && python main.py",
+    "dev:full": "concurrently \"npm start\" \"npm run dev:backend\"",
+    "backend:test": "cd backend && python test_cardiac_integration.py",
+    "backend:setup": "cd backend && python setup_cardiac_integration.py"
   },
   "eslintConfig": {
     "extends": [
