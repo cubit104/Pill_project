@@ -20,7 +20,6 @@ const HeartRateChart: React.FC<HeartRateChartProps> = ({ readings, height = 300 
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
-      const data = payload[0].payload;
       return (
         <div className="bg-white border rounded shadow p-2">
           <p className="mb-1 fw-bold">{label}</p>

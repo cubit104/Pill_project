@@ -12,7 +12,6 @@ const Dashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const { 
     patients, 
-    readings, 
     alerts, 
     acknowledgeAlert, 
     getLatestReadingForPatient, 
