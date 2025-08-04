@@ -1,7 +1,6 @@
 import React from 'react';
 import { Card, Badge, Row, Col } from 'react-bootstrap';
 import { Patient, CardiacDeviceReading, Alert } from '../types';
-import { getAlertColor } from '../services/alertService';
 
 interface PatientCardProps {
   patient: Patient;

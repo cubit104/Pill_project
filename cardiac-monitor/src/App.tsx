@@ -1,7 +1,8 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { DeviceDataProvider } from './contexts/DeviceDataContext';
+import Homepage from './components/Homepage';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -15,6 +16,7 @@ function App() {
         <Router>
           <div className="App">
             <Routes>
+              <Route path="/" element={<Homepage />} />
               <Route path="/login" element={<Login />} />
               <Route 
                 path="/dashboard" 
@@ -24,7 +26,6 @@ function App() {
                   </ProtectedRoute>
                 } 
               />
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </div>
         </Router>
