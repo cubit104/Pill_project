@@ -7,8 +7,18 @@ import Login from './pages/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
-import DashboardNew from './src/cardiac-monitor/Dashboard';
-import DashboardOld from './src/pages/Dashboard';
+
+/*
+ * Dashboard Import Guide:
+ * - DashboardNew: The new enhanced dashboard located at ./cardiac-monitor/Dashboard.tsx
+ * - DashboardOld: The legacy dashboard located at ./pages/Dashboard.tsx
+ * 
+ * Routes:
+ * - /dashboard -> DashboardNew (new enhanced dashboard)
+ * - /dashboard-old -> DashboardOld (legacy dashboard for backward compatibility)
+ */
+import DashboardNew from './cardiac-monitor/Dashboard';
+import DashboardOld from './pages/Dashboard';
 function App() {
   return (
     <AuthProvider>
