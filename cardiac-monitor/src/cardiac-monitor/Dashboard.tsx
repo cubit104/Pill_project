@@ -15,6 +15,7 @@
  */
 
 import React, { useMemo } from 'react';
+import { PieChart, Pie, Cell } from 'recharts';
 
 // Dummy patient data for demonstration
 const patients = [
@@ -25,9 +26,6 @@ const patients = [
   { id: 5, name: "Alex Pulse", vendor: "Boston Scientific", status: "Inactive" },
 ];
 
-// Chart example: PieChart from recharts
-import { PieChart, Pie, Cell } from 'recharts';
-
 const vendorData = [
   { name: "Medtronic", value: 2 },
   { name: "Boston Scientific", value: 2 },
@@ -37,7 +35,7 @@ const vendorData = [
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28"];
 
 export default function Dashboard() {
-  // FIXED: Use Array.from not spread operator for Set
+  // FIX: use Array.from instead of spread operator for Set
   const uniqueVendors = useMemo(
     () => Array.from(new Set(patients.map(p => p.vendor))),
     []
@@ -74,7 +72,7 @@ export default function Dashboard() {
             cx="50%"
             cy="50%"
             labelLine={false}
-            // FIXED: percent may be undefined, so check before using
+            // FIX: percent may be undefined, so check before using
             label={({ name, percent }) =>
               percent !== undefined
                 ? `${name} ${(percent * 100).toFixed(0)}%`
