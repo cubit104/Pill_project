@@ -8,7 +8,7 @@
  * - Modal-based patient detail views
  * - Modern Bootstrap-based UI design
  * 
- * Location: cardiac-monitor/src/cardiac-monitor/Dashboard.tsx
+ * Location: src/cardiac-monitor/Dashboard.tsx
  * Route: /dashboard
  * 
  * This dashboard should be used for all new features and enhancements.
