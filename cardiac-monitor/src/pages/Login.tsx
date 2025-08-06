@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { Container, Row, Col, Card, Form, Button, Alert, Spinner } from 'react-bootstrap';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -9,10 +9,14 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login, isAuthenticated } = useAuth();
+  const location = useLocation();
+
+  // Get the intended destination from location state, or default to /dashboard
+  const from = location.state?.from?.pathname || '/dashboard';
 
   // Redirect if already authenticated
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={from} replace />;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -24,6 +28,8 @@ const Login: React.FC = () => {
       const success = await login(username, password);
       if (!success) {
         setError('Invalid username or password');
+      } else {
+        // Successful login - React Router will handle the redirect via the Navigate component above
       }
     } catch (err) {
       setError('An error occurred during login');

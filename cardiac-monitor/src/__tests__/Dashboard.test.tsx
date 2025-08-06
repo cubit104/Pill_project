@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import Dashboard from '../../Dashboard';
+import Dashboard from '../cardiac-monitor/Dashboard';
 
 // Mock recharts since it requires canvas/SVG that might not be available in test environment
 jest.mock('recharts', () => ({
