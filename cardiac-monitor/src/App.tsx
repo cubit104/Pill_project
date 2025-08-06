@@ -9,7 +9,8 @@ import DashboardOld from './pages/Dashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
-
+import DashboardNew from './src/cardiac-monitor/Dashboard';
+import DashboardOld from './src/pages/Dashboard';
 function App() {
   return (
     <AuthProvider>
