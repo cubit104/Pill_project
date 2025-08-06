@@ -1,3 +1,7 @@
+import React from 'react';
+export default function Dashboard() {
+  return <h1 style={{ color: 'red' }}>THIS IS THE OLD DASHBOARD</h1>;
+}
 import React, { useState } from 'react';
 import { Container, Row, Col, Navbar, Nav, Button, Modal, Card } from 'react-bootstrap';
 import { useAuth } from '../contexts/AuthContext';
