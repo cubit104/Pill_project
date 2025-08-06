@@ -4,8 +4,8 @@ import { AuthProvider } from './contexts/AuthContext';
 import { DeviceDataProvider } from './contexts/DeviceDataContext';
 import Homepage from './components/Homepage';
 import Login from './pages/Login';
-import Dashboard from './cardiac-monitor/Dashboard';
-//import Dashboard from './pages/Dashboard';
+import DashboardNew from './cardiac-monitor/Dashboard';
+import DashboardOld from './pages/Dashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
@@ -23,7 +23,15 @@ function App() {
                 path="/dashboard" 
                 element={
                   <ProtectedRoute>
-                    <Dashboard />
+                    <DashboardNew />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/dashboard-old" 
+                element={
+                  <ProtectedRoute>
+                    <DashboardOld />
                   </ProtectedRoute>
                 } 
               />
