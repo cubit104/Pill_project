@@ -4,8 +4,6 @@ import { AuthProvider } from './contexts/AuthContext';
 import { DeviceDataProvider } from './contexts/DeviceDataContext';
 import Homepage from './components/Homepage';
 import Login from './pages/Login';
-import DashboardNew from './cardiac-monitor/Dashboard';
-import DashboardOld from './pages/Dashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
