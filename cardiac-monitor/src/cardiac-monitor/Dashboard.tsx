@@ -37,7 +37,7 @@ const vendorData = [
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28"];
 
 export default function Dashboard() {
-  // Fix for uniqueVendors
+  // FIXED: Use Array.from not spread operator for Set
   const uniqueVendors = useMemo(
     () => Array.from(new Set(patients.map(p => p.vendor))),
     []
@@ -74,6 +74,7 @@ export default function Dashboard() {
             cx="50%"
             cy="50%"
             labelLine={false}
+            // FIXED: percent may be undefined, so check before using
             label={({ name, percent }) =>
               percent !== undefined
                 ? `${name} ${(percent * 100).toFixed(0)}%`
