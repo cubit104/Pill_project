@@ -1,3 +1,7 @@
+import React from 'react';
+export default function Dashboard() {
+  return <h1 style={{ color: 'green' }}>THIS IS THE NEW DASHBOARD</h1>;
+}
 import React, { useState, useMemo } from 'react';
 import { 
   Container, 
