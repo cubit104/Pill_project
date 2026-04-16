@@ -1,6 +1,8 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyc
+*.pyo
 *$py.class
 *.so
 .Python
@@ -21,12 +23,6 @@ venv.bak/
 .env.development.local
 .env.test.local
 .env.production.local
-
-# Node modules (for cardiac-monitor frontend)
-cardiac-monitor/node_modules/
-cardiac-monitor/build/
-cardiac-monitor/.npm
-cardiac-monitor/.eslintcache
 
 # OS
 .DS_Store
