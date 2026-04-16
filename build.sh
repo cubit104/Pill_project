@@ -1,4 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
+
+# Install Python dependencies
 pip install -r requirements.txt
-cd frontend && npm install && npm run build
+
+# Build the Next.js frontend
+cd frontend
+npm install
+npm run build
+cd ..

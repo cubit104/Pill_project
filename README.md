@@ -81,7 +81,15 @@ The API and frontend will be available at `http://localhost:8000`.
 
 ## Deployment (Render)
 
-The project includes a `Procfile` for Render deployments. **Before deploying**, build the frontend locally and include `frontend/out/` in your deployment, or add a build step:
+The project includes a `Procfile` for Render deployments.
+
+**Important:** Set your Render **Build Command** to:
+
+```
+bash build.sh
+```
+
+This runs `pip install -r requirements.txt` and then builds the Next.js frontend (`npm install && npm run build` in `frontend/`), producing the `frontend/out/` static export that FastAPI serves. Without this step, Render will only install Python packages and the new frontend will never be built — leaving the fallback `index.html` as the only page served.
 
 1. Set environment variables in Render dashboard:
    - `DATABASE_URL` — your Supabase PostgreSQL connection string
@@ -89,9 +97,9 @@ The project includes a `Procfile` for Render deployments. **Before deploying**, 
    - `ALLOWED_ORIGINS` — your deployed frontend URL (e.g. `https://idmypills.com`)
    - `SITE_URL` — `https://idmypills.com`
 
-2. Build command (optional, if running on Render build step):
+2. Set **Build Command** in Render dashboard:
    ```bash
-   cd frontend && npm install && npm run build && cd ..
+   bash build.sh
    ```
 
 ## API Endpoints
