@@ -915,164 +915,24 @@ async def api_search(
         logger.error(f"Search error: {str(e)}", exc_info=True)
         raise HTTPException(500, detail=f"Search error: {str(e)}")
 
-# Legacy endpoint — returns original field names for backward compatibility with index.html.
-# When accessed by a browser (Accept: text/html) it serves the HTML page instead of JSON.
-@app.get("/search")
-async def search_legacy(
-    request: Request,
-    q: Optional[str] = Query(None),
-    type: Optional[str] = Query("imprint"),
-    color: Optional[str] = Query(None),
-    shape: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    per_page: int = Query(25, ge=1, le=100),
-    background_tasks: BackgroundTasks = None,
-):
-    """Serve HTML page for browser requests; return JSON for API/fetch requests."""
-    accept = request.headers.get("accept", "")
-    # Check for text/html as a proper media-type token (browser navigation).
-    # Media types are case-insensitive, so normalize before comparison.
-    # fetch() sends Accept: */* so it falls through to the JSON path below.
-    accepts_html = any(
-        token.strip().split(";")[0].strip().lower() == "text/html"
-        for token in accept.split(",")
-    )
-    if accepts_html:
-        # Browser navigation — serve the frontend shell
-        next_index = os.path.join(NEXT_OUT_DIR, "index.html")
-        if os.path.exists(next_index):
-            return FileResponse(next_index)
-        index_path = os.path.join(BASE_DIR, "index.html")
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
-        raise HTTPException(status_code=404, detail="Frontend not found")
-    global db_engine
-
-    if not db_engine and not connect_to_database():
-        raise HTTPException(500, "Database connection not available")
-
-    try:
-        base_sql = """
-            SELECT 
-                medicine_name, 
-                splimprint, 
-                splcolor_text, 
-                splshape_text, 
-                ndc11, 
-                rxcui, 
-                image_filename,
-                slug
-            FROM pillfinder
-            WHERE 1=1
-        """
-
-        params = {}
-        where_conditions = []
-
-        if q:
-            query = q.strip()
-            if type == "imprint":
-                norm = normalize_imprint(query)
-                where_conditions.append("UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:imprint)")
-                params["imprint"] = norm
-            elif type == "drug":
-                where_conditions.append("LOWER(medicine_name) LIKE LOWER(:drug_name)")
-                params["drug_name"] = f"{query.lower()}%"
-            elif type == "ndc":
-                clean_ndc = re.sub(r'[^0-9]', '', query)
-                where_conditions.append("""
-                    (
-                        ndc11 = :ndc OR ndc9 = :ndc OR
-                        REPLACE(ndc11, '-', '') LIKE :like_ndc OR
-                        REPLACE(ndc9, '-', '') LIKE :like_ndc
-                    )
-                """)
-                params["ndc"] = query
-                params["like_ndc"] = f"%{clean_ndc}%"
-
-        if color:
-            where_conditions.append("LOWER(TRIM(splcolor_text)) = LOWER(:color)")
-            params["color"] = color.strip().lower()
-
-        if shape:
-            where_conditions.append("LOWER(TRIM(splshape_text)) = LOWER(:shape)")
-            params["shape"] = shape.strip().lower()
-
-        for condition in where_conditions:
-            base_sql += f" AND {condition}"
-
-        with db_engine.connect() as conn:
-            count_sql = f"""
-                SELECT COUNT(*) FROM (
-                    SELECT DISTINCT medicine_name, splimprint
-                    FROM pillfinder
-                    WHERE 1=1
-                    {"".join(f' AND {cond}' for cond in where_conditions)}
-                ) AS count_query
-            """
-            count_result = conn.execute(text(count_sql), params)
-            total = count_result.scalar() or 0
-
-            offset = (page - 1) * per_page
-            paginated_sql = f"{base_sql} LIMIT :limit OFFSET :offset"
-            paginated_params = {**params, "limit": per_page, "offset": offset}
-            result = conn.execute(text(paginated_sql), paginated_params)
-            rows = result.fetchall()
-
-        grouped = {}
-        for row in rows:
-            medicine_name = row[0] if row[0] else ""
-            splimprint = row[1] if row[1] else ""
-
-            norm_name = normalize_name(medicine_name)
-            norm_imprint = normalize_imprint(splimprint)
-            key = (norm_name, norm_imprint)
-
-            if key not in grouped:
-                grouped[key] = {
-                    "medicine_name": medicine_name,
-                    "splimprint": splimprint,
-                    "splcolor_text": row[2] if row[2] else "",
-                    "splshape_text": row[3] if row[3] else "",
-                    "ndc11": row[4] if row[4] else "",
-                    "rxcui": row[5] if row[5] else "",
-                    "image_filenames": set(),
-                    "slug": row[7] if len(row) > 7 and row[7] else None,
-                }
-
-            if row[6]:
-                filenames = split_image_filenames(row[6])
-                for fname in filenames:
-                    if fname:
-                        grouped[key]["image_filenames"].add(fname)
-
-        records = []
-        for data in grouped.values():
-            merged_images = ",".join(data["image_filenames"])
-            image_data = process_image_filenames(merged_images)
-
-            item = {
-                "medicine_name": data["medicine_name"],
-                "splimprint": data["splimprint"],
-                "splcolor_text": data["splcolor_text"] or None,
-                "splshape_text": data["splshape_text"] or None,
-                "ndc11": data["ndc11"] or None,
-                "rxcui": data["rxcui"] or None,
-                **image_data,
-            }
-            records.append(item)
-
-        return {
-            "results": records,
-            "total": total,
-            "page": page,
-            "per_page": per_page,
-            "total_pages": (total + per_page - 1) // per_page,
-        }
-
-    except Exception as e:
-        logger.error(f"Search error: {str(e)}", exc_info=True)
-        raise HTTPException(500, detail=f"Search error: {str(e)}")
+@app.get("/search", response_class=HTMLResponse)
+async def serve_search_page():
+    """Serve the search HTML page (Next.js static export or legacy fallback).
+    API calls should use /api/search instead.
+    """
+    # Prefer the Next.js pre-rendered search page
+    next_search = os.path.join(NEXT_OUT_DIR, "search", "index.html")
+    if os.path.exists(next_search):
+        return FileResponse(next_search)
+    # Fall back to the Next.js SPA shell (handles routing client-side)
+    next_index = os.path.join(NEXT_OUT_DIR, "index.html")
+    if os.path.exists(next_index):
+        return FileResponse(next_index)
+    # Final fallback: legacy index.html
+    index_path = os.path.join(BASE_DIR, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    raise HTTPException(status_code=404, detail="Frontend not found")
 
 @app.get("/filters") 
 def get_filters():
