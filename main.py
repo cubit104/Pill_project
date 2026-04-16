@@ -18,10 +18,9 @@ from fastapi import BackgroundTasks
 from functools import lru_cache
 import time
 from datetime import datetime
+from dotenv import load_dotenv
 
-# Cardiac device integration has been moved to a separate service
-# The cardiac monitoring system is now available at cardiac-monitor/backend/
-CARDIAC_INTEGRATION_AVAILABLE = False
+load_dotenv()
 
 # Set up logging
 logging.basicConfig(
@@ -35,13 +34,15 @@ logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__name__))
 
 # Supabase Configuration
-IMAGE_BASE = "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images"
-
-# Direct Postgres connection for Supabase
-DATABASE_URL = (
-    "postgresql://postgres.uqdwcxizabmxwflkbfrb:Potato6200$"
-    "supabase@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+IMAGE_BASE = os.getenv(
+    "IMAGE_BASE",
+    "https://uqdwcxizabmxwflkbfrb.supabase.co/storage/v1/object/public/images",
 )
+
+# Database connection — must be set via the DATABASE_URL environment variable
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is not set")
 
 # File paths and settings for backward compatibility
 CSV_PATH = os.path.join(BASE_DIR, "Final_structured_combined_with_image_filename.csv")
@@ -79,7 +80,7 @@ app = FastAPI(
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in os.getenv("ALLOWED_ORIGINS", "https://pill0project.onrender.com").split(",")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -97,9 +98,6 @@ try:
     logger.info(f"Successfully mounted /images directory from {IMAGES_DIR}")
 except Exception as e:
     logger.error(f"Error mounting images directory: {e}")
-
-# Cardiac device integration has been moved to a separate service
-# It is no longer included in this application
 
 # Global database connection and NDC handler
 db_engine = None
