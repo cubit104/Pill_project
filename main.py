@@ -931,9 +931,10 @@ async def search_legacy(
     """Serve HTML page for browser requests; return JSON for API/fetch requests."""
     accept = request.headers.get("accept", "")
     # Check for text/html as a proper media-type token (browser navigation).
+    # Media types are case-insensitive, so normalize before comparison.
     # fetch() sends Accept: */* so it falls through to the JSON path below.
     accepts_html = any(
-        token.strip().split(";")[0].strip() == "text/html"
+        token.strip().split(";")[0].strip().lower() == "text/html"
         for token in accept.split(",")
     )
     if accepts_html:
