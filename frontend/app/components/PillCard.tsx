@@ -10,6 +10,7 @@ interface PillCardProps {
 type PillCardData = PillResult & {
   medicine_name?: string
   splimprint?: string
+  spl_strength?: string
 }
 
 function getPillIcon() {
@@ -50,20 +51,24 @@ function getImprint(pill: PillResult): string | undefined {
 }
 
 function slugify(value: string): string {
-  // Characters are already restricted to a-z, 0-9 and hyphens — no encoding needed.
-  return value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
 function deriveSlug(pill: PillResult): string {
   if (pill.slug) return pill.slug
 
-  const imprint = getImprint(pill)
-  if (imprint) return slugify(imprint)
-
-  if (pill.ndc) return pill.ndc.replace(/[^a-z0-9-]/gi, '')
-
+  // Build slug from drug name + strength (new format, matching the backend)
   const drugName = getDrugName(pill)
-  if (drugName && drugName !== 'Unknown Pill') return slugify(drugName)
+  const data = pill as PillCardData
+  const strength = pill.strength ?? data.spl_strength
+
+  if (drugName && drugName !== 'Unknown Pill') {
+    const parts = [drugName]
+    if (strength) parts.push(strength)
+    return slugify(parts.join(' '))
+  }
+
+  if (pill.ndc) return slugify(pill.ndc)
 
   return 'unknown-pill'
 }

@@ -214,6 +214,24 @@ def get_unique_key(item: Dict) -> tuple:
         str(item.get("rxcui", "")).strip()
     )
 
+def generate_slug(medicine_name: str, spl_strength: str) -> str:
+    """Generate a URL-safe slug from medicine name and strength.
+
+    Format: {medicine_name}-{spl_strength} slugified
+    Example: "Plavix" + "Clopidogrel bisulfate 300 mg" → "plavix-clopidogrel-bisulfate-300-mg"
+    """
+    parts = []
+    if medicine_name:
+        parts.append(str(medicine_name).strip())
+    if spl_strength:
+        parts.append(str(spl_strength).strip())
+    combined = " ".join(parts)
+    # Lowercase, replace non-alphanumeric (except hyphens) with hyphens, collapse multiples
+    slug = combined.lower()
+    slug = re.sub(r'[^a-z0-9]+', '-', slug)
+    slug = slug.strip('-')
+    return slug or "unknown"
+
 # NEW OPTIMIZED IMAGE HANDLING FUNCTIONS
 
 def get_image_url(filename: str) -> str:
@@ -400,10 +418,65 @@ async def warmup_system():
 # Connect to database on startup
 connect_to_database()
 
+def regenerate_slugs():
+    """One-time update: regenerate all slug values in the DB using medicine_name + spl_strength.
+
+    Runs on startup. Slugs that are already in the correct format (medicine_name-based, not
+    imprint-based) are left unchanged.  Any row whose slug is NULL or whose slug matches the
+    old imprint-based format is updated to the new strength-based format.
+    """
+    global db_engine
+    if not db_engine:
+        return
+    try:
+        with db_engine.connect() as conn:
+            rows = conn.execute(
+                text("SELECT id, medicine_name, spl_strength, splimprint, slug FROM pillfinder")
+            ).fetchall()
+
+        updates = []
+        seen_slugs: Dict[str, int] = {}
+
+        for row in rows:
+            row_id, medicine_name, spl_strength, splimprint, existing_slug = row
+            new_slug = generate_slug(medicine_name or "", spl_strength or "")
+
+            # Make the slug unique within this batch using an in-memory set first,
+            # then fall back to a DB check to handle slugs from previous migration runs.
+            base_slug = new_slug
+            counter = 1
+            while new_slug in seen_slugs and seen_slugs[new_slug] != row_id:
+                new_slug = f"{base_slug}-{counter}"
+                counter += 1
+            seen_slugs[new_slug] = row_id
+
+            if existing_slug != new_slug:
+                updates.append({"new_slug": new_slug, "row_id": row_id})
+
+        if updates:
+            with db_engine.connect() as conn:
+                for upd in updates:
+                    conn.execute(
+                        text(
+                            "UPDATE pillfinder SET slug = :new_slug"
+                            " WHERE id = :row_id"
+                            "   AND (slug IS DISTINCT FROM :new_slug)"
+                        ),
+                        upd,
+                    )
+                conn.commit()
+            logger.info(f"regenerate_slugs: updated {len(updates)} slug(s) to strength-based format")
+        else:
+            logger.info("regenerate_slugs: all slugs already up-to-date")
+    except Exception as e:
+        logger.error(f"regenerate_slugs failed: {e}", exc_info=True)
+
 @app.on_event("startup")
 async def startup_event():
     """Run tasks when the application starts"""
     await warmup_system()
+    # Regenerate slugs in a thread pool to avoid blocking the event loop
+    await asyncio.get_event_loop().run_in_executor(None, regenerate_slugs)
     logger.info("Pill identification system initialized successfully")
 
 @app.middleware("http")
@@ -575,9 +648,14 @@ async def get_pill_by_slug(slug: str):
                 "strength": pill_info.get("spl_strength"),
                 "manufacturer": pill_info.get("author"),
                 "ingredients": pill_info.get("spl_ingredients"),
+                "inactive_ingredients": pill_info.get("spl_inactive_ing"),
                 "dea_schedule": pill_info.get("dea_schedule_name"),
-                "pharma_class": pill_info.get("dailymed_pharma_class_epc"),
+                "pharma_class": pill_info.get("dailymed_pharma_class_epc") or pill_info.get("pharmclass_fda_epc"),
                 "size": str(pill_info.get("splsize", "") or ""),
+                "dosage_form": pill_info.get("dosage_form"),
+                "brand_names": pill_info.get("brand_names"),
+                "status_rx_otc": pill_info.get("status_rx_otc"),
+                "route": pill_info.get("route"),
                 "image_url": image_urls[0] if image_urls else None,
                 "images": image_urls,
             }
