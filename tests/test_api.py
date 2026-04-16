@@ -6,6 +6,7 @@ These tests use a mocked database so they can run without a real DATABASE_URL.
 
 import os
 import pytest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # Provide a fake DATABASE_URL before importing main so the startup check passes
@@ -100,6 +101,89 @@ def test_search_legacy_alias_returns_200(client):
     app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/search")
     assert response.status_code == 200
+
+
+def test_search_accept_html_serves_legacy_index(tmp_path):
+    """GET /search with Accept: text/html should serve the legacy index.html, not JSON."""
+    # Create a temporary index.html the handler can serve
+    index_html = tmp_path / "index.html"
+    index_html.write_text("<html><body>IDMyPills</body></html>")
+
+    import main as app_module
+    from fastapi.testclient import TestClient
+
+    # Point BASE_DIR to tmp_path (has index.html) and NEXT_OUT_DIR to a non-existent path
+    with patch("main.NEXT_OUT_DIR", str(tmp_path / "no_nextjs")), \
+         patch("main.BASE_DIR", str(tmp_path)):
+        with TestClient(app_module.app, raise_server_exceptions=True) as c:
+            response = c.get(
+                "/search",
+                headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+            )
+    assert response.status_code == 200
+    assert "text/html" in response.headers.get("content-type", "")
+
+
+def test_search_accept_html_prefers_nextjs_index(tmp_path):
+    """When frontend/out/index.html exists, GET /search with Accept: text/html should serve it."""
+    next_dir = tmp_path / "out"
+    next_dir.mkdir()
+    (next_dir / "index.html").write_text("<html><body>Next.js IDMyPills</body></html>")
+
+    import main as app_module
+    from fastapi.testclient import TestClient
+
+    with patch("main.NEXT_OUT_DIR", str(next_dir)), \
+         patch("main.BASE_DIR", str(tmp_path)):
+        with TestClient(app_module.app, raise_server_exceptions=True) as c:
+            response = c.get("/search", headers={"Accept": "text/html"})
+    assert response.status_code == 200
+    assert "text/html" in response.headers.get("content-type", "")
+
+
+def test_search_accept_html_case_insensitive(tmp_path):
+    """Media-type matching for Accept: TEXT/HTML (uppercase) should also serve HTML."""
+    index_html = tmp_path / "index.html"
+    index_html.write_text("<html><body>IDMyPills</body></html>")
+
+    import main as app_module
+    from fastapi.testclient import TestClient
+
+    with patch("main.NEXT_OUT_DIR", str(tmp_path / "no_nextjs")), \
+         patch("main.BASE_DIR", str(tmp_path)):
+        with TestClient(app_module.app, raise_server_exceptions=True) as c:
+            response = c.get("/search", headers={"Accept": "TEXT/HTML"})
+    assert response.status_code == 200
+    assert "text/html" in response.headers.get("content-type", "")
+
+
+def test_search_fetch_default_accept_returns_json(client):
+    """GET /search with Accept: */* (the fetch() default) should return JSON, not HTML."""
+    import main as app_module
+    mock_result = MagicMock()
+    mock_result.scalar.return_value = 0
+    mock_result.fetchall.return_value = []
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+
+    response = client.get("/search", headers={"Accept": "*/*"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "results" in data
+
+
+def test_search_no_accept_header_returns_json(client):
+    """GET /search with no Accept header should return JSON (not HTML)."""
+    import main as app_module
+    mock_result = MagicMock()
+    mock_result.scalar.return_value = 0
+    mock_result.fetchall.return_value = []
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+
+    # Send request without an Accept header
+    response = client.get("/search", headers={"Accept": ""})
+    assert response.status_code == 200
+    data = response.json()
+    assert "results" in data
 
 
 
