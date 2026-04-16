@@ -589,7 +589,14 @@ async def sitemap():
             slugs = [row[0] for row in result if row[0]]
 
         base_url = os.getenv("SITE_URL", "https://idmypills.com")
-        urls = [f"  <url><loc>{base_url}/pill/{slug}</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>" for slug in slugs]
+        pill_url_template = (
+            "  <url>"
+            "<loc>{base}/pill/{slug}</loc>"
+            "<changefreq>monthly</changefreq>"
+            "<priority>0.8</priority>"
+            "</url>"
+        )
+        urls = [pill_url_template.format(base=base_url, slug=slug) for slug in slugs]
         xml_content = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'

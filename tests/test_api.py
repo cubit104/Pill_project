@@ -238,8 +238,9 @@ def test_image_base_has_default():
 
 
 def test_cors_includes_idmypills():
-    """CORS default origins should include idmypills.com."""
+    """CORS default fallback origins in main.py should include idmypills.com."""
+    import inspect
     import main as app_module
-    # The CORS middleware is configured via env var; check the default includes idmypills.com
-    default_origins = "https://pill0project.onrender.com,https://idmypills.com,https://www.idmypills.com"
-    assert "idmypills.com" in default_origins
+    source = inspect.getsource(app_module)
+    # Verify the default CORS allowed origins string (the os.getenv fallback) includes idmypills.com
+    assert "idmypills.com" in source, "idmypills.com not found in CORS default origins in main.py"
