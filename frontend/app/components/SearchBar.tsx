@@ -37,6 +37,7 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const suggestionsRef = useRef<HTMLUListElement>(null)
 
@@ -70,6 +71,12 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   }, [query, activeTab, fetchSuggestions])
+
+  useEffect(() => {
+    return () => {
+      if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current)
+    }
+  }, [])
 
   const handleSubmit = () => {
     setShowSuggestions(false)
@@ -145,8 +152,9 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
             if (suggestions.length > 0) setShowSuggestions(true)
           }}
           onBlur={() => {
-            // Delay to allow click on suggestion
-            setTimeout(() => setShowSuggestions(false), SUGGESTION_CLOSE_DELAY_MS)
+            // Delay to allow click on suggestion; timeout is cleaned up on unmount
+            if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current)
+            blurTimeoutRef.current = setTimeout(() => setShowSuggestions(false), SUGGESTION_CLOSE_DELAY_MS)
           }}
           placeholder={TABS.find((t) => t.id === activeTab)?.placeholder}
           className="w-full border border-slate-300 rounded-lg px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-base"

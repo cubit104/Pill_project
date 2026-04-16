@@ -175,9 +175,9 @@ def test_api_pill_slug_not_found(client):
 def test_api_pill_slug_found(client):
     """GET /api/pill/{slug} should return pill data when slug exists."""
     mock_row = ("Aspirin", "ASPIRIN 500", "White", "Round", "0069-0020-01", "215831",
-                "aspirin500.jpg", None, None, "aspirin-500mg-0069-0020-01")
+                "aspirin500.jpg", "aspirin-500mg-0069-0020-01", None)
     mock_columns = ["medicine_name", "splimprint", "splcolor_text", "splshape_text",
-                    "ndc11", "rxcui", "image_filename", "slug", "meta_description", "slug"]
+                    "ndc11", "rxcui", "image_filename", "slug", "meta_description"]
     mock_result = MagicMock()
     mock_result.fetchone.return_value = mock_row
     mock_result.keys.return_value = mock_columns
