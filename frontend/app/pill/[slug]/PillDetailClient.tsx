@@ -60,6 +60,49 @@ function SkeletonDetail() {
   )
 }
 
+function generatePillDescription(pill: PillDetail): string {
+  const parts: string[] = []
+
+  // Basic physical description
+  const colorShape = [pill.color, pill.shape].filter(Boolean).join(' ')
+  const sizeStr = pill.size ? `${pill.size} mm` : ''
+  const form = pill.dosage_form || 'Pill'
+  // Use "an" before vowel sounds, "a" otherwise
+  const firstWord = (colorShape || form)[0]?.toLowerCase() ?? ''
+  const article = 'aeiou'.includes(firstWord) ? 'an' : 'a'
+  let intro = `This medication is ${article}`
+  if (colorShape) intro += ` ${colorShape}`
+  if (sizeStr) intro += ` ${sizeStr},`
+  intro += ` ${form}`
+  if (pill.imprint) {
+    intro += ` with imprint "${pill.imprint}".`
+  } else {
+    intro += '.'
+  }
+  parts.push(intro)
+
+  // Strength / ingredients
+  if (pill.strength && pill.ingredients) {
+    parts.push(`It contains ${pill.strength} of ${pill.ingredients}.`)
+  } else if (pill.ingredients) {
+    parts.push(`It contains ${pill.ingredients}.`)
+  }
+
+  // Pharma class
+  if (pill.pharma_class) {
+    parts.push(`This belongs to the ${pill.pharma_class} pharmacologic class.`)
+  }
+
+  // Manufacturer
+  if (pill.manufacturer) {
+    parts.push(`It is manufactured by ${pill.manufacturer}.`)
+  }
+
+  parts.push('For details please contact your physician.')
+
+  return parts.join(' ')
+}
+
 export default function PillDetailClient() {
   const router = useRouter()
   const [pill, setPill] = useState<PillDetail | null>(null)
@@ -100,9 +143,14 @@ export default function PillDetailClient() {
           strength: raw.strength ?? raw.spl_strength,
           manufacturer: raw.manufacturer ?? raw.author,
           ingredients: raw.ingredients ?? raw.spl_ingredients,
+          inactive_ingredients: raw.inactive_ingredients ?? raw.spl_inactive_ing,
           dea_schedule: raw.dea_schedule ?? raw.dea_schedule_name,
-          pharma_class: raw.pharma_class ?? raw.dailymed_pharma_class_epc,
+          pharma_class: raw.pharma_class ?? raw.dailymed_pharma_class_epc ?? raw.pharmclass_fda_epc,
           size: raw.size ?? (raw.splsize ? String(raw.splsize) : undefined),
+          dosage_form: raw.dosage_form,
+          brand_names: raw.brand_names,
+          status_rx_otc: raw.status_rx_otc,
+          route: raw.route,
           image_url: raw.image_url ?? (Array.isArray(raw.image_urls) ? raw.image_urls[0] : undefined),
           images: raw.images ?? raw.image_urls ?? [],
         }
@@ -268,20 +316,31 @@ export default function PillDetailClient() {
           )}
         </div>
 
-        {/* Detail Table */}
+        {/* Description Paragraph */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          <h2 className="text-base font-semibold text-slate-800 mb-4">Pill Information</h2>
+          <h2 className="text-base font-semibold text-slate-800 mb-3">About This Medication</h2>
+          <p className="text-sm text-slate-700 leading-relaxed">{generatePillDescription(pill)}</p>
+        </div>
+
+        {/* Basic Information */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-4">Basic Information</h2>
           <dl>
-            <DetailRow label="Drug Name" value={pill.drug_name} />
             <DetailRow label="Imprint" value={pill.imprint} />
-            <DetailRow label="Strength" value={pill.strength} />
             <DetailRow label="Color" value={pill.color} />
             <DetailRow label="Shape" value={pill.shape} />
-            <DetailRow label="Size" value={pill.size} />
-            <DetailRow label="Manufacturer" value={pill.manufacturer} />
-            <DetailRow label="NDC" value={pill.ndc} />
+            <DetailRow label="Size" value={pill.size ? `${pill.size} mm` : undefined} />
+          </dl>
+        </div>
+
+        {/* Drug Information */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-4">Drug Information</h2>
+          <dl>
+            <DetailRow label="Strength" value={pill.strength} />
+            <DetailRow label="Dosage Form" value={pill.dosage_form} />
+            <DetailRow label="Route" value={pill.route} />
             <DetailRow label="RxCUI" value={pill.rxcui} />
-            <DetailRow label="Pharmaceutical Class" value={pill.pharma_class} />
             <DetailRow
               label="DEA Schedule"
               value={
@@ -293,13 +352,37 @@ export default function PillDetailClient() {
           </dl>
         </div>
 
-        {/* Ingredients */}
-        {pill.ingredients && (
+        {/* Pharmaceutical Classification */}
+        {pill.pharma_class && (
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-3">Active Ingredients</h2>
-            <p className="text-sm text-slate-700 leading-relaxed">{pill.ingredients}</p>
+            <h2 className="text-base font-semibold text-slate-800 mb-4">Pharmaceutical Classification</h2>
+            <dl>
+              <DetailRow label="Pharmacologic Class" value={pill.pharma_class} />
+            </dl>
           </div>
         )}
+
+        {/* Ingredients */}
+        {(pill.ingredients || pill.inactive_ingredients) && (
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-4">Ingredients</h2>
+            <dl>
+              <DetailRow label="Active Ingredients" value={pill.ingredients} />
+              <DetailRow label="Inactive Ingredients" value={pill.inactive_ingredients} />
+            </dl>
+          </div>
+        )}
+
+        {/* Additional Information */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-4">Additional Information</h2>
+          <dl>
+            <DetailRow label="Manufacturer" value={pill.manufacturer} />
+            <DetailRow label="Status (Rx/OTC)" value={pill.status_rx_otc} />
+            <DetailRow label="Brand Names" value={pill.brand_names} />
+            <DetailRow label="NDC Code" value={pill.ndc} />
+          </dl>
+        </div>
 
         {/* Disclaimer */}
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">

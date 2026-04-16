@@ -13,10 +13,15 @@ export interface PillResult {
 
 export interface PillDetail extends PillResult {
   ingredients?: string
+  inactive_ingredients?: string
   dea_schedule?: string
   pharma_class?: string
   size?: string
   images?: string[]
+  dosage_form?: string
+  brand_names?: string
+  status_rx_otc?: string
+  route?: string
 }
 
 export interface FilterOption {
