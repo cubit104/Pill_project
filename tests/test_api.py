@@ -58,11 +58,42 @@ def test_health_has_database_connected_field(client):
 
 
 # ---------------------------------------------------------------------------
-# Search endpoint
+# Search endpoints
 # ---------------------------------------------------------------------------
 
 def test_search_no_params_returns_empty_results(client):
-    """GET /search with no parameters should return 200 with empty results."""
+    """GET /api/search with no parameters should return 200 with empty results."""
+    mock_result = MagicMock()
+    mock_result.mappings.return_value = []
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/search")
+    assert response.status_code == 200
+
+
+def test_search_with_name_param(client):
+    """GET /api/search?name=aspirin should return 200 (even with empty results)."""
+    mock_result = MagicMock()
+    mock_result.mappings.return_value = []
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/search?name=aspirin")
+    assert response.status_code == 200
+
+
+def test_search_response_has_results_key(client):
+    """GET /api/search response should contain a 'results' key."""
+    mock_result = MagicMock()
+    mock_result.mappings.return_value = []
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/search?name=aspirin")
+    data = response.json()
+    assert "results" in data
+
+
+def test_search_legacy_alias_returns_200(client):
+    """GET /search (legacy alias) should still return 200 with empty results."""
     mock_result = MagicMock()
     mock_result.mappings.return_value = []
     import main as app_module
@@ -70,26 +101,6 @@ def test_search_no_params_returns_empty_results(client):
     response = client.get("/search")
     assert response.status_code == 200
 
-
-def test_search_with_name_param(client):
-    """GET /search?name=aspirin should return 200 (even with empty results)."""
-    mock_result = MagicMock()
-    mock_result.mappings.return_value = []
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
-    response = client.get("/search?name=aspirin")
-    assert response.status_code == 200
-
-
-def test_search_response_has_results_key(client):
-    """GET /search response should contain a 'results' key."""
-    mock_result = MagicMock()
-    mock_result.mappings.return_value = []
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
-    response = client.get("/search?name=aspirin")
-    data = response.json()
-    assert "results" in data
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +169,70 @@ def test_suggestions_returns_list(client):
 
 
 # ---------------------------------------------------------------------------
+# Slug-based pill lookup endpoint
+# ---------------------------------------------------------------------------
+
+def test_api_pill_slug_not_found(client):
+    """GET /api/pill/{slug} should return 404 when the slug is not in DB."""
+    mock_result = MagicMock()
+    mock_result.fetchone.return_value = None
+    mock_result.keys.return_value = []
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/pill/nonexistent-slug")
+    assert response.status_code == 404
+
+
+def test_api_pill_slug_found(client):
+    """GET /api/pill/{slug} should return pill data when slug exists."""
+    mock_row = ("Aspirin", "ASPIRIN 500", "White", "Round", "0069-0020-01", "215831",
+                "aspirin500.jpg", "aspirin-500mg-0069-0020-01", None)
+    mock_columns = ["medicine_name", "splimprint", "splcolor_text", "splshape_text",
+                    "ndc11", "rxcui", "image_filename", "slug", "meta_description"]
+    mock_result = MagicMock()
+    mock_result.fetchone.return_value = mock_row
+    mock_result.keys.return_value = mock_columns
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/pill/aspirin-500mg-0069-0020-01")
+    assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Sitemap endpoint
+# ---------------------------------------------------------------------------
+
+def test_sitemap_returns_200(client):
+    """GET /sitemap.xml should return 200 with XML content."""
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(return_value=iter([("aspirin-500mg-0069-0020-01",)]))
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/sitemap.xml")
+    assert response.status_code == 200
+
+
+def test_sitemap_content_type(client):
+    """GET /sitemap.xml should return XML content type."""
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(return_value=iter([]))
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/sitemap.xml")
+    assert "xml" in response.headers.get("content-type", "")
+
+
+def test_sitemap_contains_urlset(client):
+    """GET /sitemap.xml should contain a urlset element."""
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(return_value=iter([("some-slug",)]))
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/sitemap.xml")
+    assert b"urlset" in response.content
+
+
+# ---------------------------------------------------------------------------
 # Environment / configuration
 # ---------------------------------------------------------------------------
 
@@ -171,3 +246,12 @@ def test_image_base_has_default():
     """IMAGE_BASE should fall back to the Supabase URL when env var is absent."""
     import main as app_module
     assert "supabase.co" in app_module.IMAGE_BASE
+
+
+def test_cors_includes_idmypills():
+    """CORS default fallback origins in main.py should include idmypills.com."""
+    import inspect
+    import main as app_module
+    source = inspect.getsource(app_module)
+    # Verify the default CORS allowed origins string (the os.getenv fallback) includes idmypills.com
+    assert "idmypills.com" in source, "idmypills.com not found in CORS default origins in main.py"

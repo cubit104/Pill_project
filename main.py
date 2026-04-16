@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Query, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from typing import List, Optional, Dict, Any, Set
 import pandas as pd
 import os
@@ -80,7 +80,7 @@ app = FastAPI(
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in os.getenv("ALLOWED_ORIGINS", "https://pill0project.onrender.com").split(",")],
+    allow_origins=[o.strip() for o in os.getenv("ALLOWED_ORIGINS", "https://pill0project.onrender.com,https://idmypills.com,https://www.idmypills.com").split(",")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -98,6 +98,15 @@ try:
     logger.info(f"Successfully mounted /images directory from {IMAGES_DIR}")
 except Exception as e:
     logger.error(f"Error mounting images directory: {e}")
+
+# Mount the Next.js static export (_next assets, etc.)
+NEXT_OUT_DIR = os.path.join(BASE_DIR, "frontend", "out")
+try:
+    if os.path.isdir(os.path.join(NEXT_OUT_DIR, "_next")):
+        app.mount("/_next", StaticFiles(directory=os.path.join(NEXT_OUT_DIR, "_next")), name="nextjs_assets")
+        logger.info("Mounted Next.js static assets at /_next")
+except Exception as e:
+    logger.warning(f"Could not mount Next.js assets: {e}")
 
 # Global database connection and NDC handler
 db_engine = None
@@ -529,6 +538,103 @@ async def get_pill_details(
         logger.error(f"Error in get_pill_details: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
+@app.get("/api/pill/{slug}")
+async def get_pill_by_slug(slug: str):
+    """Get pill details by URL slug for SEO pages"""
+    global db_engine
+
+    if not db_engine:
+        if not connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with db_engine.connect() as conn:
+            query = text("SELECT * FROM pillfinder WHERE slug = :slug LIMIT 1")
+            result = conn.execute(query, {"slug": slug})
+            row = result.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            columns = result.keys()
+            pill_info = dict(zip(columns, row))
+            pill_info = normalize_fields(pill_info)
+
+            # Process images
+            image_data = process_image_filenames(pill_info.get("image_filename", ""))
+            image_urls = image_data.get("image_urls", [])
+
+            # Map raw DB field names to the frontend UI model
+            mapped = {
+                "drug_name": pill_info.get("medicine_name"),
+                "imprint": pill_info.get("splimprint"),
+                "color": pill_info.get("splcolor_text"),
+                "shape": pill_info.get("splshape_text"),
+                "ndc": pill_info.get("ndc11"),
+                "rxcui": str(pill_info.get("rxcui", "") or ""),
+                "slug": pill_info.get("slug"),
+                "strength": pill_info.get("spl_strength"),
+                "manufacturer": pill_info.get("author"),
+                "ingredients": pill_info.get("spl_ingredients"),
+                "dea_schedule": pill_info.get("dea_schedule_name"),
+                "pharma_class": pill_info.get("dailymed_pharma_class_epc"),
+                "size": str(pill_info.get("splsize", "") or ""),
+                "image_url": image_urls[0] if image_urls else None,
+                "images": image_urls,
+            }
+
+        return mapped
+
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_pill_by_slug: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in get_pill_by_slug: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/sitemap.xml")
+async def sitemap():
+    """Generate XML sitemap with all pill URLs"""
+    global db_engine
+
+    if not db_engine:
+        if not connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with db_engine.connect() as conn:
+            result = conn.execute(text("SELECT slug FROM pillfinder WHERE slug IS NOT NULL ORDER BY slug"))
+            slugs = [row[0] for row in result if row[0]]
+
+        base_url = os.getenv("SITE_URL", "https://idmypills.com").rstrip("/")
+        pill_url_template = (
+            "  <url>"
+            "<loc>{base}/pill/{slug}</loc>"
+            "<changefreq>monthly</changefreq>"
+            "<priority>0.8</priority>"
+            "</url>"
+        )
+        # XML-escape each slug to guard against special characters
+        from xml.sax.saxutils import escape as xml_escape
+        urls = [pill_url_template.format(base=base_url, slug=xml_escape(slug)) for slug in slugs]
+        xml_content = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            f'  <url><loc>{base_url}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>\n'
+            f'  <url><loc>{base_url}/search</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>\n'
+            + "\n".join(urls)
+            + "\n</urlset>"
+        )
+        return Response(content=xml_content, media_type="application/xml")
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in sitemap: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error generating sitemap: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @app.get("/suggestions")
 def get_suggestions(
     q: str = Query(..., description="Search query"),
@@ -646,8 +752,8 @@ def get_suggestions(
     logger.info("→ branch: default (no suggestions)")
     return []
 
-@app.get("/search")
-async def search(
+@app.get("/api/search")
+async def api_search(
     q: Optional[str] = Query(None),
     type: Optional[str] = Query("imprint"),
     color: Optional[str] = Query(None),
@@ -656,13 +762,14 @@ async def search(
     per_page: int = Query(25, ge=1, le=100),
     background_tasks: BackgroundTasks = None,
 ) -> dict:
+    """Search endpoint that returns fields aligned with the frontend UI model."""
     global db_engine
 
     if not db_engine and not connect_to_database():
         raise HTTPException(500, "Database connection not available")
 
     try:
-        # Base SQL for the main query
+        # Base SQL for the main query — includes slug for stable pill URLs
         base_sql = """
             SELECT 
                 medicine_name, 
@@ -671,7 +778,8 @@ async def search(
                 splshape_text, 
                 ndc11, 
                 rxcui, 
-                image_filename
+                image_filename,
+                slug
             FROM pillfinder
             WHERE 1=1
         """
@@ -760,7 +868,8 @@ async def search(
                     "splshape_text": row[3] if row[3] else "",  # splshape_text
                     "ndc11": row[4] if row[4] else "",          # ndc11
                     "rxcui": row[5] if row[5] else "",          # rxcui
-                    "image_filenames": set()                    # Use set to avoid duplicates
+                    "image_filenames": set(),                    # Use set to avoid duplicates
+                    "slug": row[7] if len(row) > 7 and row[7] else None,  # slug
                 }
             
             # Handle image filenames - 6th index
@@ -779,15 +888,17 @@ async def search(
             # Process images using our new optimized function
             image_data = process_image_filenames(merged_images)
             
-            # Create the record with all required data
+            # Create the record with all required data — mapped to frontend UI model
+            image_urls = image_data.get("image_urls", [])
             item = {
-                "medicine_name": data["medicine_name"],
-                "splimprint": data["splimprint"],
-                "splcolor_text": data["splcolor_text"],
-                "splshape_text": data["splshape_text"],
-                "ndc11": data["ndc11"],
-                "rxcui": data["rxcui"],
-                **image_data  # Include all image URLs and related fields
+                "drug_name": data["medicine_name"],
+                "imprint": data["splimprint"],
+                "color": data["splcolor_text"] or None,
+                "shape": data["splshape_text"] or None,
+                "ndc": data["ndc11"] or None,
+                "rxcui": data["rxcui"] or None,
+                "slug": data.get("slug"),
+                "image_url": image_urls[0] if image_urls else None,
             }
 
             records.append(item)
@@ -803,6 +914,21 @@ async def search(
     except Exception as e:
         logger.error(f"Search error: {str(e)}", exc_info=True)
         raise HTTPException(500, detail=f"Search error: {str(e)}")
+
+# Legacy alias — kept for backward compatibility with existing API consumers
+@app.get("/search")
+async def search_legacy(
+    q: Optional[str] = Query(None),
+    type: Optional[str] = Query("imprint"),
+    color: Optional[str] = Query(None),
+    shape: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(25, ge=1, le=100),
+    background_tasks: BackgroundTasks = None,
+) -> dict:
+    """Backward-compatible alias for /api/search."""
+    return await api_search(q=q, type=type, color=color, shape=shape, page=page,
+                            per_page=per_page, background_tasks=background_tasks)
 
 @app.get("/filters") 
 def get_filters():
@@ -949,11 +1075,40 @@ def ndc_lookup(
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    """Serve the frontend HTML page"""
+    """Serve the Next.js frontend or fall back to legacy index.html"""
+    # Prefer Next.js static export
+    next_index = os.path.join(NEXT_OUT_DIR, "index.html")
+    if os.path.exists(next_index):
+        return FileResponse(next_index)
+    # Fallback to legacy index.html
     index_path = os.path.join(BASE_DIR, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
-    raise HTTPException(status_code=404, detail=f"Frontend file not found at {index_path}")
+    raise HTTPException(status_code=404, detail="Frontend not found")
+
+# NOTE: @app.get("/search") is already registered above as the legacy JSON alias.
+# A second @app.get("/search", response_class=HTMLResponse) would be silently
+# unreachable because FastAPI picks the first matching route handler.
+# The Next.js search page is a client-side SPA component: when the user navigates
+# from the homepage the router change happens client-side without a new HTTP
+# request, so no dedicated HTML route is required for the search page.
+
+@app.get("/pill/{slug}", response_class=HTMLResponse)
+async def serve_pill_page(slug: str):
+    """Serve the Next.js pill detail page.
+    The static export emits a single shell at pill/__placeholder__/index.html;
+    FastAPI serves that shell for any /pill/{slug} path and the client-side JS
+    resolves the actual slug from window.location.pathname.
+    """
+    # Exact slug match (pre-built at export time, e.g. the placeholder)
+    next_pill = os.path.join(NEXT_OUT_DIR, "pill", slug, "index.html")
+    if os.path.exists(next_pill):
+        return FileResponse(next_pill)
+    # Serve the placeholder shell for any other slug (client-side JS handles data fetch)
+    next_pill_fallback = os.path.join(NEXT_OUT_DIR, "pill", "__placeholder__", "index.html")
+    if os.path.exists(next_pill_fallback):
+        return FileResponse(next_pill_fallback)
+    raise HTTPException(status_code=404, detail="Pill page not found")
 
 @app.get("/health")
 def health_check():
