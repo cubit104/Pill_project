@@ -69,7 +69,7 @@ function SearchPageInner() {
         params.set('page', String(page))
         params.set('per_page', '25')
 
-        const res = await fetch(`/search?${params.toString()}`)
+        const res = await fetch(`/api/search?${params.toString()}`)
         if (!res.ok) throw new Error(`Search failed: ${res.status}`)
         const data: SearchResponse = await res.json()
         setResults(data.results)

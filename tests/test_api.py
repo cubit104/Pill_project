@@ -58,11 +58,42 @@ def test_health_has_database_connected_field(client):
 
 
 # ---------------------------------------------------------------------------
-# Search endpoint
+# Search endpoints
 # ---------------------------------------------------------------------------
 
 def test_search_no_params_returns_empty_results(client):
-    """GET /search with no parameters should return 200 with empty results."""
+    """GET /api/search with no parameters should return 200 with empty results."""
+    mock_result = MagicMock()
+    mock_result.mappings.return_value = []
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/search")
+    assert response.status_code == 200
+
+
+def test_search_with_name_param(client):
+    """GET /api/search?name=aspirin should return 200 (even with empty results)."""
+    mock_result = MagicMock()
+    mock_result.mappings.return_value = []
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/search?name=aspirin")
+    assert response.status_code == 200
+
+
+def test_search_response_has_results_key(client):
+    """GET /api/search response should contain a 'results' key."""
+    mock_result = MagicMock()
+    mock_result.mappings.return_value = []
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/search?name=aspirin")
+    data = response.json()
+    assert "results" in data
+
+
+def test_search_legacy_alias_returns_200(client):
+    """GET /search (legacy alias) should still return 200 with empty results."""
     mock_result = MagicMock()
     mock_result.mappings.return_value = []
     import main as app_module
@@ -70,26 +101,6 @@ def test_search_no_params_returns_empty_results(client):
     response = client.get("/search")
     assert response.status_code == 200
 
-
-def test_search_with_name_param(client):
-    """GET /search?name=aspirin should return 200 (even with empty results)."""
-    mock_result = MagicMock()
-    mock_result.mappings.return_value = []
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
-    response = client.get("/search?name=aspirin")
-    assert response.status_code == 200
-
-
-def test_search_response_has_results_key(client):
-    """GET /search response should contain a 'results' key."""
-    mock_result = MagicMock()
-    mock_result.mappings.return_value = []
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
-    response = client.get("/search?name=aspirin")
-    data = response.json()
-    assert "results" in data
 
 
 # ---------------------------------------------------------------------------

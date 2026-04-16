@@ -86,7 +86,26 @@ export default function PillDetailClient() {
           if (res.status === 404) throw new Error('Pill not found.')
           throw new Error(`Error ${res.status}: ${res.statusText}`)
         }
-        const data: PillDetail = await res.json()
+        const raw = await res.json()
+        // Map raw DB field names to the UI model (defensive — backend already maps,
+        // but guard against any future schema changes or legacy responses).
+        const data: PillDetail = {
+          drug_name: raw.drug_name ?? raw.medicine_name ?? 'Unknown',
+          imprint: raw.imprint ?? raw.splimprint ?? '',
+          color: raw.color ?? raw.splcolor_text,
+          shape: raw.shape ?? raw.splshape_text,
+          ndc: raw.ndc ?? raw.ndc11,
+          rxcui: raw.rxcui,
+          slug: raw.slug,
+          strength: raw.strength ?? raw.spl_strength,
+          manufacturer: raw.manufacturer ?? raw.author,
+          ingredients: raw.ingredients ?? raw.spl_ingredients,
+          dea_schedule: raw.dea_schedule ?? raw.dea_schedule_name,
+          pharma_class: raw.pharma_class ?? raw.dailymed_pharma_class_epc,
+          size: raw.size ?? (raw.splsize != null ? String(raw.splsize) : undefined),
+          image_url: raw.image_url ?? (Array.isArray(raw.image_urls) ? raw.image_urls[0] : undefined),
+          images: raw.images ?? raw.image_urls ?? [],
+        }
         setPill(data)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load pill details.')

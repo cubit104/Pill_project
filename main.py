@@ -561,9 +561,28 @@ async def get_pill_by_slug(slug: str):
 
             # Process images
             image_data = process_image_filenames(pill_info.get("image_filename", ""))
-            pill_info.update(image_data)
+            image_urls = image_data.get("image_urls", [])
 
-        return pill_info
+            # Map raw DB field names to the frontend UI model
+            mapped = {
+                "drug_name": pill_info.get("medicine_name"),
+                "imprint": pill_info.get("splimprint"),
+                "color": pill_info.get("splcolor_text"),
+                "shape": pill_info.get("splshape_text"),
+                "ndc": pill_info.get("ndc11"),
+                "rxcui": str(pill_info.get("rxcui", "") or ""),
+                "slug": pill_info.get("slug"),
+                "strength": pill_info.get("spl_strength"),
+                "manufacturer": pill_info.get("author"),
+                "ingredients": pill_info.get("spl_ingredients"),
+                "dea_schedule": pill_info.get("dea_schedule_name"),
+                "pharma_class": pill_info.get("dailymed_pharma_class_epc"),
+                "size": str(pill_info.get("splsize", "") or ""),
+                "image_url": image_urls[0] if image_urls else None,
+                "images": image_urls,
+            }
+
+        return mapped
 
     except HTTPException:
         raise
@@ -588,7 +607,7 @@ async def sitemap():
             result = conn.execute(text("SELECT slug FROM pillfinder WHERE slug IS NOT NULL ORDER BY slug"))
             slugs = [row[0] for row in result if row[0]]
 
-        base_url = os.getenv("SITE_URL", "https://idmypills.com")
+        base_url = os.getenv("SITE_URL", "https://idmypills.com").rstrip("/")
         pill_url_template = (
             "  <url>"
             "<loc>{base}/pill/{slug}</loc>"
@@ -596,7 +615,9 @@ async def sitemap():
             "<priority>0.8</priority>"
             "</url>"
         )
-        urls = [pill_url_template.format(base=base_url, slug=slug) for slug in slugs]
+        # XML-escape each slug to guard against special characters
+        from xml.sax.saxutils import escape as xml_escape
+        urls = [pill_url_template.format(base=base_url, slug=xml_escape(slug)) for slug in slugs]
         xml_content = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -731,8 +752,8 @@ def get_suggestions(
     logger.info("→ branch: default (no suggestions)")
     return []
 
-@app.get("/search")
-async def search(
+@app.get("/api/search")
+async def api_search(
     q: Optional[str] = Query(None),
     type: Optional[str] = Query("imprint"),
     color: Optional[str] = Query(None),
@@ -741,13 +762,14 @@ async def search(
     per_page: int = Query(25, ge=1, le=100),
     background_tasks: BackgroundTasks = None,
 ) -> dict:
+    """Search endpoint that returns fields aligned with the frontend UI model."""
     global db_engine
 
     if not db_engine and not connect_to_database():
         raise HTTPException(500, "Database connection not available")
 
     try:
-        # Base SQL for the main query
+        # Base SQL for the main query — includes slug for stable pill URLs
         base_sql = """
             SELECT 
                 medicine_name, 
@@ -756,7 +778,8 @@ async def search(
                 splshape_text, 
                 ndc11, 
                 rxcui, 
-                image_filename
+                image_filename,
+                slug
             FROM pillfinder
             WHERE 1=1
         """
@@ -845,7 +868,8 @@ async def search(
                     "splshape_text": row[3] if row[3] else "",  # splshape_text
                     "ndc11": row[4] if row[4] else "",          # ndc11
                     "rxcui": row[5] if row[5] else "",          # rxcui
-                    "image_filenames": set()                    # Use set to avoid duplicates
+                    "image_filenames": set(),                    # Use set to avoid duplicates
+                    "slug": row[7] if len(row) > 7 and row[7] else None,  # slug
                 }
             
             # Handle image filenames - 6th index
@@ -864,15 +888,17 @@ async def search(
             # Process images using our new optimized function
             image_data = process_image_filenames(merged_images)
             
-            # Create the record with all required data
+            # Create the record with all required data — mapped to frontend UI model
+            image_urls = image_data.get("image_urls", [])
             item = {
-                "medicine_name": data["medicine_name"],
-                "splimprint": data["splimprint"],
-                "splcolor_text": data["splcolor_text"],
-                "splshape_text": data["splshape_text"],
-                "ndc11": data["ndc11"],
-                "rxcui": data["rxcui"],
-                **image_data  # Include all image URLs and related fields
+                "drug_name": data["medicine_name"],
+                "imprint": data["splimprint"],
+                "color": data["splcolor_text"] or None,
+                "shape": data["splshape_text"] or None,
+                "ndc": data["ndc11"] or None,
+                "rxcui": data["rxcui"] or None,
+                "slug": data.get("slug"),
+                "image_url": image_urls[0] if image_urls else None,
             }
 
             records.append(item)
@@ -888,6 +914,21 @@ async def search(
     except Exception as e:
         logger.error(f"Search error: {str(e)}", exc_info=True)
         raise HTTPException(500, detail=f"Search error: {str(e)}")
+
+# Legacy alias — kept for backward compatibility with existing API consumers
+@app.get("/search")
+async def search_legacy(
+    q: Optional[str] = Query(None),
+    type: Optional[str] = Query("imprint"),
+    color: Optional[str] = Query(None),
+    shape: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(25, ge=1, le=100),
+    background_tasks: BackgroundTasks = None,
+) -> dict:
+    """Backward-compatible alias for /api/search."""
+    return await api_search(q=q, type=type, color=color, shape=shape, page=page,
+                            per_page=per_page, background_tasks=background_tasks)
 
 @app.get("/filters") 
 def get_filters():
@@ -1045,23 +1086,24 @@ async def serve_frontend():
         return FileResponse(index_path)
     raise HTTPException(status_code=404, detail="Frontend not found")
 
-@app.get("/search", response_class=HTMLResponse)
-async def serve_search_page():
-    """Serve the Next.js search results page"""
-    next_search = os.path.join(NEXT_OUT_DIR, "search", "index.html")
-    if os.path.exists(next_search):
-        return FileResponse(next_search)
-    # Fallback — redirect to home
-    return RedirectResponse(url="/")
+# NOTE: @app.get("/search") is already registered above as the legacy JSON alias.
+# A second HTML @app.get("/search") would be an unreachable duplicate (FastAPI picks
+# the first match). The search page HTML is therefore served via the /search JSON
+# route for backward compatibility; browser-side navigation uses the SPA shell.
 
 @app.get("/pill/{slug}", response_class=HTMLResponse)
 async def serve_pill_page(slug: str):
-    """Serve the Next.js pill detail page"""
+    """Serve the Next.js pill detail page.
+    The static export emits a single shell at pill/__placeholder__/index.html;
+    FastAPI serves that shell for any /pill/{slug} path and the client-side JS
+    resolves the actual slug from window.location.pathname.
+    """
+    # Exact slug match (pre-built at export time, e.g. the placeholder)
     next_pill = os.path.join(NEXT_OUT_DIR, "pill", slug, "index.html")
     if os.path.exists(next_pill):
         return FileResponse(next_pill)
-    # Try the catch-all static export pattern
-    next_pill_fallback = os.path.join(NEXT_OUT_DIR, "pill", "index.html")
+    # Serve the placeholder shell for any other slug (client-side JS handles data fetch)
+    next_pill_fallback = os.path.join(NEXT_OUT_DIR, "pill", "__placeholder__", "index.html")
     if os.path.exists(next_pill_fallback):
         return FileResponse(next_pill_fallback)
     raise HTTPException(status_code=404, detail="Pill page not found")

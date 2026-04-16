@@ -5,7 +5,13 @@ interface PillCardProps {
   pill: PillResult
 }
 
-function PillIcon() {
+// Extend to handle legacy backend field names alongside UI model names
+type PillCardData = PillResult & {
+  medicine_name?: string
+  splimprint?: string
+}
+
+function getPillIcon() {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -30,25 +36,46 @@ function PillIcon() {
   )
 }
 
+function getDrugName(pill: PillResult): string {
+  const data = pill as PillCardData
+  const candidate = data.drug_name ?? data.medicine_name
+  return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : 'Unknown Pill'
+}
+
+function getImprint(pill: PillResult): string | undefined {
+  const data = pill as PillCardData
+  const candidate = data.imprint ?? data.splimprint
+  return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : undefined
+}
+
+function slugify(value: string): string {
+  return encodeURIComponent(value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))
+}
+
 function deriveSlug(pill: PillResult): string {
   if (pill.slug) return pill.slug
-  if (pill.imprint) {
-    return encodeURIComponent(
-      pill.imprint.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
-    )
-  }
+
+  const imprint = getImprint(pill)
+  if (imprint) return slugify(imprint)
+
   if (pill.ndc) return encodeURIComponent(pill.ndc)
-  return encodeURIComponent(pill.drug_name.toLowerCase().replace(/\s+/g, '-'))
+
+  const drugName = getDrugName(pill)
+  if (drugName && drugName !== 'Unknown Pill') return slugify(drugName)
+
+  return 'unknown-pill'
 }
 
 export default function PillCard({ pill }: PillCardProps) {
   const slug = deriveSlug(pill)
+  const drugName = getDrugName(pill)
+  const imprint = getImprint(pill)
 
   return (
     <Link
       href={`/pill/${slug}`}
       className="group block bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2"
-      aria-label={`View details for ${pill.drug_name}${pill.imprint ? `, imprint ${pill.imprint}` : ''}`}
+      aria-label={`View details for ${drugName}${imprint ? `, imprint ${imprint}` : ''}`}
     >
       <div className="p-5">
         {/* Image / Icon */}
@@ -56,19 +83,19 @@ export default function PillCard({ pill }: PillCardProps) {
           {pill.image_url ? (
             <img
               src={pill.image_url}
-              alt={`${pill.drug_name} pill`}
+              alt={`${drugName} pill`}
               className="w-20 h-20 object-contain rounded-lg border border-slate-100"
             />
           ) : (
             <div className="w-20 h-20 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-center">
-              <PillIcon />
+              {getPillIcon()}
             </div>
           )}
         </div>
 
         {/* Drug Name */}
         <h3 className="font-semibold text-slate-900 text-base leading-tight mb-2 line-clamp-2">
-          {pill.drug_name}
+          {drugName}
         </h3>
 
         {/* Strength */}
@@ -77,10 +104,10 @@ export default function PillCard({ pill }: PillCardProps) {
         )}
 
         {/* Imprint Badge */}
-        {pill.imprint && (
+        {imprint && (
           <div className="mb-3">
             <span className="font-mono text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded border border-slate-200">
-              {pill.imprint}
+              {imprint}
             </span>
           </div>
         )}
