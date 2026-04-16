@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Query, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from typing import List, Optional, Dict, Any, Set
 import pandas as pd
 import os
@@ -80,7 +80,7 @@ app = FastAPI(
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in os.getenv("ALLOWED_ORIGINS", "https://pill0project.onrender.com").split(",")],
+    allow_origins=[o.strip() for o in os.getenv("ALLOWED_ORIGINS", "https://pill0project.onrender.com,https://idmypills.com,https://www.idmypills.com").split(",")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -98,6 +98,15 @@ try:
     logger.info(f"Successfully mounted /images directory from {IMAGES_DIR}")
 except Exception as e:
     logger.error(f"Error mounting images directory: {e}")
+
+# Mount the Next.js static export (_next assets, etc.)
+NEXT_OUT_DIR = os.path.join(BASE_DIR, "frontend", "out")
+try:
+    if os.path.isdir(os.path.join(NEXT_OUT_DIR, "_next")):
+        app.mount("/_next", StaticFiles(directory=os.path.join(NEXT_OUT_DIR, "_next")), name="nextjs_assets")
+        logger.info("Mounted Next.js static assets at /_next")
+except Exception as e:
+    logger.warning(f"Could not mount Next.js assets: {e}")
 
 # Global database connection and NDC handler
 db_engine = None
@@ -529,6 +538,75 @@ async def get_pill_details(
         logger.error(f"Error in get_pill_details: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
+@app.get("/api/pill/{slug}")
+async def get_pill_by_slug(slug: str):
+    """Get pill details by URL slug for SEO pages"""
+    global db_engine
+
+    if not db_engine:
+        if not connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with db_engine.connect() as conn:
+            query = text("SELECT * FROM pillfinder WHERE slug = :slug LIMIT 1")
+            result = conn.execute(query, {"slug": slug})
+            row = result.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            columns = result.keys()
+            pill_info = dict(zip(columns, row))
+            pill_info = normalize_fields(pill_info)
+
+            # Process images
+            image_data = process_image_filenames(pill_info.get("image_filename", ""))
+            pill_info.update(image_data)
+
+        return pill_info
+
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_pill_by_slug: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in get_pill_by_slug: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/sitemap.xml")
+async def sitemap():
+    """Generate XML sitemap with all pill URLs"""
+    global db_engine
+
+    if not db_engine:
+        if not connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with db_engine.connect() as conn:
+            result = conn.execute(text("SELECT slug FROM pillfinder WHERE slug IS NOT NULL ORDER BY slug"))
+            slugs = [row[0] for row in result if row[0]]
+
+        base_url = os.getenv("SITE_URL", "https://idmypills.com")
+        urls = [f"  <url><loc>{base_url}/pill/{slug}</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>" for slug in slugs]
+        xml_content = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            f'  <url><loc>{base_url}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>\n'
+            f'  <url><loc>{base_url}/search</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>\n'
+            + "\n".join(urls)
+            + "\n</urlset>"
+        )
+        return Response(content=xml_content, media_type="application/xml")
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in sitemap: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error generating sitemap: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @app.get("/suggestions")
 def get_suggestions(
     q: str = Query(..., description="Search query"),
@@ -949,11 +1027,37 @@ def ndc_lookup(
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    """Serve the frontend HTML page"""
+    """Serve the Next.js frontend or fall back to legacy index.html"""
+    # Prefer Next.js static export
+    next_index = os.path.join(NEXT_OUT_DIR, "index.html")
+    if os.path.exists(next_index):
+        return FileResponse(next_index)
+    # Fallback to legacy index.html
     index_path = os.path.join(BASE_DIR, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
-    raise HTTPException(status_code=404, detail=f"Frontend file not found at {index_path}")
+    raise HTTPException(status_code=404, detail="Frontend not found")
+
+@app.get("/search", response_class=HTMLResponse)
+async def serve_search_page():
+    """Serve the Next.js search results page"""
+    next_search = os.path.join(NEXT_OUT_DIR, "search", "index.html")
+    if os.path.exists(next_search):
+        return FileResponse(next_search)
+    # Fallback — redirect to home
+    return RedirectResponse(url="/")
+
+@app.get("/pill/{slug}", response_class=HTMLResponse)
+async def serve_pill_page(slug: str):
+    """Serve the Next.js pill detail page"""
+    next_pill = os.path.join(NEXT_OUT_DIR, "pill", slug, "index.html")
+    if os.path.exists(next_pill):
+        return FileResponse(next_pill)
+    # Try the catch-all static export pattern
+    next_pill_fallback = os.path.join(NEXT_OUT_DIR, "pill", "index.html")
+    if os.path.exists(next_pill_fallback):
+        return FileResponse(next_pill_fallback)
+    raise HTTPException(status_code=404, detail="Pill page not found")
 
 @app.get("/health")
 def health_check():
