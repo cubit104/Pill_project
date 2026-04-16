@@ -5,7 +5,8 @@ interface PillCardProps {
   pill: PillResult
 }
 
-// Extend to handle legacy backend field names alongside UI model names
+// Extend to handle any raw DB field names alongside UI model names as a
+// defensive measure against future schema drift or direct API responses.
 type PillCardData = PillResult & {
   medicine_name?: string
   splimprint?: string
@@ -49,7 +50,8 @@ function getImprint(pill: PillResult): string | undefined {
 }
 
 function slugify(value: string): string {
-  return encodeURIComponent(value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))
+  // Characters are already restricted to a-z, 0-9 and hyphens — no encoding needed.
+  return value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
 }
 
 function deriveSlug(pill: PillResult): string {
@@ -58,7 +60,7 @@ function deriveSlug(pill: PillResult): string {
   const imprint = getImprint(pill)
   if (imprint) return slugify(imprint)
 
-  if (pill.ndc) return encodeURIComponent(pill.ndc)
+  if (pill.ndc) return pill.ndc.replace(/[^a-z0-9-]/gi, '')
 
   const drugName = getDrugName(pill)
   if (drugName && drugName !== 'Unknown Pill') return slugify(drugName)

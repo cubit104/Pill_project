@@ -102,7 +102,7 @@ export default function PillDetailClient() {
           ingredients: raw.ingredients ?? raw.spl_ingredients,
           dea_schedule: raw.dea_schedule ?? raw.dea_schedule_name,
           pharma_class: raw.pharma_class ?? raw.dailymed_pharma_class_epc,
-          size: raw.size ?? (raw.splsize != null ? String(raw.splsize) : undefined),
+          size: raw.size ?? (raw.splsize ? String(raw.splsize) : undefined),
           image_url: raw.image_url ?? (Array.isArray(raw.image_urls) ? raw.image_urls[0] : undefined),
           images: raw.images ?? raw.image_urls ?? [],
         }

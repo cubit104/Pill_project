@@ -1087,9 +1087,11 @@ async def serve_frontend():
     raise HTTPException(status_code=404, detail="Frontend not found")
 
 # NOTE: @app.get("/search") is already registered above as the legacy JSON alias.
-# A second HTML @app.get("/search") would be an unreachable duplicate (FastAPI picks
-# the first match). The search page HTML is therefore served via the /search JSON
-# route for backward compatibility; browser-side navigation uses the SPA shell.
+# A second @app.get("/search", response_class=HTMLResponse) would be silently
+# unreachable because FastAPI picks the first matching route handler.
+# The Next.js search page is a client-side SPA component: when the user navigates
+# from the homepage the router change happens client-side without a new HTTP
+# request, so no dedicated HTML route is required for the search page.
 
 @app.get("/pill/{slug}", response_class=HTMLResponse)
 async def serve_pill_page(slug: str):
