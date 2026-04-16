@@ -17,6 +17,8 @@ interface SearchBarProps {
 
 type SearchType = 'imprint' | 'drug' | 'ndc'
 
+const SUGGESTION_CLOSE_DELAY_MS = 150
+
 const TABS: { id: SearchType; label: string; placeholder: string }[] = [
   { id: 'imprint', label: 'Imprint', placeholder: 'e.g. L484, M 366, Watson 540' },
   { id: 'drug', label: 'Drug Name', placeholder: 'e.g. Ibuprofen, Lisinopril' },
@@ -144,7 +146,7 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
           }}
           onBlur={() => {
             // Delay to allow click on suggestion
-            setTimeout(() => setShowSuggestions(false), 150)
+            setTimeout(() => setShowSuggestions(false), SUGGESTION_CLOSE_DELAY_MS)
           }}
           placeholder={TABS.find((t) => t.id === activeTab)?.placeholder}
           className="w-full border border-slate-300 rounded-lg px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-base"
