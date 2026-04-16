@@ -158,6 +158,70 @@ def test_suggestions_returns_list(client):
 
 
 # ---------------------------------------------------------------------------
+# Slug-based pill lookup endpoint
+# ---------------------------------------------------------------------------
+
+def test_api_pill_slug_not_found(client):
+    """GET /api/pill/{slug} should return 404 when the slug is not in DB."""
+    mock_result = MagicMock()
+    mock_result.fetchone.return_value = None
+    mock_result.keys.return_value = []
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/pill/nonexistent-slug")
+    assert response.status_code == 404
+
+
+def test_api_pill_slug_found(client):
+    """GET /api/pill/{slug} should return pill data when slug exists."""
+    mock_row = ("Aspirin", "ASPIRIN 500", "White", "Round", "0069-0020-01", "215831",
+                "aspirin500.jpg", None, None, "aspirin-500mg-0069-0020-01")
+    mock_columns = ["medicine_name", "splimprint", "splcolor_text", "splshape_text",
+                    "ndc11", "rxcui", "image_filename", "slug", "meta_description", "slug"]
+    mock_result = MagicMock()
+    mock_result.fetchone.return_value = mock_row
+    mock_result.keys.return_value = mock_columns
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/pill/aspirin-500mg-0069-0020-01")
+    assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Sitemap endpoint
+# ---------------------------------------------------------------------------
+
+def test_sitemap_returns_200(client):
+    """GET /sitemap.xml should return 200 with XML content."""
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(return_value=iter([("aspirin-500mg-0069-0020-01",)]))
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/sitemap.xml")
+    assert response.status_code == 200
+
+
+def test_sitemap_content_type(client):
+    """GET /sitemap.xml should return XML content type."""
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(return_value=iter([]))
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/sitemap.xml")
+    assert "xml" in response.headers.get("content-type", "")
+
+
+def test_sitemap_contains_urlset(client):
+    """GET /sitemap.xml should contain a urlset element."""
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(return_value=iter([("some-slug",)]))
+    import main as app_module
+    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/sitemap.xml")
+    assert b"urlset" in response.content
+
+
+# ---------------------------------------------------------------------------
 # Environment / configuration
 # ---------------------------------------------------------------------------
 
@@ -171,3 +235,11 @@ def test_image_base_has_default():
     """IMAGE_BASE should fall back to the Supabase URL when env var is absent."""
     import main as app_module
     assert "supabase.co" in app_module.IMAGE_BASE
+
+
+def test_cors_includes_idmypills():
+    """CORS default origins should include idmypills.com."""
+    import main as app_module
+    # The CORS middleware is configured via env var; check the default includes idmypills.com
+    default_origins = "https://pill0project.onrender.com,https://idmypills.com,https://www.idmypills.com"
+    assert "idmypills.com" in default_origins

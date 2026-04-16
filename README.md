@@ -1,21 +1,34 @@
-# Pill Identifier API
+# IDMyPills — Identify Any Medication
 
-A FastAPI-based REST API for identifying pills and medications using imprint codes, drug names, NDC codes, color, and shape. Backed by a Supabase PostgreSQL database with image carousel support.
+**IDMyPills** is a professional pill identification tool — search by imprint, drug name, NDC code, color, and shape. Backed by a Supabase PostgreSQL database, served by a FastAPI backend, with a modern Next.js + Tailwind CSS frontend.
+
+## Architecture
+
+```
+idmypills.com → Render → FastAPI serves everything
+                          ├── /api/*  → Python endpoints (search, details, filters, suggestions)
+                          └── /*     → Next.js pre-built static pages (frontend/out/)
+```
 
 ## Features
 
 - Search pills by imprint, drug name, NDC code, color, and shape
 - Autocomplete suggestions for drug names and imprints
 - Filter lists for colors and shapes
-- Full pill details including images (carousel)
+- Full pill detail pages with SEO-friendly URLs (`/pill/{slug}`)
+- Image gallery/carousel per pill
 - NDC code lookup
-- Connection pooling and query caching for performance
+- XML sitemap at `/sitemap.xml`
+- Mobile-first responsive design (Next.js + Tailwind CSS)
+- Schema.org structured data on pill detail pages
 
 ## Requirements
 
 - Python 3.10+
+- Node.js 18+ (for building the frontend)
 - PostgreSQL (Supabase)
 - See `requirements.txt` for Python dependencies
+- See `frontend/package.json` for frontend dependencies
 
 ## Setup
 
@@ -26,7 +39,7 @@ git clone https://github.com/cubit104/Pill_project.git
 cd Pill_project
 ```
 
-### 2. Create a virtual environment and install dependencies
+### 2. Create a virtual environment and install Python dependencies
 
 ```bash
 python -m venv venv
@@ -46,23 +59,40 @@ cp .env.example .env
 |---|---|---|
 | `DATABASE_URL` | PostgreSQL connection string | ✅ Yes |
 | `IMAGE_BASE` | Base URL for pill images on Supabase storage | No (has default) |
-| `ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins | No (defaults to `https://pill0project.onrender.com`) |
+| `ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins | No (defaults to `https://pill0project.onrender.com,https://idmypills.com,https://www.idmypills.com`) |
+| `SITE_URL` | Public site URL used in sitemap | No (defaults to `https://idmypills.com`) |
 
-### 4. Run the development server
+### 4. Build the frontend
+
+```bash
+cd frontend
+npm install
+npm run build   # generates static export in frontend/out/
+cd ..
+```
+
+### 5. Run the development server
 
 ```bash
 uvicorn main:app --reload
 ```
 
-The API will be available at `http://localhost:8000`.
+The API and frontend will be available at `http://localhost:8000`.
 
 ## Deployment (Render)
 
-The project includes a `Procfile` for Render/Heroku deployments. Set the following environment variables in your Render dashboard:
+The project includes a `Procfile` for Render deployments. **Before deploying**, build the frontend locally and include `frontend/out/` in your deployment, or add a build step:
 
-- `DATABASE_URL` — your Supabase PostgreSQL connection string
-- `IMAGE_BASE` — Supabase storage base URL
-- `ALLOWED_ORIGINS` — your deployed frontend URL (e.g. `https://pill0project.onrender.com`)
+1. Set environment variables in Render dashboard:
+   - `DATABASE_URL` — your Supabase PostgreSQL connection string
+   - `IMAGE_BASE` — Supabase storage base URL
+   - `ALLOWED_ORIGINS` — your deployed frontend URL (e.g. `https://idmypills.com`)
+   - `SITE_URL` — `https://idmypills.com`
+
+2. Build command (optional, if running on Render build step):
+   ```bash
+   cd frontend && npm install && npm run build && cd ..
+   ```
 
 ## API Endpoints
 
@@ -71,35 +101,56 @@ The project includes a `Procfile` for Render/Heroku deployments. Set the followi
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Health check |
-| `GET` | `/` | Root redirect |
+| `GET` | `/` | Serves Next.js homepage |
 
 ### Search & Lookup
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/search` | Search pills by imprint, name, color, shape |
-| `GET` | `/details/{rxcui}` | Full details for a specific pill |
-| `GET` | `/ndc/{ndc_code}` | Lookup pill by NDC code |
+| `GET` | `/search` | Serves search results page (Next.js) |
+| `GET` | `/details` | Full details for a specific pill (JSON) |
+| `GET` | `/ndc_lookup` | Lookup pill by NDC code (JSON) |
+| `GET` | `/api/pill/{slug}` | Get pill by URL slug (JSON, used by frontend) |
+| `GET` | `/pill/{slug}` | Serves pill detail page (Next.js HTML) |
 
 ### Filters & Suggestions
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/suggestions` | Autocomplete suggestions |
-| `GET` | `/filters/colors` | List of available pill colors |
-| `GET` | `/filters/shapes` | List of available pill shapes |
+| `GET` | `/filters` | List of available pill colors and shapes |
 
-### Query Parameters for `/search`
+### SEO
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/sitemap.xml` | XML sitemap with all pill URLs |
+| `GET` | `/robots.txt` | Served from Next.js static export |
+
+### Query Parameters for `/search` (JSON API)
 
 | Parameter | Type | Description |
 |---|---|---|
-| `imprint` | string | Pill imprint code |
-| `name` | string | Drug name (partial match) |
-| `color` | string | Pill color |
-| `shape` | string | Pill shape |
-| `ndc` | string | NDC code |
+| `q` | string | Search query |
+| `type` | string | Search type: `imprint`, `drug`, or `ndc` |
+| `color` | string | Pill color filter |
+| `shape` | string | Pill shape filter |
 | `page` | int | Page number (default: 1) |
-| `limit` | int | Results per page (default: 20, max: 100) |
+| `per_page` | int | Results per page (default: 25, max: 100) |
+
+## Database Schema
+
+The `pillfinder` table includes these key columns for the frontend:
+
+| Column | Description |
+|---|---|
+| `slug` | Unique URL-safe identifier (e.g. `aspirin-500mg-0069-0020-01`) |
+| `meta_description` | Auto-generated SEO description |
+| `medicine_name` | Drug name |
+| `splimprint` | Imprint code |
+| `splcolor_text` | Color |
+| `splshape_text` | Shape |
+| `image_filename` | Comma-separated image filenames |
 
 ## Running Tests
 
@@ -108,6 +159,16 @@ pip install pytest httpx
 pytest tests/
 ```
 
+## Frontend Development
+
+```bash
+cd frontend
+npm install
+npm run dev    # development server at http://localhost:3000
+npm run build  # production static export to frontend/out/
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
