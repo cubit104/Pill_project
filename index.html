@@ -839,10 +839,10 @@
             // Sort based on selected option
             switch (sortBy) {
                 case 'name_asc':
-                    sortedResults.sort((a, b) => a.medicine_name.localeCompare(b.medicine_name));
+                    sortedResults.sort((a, b) => a.drug_name.localeCompare(b.drug_name));
                     break;
                 case 'name_desc':
-                    sortedResults.sort((a, b) => b.medicine_name.localeCompare(a.medicine_name));
+                    sortedResults.sort((a, b) => b.drug_name.localeCompare(a.drug_name));
                     break;
                 // Default to relevance (original order)
                 default:
@@ -884,7 +884,7 @@
             document.getElementById('paginationContainer').style.display = 'none';
 
             try {
-                const url = new URL('/search', window.location.origin);
+                const url = new URL('/api/search', window.location.origin);
                 url.searchParams.append('q', query);
                 url.searchParams.append('type', activeSearchType);
                 url.searchParams.append('page', currentPage);
@@ -940,30 +940,12 @@
                 const col = document.createElement('div');
                 col.className = 'col-md-6 col-lg-4';
 
-                // Handle images for the carousel
+                // Handle images — /api/search returns a single image_url string
                 let imagesHtml = '';
-                const showArrows = drug.image_urls && drug.image_urls.length > 1; // Only show arrows if there are multiple images
-                
-                if (drug.image_urls && drug.image_urls.length > 0) {
+                if (drug.image_url) {
                     imagesHtml = `
-                        <div id="carousel-${drug.ndc11}" class="carousel slide" data-bs-ride="false">
-                            <div class="carousel-inner">
-                                ${drug.image_urls.map((url, index) => `
-                                    <div class="carousel-item ${index === 0 ? 'active' : ''}">
-                                        <img src="${url}" class="drug-image" alt="${drug.medicine_name || 'Pill'} Image">
-                                    </div>
-                                `).join('')}
-                            </div>
-                            ${showArrows ? `
-                                <button class="carousel-control-prev" type="button" data-bs-target="#carousel-${drug.ndc11}" data-bs-slide="prev">
-                                    <span class="carousel-control-prev-icon" aria-hidden="true"></span>
-                                    <span class="visually-hidden">Previous</span>
-                                </button>
-                                <button class="carousel-control-next" type="button" data-bs-target="#carousel-${drug.ndc11}" data-bs-slide="next">
-                                    <span class="carousel-control-next-icon" aria-hidden="true"></span>
-                                    <span class="visually-hidden">Next</span>
-                                </button>
-                            ` : ''}
+                        <div class="card-img-container">
+                            <img src="${drug.image_url}" class="drug-image" alt="${drug.drug_name || 'Pill'} Image">
                         </div>
                     `;
                 } else {
@@ -982,21 +964,21 @@
                         <div class="drug-card">
                             ${imagesHtml}
                             <div class="card-body">
-                                <h5 class="card-title" title="${drug.medicine_name || 'Unknown Drug'}">${drug.medicine_name || 'Unknown Drug'}</h5>
+                                <h5 class="card-title" title="${drug.drug_name || 'Unknown Drug'}">${drug.drug_name || 'Unknown Drug'}</h5>
                                 
                                 <div class="pill-info">
                                     <div class="pill-info-item">
                                         <div class="pill-info-label">Imprint:</div>
-                                        <div class="pill-info-value" title="${drug.splimprint || 'N/A'}">${drug.splimprint || 'N/A'}</div>
+                                        <div class="pill-info-value" title="${drug.imprint || 'N/A'}">${drug.imprint || 'N/A'}</div>
                                     </div>
                                     
                                     <div class="pill-info-item">
                                         <div class="pill-info-label">Color:</div>
                                         <div class="pill-info-value">
-                                            ${drug.splcolor_text ? 
+                                            ${drug.color ? 
                                                 (() => {
                                                     // Handle multiple colors
-                                                    const colors = drug.splcolor_text.split(/,\s*/);
+                                                    const colors = drug.color.split(/,\s*/);
                                                     return colors.map(color => 
                                                         `${color} <span class="color-box" style="background-color: ${getColorHex(color)};"></span>`
                                                     ).join(', ');
@@ -1007,11 +989,11 @@
                                     
                                     <div class="pill-info-item">
                                         <div class="pill-info-label">Shape:</div>
-                                        <div class="pill-info-value" title="${drug.splshape_text || 'N/A'}">${drug.splshape_text || 'N/A'}</div>
+                                        <div class="pill-info-value" title="${drug.shape || 'N/A'}">${drug.shape || 'N/A'}</div>
                                     </div>
                                 </div>
                                 
-                                <a href="/details.html?imprint=${encodeURIComponent(drug.splimprint || '')}&drug_name=${encodeURIComponent(drug.medicine_name || '')}" class="btn btn-details">
+                                <a href="/details.html?imprint=${encodeURIComponent(drug.imprint || '')}&drug_name=${encodeURIComponent(drug.drug_name || '')}" class="btn btn-details">
                                     <i class="fas fa-info-circle me-2"></i>View Details
                                 </a>
                             </div>
