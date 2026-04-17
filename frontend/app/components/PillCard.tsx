@@ -120,48 +120,60 @@ export default function PillCard({ pill }: PillCardProps) {
         {/* Image / Carousel */}
         <div className="flex justify-center mb-4">
           {images.length > 0 ? (
-            <div className="relative w-20 h-20">
-              <img
-                src={images[currentIndex]}
-                alt={`${drugName} pill`}
-                className="w-20 h-20 object-contain rounded-lg border border-slate-100"
-              />
+            <div className="flex flex-col items-center gap-2">
+              <div className="relative w-40 h-40">
+                <img
+                  src={images[currentIndex]}
+                  alt={`${drugName} pill`}
+                  className="w-40 h-40 object-contain rounded-lg border border-slate-100 bg-gray-50"
+                />
+                {images.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        goPrev(e)
+                      }}
+                      className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 bg-white rounded-full shadow-md border border-slate-200 w-7 h-7 flex items-center justify-center text-slate-700 text-base hover:bg-slate-100 hover:shadow-lg hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all"
+                      aria-label="Previous image"
+                    >
+                      ‹
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        goNext(e)
+                      }}
+                      className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 bg-white rounded-full shadow-md border border-slate-200 w-7 h-7 flex items-center justify-center text-slate-700 text-base hover:bg-slate-100 hover:shadow-lg hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all"
+                      aria-label="Next image"
+                    >
+                      ›
+                    </button>
+                    <div className="absolute top-1 right-1">
+                      <span className="text-xs bg-black/60 text-white rounded-full px-1.5 py-0.5 leading-tight font-medium">
+                        {currentIndex + 1}/{images.length}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
               {images.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      goPrev(e)
-                    }}
-                    className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-3 bg-white rounded-full shadow border border-slate-200 w-5 h-5 flex items-center justify-center text-slate-600 text-xs hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                    aria-label="Previous image"
-                  >
-                    ‹
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      goNext(e)
-                    }}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-3 bg-white rounded-full shadow border border-slate-200 w-5 h-5 flex items-center justify-center text-slate-600 text-xs hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                    aria-label="Next image"
-                  >
-                    ›
-                  </button>
-                  <div className="absolute bottom-1 left-1/2 -translate-x-1/2">
-                    <span className="text-[9px] bg-black/50 text-white rounded px-1 leading-tight">
-                      {currentIndex + 1}/{images.length}
-                    </span>
-                  </div>
-                </>
+                <div className="flex gap-1.5">
+                  {images.map((_, idx) => (
+                    <span
+                      key={idx}
+                      className={`block w-1.5 h-1.5 rounded-full transition-colors ${idx === currentIndex ? 'bg-sky-500' : 'bg-slate-300'}`}
+                    />
+                  ))}
+                </div>
               )}
             </div>
           ) : (
-            <div className="w-20 h-20 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-center">
+            <div className="w-40 h-40 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-center">
               {getPillIcon()}
             </div>
           )}
