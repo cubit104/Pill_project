@@ -1,6 +1,7 @@
 import os
 import logging
 from xml.sax.saxutils import escape as xml_escape
+from typing import List
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
@@ -14,6 +15,33 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _fetch_all_slugs(conn) -> List[str]:
+    """Query the database and return all non-null pill slugs."""
+    result = conn.execute(
+        text("SELECT slug FROM pillfinder WHERE slug IS NOT NULL ORDER BY slug")
+    )
+    return [row[0] for row in result if row[0]]
+
+
+@router.get("/api/slugs", response_model=List[str])
+def get_slugs():
+    """Return a JSON array of all pill slugs (used by Next.js sitemap)"""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            slugs = _fetch_all_slugs(conn)
+        return slugs
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in /api/slugs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in /api/slugs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @router.get("/sitemap.xml")
 def sitemap():
     """Generate XML sitemap with all pill URLs"""
@@ -23,10 +51,7 @@ def sitemap():
 
     try:
         with database.db_engine.connect() as conn:
-            result = conn.execute(
-                text("SELECT slug FROM pillfinder WHERE slug IS NOT NULL ORDER BY slug")
-            )
-            slugs = [row[0] for row in result if row[0]]
+            slugs = _fetch_all_slugs(conn)
 
         base_url = os.getenv("SITE_URL", "https://idmypills.com").rstrip("/")
         pill_url_template = (

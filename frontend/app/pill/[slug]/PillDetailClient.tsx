@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { PillDetail } from '../../types'
 
@@ -31,34 +31,6 @@ function DetailRow({ label, value }: { label: string; value?: string }) {
   )
 }
 
-function SkeletonDetail() {
-  return (
-    <div className="max-w-3xl mx-auto px-4 py-8 animate-pulse">
-      <div className="h-5 bg-slate-200 rounded w-20 mb-6" />
-      <div className="bg-white border border-slate-200 rounded-xl p-6 mb-6">
-        <div className="flex flex-col sm:flex-row gap-6">
-          <div className="w-36 h-36 bg-slate-200 rounded-xl shrink-0 mx-auto sm:mx-0" />
-          <div className="flex-1 space-y-3">
-            <div className="h-7 bg-slate-200 rounded w-3/4" />
-            <div className="h-4 bg-slate-100 rounded w-1/2" />
-            <div className="flex gap-2 mt-2">
-              <div className="h-6 bg-slate-100 rounded-full w-20" />
-              <div className="h-6 bg-slate-100 rounded-full w-20" />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex gap-4">
-            <div className="h-4 bg-slate-100 rounded w-32" />
-            <div className="h-4 bg-slate-100 rounded flex-1" />
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 function generatePillDescription(pill: PillDetail): string {
   const parts: string[] = []
@@ -103,89 +75,9 @@ function generatePillDescription(pill: PillDetail): string {
   return parts.join(' ')
 }
 
-export default function PillDetailClient() {
+export default function PillDetailClient({ pill }: { pill: PillDetail }) {
   const router = useRouter()
-  const [pill, setPill] = useState<PillDetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [zoomImage, setZoomImage] = useState<string | null>(null)
-
-  useEffect(() => {
-    const pathParts = window.location.pathname.split('/').filter(Boolean)
-    const slug = pathParts[pathParts.length - 1] || ''
-
-    if (!slug || slug === '__placeholder__') {
-      setError('Invalid pill identifier.')
-      setLoading(false)
-      return
-    }
-
-    const fetchPill = async () => {
-      setLoading(true)
-      setError('')
-      try {
-        const res = await fetch(`/api/pill/${encodeURIComponent(slug)}`)
-        if (!res.ok) {
-          if (res.status === 404) throw new Error('Pill not found.')
-          throw new Error(`Error ${res.status}: ${res.statusText}`)
-        }
-        const raw = await res.json()
-        // Map raw DB field names to the UI model (defensive — backend already maps,
-        // but guard against any future schema changes or legacy responses).
-        const data: PillDetail = {
-          drug_name: raw.drug_name ?? raw.medicine_name ?? 'Unknown',
-          imprint: raw.imprint ?? raw.splimprint ?? '',
-          color: raw.color ?? raw.splcolor_text,
-          shape: raw.shape ?? raw.splshape_text,
-          ndc: raw.ndc ?? raw.ndc11,
-          rxcui: raw.rxcui,
-          slug: raw.slug,
-          strength: raw.strength ?? raw.spl_strength,
-          manufacturer: raw.manufacturer ?? raw.author,
-          ingredients: raw.ingredients ?? raw.spl_ingredients,
-          inactive_ingredients: raw.inactive_ingredients ?? raw.spl_inactive_ing,
-          dea_schedule: raw.dea_schedule ?? raw.dea_schedule_name,
-          pharma_class: raw.pharma_class ?? raw.dailymed_pharma_class_epc ?? raw.pharmclass_fda_epc,
-          size: raw.size ?? (raw.splsize ? String(raw.splsize) : undefined),
-          dosage_form: raw.dosage_form,
-          brand_names: raw.brand_names,
-          status_rx_otc: raw.status_rx_otc,
-          route: raw.route,
-          image_url: raw.image_url ?? (Array.isArray(raw.image_urls) ? raw.image_urls[0] : undefined),
-          images: raw.images ?? raw.image_urls ?? [],
-        }
-        setPill(data)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load pill details.')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchPill()
-  }, [])
-
-  if (loading) return <SkeletonDetail />
-
-  if (error) {
-    return (
-      <div className="max-w-3xl mx-auto px-4 py-16 text-center">
-        <div className="text-5xl mb-4" role="img" aria-label="Error">⚠️</div>
-        <h1 className="text-xl font-semibold text-slate-800 mb-2">{error}</h1>
-        <p className="text-slate-500 text-sm mb-6">
-          The pill you&apos;re looking for could not be found. Please try searching again.
-        </p>
-        <button
-          onClick={() => router.push('/')}
-          className="bg-sky-600 hover:bg-sky-700 text-white font-medium px-5 py-2 rounded-lg transition-colors text-sm"
-        >
-          Back to Search
-        </button>
-      </div>
-    )
-  }
-
-  if (!pill) return null
 
   const images = pill.images && pill.images.length > 0
     ? pill.images
