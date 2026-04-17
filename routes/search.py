@@ -219,7 +219,8 @@ def api_search(
                     "splshape_text": row[3] if row[3] else "",
                     "ndc11": row[4] if row[4] else "",
                     "rxcui": row[5] if row[5] else "",
-                    "image_filenames": set(),
+                    "image_filenames": [],
+                    "image_filenames_seen": set(),
                     "slug": row[7] if len(row) > 7 and row[7] else None,
                     "spl_strength": row[8] if len(row) > 8 and row[8] else None,
                 }
@@ -227,8 +228,9 @@ def api_search(
             if row[6]:
                 filenames = split_image_filenames(row[6])
                 for fname in filenames:
-                    if fname:
-                        grouped[key]["image_filenames"].add(fname)
+                    if fname and fname not in grouped[key]["image_filenames_seen"]:
+                        grouped[key]["image_filenames"].append(fname)
+                        grouped[key]["image_filenames_seen"].add(fname)
 
         records = []
         for data in grouped.values():
