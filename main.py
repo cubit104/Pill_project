@@ -857,7 +857,8 @@ async def api_search(
                 ndc11, 
                 rxcui, 
                 image_filename,
-                slug
+                slug,
+                spl_strength
             FROM pillfinder
             WHERE 1=1
         """
@@ -938,16 +939,17 @@ async def api_search(
             norm_imprint = normalize_imprint(splimprint)
             key = (norm_name, norm_imprint)
             
-            if key not in grouped:
+                item= not in grouped:
                 grouped[key] = {
                     "medicine_name": medicine_name,
                     "splimprint": splimprint,
-                    "splcolor_text": row[2] if row[2] else "",  # splcolor_text
-                    "splshape_text": row[3] if row[3] else "",  # splshape_text
-                    "ndc11": row[4] if row[4] else "",          # ndc11
-                    "rxcui": row[5] if row[5] else "",          # rxcui
-                    "image_filenames": set(),                    # Use set to avoid duplicates
-                    "slug": row[7] if len(row) > 7 and row[7] else None,  # slug
+                    "splcolor_text": row[2] if row[2] else "",
+                    "splshape_text": row[3] if row[3] else "",
+                    "ndc11": row[4] if row[4] else "",
+                    "rxcui": row[5] if row[5] else "",
+                    "image_filenames": set(),
+                    "slug": row[7] if len(row) > 7 and row[7] else None,
+                    "spl_strength": row[8] if len(row) > 8 and row[8] else None,
                 }
             
             # Handle image filenames - 6th index
@@ -968,7 +970,7 @@ async def api_search(
             
             # Create the record with all required data — mapped to frontend UI model
             image_urls = image_data.get("image_urls", [])
-            item = {
+         item = {
                 "drug_name": data["medicine_name"],
                 "imprint": data["splimprint"],
                 "color": data["splcolor_text"] or None,
@@ -976,6 +978,7 @@ async def api_search(
                 "ndc": data["ndc11"] or None,
                 "rxcui": data["rxcui"] or None,
                 "slug": data.get("slug"),
+                "strength": data.get("spl_strength"),
                 "image_url": image_urls[0] if image_urls else None,
             }
 
@@ -1040,7 +1043,7 @@ def get_filters():
                 "trapezoid": ("Trapezoid", "⬯")
             }
             for key, (name, icon) in replacements.items():
-                if key in shape:
+                item= in shape:
                     return {"name": name, "icon": icon}
             return {"name": shape.title(), "icon": "🔹"}
 
