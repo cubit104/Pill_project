@@ -4,6 +4,7 @@ import Header from './components/Header'
 import Footer from './components/Footer'
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://idmypills.com'),
   title: 'IDMyPills - Identify Any Medication',
   description:
     'Identify any medication by imprint code, color, shape, or drug name. Free pill identification tool for patients and caregivers.',
