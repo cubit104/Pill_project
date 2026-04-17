@@ -939,7 +939,7 @@ async def api_search(
             norm_imprint = normalize_imprint(splimprint)
             key = (norm_name, norm_imprint)
             
-                item= not in grouped:
+        if key not in grouped:
                 grouped[key] = {
                     "medicine_name": medicine_name,
                     "splimprint": splimprint,
