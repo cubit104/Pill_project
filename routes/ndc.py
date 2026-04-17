@@ -91,4 +91,4 @@ def ndc_lookup(
 
     except Exception as e:
         logger.exception(f"Error in NDC lookup: {e}")
-        return {"found": False, "error": str(e)}
+        return {"found": False, "error": "An internal error occurred during NDC lookup"}

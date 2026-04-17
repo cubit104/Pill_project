@@ -19,7 +19,7 @@ def initialize_ndc_handler():
     """Initialize the NDC handler with the CSV files"""
     global ndc_handler
     try:
-        BASE_DIR = os.path.dirname(os.path.abspath(__name__))
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         drugs_csv = os.path.join(BASE_DIR, "drugs.csv")
         ndc_csv = os.path.join(BASE_DIR, "ndc_relationships.csv")
 

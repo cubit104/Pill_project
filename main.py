@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 # Current directory
 BASE_DIR = os.path.dirname(os.path.abspath(__name__))
 
+import database  # noqa: E402 — imported as module so db_engine is always current
+
 # Re-export key names for backward compatibility (used by tests and startup hooks)
 from database import (  # noqa: E402
     connect_to_database,
@@ -81,14 +83,12 @@ app.include_router(health.router)
 
 def regenerate_slugs():
     """One-time update: regenerate all slug values in the DB using medicine_name + spl_strength."""
-    import database as _db
-    from utils import generate_slug as _generate_slug
     from typing import Dict
 
-    if not _db.db_engine:
+    if not database.db_engine:
         return
     try:
-        with _db.db_engine.connect() as conn:
+        with database.db_engine.connect() as conn:
             rows = conn.execute(
                 text("SELECT id, medicine_name, spl_strength, splimprint, slug FROM pillfinder")
             ).fetchall()
@@ -98,7 +98,7 @@ def regenerate_slugs():
 
         for row in rows:
             row_id, medicine_name, spl_strength, splimprint, existing_slug = row
-            new_slug = _generate_slug(medicine_name or "", spl_strength or "")
+            new_slug = generate_slug(medicine_name or "", spl_strength or "")
 
             base_slug = new_slug
             counter = 1
@@ -111,7 +111,7 @@ def regenerate_slugs():
                 updates.append({"new_slug": new_slug, "row_id": row_id})
 
         if updates:
-            with _db.db_engine.connect() as conn:
+            with database.db_engine.connect() as conn:
                 for upd in updates:
                     conn.execute(
                         text(

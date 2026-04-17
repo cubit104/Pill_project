@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__name__)), "images")
+IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
 
 
 @router.get("/health")
