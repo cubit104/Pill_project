@@ -138,7 +138,20 @@ def get_pill_by_slug(slug: str):
             pill_info = dict(zip(columns, row))
             pill_info = normalize_fields(pill_info)
 
-            image_data = process_image_filenames(pill_info.get("image_filename", ""))
+            # Aggregate images from all matching rows (same drug + imprint)
+            image_q = text("""
+                SELECT image_filename FROM pillfinder
+                WHERE medicine_name = :medicine_name
+                  AND splimprint = :splimprint
+            """)
+            img_rows = conn.execute(image_q, {
+                "medicine_name": pill_info.get("medicine_name", ""),
+                "splimprint": pill_info.get("splimprint", ""),
+            })
+            filenames = ",".join(r[0] for r in img_rows if r[0])
+
+            # Process all aggregated images
+            image_data = process_image_filenames(filenames)
             image_urls = image_data.get("image_urls", [])
 
             mapped = {
