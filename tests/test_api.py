@@ -139,9 +139,11 @@ def test_search_result_includes_images_field(client):
         "aspirin-44-249",   # slug [7]
         "325 mg",           # spl_strength [8]
     )
+    # The second-pass image query iterates over img_rows; mock it to yield the same filename.
     mock_result = MagicMock()
     mock_result.scalar.return_value = 1
     mock_result.fetchall.return_value = [mock_row]
+    mock_result.__iter__ = MagicMock(side_effect=lambda: iter([("Aspirin.jpg",)]))
     db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
 
     response = client.get("/api/search?q=aspirin&type=drug")
@@ -159,11 +161,11 @@ def test_search_result_includes_images_field(client):
 
 
 def test_search_result_multiple_images(client):
-    """A row with comma-separated image filenames should produce images list with has_multiple_images=True."""
+    """Two DB rows for the same drug+imprint should produce images list with has_multiple_images=True."""
     import database as db_module
     from utils import IMAGE_BASE
 
-    # Row with two image filenames separated by a comma
+    # First paginated row has one image; the second-pass query finds both rows' images.
     mock_row = (
         "Aspirin",                       # medicine_name [0]
         "44 249",                        # splimprint [1]
@@ -171,13 +173,17 @@ def test_search_result_multiple_images(client):
         "Round",                         # splshape_text [3]
         "41163-0249-01",                 # ndc11 [4]
         "215831",                        # rxcui [5]
-        "Aspirin.jpg,Aspirin-1.jpeg",    # image_filename [6] — two images
+        "Aspirin.jpg",                   # image_filename [6] — first row's image
         "aspirin-44-249",                # slug [7]
         "325 mg",                        # spl_strength [8]
     )
+    # The second-pass image query returns both images (from two separate DB rows).
     mock_result = MagicMock()
     mock_result.scalar.return_value = 1
     mock_result.fetchall.return_value = [mock_row]
+    mock_result.__iter__ = MagicMock(
+        side_effect=lambda: iter([("Aspirin.jpg",), ("Aspirin-1.jpeg",)])
+    )
     db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
 
     response = client.get("/api/search?q=aspirin&type=drug")

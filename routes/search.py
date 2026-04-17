@@ -232,6 +232,34 @@ def api_search(
                         grouped[key]["image_filenames"].append(fname)
                         grouped[key]["image_filenames_seen"].add(fname)
 
+        # Second pass: fetch ALL image_filenames for each (medicine_name, splimprint) group
+        # to capture images from rows that were not included in the paginated results.
+        with database.db_engine.connect() as conn:
+            for key, data in grouped.items():
+                image_q = text("""
+                    SELECT image_filename FROM pillfinder
+                    WHERE medicine_name = :medicine_name
+                      AND splimprint = :splimprint
+                """)
+                img_rows = conn.execute(image_q, {
+                    "medicine_name": data["medicine_name"],
+                    "splimprint": data["splimprint"],
+                })
+                # Replace first-pass (partial) images with the authoritative
+                # complete set from ALL matching rows.  Keep first-pass as a
+                # fallback in case the second-pass unexpectedly returns nothing.
+                first_pass_images = list(data["image_filenames"])
+                data["image_filenames"] = []
+                data["image_filenames_seen"] = set()
+                for r in img_rows:
+                    if r[0]:
+                        for fname in split_image_filenames(r[0]):
+                            if fname and fname not in data["image_filenames_seen"]:
+                                data["image_filenames"].append(fname)
+                                data["image_filenames_seen"].add(fname)
+                if not data["image_filenames"]:
+                    data["image_filenames"] = first_pass_images
+
         records = []
         for data in grouped.values():
             merged_images = ",".join(data["image_filenames"])
