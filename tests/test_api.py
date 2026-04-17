@@ -331,8 +331,48 @@ def test_sitemap_contains_urlset(client):
 
 
 # ---------------------------------------------------------------------------
-# Environment / configuration
+# Slugs endpoint
 # ---------------------------------------------------------------------------
+
+def test_api_slugs_returns_200(client):
+    """GET /api/slugs should return 200 with a JSON array."""
+    import database as db_module
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(
+        return_value=iter([("aspirin-500mg-01",), ("ibuprofen-200mg-02",)])
+    )
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/slugs")
+    assert response.status_code == 200
+
+
+def test_api_slugs_returns_list_of_strings(client):
+    """GET /api/slugs should return a JSON array of slug strings."""
+    import database as db_module
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(
+        return_value=iter([("aspirin-500mg-01",), ("ibuprofen-200mg-02",)])
+    )
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/slugs")
+    data = response.json()
+    assert isinstance(data, list)
+    assert all(isinstance(s, str) for s in data)
+
+
+def test_api_slugs_filters_null_values(client):
+    """GET /api/slugs should exclude null slugs from results."""
+    import database as db_module
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(
+        return_value=iter([("aspirin-500mg-01",), (None,), ("ibuprofen-200mg-02",)])
+    )
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/slugs")
+    data = response.json()
+    assert None not in data
+    assert len(data) == 2
+
 
 def test_database_url_env_var_is_read():
     """DATABASE_URL should be read from the environment, not hardcoded."""
