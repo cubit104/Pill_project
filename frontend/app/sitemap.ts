@@ -27,8 +27,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.8,
     }))
     return [...staticPages, ...pillPages]
-  } catch {
+  } catch (err) {
     // Return static pages only if slugs endpoint is unavailable
+    console.error('[sitemap] Failed to fetch slugs from backend:', err)
     return staticPages
   }
 }

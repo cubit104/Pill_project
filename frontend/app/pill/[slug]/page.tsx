@@ -35,7 +35,8 @@ async function fetchPill(slug: string): Promise<PillDetail | null> {
       image_url: raw.image_url ?? (Array.isArray(raw.image_urls) ? raw.image_urls[0] : undefined),
       images: raw.images ?? raw.image_urls ?? [],
     }
-  } catch {
+  } catch (err) {
+    console.error(`[pill/page] Failed to fetch pill "${slug}":`, err)
     return null
   }
 }
