@@ -49,7 +49,7 @@ app.add_middleware(
         o.strip()
         for o in os.getenv(
             "ALLOWED_ORIGINS",
-            "https://pill0project.onrender.com,https://idmypills.com,https://www.idmypills.com",
+            "https://pill0project.onrender.com,https://pill-project.vercel.app,https://idmypills.com,https://www.idmypills.com",
         ).split(",")
     ],
     allow_credentials=True,
