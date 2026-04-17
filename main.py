@@ -928,18 +928,17 @@ async def api_search(
             rows = result.fetchall()
         
         # Group by normalized medicine name and imprint
+               # Group by normalized medicine name and imprint
         grouped = {}
         for row in rows:
-            # Access by index for SQLAlchemy 1.4 compatibility
-            medicine_name = row[0] if row[0] else ""  # medicine_name is first column
-            splimprint = row[1] if row[1] else ""     # splimprint is second column
-            
-            # Normalize for grouping
+            medicine_name = row[0] if row[0] else ""
+            splimprint = row[1] if row[1] else ""
+
             norm_name = normalize_name(medicine_name)
             norm_imprint = normalize_imprint(splimprint)
             key = (norm_name, norm_imprint)
-            
-        if key not in grouped:
+
+            if key not in grouped:
                 grouped[key] = {
                     "medicine_name": medicine_name,
                     "splimprint": splimprint,
@@ -951,8 +950,7 @@ async def api_search(
                     "slug": row[7] if len(row) > 7 and row[7] else None,
                     "spl_strength": row[8] if len(row) > 8 and row[8] else None,
                 }
-            
-            # Handle image filenames - 6th index
+
             if row[6]:  # image_filename
                 filenames = split_image_filenames(row[6])
                 for fname in filenames:
@@ -962,15 +960,10 @@ async def api_search(
         # Process the records
         records = []
         for data in grouped.values():
-            # Convert the set of filenames to a comma-separated string
             merged_images = ",".join(data["image_filenames"])
-            
-            # Process images using our new optimized function
             image_data = process_image_filenames(merged_images)
-            
-            # Create the record with all required data — mapped to frontend UI model
             image_urls = image_data.get("image_urls", [])
-         item = {
+            item = {
                 "drug_name": data["medicine_name"],
                 "imprint": data["splimprint"],
                 "color": data["splcolor_text"] or None,
@@ -981,7 +974,6 @@ async def api_search(
                 "strength": data.get("spl_strength"),
                 "image_url": image_urls[0] if image_urls else None,
             }
-
             records.append(item)
 
         return {
