@@ -277,6 +277,7 @@ def api_search(
                 "image_url": image_urls[0] if image_urls else None,
                 "images": image_urls,
                 "has_multiple_images": len(image_urls) > 1,
+                "carousel_images": [{"id": i, "url": url} for i, url in enumerate(image_urls)],
             }
             records.append(item)
 
