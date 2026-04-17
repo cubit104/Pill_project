@@ -928,7 +928,6 @@ async def api_search(
             rows = result.fetchall()
         
         # Group by normalized medicine name and imprint
-               # Group by normalized medicine name and imprint
         grouped = {}
         for row in rows:
             medicine_name = row[0] if row[0] else ""
@@ -1035,7 +1034,7 @@ def get_filters():
                 "trapezoid": ("Trapezoid", "⬯")
             }
             for key, (name, icon) in replacements.items():
-                item= in shape:
+                if key in shape:
                     return {"name": name, "icon": icon}
             return {"name": shape.title(), "icon": "🔹"}
 
