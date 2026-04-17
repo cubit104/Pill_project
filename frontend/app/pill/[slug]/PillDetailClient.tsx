@@ -252,11 +252,11 @@ export default function PillDetailClient() {
                   <img
                     src={images[0]}
                     alt={`${pill.drug_name} pill`}
-                    className="w-36 h-36 object-contain bg-slate-50"
+                    className="w-72 h-72 object-contain bg-slate-50"
                   />
                 </button>
               ) : (
-                <div className="w-36 h-36 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center">
+                <div className="w-72 h-72 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center">
                   <PillIconLarge />
                 </div>
               )}
@@ -308,7 +308,7 @@ export default function PillDetailClient() {
                   <img
                     src={img}
                     alt={`${pill.drug_name} alternate view ${idx + 2}`}
-                    className="w-20 h-20 object-contain bg-slate-50"
+                    className="w-28 h-28 object-contain bg-slate-50"
                   />
                 </button>
               ))}
