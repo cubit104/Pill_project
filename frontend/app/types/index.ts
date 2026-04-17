@@ -7,6 +7,8 @@ export interface PillResult {
   rxcui?: string
   slug?: string
   image_url?: string
+  images?: string[]
+  has_multiple_images?: boolean
   strength?: string
   manufacturer?: string
 }

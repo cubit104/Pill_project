@@ -245,6 +245,8 @@ def api_search(
                 "slug": data.get("slug"),
                 "strength": data.get("spl_strength"),
                 "image_url": image_urls[0] if image_urls else None,
+                "images": image_urls,
+                "has_multiple_images": len(image_urls) > 1,
             }
             records.append(item)
 
