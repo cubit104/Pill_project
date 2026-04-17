@@ -122,6 +122,79 @@ def test_search_no_accept_header_returns_json(client):
     assert "results" in data
 
 
+def test_search_result_includes_images_field(client):
+    """Each search result should include an 'images' array and 'has_multiple_images' bool."""
+    import database as db_module
+    from utils import IMAGE_BASE
+
+    # Row with a single image filename
+    mock_row = (
+        "Aspirin",          # medicine_name [0]
+        "44 249",           # splimprint [1]
+        "White",            # splcolor_text [2]
+        "Round",            # splshape_text [3]
+        "41163-0249-01",    # ndc11 [4]
+        "215831",           # rxcui [5]
+        "Aspirin.jpg",      # image_filename [6]
+        "aspirin-44-249",   # slug [7]
+        "325 mg",           # spl_strength [8]
+    )
+    mock_result = MagicMock()
+    mock_result.scalar.return_value = 1
+    mock_result.fetchall.return_value = [mock_row]
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+
+    response = client.get("/api/search?q=aspirin&type=drug")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["results"]) == 1
+
+    result = data["results"][0]
+    assert "images" in result
+    assert isinstance(result["images"], list)
+    assert len(result["images"]) == 1
+    assert result["images"][0] == f"{IMAGE_BASE}/Aspirin.jpg"
+    assert "has_multiple_images" in result
+    assert result["has_multiple_images"] is False
+
+
+def test_search_result_multiple_images(client):
+    """A row with comma-separated image filenames should produce images list with has_multiple_images=True."""
+    import database as db_module
+    from utils import IMAGE_BASE
+
+    # Row with two image filenames separated by a comma
+    mock_row = (
+        "Aspirin",                       # medicine_name [0]
+        "44 249",                        # splimprint [1]
+        "White",                         # splcolor_text [2]
+        "Round",                         # splshape_text [3]
+        "41163-0249-01",                 # ndc11 [4]
+        "215831",                        # rxcui [5]
+        "Aspirin.jpg,Aspirin-1.jpeg",    # image_filename [6] — two images
+        "aspirin-44-249",                # slug [7]
+        "325 mg",                        # spl_strength [8]
+    )
+    mock_result = MagicMock()
+    mock_result.scalar.return_value = 1
+    mock_result.fetchall.return_value = [mock_row]
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+
+    response = client.get("/api/search?q=aspirin&type=drug")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["results"]) == 1
+
+    result = data["results"][0]
+    assert "images" in result
+    assert isinstance(result["images"], list)
+    assert len(result["images"]) == 2
+    assert result["images"][0] == f"{IMAGE_BASE}/Aspirin.jpg"
+    assert result["images"][1] == f"{IMAGE_BASE}/Aspirin-1.jpeg"
+    assert "has_multiple_images" in result
+    assert result["has_multiple_images"] is True
+
+
 # ---------------------------------------------------------------------------
 # Filters endpoint
 # ---------------------------------------------------------------------------

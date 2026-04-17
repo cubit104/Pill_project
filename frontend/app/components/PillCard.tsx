@@ -1,4 +1,7 @@
+'use client'
+
 import Link from 'next/link'
+import { useState, useEffect } from 'react'
 import type { PillResult } from '../types'
 
 interface PillCardProps {
@@ -78,6 +81,35 @@ export default function PillCard({ pill }: PillCardProps) {
   const drugName = getDrugName(pill)
   const imprint = getImprint(pill)
 
+  const images =
+    pill.images && pill.images.length > 0
+      ? pill.images
+      : pill.image_url
+      ? [pill.image_url]
+      : []
+
+  const [rawCurrentIndex, setRawCurrentIndex] = useState(0)
+  const currentIndex =
+    images.length > 0 ? Math.min(rawCurrentIndex, images.length - 1) : 0
+
+  useEffect(() => {
+    setRawCurrentIndex(0)
+  }, [slug])
+
+  const goPrev = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (images.length === 0) return
+    setRawCurrentIndex((prev) => (prev - 1 + images.length) % images.length)
+  }
+
+  const goNext = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (images.length === 0) return
+    setRawCurrentIndex((prev) => (prev + 1) % images.length)
+  }
+
   return (
     <Link
       href={`/pill/${slug}`}
@@ -85,14 +117,49 @@ export default function PillCard({ pill }: PillCardProps) {
       aria-label={`View details for ${drugName}${imprint ? `, imprint ${imprint}` : ''}`}
     >
       <div className="p-5">
-        {/* Image / Icon */}
+        {/* Image / Carousel */}
         <div className="flex justify-center mb-4">
-          {pill.image_url ? (
-            <img
-              src={pill.image_url}
-              alt={`${drugName} pill`}
-              className="w-20 h-20 object-contain rounded-lg border border-slate-100"
-            />
+          {images.length > 0 ? (
+            <div className="relative w-20 h-20">
+              <img
+                src={images[currentIndex]}
+                alt={`${drugName} pill`}
+                className="w-20 h-20 object-contain rounded-lg border border-slate-100"
+              />
+              {images.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      goPrev()
+                    }}
+                    className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-3 bg-white rounded-full shadow border border-slate-200 w-5 h-5 flex items-center justify-center text-slate-600 text-xs hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    aria-label="Previous image"
+                  >
+                    ‹
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      goNext()
+                    }}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-3 bg-white rounded-full shadow border border-slate-200 w-5 h-5 flex items-center justify-center text-slate-600 text-xs hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    aria-label="Next image"
+                  >
+                    ›
+                  </button>
+                  <div className="absolute bottom-1 left-1/2 -translate-x-1/2">
+                    <span className="text-[9px] bg-black/50 text-white rounded px-1 leading-tight">
+                      {currentIndex + 1}/{images.length}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
           ) : (
             <div className="w-20 h-20 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-center">
               {getPillIcon()}
