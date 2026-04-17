@@ -175,6 +175,8 @@ def get_pill_by_slug(slug: str):
                 "route": pill_info.get("route"),
                 "image_url": image_urls[0] if image_urls else None,
                 "images": image_urls,
+                "has_multiple_images": len(image_urls) > 1,
+                "carousel_images": [{"id": i, "url": url} for i, url in enumerate(image_urls)],
             }
 
         return mapped

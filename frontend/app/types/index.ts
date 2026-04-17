@@ -9,6 +9,7 @@ export interface PillResult {
   image_url?: string
   images?: string[]
   has_multiple_images?: boolean
+  carousel_images?: Array<{ id: number; url: string }>
   strength?: string
   manufacturer?: string
 }
