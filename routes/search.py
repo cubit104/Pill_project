@@ -2,7 +2,7 @@ import re
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Query, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Query, HTTPException
 from sqlalchemy import text
 
 import database
@@ -22,13 +22,13 @@ router = APIRouter()
 @router.get("/suggestions")
 def get_suggestions(
     q: str = Query(..., description="Search query"),
-    type: str = Query(..., description="Search type (imprint, drug, or ndc)"),
+    search_type: str = Query(..., alias="type", description="Search type (imprint, drug, or ndc)"),
 ) -> List[str]:
     """Get search suggestions based on query and type"""
-    logger.info(f"[suggestions] q={q!r}, type={type!r}")
+    logger.info(f"[suggestions] q={q!r}, type={search_type!r}")
 
-    if type == "name":
-        type = "drug"
+    if search_type == "name":
+        search_type = "drug"
 
     norm_q = (q or "").strip()
     if len(norm_q) < 2:
@@ -38,7 +38,7 @@ def get_suggestions(
         raise HTTPException(503, "Database unavailable")
 
     # NDC suggestions
-    if type == "ndc":
+    if search_type == "ndc":
         logger.info("→ branch: ndc")
         clean_q = re.sub(r"[^0-9]", "", norm_q)
         if database.ndc_handler:
@@ -64,7 +64,7 @@ def get_suggestions(
             return [r[0] for r in rows if r[0]]
 
     # Imprint suggestions
-    elif type == "imprint":
+    elif search_type == "imprint":
         logger.info("→ branch: imprint")
         norm_imp = normalize_imprint(norm_q)
         if not norm_imp:
@@ -92,7 +92,7 @@ def get_suggestions(
             return out
 
     # Drug-name suggestions
-    elif type == "drug":
+    elif search_type == "drug":
         logger.info("→ branch: drug")
         lower_q = norm_q.lower()
         with database.db_engine.connect() as conn:
@@ -119,14 +119,13 @@ def get_suggestions(
 
 
 @router.get("/api/search")
-async def api_search(
+def api_search(
     q: Optional[str] = Query(None),
-    type: Optional[str] = Query("imprint"),
+    search_type: Optional[str] = Query("imprint", alias="type"),
     color: Optional[str] = Query(None),
     shape: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=100),
-    background_tasks: BackgroundTasks = None,
 ) -> dict:
     """Search endpoint that returns fields aligned with the frontend UI model."""
     if not database.db_engine and not database.connect_to_database():
@@ -153,16 +152,16 @@ async def api_search(
 
         if q:
             query = q.strip()
-            if type == "imprint":
+            if search_type == "imprint":
                 norm = normalize_imprint(query)
                 where_conditions.append(
                     "UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) = UPPER(:imprint)"
                 )
                 params["imprint"] = norm
-            elif type == "drug":
+            elif search_type == "drug":
                 where_conditions.append("LOWER(medicine_name) LIKE LOWER(:drug_name)")
                 params["drug_name"] = f"{query.lower()}%"
-            elif type == "ndc":
+            elif search_type == "ndc":
                 clean_ndc = re.sub(r'[^0-9]', '', query)
                 where_conditions.append("""
                     (
@@ -259,4 +258,4 @@ async def api_search(
 
     except Exception as e:
         logger.error(f"Search error: {str(e)}", exc_info=True)
-        raise HTTPException(500, detail=f"Search error: {str(e)}")
+        raise HTTPException(500, detail="An internal error occurred while processing the search request.")

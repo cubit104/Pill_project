@@ -79,9 +79,9 @@ def get_filters():
             "shapes": sorted(unique_shapes, key=lambda x: x["name"]),
         }
 
-    except SQLAlchemyError as e:
-        logger.error(f"Database error in get_filters: {e}")
-        raise HTTPException(status_code=500, detail=f"Database error: {e}")
-    except Exception as e:
-        logger.error(f"Error getting filters: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error getting filters: {str(e)}")
+    except SQLAlchemyError:
+        logger.exception("Database error in get_filters")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception:
+        logger.exception("Error getting filters")
+        raise HTTPException(status_code=500, detail="Internal server error")

@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/sitemap.xml")
-async def sitemap():
+def sitemap():
     """Generate XML sitemap with all pill URLs"""
     if not database.db_engine:
         if not database.connect_to_database():

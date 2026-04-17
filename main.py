@@ -19,7 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Current directory
-BASE_DIR = os.path.dirname(os.path.abspath(__name__))
+BASE_DIR = str(Path(__file__).resolve().parent)
 
 import database  # noqa: E402 — imported as module so db_engine is always current
 
@@ -132,8 +132,9 @@ def regenerate_slugs():
 @app.on_event("startup")
 async def startup_event():
     """Run tasks when the application starts"""
-    await warmup_system()
-    await asyncio.get_event_loop().run_in_executor(None, regenerate_slugs)
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, warmup_system)
+    await loop.run_in_executor(None, regenerate_slugs)
     logger.info("Pill identification system initialized successfully")
 
 

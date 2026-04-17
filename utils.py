@@ -104,7 +104,12 @@ def split_image_filenames(filename: str) -> List[str]:
     if pd.isna(filename) or not filename:
         return []
     parts = re.split(r'[,;]+', str(filename))
-    return [clean_filename(part) for part in parts if clean_filename(part)]
+    cleaned_parts = []
+    for part in parts:
+        cleaned_part = clean_filename(part)
+        if cleaned_part:
+            cleaned_parts.append(cleaned_part)
+    return cleaned_parts
 
 
 @lru_cache(maxsize=1000)

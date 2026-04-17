@@ -63,7 +63,7 @@ def connect_to_database():
         return False
 
 
-async def warmup_system():
+def warmup_system():
     """Pre-warm the system to avoid slow initial requests"""
     global _common_drug_cache
 

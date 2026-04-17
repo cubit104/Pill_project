@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/details")
-async def get_pill_details(
+def get_pill_details(
     imprint: Optional[str] = Query(None),
     drug_name: Optional[str] = Query(None),
     rxcui: Optional[str] = Query(None),
@@ -120,7 +120,7 @@ async def get_pill_details(
 
 
 @router.get("/api/pill/{slug}")
-async def get_pill_by_slug(slug: str):
+def get_pill_by_slug(slug: str):
     """Get pill details by URL slug for SEO pages"""
     if not database.db_engine:
         if not database.connect_to_database():
