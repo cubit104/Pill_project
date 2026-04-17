@@ -88,22 +88,26 @@ export default function PillCard({ pill }: PillCardProps) {
       ? [pill.image_url]
       : []
 
-  const [currentIndex, setCurrentIndex] = useState(0)
+  const [rawCurrentIndex, setRawCurrentIndex] = useState(0)
+  const currentIndex =
+    images.length > 0 ? Math.min(rawCurrentIndex, images.length - 1) : 0
 
   useEffect(() => {
-    setCurrentIndex(0)
-  }, [images.length])
+    setRawCurrentIndex(0)
+  }, [slug])
 
   const goPrev = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setCurrentIndex((prev) => (prev - 1 + images.length) % images.length)
+    if (images.length === 0) return
+    setRawCurrentIndex((prev) => (prev - 1 + images.length) % images.length)
   }
 
   const goNext = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setCurrentIndex((prev) => (prev + 1) % images.length)
+    if (images.length === 0) return
+    setRawCurrentIndex((prev) => (prev + 1) % images.length)
   }
 
   return (
