@@ -133,7 +133,7 @@ export default function PillCard({ pill }: PillCardProps) {
                     onClick={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
-                      goPrev()
+                      goPrev(e)
                     }}
                     className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-3 bg-white rounded-full shadow border border-slate-200 w-5 h-5 flex items-center justify-center text-slate-600 text-xs hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-sky-500"
                     aria-label="Previous image"
@@ -145,7 +145,7 @@ export default function PillCard({ pill }: PillCardProps) {
                     onClick={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
-                      goNext()
+                      goNext(e)
                     }}
                     className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-3 bg-white rounded-full shadow border border-slate-200 w-5 h-5 flex items-center justify-center text-slate-600 text-xs hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-sky-500"
                     aria-label="Next image"
