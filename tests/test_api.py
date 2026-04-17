@@ -21,6 +21,7 @@ def client():
          patch("main.warmup_system", return_value=None):
         from fastapi.testclient import TestClient
         import main as app_module
+        import database as db_module
 
         # Stub out the db_engine so endpoints don't try to hit a real DB
         mock_engine = MagicMock()
@@ -28,7 +29,7 @@ def client():
         mock_conn.__enter__ = MagicMock(return_value=mock_conn)
         mock_conn.__exit__ = MagicMock(return_value=False)
         mock_engine.connect.return_value = mock_conn
-        app_module.db_engine = mock_engine
+        db_module.db_engine = mock_engine
 
         with TestClient(app_module.app) as c:
             yield c
@@ -64,127 +65,61 @@ def test_health_has_database_connected_field(client):
 
 def test_search_no_params_returns_empty_results(client):
     """GET /api/search with no parameters should return 200 with empty results."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.mappings.return_value = []
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/api/search")
     assert response.status_code == 200
 
 
 def test_search_with_name_param(client):
     """GET /api/search?name=aspirin should return 200 (even with empty results)."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.mappings.return_value = []
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/api/search?name=aspirin")
     assert response.status_code == 200
 
 
 def test_search_response_has_results_key(client):
     """GET /api/search response should contain a 'results' key."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.mappings.return_value = []
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/api/search?name=aspirin")
     data = response.json()
     assert "results" in data
 
 
-def test_search_legacy_alias_returns_200(client):
-    """GET /search (legacy alias) should still return 200 with empty results."""
-    mock_result = MagicMock()
-    mock_result.mappings.return_value = []
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
-    response = client.get("/search")
-    assert response.status_code == 200
-
-
-def test_search_accept_html_serves_legacy_index(tmp_path):
-    """GET /search with Accept: text/html should serve the legacy index.html, not JSON."""
-    # Create a temporary index.html the handler can serve
-    index_html = tmp_path / "index.html"
-    index_html.write_text("<html><body>IDMyPills</body></html>")
-
-    import main as app_module
-    from fastapi.testclient import TestClient
-
-    # Point BASE_DIR to tmp_path (has index.html) and NEXT_OUT_DIR to a non-existent path
-    with patch("main.NEXT_OUT_DIR", str(tmp_path / "no_nextjs")), \
-         patch("main.BASE_DIR", str(tmp_path)):
-        with TestClient(app_module.app, raise_server_exceptions=True) as c:
-            response = c.get(
-                "/search",
-                headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
-            )
-    assert response.status_code == 200
-    assert "text/html" in response.headers.get("content-type", "")
-
-
-def test_search_accept_html_prefers_nextjs_index(tmp_path):
-    """When frontend/out/index.html exists, GET /search with Accept: text/html should serve it."""
-    next_dir = tmp_path / "out"
-    next_dir.mkdir()
-    (next_dir / "index.html").write_text("<html><body>Next.js IDMyPills</body></html>")
-
-    import main as app_module
-    from fastapi.testclient import TestClient
-
-    with patch("main.NEXT_OUT_DIR", str(next_dir)), \
-         patch("main.BASE_DIR", str(tmp_path)):
-        with TestClient(app_module.app, raise_server_exceptions=True) as c:
-            response = c.get("/search", headers={"Accept": "text/html"})
-    assert response.status_code == 200
-    assert "text/html" in response.headers.get("content-type", "")
-
-
-def test_search_accept_html_case_insensitive(tmp_path):
-    """Media-type matching for Accept: TEXT/HTML (uppercase) should also serve HTML."""
-    index_html = tmp_path / "index.html"
-    index_html.write_text("<html><body>IDMyPills</body></html>")
-
-    import main as app_module
-    from fastapi.testclient import TestClient
-
-    with patch("main.NEXT_OUT_DIR", str(tmp_path / "no_nextjs")), \
-         patch("main.BASE_DIR", str(tmp_path)):
-        with TestClient(app_module.app, raise_server_exceptions=True) as c:
-            response = c.get("/search", headers={"Accept": "TEXT/HTML"})
-    assert response.status_code == 200
-    assert "text/html" in response.headers.get("content-type", "")
-
-
-def test_search_fetch_default_accept_returns_json(client):
-    """GET /search with Accept: */* (the fetch() default) should return JSON, not HTML."""
-    import main as app_module
+def test_search_returns_json(client):
+    """GET /api/search should always return JSON."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.scalar.return_value = 0
     mock_result.fetchall.return_value = []
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
 
-    response = client.get("/search", headers={"Accept": "*/*"})
+    response = client.get("/api/search", headers={"Accept": "*/*"})
     assert response.status_code == 200
     data = response.json()
     assert "results" in data
 
 
 def test_search_no_accept_header_returns_json(client):
-    """GET /search with no Accept header should return JSON (not HTML)."""
-    import main as app_module
+    """GET /api/search with no Accept header should return JSON."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.scalar.return_value = 0
     mock_result.fetchall.return_value = []
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
 
-    # Send request without an Accept header
-    response = client.get("/search", headers={"Accept": ""})
+    response = client.get("/api/search", headers={"Accept": ""})
     assert response.status_code == 200
     data = response.json()
     assert "results" in data
-
 
 
 # ---------------------------------------------------------------------------
@@ -193,20 +128,20 @@ def test_search_no_accept_header_returns_json(client):
 
 def test_filters_returns_200(client):
     """GET /filters should return 200."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.__iter__ = MagicMock(return_value=iter([]))
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/filters")
     assert response.status_code == 200
 
 
 def test_filters_has_colors_and_shapes(client):
     """GET /filters response should have 'colors' and 'shapes' keys."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.__iter__ = MagicMock(return_value=iter([]))
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/filters")
     data = response.json()
     assert "colors" in data
@@ -215,10 +150,10 @@ def test_filters_has_colors_and_shapes(client):
 
 def test_filters_colors_is_list(client):
     """GET /filters 'colors' should be a list."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.__iter__ = MagicMock(return_value=iter([]))
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/filters")
     data = response.json()
     assert isinstance(data["colors"], list)
@@ -243,10 +178,10 @@ def test_suggestions_short_query_returns_empty(client):
 
 def test_suggestions_returns_list(client):
     """GET /suggestions with a valid query should return a list."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.__iter__ = MagicMock(return_value=iter([]))
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/suggestions?q=aspirin&type=drug")
     assert response.status_code == 200
     assert isinstance(response.json(), list)
@@ -258,17 +193,18 @@ def test_suggestions_returns_list(client):
 
 def test_api_pill_slug_not_found(client):
     """GET /api/pill/{slug} should return 404 when the slug is not in DB."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.fetchone.return_value = None
     mock_result.keys.return_value = []
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/api/pill/nonexistent-slug")
     assert response.status_code == 404
 
 
 def test_api_pill_slug_found(client):
     """GET /api/pill/{slug} should return pill data when slug exists."""
+    import database as db_module
     mock_row = ("Aspirin", "ASPIRIN 500", "White", "Round", "0069-0020-01", "215831",
                 "aspirin500.jpg", "aspirin-500mg-0069-0020-01", None)
     mock_columns = ["medicine_name", "splimprint", "splcolor_text", "splshape_text",
@@ -276,8 +212,7 @@ def test_api_pill_slug_found(client):
     mock_result = MagicMock()
     mock_result.fetchone.return_value = mock_row
     mock_result.keys.return_value = mock_columns
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/api/pill/aspirin-500mg-0069-0020-01")
     assert response.status_code == 200
 
@@ -288,30 +223,30 @@ def test_api_pill_slug_found(client):
 
 def test_sitemap_returns_200(client):
     """GET /sitemap.xml should return 200 with XML content."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.__iter__ = MagicMock(return_value=iter([("aspirin-500mg-0069-0020-01",)]))
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/sitemap.xml")
     assert response.status_code == 200
 
 
 def test_sitemap_content_type(client):
     """GET /sitemap.xml should return XML content type."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.__iter__ = MagicMock(return_value=iter([]))
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/sitemap.xml")
     assert "xml" in response.headers.get("content-type", "")
 
 
 def test_sitemap_contains_urlset(client):
     """GET /sitemap.xml should contain a urlset element."""
+    import database as db_module
     mock_result = MagicMock()
     mock_result.__iter__ = MagicMock(return_value=iter([("some-slug",)]))
-    import main as app_module
-    app_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/sitemap.xml")
     assert b"urlset" in response.content
 
@@ -322,14 +257,14 @@ def test_sitemap_contains_urlset(client):
 
 def test_database_url_env_var_is_read():
     """DATABASE_URL should be read from the environment, not hardcoded."""
-    import main as app_module
-    assert app_module.DATABASE_URL == os.environ["DATABASE_URL"]
+    import database as db_module
+    assert db_module.DATABASE_URL == os.environ["DATABASE_URL"]
 
 
 def test_image_base_has_default():
     """IMAGE_BASE should fall back to the Supabase URL when env var is absent."""
-    import main as app_module
-    assert "supabase.co" in app_module.IMAGE_BASE
+    from utils import IMAGE_BASE
+    assert "supabase.co" in IMAGE_BASE
 
 
 def test_cors_includes_idmypills():
