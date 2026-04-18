@@ -30,7 +30,6 @@ export const metadata: Metadata = {
 export default function HomePage() {
   return (
     <>
-      {/* Homepage-only JSON-LD: WebSite (with SearchAction) + Organization */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: safeJsonLd(websiteSchema()) }}
@@ -40,12 +39,15 @@ export default function HomePage() {
         dangerouslySetInnerHTML={{ __html: safeJsonLd(organizationSchema()) }}
       />
 
-      {/* Hero Section */}
       <section className="bg-gradient-to-br from-sky-700 to-sky-900 text-white py-20 px-4">
         <div className="max-w-4xl mx-auto text-center">
-          <div className="text-6xl mb-4" role="img" aria-label="Pill emoji">
-            💊
-          </div>
+          <img
+            src="/logo-mark-light.svg"
+            alt=""
+            width={144}
+            height={144}
+            className="mx-auto mb-6 drop-shadow-2xl"
+          />
           <h1 className="text-5xl font-bold mb-4 tracking-tight">PillSeek</h1>
           <p className="text-xl text-sky-100 mb-2 font-medium">
             Identify Any Medication by Imprint, Color, or Shape
@@ -57,7 +59,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Stats / Trust Indicators */}
       <section className="bg-white border-b border-slate-200 py-10 px-4">
         <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
           {[
@@ -74,7 +75,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* How It Works */}
       <section className="py-16 px-4">
         <div className="max-w-4xl mx-auto">
           <h2 className="text-2xl font-bold text-center text-slate-900 mb-10">
@@ -92,7 +92,7 @@ export default function HomePage() {
                 step: '2',
                 icon: '🎨',
                 title: 'Filter by Color & Shape',
-                desc: 'Narrow results using the pill\'s color and shape for faster identification.',
+                desc: 'Narrow results using the pill color and shape for faster identification.',
               },
               {
                 step: '3',
@@ -116,7 +116,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Disclaimer */}
       <section className="py-8 px-4">
         <div className="max-w-4xl mx-auto">
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
@@ -134,7 +133,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Browse by Category */}
       <section className="py-12 px-4 bg-white border-t border-slate-200">
         <div className="max-w-4xl mx-auto">
           <h2 className="text-2xl font-bold text-center text-slate-900 mb-8">
@@ -160,7 +158,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Trust / About blurb */}
       <section className="py-12 px-4">
         <div className="max-w-4xl mx-auto">
           <div className="bg-sky-50 border border-sky-200 rounded-xl p-6 text-center">
