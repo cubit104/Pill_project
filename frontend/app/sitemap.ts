@@ -10,10 +10,36 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly',
       priority: 1.0,
     },
+    // /search is noindex,follow — omit from sitemap to avoid mixed signals
     {
-      url: `${SITE_URL}/search`,
-      changeFrequency: 'weekly',
-      priority: 0.9,
+      url: `${SITE_URL}/about`,
+      changeFrequency: 'monthly',
+      priority: 0.6,
+    },
+    {
+      url: `${SITE_URL}/contact`,
+      changeFrequency: 'monthly',
+      priority: 0.4,
+    },
+    {
+      url: `${SITE_URL}/privacy`,
+      changeFrequency: 'monthly',
+      priority: 0.3,
+    },
+    {
+      url: `${SITE_URL}/terms`,
+      changeFrequency: 'monthly',
+      priority: 0.3,
+    },
+    {
+      url: `${SITE_URL}/medical-disclaimer`,
+      changeFrequency: 'monthly',
+      priority: 0.5,
+    },
+    {
+      url: `${SITE_URL}/sources`,
+      changeFrequency: 'monthly',
+      priority: 0.5,
     },
   ]
 

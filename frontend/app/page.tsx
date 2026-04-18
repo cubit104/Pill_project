@@ -1,13 +1,45 @@
 import type { Metadata } from 'next'
 import HomeSearch from './components/HomeSearch'
+import Link from 'next/link'
+import { websiteSchema, organizationSchema, safeJsonLd } from './lib/structured-data'
+
+const SITE_URL = (
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://idmypills.com'
+).replace(/\/$/, '')
 
 export const metadata: Metadata = {
+  title: 'IDMyPills — Free Pill Identifier by Imprint, Color & Shape',
+  description:
+    'Identify any pill free using imprint codes, color, shape, or drug name. Powered by FDA & DailyMed data. Trusted by patients and caregivers.',
   alternates: { canonical: '/' },
+  openGraph: {
+    title: 'IDMyPills — Free Pill Identifier by Imprint, Color & Shape',
+    description:
+      'Identify any pill free using imprint codes, color, shape, or drug name. Powered by FDA & DailyMed data.',
+    url: SITE_URL,
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'IDMyPills — Free Pill Identifier by Imprint, Color & Shape',
+    description:
+      'Identify any pill free using imprint codes, color, shape, or drug name. Powered by FDA & DailyMed data.',
+  },
 }
 
 export default function HomePage() {
   return (
     <>
+      {/* Homepage-only JSON-LD: WebSite (with SearchAction) + Organization */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(websiteSchema()) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(organizationSchema()) }}
+      />
+
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-sky-700 to-sky-900 text-white py-20 px-4">
         <div className="max-w-4xl mx-auto text-center">
@@ -92,8 +124,69 @@ export default function HomePage() {
               <strong>⚠️ Medical Disclaimer:</strong> IDMyPills is for educational and
               informational purposes only. It is not a substitute for professional medical
               advice, diagnosis, or treatment. Always consult a qualified healthcare
-              professional before making any medical decisions.
+              professional before making any medical decisions.{' '}
+              <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
+                Read full disclaimer
+              </Link>
+              .
             </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Browse by Category */}
+      <section className="py-12 px-4 bg-white border-t border-slate-200">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-2xl font-bold text-center text-slate-900 mb-8">
+            Browse Pills by Category
+          </h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { href: '/color/white', label: 'White Pills', icon: '⬜' },
+              { href: '/shape/round', label: 'Round Pills', icon: '🔵' },
+              { href: '/shape/oval', label: 'Oval Pills', icon: '💊' },
+              { href: '/shape/capsule', label: 'Capsule Pills', icon: '🔴' },
+            ].map((cat) => (
+              <Link
+                key={cat.href}
+                href={cat.href}
+                className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center hover:bg-sky-50 hover:border-sky-300 transition-colors"
+              >
+                <div className="text-3xl mb-2" role="img" aria-hidden="true">{cat.icon}</div>
+                <p className="text-sm font-medium text-slate-700">{cat.label}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Trust / About blurb */}
+      <section className="py-12 px-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-sky-50 border border-sky-200 rounded-xl p-6 text-center">
+            <h2 className="text-lg font-semibold text-sky-900 mb-3">
+              Built on Trusted, Authoritative Data
+            </h2>
+            <p className="text-sky-800 text-sm leading-relaxed max-w-2xl mx-auto mb-4">
+              IDMyPills pulls directly from the{' '}
+              <strong>FDA National Drug Code (NDC) Directory</strong>,{' '}
+              <strong>DailyMed</strong>, and <strong>RxNorm</strong> — the same
+              databases used by pharmacists and healthcare professionals. All data is
+              kept up to date and presented exactly as filed with the FDA.
+            </p>
+            <div className="flex flex-wrap justify-center gap-3 text-sm">
+              <Link href="/about" className="text-sky-700 hover:text-sky-900 underline font-medium">
+                About IDMyPills
+              </Link>
+              <span className="text-sky-400">·</span>
+              <Link href="/sources" className="text-sky-700 hover:text-sky-900 underline font-medium">
+                Data Sources
+              </Link>
+              <span className="text-sky-400">·</span>
+              <Link href="/medical-disclaimer" className="text-sky-700 hover:text-sky-900 underline font-medium">
+                Medical Disclaimer
+              </Link>
+            </div>
           </div>
         </div>
       </section>
