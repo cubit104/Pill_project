@@ -10,12 +10,12 @@ const SITE_URL = (
 export const metadata: Metadata = {
   title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
   description:
-    'Identify any pill free using imprint codes, color, shape, or drug name. Powered by FDA & DailyMed data. Trusted by patients and caregivers.',
+    'Identify any pill free using imprint codes, color, shape, drug name, or NDC number. Powered by FDA & DailyMed data. Trusted by patients and caregivers.',
   alternates: { canonical: '/' },
   openGraph: {
     title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
     description:
-      'Identify any pill free using imprint codes, color, shape, or drug name. Powered by FDA & DailyMed data.',
+      'Identify any pill free using imprint codes, color, shape, drug name, or NDC number. Powered by FDA & DailyMed data.',
     url: SITE_URL,
     type: 'website',
   },
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
     description:
-      'Identify any pill free using imprint codes, color, shape, or drug name. Powered by FDA & DailyMed data.',
+      'Identify any pill free using imprint codes, color, shape, drug name, or NDC number. Powered by FDA & DailyMed data.',
   },
 }
 
@@ -39,23 +39,23 @@ export default function HomePage() {
         dangerouslySetInnerHTML={{ __html: safeJsonLd(organizationSchema()) }}
       />
 
-      {/* Hero Section — clean white, Drugs.com style */}
-      <section className="bg-gradient-to-b from-slate-50 to-white py-20 px-4">
+      {/* Hero Section — tighter spacing */}
+      <section className="bg-gradient-to-b from-slate-50 to-white pt-8 pb-12 px-4">
         <div className="max-w-4xl mx-auto text-center">
           <img
             src="/logo-mark.svg"
             alt=""
-            width={140}
-            height={140}
-            className="mx-auto mb-6"
+            width={96}
+            height={96}
+            className="mx-auto mb-4"
           />
-          <h1 className="text-5xl font-bold mb-4 tracking-tight text-slate-900">
+          <h1 className="text-4xl sm:text-5xl font-bold mb-3 tracking-tight text-slate-900">
             Know your pill. <span className="text-emerald-700">Be sure.</span>
           </h1>
-          <p className="text-xl text-slate-600 mb-2 font-medium">
-            Identify Any Medication by Imprint, Color, or Shape
+          <p className="text-lg sm:text-xl text-slate-600 mb-2 font-medium">
+            Identify Any Medication by Imprint, Color, Shape, Drug Name, or NDC
           </p>
-          <p className="text-slate-500 text-sm mb-10">
+          <p className="text-slate-500 text-sm mb-8">
             Search our database of thousands of FDA-approved medications instantly
           </p>
           <HomeSearch />
@@ -78,43 +78,90 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="py-16 px-4">
-        <div className="max-w-4xl mx-auto">
-          <h2 className="text-2xl font-bold text-center text-slate-900 mb-10">
+      {/* How It Works — illustrated cards */}
+      <section className="py-14 px-4">
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-2xl sm:text-3xl font-bold text-center text-slate-900 mb-3">
             How It Works
           </h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                step: '1',
-                icon: '🔍',
-                title: 'Search by Imprint',
-                desc: 'Enter the letters or numbers stamped on your pill to find an exact match.',
-              },
-              {
-                step: '2',
-                icon: '🎨',
-                title: 'Filter by Color & Shape',
-                desc: 'Narrow results using the pill color and shape for faster identification.',
-              },
-              {
-                step: '3',
-                icon: '📋',
-                title: 'View Full Details',
-                desc: 'See drug name, dosage, ingredients, manufacturer, and safety information.',
-              },
-            ].map((item) => (
-              <div
-                key={item.step}
-                className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm text-center"
-              >
-                <div className="text-4xl mb-3" role="img" aria-label={item.title}>
-                  {item.icon}
-                </div>
-                <h3 className="font-semibold text-slate-900 mb-2">{item.title}</h3>
-                <p className="text-slate-600 text-sm leading-relaxed">{item.desc}</p>
+          <p className="text-center text-slate-600 mb-10 max-w-2xl mx-auto">
+            Find your medication in three simple steps — no account, no fees, just fast, FDA-sourced answers.
+          </p>
+          <div className="grid md:grid-cols-3 gap-6">
+            {/* Card 1 — Search by Imprint */}
+            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded-full">STEP 1</span>
               </div>
-            ))}
+              <div className="flex justify-center mb-4">
+                <svg viewBox="0 0 120 80" className="w-32 h-20" aria-hidden="true">
+                  <ellipse cx="60" cy="40" rx="45" ry="22" fill="#fef3c7" stroke="#d97706" strokeWidth="2" />
+                  <text x="40" y="46" fontFamily="monospace" fontSize="14" fontWeight="bold" fill="#78350f">M</text>
+                  <text x="68" y="46" fontFamily="monospace" fontSize="14" fontWeight="bold" fill="#78350f">321</text>
+                </svg>
+              </div>
+              <h3 className="font-semibold text-slate-900 mb-2 text-center">Read the Imprint</h3>
+              <p className="text-slate-600 text-sm leading-relaxed text-center mb-3">
+                Look at the letters or numbers stamped on your pill. Enter exactly what you see.
+              </p>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-600 text-center">
+                <span className="text-slate-400">Example: </span>
+                <span className="font-mono font-semibold text-slate-800">M 321</span>
+              </div>
+            </div>
+
+            {/* Card 2 — Filter by Color/Shape */}
+            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded-full">STEP 2</span>
+              </div>
+              <div className="flex justify-center gap-2 mb-4">
+                <svg viewBox="0 0 40 40" className="w-12 h-12" aria-hidden="true">
+                  <circle cx="20" cy="20" r="15" fill="#10b981" stroke="#047857" strokeWidth="1.5" />
+                </svg>
+                <svg viewBox="0 0 40 40" className="w-12 h-12" aria-hidden="true">
+                  <ellipse cx="20" cy="20" rx="17" ry="10" fill="#3b82f6" stroke="#1d4ed8" strokeWidth="1.5" />
+                </svg>
+                <svg viewBox="0 0 40 40" className="w-12 h-12" aria-hidden="true">
+                  <rect x="4" y="14" width="32" height="12" rx="6" fill="#f59e0b" stroke="#b45309" strokeWidth="1.5" />
+                  <rect x="4" y="14" width="16" height="12" rx="6" fill="#ef4444" stroke="#b91c1c" strokeWidth="1.5" />
+                </svg>
+              </div>
+              <h3 className="font-semibold text-slate-900 mb-2 text-center">Pick Color & Shape</h3>
+              <p className="text-slate-600 text-sm leading-relaxed text-center mb-3">
+                Too many matches? Narrow results with the pill&apos;s color and shape.
+              </p>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-600 text-center">
+                <span className="text-slate-400">Example: </span>
+                <span className="font-semibold text-slate-800">Yellow + Oval</span>
+              </div>
+            </div>
+
+            {/* Card 3 — View Full Details */}
+            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded-full">STEP 3</span>
+              </div>
+              <div className="flex justify-center mb-4">
+                <svg viewBox="0 0 80 80" className="w-20 h-20" aria-hidden="true">
+                  <rect x="14" y="10" width="52" height="64" rx="4" fill="#ffffff" stroke="#64748b" strokeWidth="2" />
+                  <rect x="28" y="6" width="24" height="8" rx="2" fill="#94a3b8" />
+                  <line x1="22" y1="26" x2="58" y2="26" stroke="#10b981" strokeWidth="2" />
+                  <line x1="22" y1="34" x2="50" y2="34" stroke="#cbd5e1" strokeWidth="2" />
+                  <line x1="22" y1="42" x2="58" y2="42" stroke="#cbd5e1" strokeWidth="2" />
+                  <line x1="22" y1="50" x2="46" y2="50" stroke="#cbd5e1" strokeWidth="2" />
+                  <line x1="22" y1="58" x2="54" y2="58" stroke="#cbd5e1" strokeWidth="2" />
+                </svg>
+              </div>
+              <h3 className="font-semibold text-slate-900 mb-2 text-center">See Full Details</h3>
+              <p className="text-slate-600 text-sm leading-relaxed text-center mb-3">
+                Drug name, dosage, ingredients, manufacturer, NDC, and safety info — all verified.
+              </p>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-600 text-center">
+                <span className="text-slate-400">Includes: </span>
+                <span className="font-semibold text-slate-800">NDC, RxCUI, FDA data</span>
+              </div>
+            </div>
           </div>
         </div>
       </section>
