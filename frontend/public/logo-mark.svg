@@ -1,1 +1,35 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none"><title>PillSeek</title><g transform="rotate(-50 230 290)"><path d="M 70 200 A 80 80 0 0 0 70 360 L 230 360 L 230 200 Z" fill="#1f7a47"/><path d="M 230 200 L 390 200 A 80 80 0 0 1 390 360 L 230 360 Z" fill="#ffffff"/><rect x="70" y="200" width="320" height="160" rx="80" ry="80" fill="none" stroke="#1f7a47" stroke-width="14"/><line x1="230" y1="200" x2="230" y2="360" stroke="#1f7a47" stroke-width="14"/><path d="M 100 320 Q 130 345 170 348" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" opacity="0.85"/><text x="310" y="320" text-anchor="middle" font-family="Georgia,serif" font-weight="700" font-size="170" fill="#1f7a47">P</text></g><circle cx="350" cy="170" r="118" fill="none" stroke="#1f7a47" stroke-width="22"/><circle cx="350" cy="170" r="92" fill="none" stroke="#1f7a47" stroke-width="8"/><rect x="430" y="248" width="38" height="125" rx="14" transform="rotate(-45 449 310)" fill="#ffffff" stroke="#1f7a47" stroke-width="12"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none" role="img" aria-labelledby="t">
+  <title id="t">PillSeek</title>
+
+  <!-- Capsule, tilted -45deg around its center (75, 115) -->
+  <g transform="rotate(-45 75 115)">
+    <!-- Solid green left half -->
+    <path d="M 5 80 A 35 35 0 0 0 5 150 L 75 150 L 75 80 Z" fill="#1f7a47"/>
+    <!-- White right half (will be outlined below) -->
+    <path d="M 75 80 L 145 80 A 35 35 0 0 1 145 150 L 75 150 Z" fill="#ffffff"/>
+    <!-- Thick green outline around whole capsule -->
+    <rect x="5" y="80" width="140" height="70" rx="35" ry="35"
+          fill="none" stroke="#1f7a47" stroke-width="7"/>
+    <!-- Center divider -->
+    <line x1="75" y1="80" x2="75" y2="150" stroke="#1f7a47" stroke-width="7"/>
+    <!-- White highlight curve on green half -->
+    <path d="M 18 138 Q 30 148 50 148"
+          fill="none" stroke="#ffffff" stroke-width="4"
+          stroke-linecap="round" opacity="0.9"/>
+    <!-- Big serif P in the white half -->
+    <text x="110" y="132" text-anchor="middle"
+          font-family="Georgia, 'Times New Roman', serif"
+          font-weight="700" font-size="68" fill="#1f7a47">P</text>
+  </g>
+
+  <!-- Magnifier (drawn AFTER capsule, sits on top-right) -->
+  <!-- Outer thick ring -->
+  <circle cx="138" cy="62" r="46" fill="none" stroke="#1f7a47" stroke-width="9"/>
+  <!-- Inner thin ring -->
+  <circle cx="138" cy="62" r="34" fill="none" stroke="#1f7a47" stroke-width="3"/>
+  <!-- Outlined handle: white fill + green stroke, pointing down-right at 45° -->
+  <g transform="rotate(45 175 100)">
+    <rect x="168" y="100" width="14" height="55" rx="6"
+          fill="#ffffff" stroke="#1f7a47" stroke-width="5"/>
+  </g>
+</svg>
