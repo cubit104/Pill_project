@@ -1,7 +1,7 @@
 import type { MetadataRoute } from 'next'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://idmypills.com').replace(/\/$/, '')
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com').replace(/\/$/, '')
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticPages: MetadataRoute.Sitemap = [

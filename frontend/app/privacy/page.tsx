@@ -5,7 +5,7 @@ import { breadcrumbSchema, safeJsonLd } from '../lib/structured-data'
 export const metadata: Metadata = {
   title: 'Privacy Policy',
   description:
-    'Read the IDMyPills privacy policy. We are committed to protecting your privacy and only collect essential data to operate the service.',
+    'Read the PillSeek privacy policy. We are committed to protecting your privacy and only collect essential data to operate the service.',
   alternates: { canonical: '/privacy' },
 }
 
@@ -40,16 +40,16 @@ export default function PrivacyPage() {
           <section className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-800 mb-3">1. Overview</h2>
             <p className="text-slate-700 text-sm leading-relaxed">
-              IDMyPills (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) is committed
+              PillSeek (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) is committed
               to protecting your privacy. This Privacy Policy explains how we collect, use, and
-              safeguard information when you use idmypills.com (the &ldquo;Service&rdquo;).
+              safeguard information when you use pillseek.com (the &ldquo;Service&rdquo;).
             </p>
           </section>
 
           <section className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-800 mb-3">2. Information We Collect</h2>
             <p className="text-slate-700 text-sm leading-relaxed mb-3">
-              IDMyPills does <strong>not</strong> require account creation or collect personally
+              PillSeek does <strong>not</strong> require account creation or collect personally
               identifiable information to use the pill identifier. We may collect:
             </p>
             <ul className="space-y-2 text-slate-700 text-sm">
@@ -81,7 +81,7 @@ export default function PrivacyPage() {
           <section className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-800 mb-3">4. Cookies</h2>
             <p className="text-slate-700 text-sm leading-relaxed">
-              IDMyPills uses only essential session cookies required for the Service to function.
+              PillSeek uses only essential session cookies required for the Service to function.
               We do not use tracking cookies, advertising cookies, or third-party analytics cookies
               that identify you personally.
             </p>
@@ -91,7 +91,7 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-semibold text-slate-800 mb-3">5. Data Retention</h2>
             <p className="text-slate-700 text-sm leading-relaxed">
               Server access logs are retained for up to 90 days for security purposes, then
-              deleted. No personal health information is stored by IDMyPills.
+              deleted. No personal health information is stored by PillSeek.
             </p>
           </section>
 
@@ -118,8 +118,8 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-semibold text-slate-800 mb-3">8. Contact</h2>
             <p className="text-slate-700 text-sm leading-relaxed">
               For privacy-related questions, contact us at{' '}
-              <a href="mailto:contact@idmypills.com" className="text-sky-600 hover:underline">
-                contact@idmypills.com
+              <a href="mailto:contact@pillseek.com" className="text-sky-600 hover:underline">
+                contact@pillseek.com
               </a>
               .
             </p>

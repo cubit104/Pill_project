@@ -10,7 +10,7 @@ import {
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL || 'https://idmypills.com'
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
 
 async function fetchPill(slug: string): Promise<PillDetail | null> {
@@ -56,7 +56,7 @@ export async function generateMetadata(
     }
   }
 
-  // Build SEO title: {Color} {Shape} {Drug Name} {Strength} Pill With Imprint {Imprint} | IDMyPills
+  // Build SEO title: {Color} {Shape} {Drug Name} {Strength} Pill With Imprint {Imprint} | PillSeek
   const titleParts = [
     pill.color,
     pill.shape,
@@ -100,7 +100,7 @@ export async function generateMetadata(
       description,
       url: canonicalUrl,
       type: 'article',
-      siteName: 'IDMyPills',
+      siteName: 'PillSeek',
       ...(images.length > 0 && {
         images: [
           {

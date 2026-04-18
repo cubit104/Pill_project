@@ -3,9 +3,9 @@ import Link from 'next/link'
 import { breadcrumbSchema, safeJsonLd } from '../lib/structured-data'
 
 export const metadata: Metadata = {
-  title: 'Contact IDMyPills',
+  title: 'Contact PillSeek',
   description:
-    'Contact the IDMyPills team with questions, feedback, or data correction requests.',
+    'Contact the PillSeek team with questions, feedback, or data correction requests.',
   alternates: { canonical: '/contact' },
 }
 
@@ -42,7 +42,7 @@ export default function ContactPage() {
           <h2 className="text-lg font-semibold text-slate-800 mb-4">Send a Message</h2>
 
           <form
-            action="mailto:contact@idmypills.com"
+            action="mailto:contact@pillseek.com"
             method="get"
             encType="text/plain"
             className="space-y-4"
@@ -128,10 +128,10 @@ export default function ContactPage() {
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-slate-700 mb-2">Or email us directly</h2>
           <a
-            href="mailto:contact@idmypills.com"
+            href="mailto:contact@pillseek.com"
             className="text-sky-600 hover:underline text-sm font-medium"
           >
-            contact@idmypills.com
+            contact@pillseek.com
           </a>
           <p className="text-slate-500 text-xs mt-2">
             We typically respond within 2–3 business days.

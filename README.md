@@ -1,11 +1,13 @@
-# IDMyPills — Identify Any Medication
+# PillSeek — Identify Any Medication
 
-**IDMyPills** is a professional pill identification tool — search by imprint, drug name, NDC code, color, and shape. Backed by a Supabase PostgreSQL database, served by a FastAPI backend, with a modern Next.js + Tailwind CSS frontend.
+> Formerly known as IDMyPills.
+
+**PillSeek** is a professional pill identification tool — search by imprint, drug name, NDC code, color, and shape. Backed by a Supabase PostgreSQL database, served by a FastAPI backend, with a modern Next.js + Tailwind CSS frontend.
 
 ## Architecture
 
 ```
-idmypills.com → Render → FastAPI serves everything
+pillseek.com → Render → FastAPI serves everything
                           ├── /api/*  → Python endpoints (search, details, filters, suggestions)
                           └── /*     → Next.js pre-built static pages (frontend/out/)
 ```
@@ -59,8 +61,8 @@ cp .env.example .env
 |---|---|---|
 | `DATABASE_URL` | PostgreSQL connection string | ✅ Yes |
 | `IMAGE_BASE` | Base URL for pill images on Supabase storage | No (has default) |
-| `ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins | No (defaults to `https://pill0project.onrender.com,https://idmypills.com,https://www.idmypills.com`) |
-| `SITE_URL` | Public site URL used in sitemap | No (defaults to `https://idmypills.com`) |
+| `ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins | No (defaults to `https://pill0project.onrender.com,https://pill-project.vercel.app,https://pillseek.com,https://www.pillseek.com`) |
+| `SITE_URL` | Public site URL used in sitemap | No (defaults to `https://pillseek.com`) |
 
 ### 4. Build the frontend
 
@@ -94,8 +96,8 @@ This runs `pip install -r requirements.txt` and then builds the Next.js frontend
 1. Set environment variables in Render dashboard:
    - `DATABASE_URL` — your Supabase PostgreSQL connection string
    - `IMAGE_BASE` — Supabase storage base URL
-   - `ALLOWED_ORIGINS` — your deployed frontend URL (e.g. `https://idmypills.com`)
-   - `SITE_URL` — `https://idmypills.com`
+   - `ALLOWED_ORIGINS` — your deployed frontend URL (e.g. `https://pillseek.com`)
+   - `SITE_URL` — `https://pillseek.com`
 
 2. Set **Build Command** in Render dashboard:
    ```bash

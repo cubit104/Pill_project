@@ -4,16 +4,16 @@ import Link from 'next/link'
 import { websiteSchema, organizationSchema, safeJsonLd } from './lib/structured-data'
 
 const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL || 'https://idmypills.com'
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
 
 export const metadata: Metadata = {
-  title: 'IDMyPills — Free Pill Identifier by Imprint, Color & Shape',
+  title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
   description:
     'Identify any pill free using imprint codes, color, shape, or drug name. Powered by FDA & DailyMed data. Trusted by patients and caregivers.',
   alternates: { canonical: '/' },
   openGraph: {
-    title: 'IDMyPills — Free Pill Identifier by Imprint, Color & Shape',
+    title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
     description:
       'Identify any pill free using imprint codes, color, shape, or drug name. Powered by FDA & DailyMed data.',
     url: SITE_URL,
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'IDMyPills — Free Pill Identifier by Imprint, Color & Shape',
+    title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
     description:
       'Identify any pill free using imprint codes, color, shape, or drug name. Powered by FDA & DailyMed data.',
   },
@@ -46,7 +46,7 @@ export default function HomePage() {
           <div className="text-6xl mb-4" role="img" aria-label="Pill emoji">
             💊
           </div>
-          <h1 className="text-5xl font-bold mb-4 tracking-tight">IDMyPills</h1>
+          <h1 className="text-5xl font-bold mb-4 tracking-tight">PillSeek</h1>
           <p className="text-xl text-sky-100 mb-2 font-medium">
             Identify Any Medication by Imprint, Color, or Shape
           </p>
@@ -121,7 +121,7 @@ export default function HomePage() {
         <div className="max-w-4xl mx-auto">
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
             <p className="text-amber-800 text-sm text-center leading-relaxed">
-              <strong>⚠️ Medical Disclaimer:</strong> IDMyPills is for educational and
+              <strong>⚠️ Medical Disclaimer:</strong> PillSeek is for educational and
               informational purposes only. It is not a substitute for professional medical
               advice, diagnosis, or treatment. Always consult a qualified healthcare
               professional before making any medical decisions.{' '}
@@ -168,7 +168,7 @@ export default function HomePage() {
               Built on Trusted, Authoritative Data
             </h2>
             <p className="text-sky-800 text-sm leading-relaxed max-w-2xl mx-auto mb-4">
-              IDMyPills pulls directly from the{' '}
+              PillSeek pulls directly from the{' '}
               <strong>FDA National Drug Code (NDC) Directory</strong>,{' '}
               <strong>DailyMed</strong>, and <strong>RxNorm</strong> — the same
               databases used by pharmacists and healthcare professionals. All data is
@@ -176,7 +176,7 @@ export default function HomePage() {
             </p>
             <div className="flex flex-wrap justify-center gap-3 text-sm">
               <Link href="/about" className="text-sky-700 hover:text-sky-900 underline font-medium">
-                About IDMyPills
+                About PillSeek
               </Link>
               <span className="text-sky-400">·</span>
               <Link href="/sources" className="text-sky-700 hover:text-sky-900 underline font-medium">

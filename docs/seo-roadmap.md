@@ -1,4 +1,4 @@
-# IDMyPills SEO Roadmap
+# PillSeek SEO Roadmap
 
 ## Priority 3 — Out of Scope (Document & Follow-Up)
 
@@ -9,7 +9,7 @@ These items were identified as beneficial for long-term SEO but are **out of sco
 ### Backlink / Digital PR Strategy
 
 Earning authoritative inbound links is crucial for YMYL sites. Recommended tactics:
-- **Outreach to pharmacist bloggers / healthcare educators** to reference IDMyPills as a free resource
+- **Outreach to pharmacist bloggers / healthcare educators** to reference PillSeek as a free resource
 - **Submit to healthcare resource directories** (e.g., Healthline's resource lists, NLM link programs)
 - **Press release / product launch** on healthcare technology news sites when new features launch
 - **Guest posts on pharmacy school blogs** and patient advocacy sites
@@ -35,7 +35,7 @@ For YMYL sites, Google explicitly looks for evidence of E-E-A-T (Experience, Exp
 ### `/editorial-policy` Page
 
 Create a dedicated editorial policy page covering:
-- Data pipeline description (FDA → DailyMed → IDMyPills database)
+- Data pipeline description (FDA → DailyMed → PillSeek database)
 - How frequently data is synced
 - How errors are identified and corrected
 - Contact method for data corrections
