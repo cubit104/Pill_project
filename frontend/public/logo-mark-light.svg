@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="PillSeek logo mark (light)">
+  <defs>
+    <filter id="ps-shadow" x="-12%" y="-12%" width="124%" height="124%">
+      <feDropShadow dx="0" dy="4" stdDeviation="10" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+    <!-- Same midline clip as primary variant -->
+    <clipPath id="ps-wh-l" clipPathUnits="userSpaceOnUse">
+      <polygon points="404,0 512,0 512,512 108,512"/>
+    </clipPath>
+  </defs>
+
+  <g filter="url(#ps-shadow)">
+
+    <!-- ══ CAPSULE (all-white/light for dark backgrounds) ══ -->
+    <!-- Upper-left half: solid white fill -->
+    <rect x="56" y="201" width="400" height="110" rx="55"
+          fill="#ffffff" stroke="none"
+          transform="rotate(30,256,256)"/>
+    <!-- Lower-right half: transparent with white stroke (shows through) -->
+    <rect x="56" y="201" width="400" height="110" rx="55"
+          fill="rgba(255,255,255,0.12)" stroke="none"
+          transform="rotate(30,256,256)"
+          clip-path="url(#ps-wh-l)"/>
+    <!-- White outline -->
+    <rect x="56" y="201" width="400" height="110" rx="55"
+          fill="none" stroke="#ffffff" stroke-width="11"
+          transform="rotate(30,256,256)"/>
+
+    <!-- Midline seam -->
+    <line x1="284" y1="208" x2="229" y2="304"
+          stroke="#ffffff" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+
+    <!-- Glossy highlight -->
+    <path d="M 118,194 Q 188,155 262,182"
+          fill="none" stroke="#ffffff" stroke-width="5"
+          stroke-linecap="round" opacity="0.55"/>
+
+    <!-- ══ SERIF "P" — white, same geometry as primary ══ -->
+    <!--
+      P at translate(260,256), 140-unit cap height.
+      White outline layer then white fill gives crisp white P.
+    -->
+    <g transform="translate(260,256)">
+      <rect x="-40" y="-70" width="22" height="140" rx="2" fill="#ffffff"/>
+      <rect x="-54" y="-70" width="48" height="13"  rx="3" fill="#ffffff"/>
+      <rect x="-54" y="57"  width="48" height="13"  rx="3" fill="#ffffff"/>
+      <path fill-rule="evenodd" fill="#ffffff"
+        d="M -18,-70 C 12,-70 48,-54 48,-32 C 48,-10 12,5 -18,5 L -18,-70 Z
+           M -18,-57 C  6,-57 30,-47 30,-32 C 30,-17  6,-7 -18,-7 L -18,-57 Z"/>
+    </g>
+
+    <!-- ══ MAGNIFYING GLASS — all white ══ -->
+    <circle cx="350" cy="175" r="82" fill="rgba(255,255,255,0.12)"/>
+    <circle cx="350" cy="175" r="82" fill="none" stroke="#ffffff" stroke-width="24"/>
+    <line x1="408" y1="233" x2="449" y2="274"
+          stroke="#ffffff" stroke-width="26" stroke-linecap="round"/>
+
+  </g>
+</svg>

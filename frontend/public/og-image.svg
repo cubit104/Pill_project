@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="PillSeek — Free Pill Identifier">
+  <defs>
+    <!-- Soft diagonal background gradient -->
+    <linearGradient id="og-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f0fdf4"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+
+    <!--
+      Logo lockup at ~3× scale (logo.svg is 560×120; 3× = 1680×360).
+      We show it at 2.3× so it fits in left 55% of 1200px canvas:
+        mark 100×100 → 230×230 in OG space.
+        Mark center in logo.svg = (50,60) → OG: (50×2.3, 10+(60×2.3)) = (115,148).
+        Mark top-left in OG: positioned at OG (60,120) so center=(60+115,120+138)=(175,258).
+        But let's simplify: mark at OG origin (60,120), scale 2.3.
+
+      Capsule in 512-space: x=56,y=201,w=400,h=110,rx=55, center=(256,256)
+      In OG: scale=2.3/512*100 … let me use direct scaling.
+        Scale = 230/512 = 0.449.
+        Capsule OG-space: x=56×0.449=25.1, y=201×0.449=90.2, w=400×0.449=179.6, h=110×0.449=49.4, rx=55×0.449=24.7
+        Center: (256×0.449, 256×0.449)=(114.9,114.9) in mark-local space.
+        Mark positioned at OG (58,118), so capsule center in OG = (58+115,118+115)=(173,233).
+
+      Midline clip in OG user space:
+        slope -sqrt(3) through (173,233):
+          at y=0:   x=173+233/sqrt(3)=173+134.5=307.5
+          at y=630: x=173-(630-233)/sqrt(3)=173-229.3=-56.3
+        White-half lower-right: (308,118) → (350,118) → (350,348) → (-57,348)
+    -->
+    <clipPath id="og-wh" clipPathUnits="userSpaceOnUse">
+      <polygon points="308,118 350,118 350,348 -57,348"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#og-bg)"/>
+
+  <!-- Subtle watermark: faint capsule outline in bottom-right corner -->
+  <rect x="820" y="260" width="520" height="210" rx="105"
+        fill="none" stroke="#2f7d4f" stroke-width="4" opacity="0.05"
+        transform="rotate(30,1080,365)"/>
+
+  <!-- ══ LOGO MARK (230×230 in OG space, origin at OG (58,118)) ══ -->
+  <!-- Scale = 230/512 = 0.449. All 512-space coords × 0.449 + offset (58,118). -->
+
+  <!-- Capsule green base -->
+  <rect x="83" y="208" width="180" height="50" rx="25"
+        fill="#2f7d4f" stroke="none"
+        transform="rotate(30,173,233)"/>
+  <!-- Light half -->
+  <rect x="83" y="208" width="180" height="50" rx="25"
+        fill="#f0fdf4" stroke="none"
+        transform="rotate(30,173,233)"
+        clip-path="url(#og-wh)"/>
+  <!-- Outline -->
+  <rect x="83" y="208" width="180" height="50" rx="25"
+        fill="none" stroke="#1f5a38" stroke-width="5"
+        transform="rotate(30,173,233)"/>
+
+  <!-- Seam: 512-space (284,208)→(229,304) × 0.449 + (58,118) = (185.6,211.3)→(160.8,254.2) -->
+  <line x1="186" y1="211" x2="161" y2="254"
+        stroke="#1f5a38" stroke-width="5.8" stroke-linecap="round"/>
+  <line x1="186" y1="211" x2="161" y2="254"
+        stroke="#f8faf8" stroke-width="3.1" stroke-linecap="round"/>
+
+  <!-- Highlight arc -->
+  <path d="M 111,207 Q 142,191 176,202"
+        fill="none" stroke="#ffffff" stroke-width="2.3"
+        stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Serif P — 512 translate(260,256) × 0.449 + (58,118) = (174.7,232.9) -->
+  <!-- P shapes scaled: stem w=9.9h=62.9, serif w=21.6h=5.8, bowl outer rx=21.6 -->
+  <g transform="translate(174.7,232.9)">
+    <!-- White outline -->
+    <rect x="-18.8" y="-31.4" width="10.4" height="62.9" rx="0.9"
+          fill="none" stroke="#ffffff" stroke-width="2.2" opacity="0.7"/>
+    <!-- Dark fill -->
+    <rect x="-18" y="-31.4" width="9.9" height="62.9" rx="0.9" fill="#1f5a38"/>
+    <rect x="-24.2" y="-31.4" width="21.6" height="5.8" rx="1.3" fill="#1f5a38"/>
+    <rect x="-24.2" y="25.6"  width="21.6" height="5.8" rx="1.3" fill="#1f5a38"/>
+    <path fill-rule="evenodd" fill="#1f5a38"
+      d="M -8.1,-31.4 C 5.4,-31.4 21.6,-24.2 21.6,-14.4
+         C 21.6,-4.5  5.4,2.2 -8.1,2.2 L -8.1,-31.4 Z
+         M -8.1,-25.6 C 2.7,-25.6 13.5,-21.1 13.5,-14.4
+         C 13.5,-7.6  2.7,-3.1 -8.1,-3.1 L -8.1,-25.6 Z"/>
+  </g>
+
+  <!-- Magnifier: 512-space (350,175)×0.449+(58,118)=(215.2,196.6), r=82×0.449=36.8 -->
+  <circle cx="215" cy="197" r="37" fill="rgba(47,125,79,0.08)"/>
+  <circle cx="215" cy="197" r="37" fill="none" stroke="#1f5a38" stroke-width="10.8"/>
+  <!-- Handle: 512-space (408,233)→(449,274) × 0.449 + (58,118) = (241.2,222.7)→(259.6,241) -->
+  <line x1="241" y1="223" x2="260" y2="241"
+        stroke="#1f5a38" stroke-width="11.7" stroke-linecap="round"/>
+
+  <!-- ══ WORDMARK in OG (below / right of mark) ══ -->
+  <!-- "PillSeek" at 90px weight 700 -->
+  <text x="58" y="330"
+        font-family="Inter,Manrope,'Helvetica Neue',Arial,sans-serif"
+        font-size="90" font-weight="700"
+        dominant-baseline="auto">
+    <tspan fill="#0f172a">Pill</tspan><tspan fill="#2f7d4f">S</tspan><tspan fill="#0f172a">eek</tspan>
+  </text>
+
+  <!-- ══ TAGLINE ══ -->
+  <text x="58" y="435"
+        font-family="Inter,Manrope,'Helvetica Neue',Arial,sans-serif"
+        font-size="40" font-weight="600" fill="#0f172a"
+        dominant-baseline="auto">Free Pill Identifier by Imprint, Color &amp; Shape</text>
+
+  <!-- ══ DOMAIN ══ -->
+  <text x="58" y="590"
+        font-family="Inter,Manrope,'Helvetica Neue',Arial,sans-serif"
+        font-size="26" font-weight="500" fill="#2f7d4f"
+        dominant-baseline="auto">pillseek.com</text>
+</svg>

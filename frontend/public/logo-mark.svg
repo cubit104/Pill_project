@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="PillSeek logo mark">
+  <defs>
+    <!--
+      Capsule 400×110, rx=55, center (256,256), rotated 30° CW.
+      Midline boundary (slope -sqrt(3) through center):
+        y=0 → x=404,  y=512 → x=108
+    -->
+    <clipPath id="ps-wh" clipPathUnits="userSpaceOnUse">
+      <polygon points="404,0 512,0 512,512 108,512"/>
+    </clipPath>
+  </defs>
+
+  <!-- ══ CAPSULE ══ -->
+  <!-- Green base (full shape) -->
+  <rect x="56" y="201" width="400" height="110" rx="55"
+        fill="#2f7d4f" stroke="none"
+        transform="rotate(30,256,256)"/>
+  <!-- Light-green lower-right half — distinguishable on white bg -->
+  <rect x="56" y="201" width="400" height="110" rx="55"
+        fill="#f0fdf4" stroke="none"
+        transform="rotate(30,256,256)"
+        clip-path="url(#ps-wh)"/>
+  <!-- Bold outline — makes full pill silhouette readable at all sizes -->
+  <rect x="56" y="201" width="400" height="110" rx="55"
+        fill="none" stroke="#1f5a38" stroke-width="11"
+        transform="rotate(30,256,256)"/>
+
+  <!--
+    Midline seam: local (256,201)→(256,311) after rotate(30,256,256)
+      → user (283.5,208) → (228.5,304)
+    Dark backing then white gap gives clear divider.
+  -->
+  <line x1="284" y1="208" x2="229" y2="304"
+        stroke="#1f5a38" stroke-width="13" stroke-linecap="round"/>
+  <line x1="284" y1="208" x2="229" y2="304"
+        stroke="#f8faf8" stroke-width="7"  stroke-linecap="round"/>
+
+  <!-- Glossy highlight arc on green half -->
+  <path d="M 118,194 Q 188,155 262,182"
+        fill="none" stroke="#ffffff" stroke-width="5"
+        stroke-linecap="round" opacity="0.7"/>
+
+  <!-- ══ SERIF "P" — 140-unit cap height ══ -->
+  <!--
+    Translated to (260,256) so the bowl sits inside the ring glass
+    (clearly visible as dark green through the subtle 8% tint).
+    White outline stroke makes the P readable on both green and light halves.
+
+    Bowl geometry:
+      Outer D:  from (−18,−70) → rightmost (48,−32) → back to (−18,5),
+                closed via left-edge line.
+      Inner D:  counter from (−18,−57) → rightmost (30,−32) → back to (−18,−7),
+                closed via left-edge line.
+      fill-rule=evenodd → inner counter becomes a hole in the D-ring.
+  -->
+  <g transform="translate(260,256)">
+    <!-- White outline layer renders FIRST so dark green sits on top -->
+    <rect x="-42" y="-72" width="26" height="144" rx="3"
+          fill="none" stroke="#ffffff" stroke-width="5" opacity="0.75"/>
+    <rect x="-56" y="-72" width="50" height="14"  rx="4"
+          fill="none" stroke="#ffffff" stroke-width="5" opacity="0.75"/>
+    <rect x="-56" y="58"  width="50" height="14"  rx="4"
+          fill="none" stroke="#ffffff" stroke-width="5" opacity="0.75"/>
+    <path stroke="#ffffff" stroke-width="5" opacity="0.75" fill="none"
+          d="M -18,-72 C 14,-72 50,-56 50,-32 C 50,-8 14,7 -18,7 L -18,-72 Z"/>
+
+    <!-- Dark green fill on top -->
+    <rect x="-40" y="-70" width="22" height="140" rx="2" fill="#1f5a38"/>
+    <rect x="-54" y="-70" width="48" height="13"  rx="3" fill="#1f5a38"/>
+    <rect x="-54" y="57"  width="48" height="13"  rx="3" fill="#1f5a38"/>
+    <path fill-rule="evenodd" fill="#1f5a38"
+      d="M -18,-70 C 12,-70 48,-54 48,-32 C 48,-10 12,5 -18,5 L -18,-70 Z
+         M -18,-57 C  6,-57 30,-47 30,-32 C 30,-17  6,-7 -18,-7 L -18,-57 Z"/>
+  </g>
+
+  <!-- ══ MAGNIFYING GLASS ══ -->
+  <!--
+    Ring center (350,175), radius 82.
+    At bowl-center height (user y=224):
+      • Ring inner edge left = 350−sqrt(70²−49²) = 300
+      • Bowl outer right = 260+48 = 308 → INSIDE ring glass (r=64.5 < 70) ✓
+      • Dark green P visible through the 8% tint.
+    Seam-top (284,208): distance to ring center = 73.8 < 82 → inside ring ✓ (11% overlap)
+    Handle: single stroke from 45° ring edge to tip.
+      Junction: (350+82·cos45°, 175+82·sin45°) = (408, 233)
+      Tip 55px at 45°: (447, 272)
+  -->
+  <circle cx="350" cy="175" r="82" fill="rgba(47,125,79,0.08)"/>
+  <circle cx="350" cy="175" r="82" fill="none" stroke="#1f5a38" stroke-width="24"/>
+  <!-- Handle: clean single rounded stroke -->
+  <line x1="408" y1="233" x2="449" y2="274"
+        stroke="#1f5a38" stroke-width="26" stroke-linecap="round"/>
+</svg>

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "generate-assets": "python3 -c \"import cairosvg,shutil,subprocess; from pathlib import Path; pub=Path('public'); [cairosvg.svg2png(url=str(pub/'logo-mark.svg'),write_to=str(pub/f),output_width=s,output_height=s) for f,s in [('icon.png',512),('icon-192.png',192),('apple-touch-icon.png',180),('favicon-32.png',32),('favicon-16.png',16)]]; cairosvg.svg2png(url=str(pub/'og-image.svg'),write_to=str(pub/'og-image.png'),output_width=1200,output_height=630); from PIL import Image; imgs=[Image.open(str(pub/f)).convert('RGBA') for f in ['favicon-32.png','favicon-16.png']]; imgs[0].save(str(pub/'favicon.ico'),format='ICO',sizes=[(32,32),(16,16)],append_images=[imgs[1]]); shutil.copy(str(pub/'apple-touch-icon.png'),'app/apple-icon.png'); print('Assets generated!')\""
   },
   "dependencies": {
     "next": "15.5.15",

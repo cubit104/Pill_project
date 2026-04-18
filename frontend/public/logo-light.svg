@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 120" width="560" height="120" role="img" aria-label="PillSeek">
+  <defs>
+    <clipPath id="ll-wh" clipPathUnits="userSpaceOnUse">
+      <polygon points="79,10 110,10 110,110 21,110"/>
+    </clipPath>
+  </defs>
+
+  <!-- ══ MARK (light variant — all white) ══ -->
+  <rect x="11" y="49" width="78" height="22" rx="11"
+        fill="#ffffff" stroke="none"
+        transform="rotate(30,50,60)"/>
+  <rect x="11" y="49" width="78" height="22" rx="11"
+        fill="rgba(255,255,255,0.18)" stroke="none"
+        transform="rotate(30,50,60)"
+        clip-path="url(#ll-wh)"/>
+  <rect x="11" y="49" width="78" height="22" rx="11"
+        fill="none" stroke="#ffffff" stroke-width="2.2"
+        transform="rotate(30,50,60)"/>
+
+  <!-- Seam -->
+  <line x1="55" y1="51" x2="45" y2="69"
+        stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+
+  <!-- Highlight -->
+  <path d="M 23,47.8 Q 36.7,40.2 51.2,45.5"
+        fill="none" stroke="#ffffff" stroke-width="1.2"
+        stroke-linecap="round" opacity="0.5"/>
+
+  <!-- Serif P — white -->
+  <g transform="translate(50.7,59.8)">
+    <rect x="-7.8" y="-13.7" width="4.3" height="27.3" rx="0.4" fill="#ffffff"/>
+    <rect x="-10.5" y="-13.7" width="9.4" height="2.5" rx="0.6" fill="#ffffff"/>
+    <rect x="-10.5" y="11.1"  width="9.4" height="2.5" rx="0.6" fill="#ffffff"/>
+    <path fill-rule="evenodd" fill="#ffffff"
+      d="M -3.5,-13.7 C 2.3,-13.7 9.4,-10.5 9.4,-6.2
+         C 9.4,-1.9 2.3,1 -3.5,1 L -3.5,-13.7 Z
+         M -3.5,-11.1 C 1.2,-11.1 5.9,-9.2 5.9,-6.2
+         C 5.9,-3.3 1.2,-1.4 -3.5,-1.4 L -3.5,-11.1 Z"/>
+  </g>
+
+  <!-- Magnifier — white -->
+  <circle cx="68" cy="44" r="16" fill="rgba(255,255,255,0.12)"/>
+  <circle cx="68" cy="44" r="16" fill="none" stroke="#ffffff" stroke-width="4.7"/>
+  <line x1="79.5" y1="55.4" x2="87.6" y2="63.4"
+        stroke="#ffffff" stroke-width="5.1" stroke-linecap="round"/>
+
+  <!-- ══ WORDMARK — white ══ -->
+  <text x="112" y="60"
+        font-family="Inter,Manrope,'Helvetica Neue',Arial,sans-serif"
+        font-size="52" font-weight="700" fill="#ffffff"
+        dominant-baseline="central">PillSeek</text>
+</svg>

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 120" width="560" height="120" role="img" aria-label="PillSeek">
+  <defs>
+    <!--
+      Mark 100×100 in logo space, centered at (50,60).
+      Scale factor: 100/512 = 0.195
+      Midline clip: same proportions as primary, scaled & offset.
+        Full mark: x=0..100, y=10..110 (top-padding=10 for visual centering)
+        Midline through (50,60): slope -sqrt(3)
+          y=10 → x=50+50/sqrt(3)=78.9   y=110 → x=50-50/sqrt(3)=21.1
+        White-half clip (lower-right):
+    -->
+    <clipPath id="l-wh" clipPathUnits="userSpaceOnUse">
+      <polygon points="79,10 110,10 110,110 21,110"/>
+    </clipPath>
+  </defs>
+
+  <!-- ══ MARK (100×100 in a 110-tall slot, centered vertically) ══ -->
+  <!--
+    All 512-space coords × 0.195, then shifted by mark origin (0,10).
+    Capsule 512-space: x=56,y=201,w=400,h=110,rx=55, center=(256,256)
+    Scaled: x=10.9,y=39.2,w=78,h=21.5,rx=10.7, center=(49.9,49.9)≈(50,50)
+    In mark space (origin at 0,10): y offset +10, so center=(50,60)
+  -->
+  <rect x="11" y="49" width="78" height="22" rx="11"
+        fill="#2f7d4f" stroke="none"
+        transform="rotate(30,50,60)"/>
+  <rect x="11" y="49" width="78" height="22" rx="11"
+        fill="#f0fdf4" stroke="none"
+        transform="rotate(30,50,60)"
+        clip-path="url(#l-wh)"/>
+  <rect x="11" y="49" width="78" height="22" rx="11"
+        fill="none" stroke="#1f5a38" stroke-width="2.2"
+        transform="rotate(30,50,60)"/>
+
+  <!-- Midline seam (512: 284,208→229,304) × 0.195 + (0,10) = (55.4,50.6)→(44.7,69.2) -->
+  <line x1="55" y1="51" x2="45" y2="69"
+        stroke="#1f5a38" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="55" y1="51" x2="45" y2="69"
+        stroke="#f8faf8" stroke-width="1.4" stroke-linecap="round"/>
+
+  <!-- Highlight arc (512: M118,194 Q188,155 262,182) × 0.195 + (0,10) -->
+  <path d="M 23,47.8 Q 36.7,40.2 51.2,45.5"
+        fill="none" stroke="#ffffff" stroke-width="1.2"
+        stroke-linecap="round" opacity="0.75"/>
+
+  <!-- Serif P in mark — white outline + dark fill, at (50.7,59.2) = translate(260,256)×0.195+(0,10) -->
+  <g transform="translate(50.7,59.8)">
+    <!-- White outline -->
+    <rect x="-8.2" y="-14" width="4.5" height="28" rx="0.5"
+          fill="none" stroke="#ffffff" stroke-width="1" opacity="0.7"/>
+    <!-- Dark fill -->
+    <rect x="-7.8" y="-13.7" width="4.3" height="27.3" rx="0.4" fill="#1f5a38"/>
+    <rect x="-10.5" y="-13.7" width="9.4" height="2.5" rx="0.6" fill="#1f5a38"/>
+    <rect x="-10.5" y="11.1"  width="9.4" height="2.5" rx="0.6" fill="#1f5a38"/>
+    <path fill-rule="evenodd" fill="#1f5a38"
+      d="M -3.5,-13.7 C 2.3,-13.7 9.4,-10.5 9.4,-6.2
+         C 9.4,-1.9 2.3,1 -3.5,1 L -3.5,-13.7 Z
+         M -3.5,-11.1 C 1.2,-11.1 5.9,-9.2 5.9,-6.2
+         C 5.9,-3.3 1.2,-1.4 -3.5,-1.4 L -3.5,-11.1 Z"/>
+  </g>
+
+  <!-- Magnifier — (350,175)×0.195+(0,10) = (68.3,44.1), r=82×0.195=16 -->
+  <circle cx="68" cy="44" r="16" fill="rgba(47,125,79,0.08)"/>
+  <circle cx="68" cy="44" r="16" fill="none" stroke="#1f5a38" stroke-width="4.7"/>
+  <!-- Handle: (408,233)×0.195+(0,10)=(79.6,55.4) → (449,274)×0.195+(0,10)=(87.6,63.4) -->
+  <line x1="79.5" y1="55.4" x2="87.6" y2="63.4"
+        stroke="#1f5a38" stroke-width="5.1" stroke-linecap="round"/>
+
+  <!-- ══ WORDMARK — starts at x=112, vertically centered at y=60 ══ -->
+  <!--
+    "PillSeek" in Inter/Manrope weight 700.
+    "S" in green accent #2f7d4f, rest in slate #0f172a.
+    font-size=52 chosen to give cap-height ≈ 36px ≈ mark height.
+  -->
+  <text x="112" y="60"
+        font-family="Inter,Manrope,'Helvetica Neue',Arial,sans-serif"
+        font-size="52" font-weight="700"
+        dominant-baseline="central">
+    <tspan fill="#0f172a">Pill</tspan><tspan fill="#2f7d4f">S</tspan><tspan fill="#0f172a">eek</tspan>
+  </text>
+</svg>
