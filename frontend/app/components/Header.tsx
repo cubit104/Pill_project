@@ -8,7 +8,7 @@ export default function Header() {
 
   return (
     <header className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+      <div className="max-w-6xl mx-auto px-4 h-20 flex items-center justify-between">
         {/* Logo */}
         <Link
           href="/"
@@ -18,9 +18,9 @@ export default function Header() {
           <img
             src="/logo.svg"
             alt="PillSeek"
-            width={170}
-            height={40}
-            className="h-9 w-auto"
+            width={240}
+            height={56}
+            className="h-12 w-auto"
           />
         </Link>
 
