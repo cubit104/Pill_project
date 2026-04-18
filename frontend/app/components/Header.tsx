@@ -14,7 +14,7 @@ export default function Header() {
           className="flex items-center gap-1 hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 rounded"
           aria-label="PillSeek home"
         >
-          <img src="/logo-mark.svg" alt="" width={44} height={44} className="h-11 w-11 object-contain" />
+          <img src="/logo-mark.svg" alt="" width={64} height={64} className="h-11 w-11 object-contain" />
           <span className="text-3xl font-extrabold tracking-tight">
             <span className="text-slate-900">Pill</span><span className="text-emerald-700">Seek</span>
           </span>
