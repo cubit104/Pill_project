@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" role="img" aria-labelledby="pstitle-light">
+  <title id="pstitle-light">PillSeek</title>
+  <g transform="rotate(-30 256 256)">
+    <path d="M 96 216 A 40 40 0 0 0 96 296 L 256 296 L 256 216 Z" fill="rgba(255,255,255,0.95)"/>
+    <path d="M 256 216 L 416 216 A 40 40 0 0 1 416 296 L 256 296 Z" fill="rgba(255,255,255,0.12)"/>
+    <rect x="96" y="216" width="320" height="80" rx="40" ry="40" fill="none" stroke="#ffffff" stroke-width="6"/>
+    <line x1="256" y1="216" x2="256" y2="296" stroke="rgba(255,255,255,0.35)" stroke-width="8"/>
+    <text x="256" y="284" text-anchor="middle" font-family="'Playfair Display','Cinzel',Georgia,serif" font-weight="700" font-size="92" fill="#2f7d4f">P</text>
+  </g>
+  <circle cx="360" cy="180" r="110" fill="rgba(255,255,255,0.08)" stroke="#ffffff" stroke-width="22"/>
+  <circle cx="360" cy="180" r="82" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.7"/>
+  <line x1="438" y1="258" x2="478" y2="298" stroke="#ffffff" stroke-width="30" stroke-linecap="round"/>
+</svg>
