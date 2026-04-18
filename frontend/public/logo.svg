@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 170" fill="none" role="img" aria-label="PillSeek">
+  <g transform="translate(4,8) scale(0.3)">
+    <g transform="rotate(-30 256 256)">
+      <path d="M 96 216 A 40 40 0 0 0 96 296 L 256 296 L 256 216 Z" fill="#2f7d4f"/>
+      <path d="M 256 216 L 416 216 A 40 40 0 0 1 416 296 L 256 296 Z" fill="#ffffff"/>
+      <rect x="96" y="216" width="320" height="80" rx="40" ry="40" fill="none" stroke="#1f5a38" stroke-width="6"/>
+      <line x1="256" y1="216" x2="256" y2="296" stroke="#ffffff" stroke-width="10"/>
+      <path d="M 120 232 Q 170 224 215 230" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.85"/>
+      <text x="256" y="284" text-anchor="middle" font-family="'Playfair Display','Cinzel',Georgia,serif" font-weight="700" font-size="92" fill="#1f5a38">P</text>
+    </g>
+    <circle cx="360" cy="180" r="110" fill="rgba(47,125,79,0.06)" stroke="#1f5a38" stroke-width="22"/>
+    <circle cx="360" cy="180" r="82" fill="none" stroke="#1f5a38" stroke-width="5" opacity="0.85"/>
+    <line x1="438" y1="258" x2="478" y2="298" stroke="#1f5a38" stroke-width="30" stroke-linecap="round"/>
+  </g>
+  <text x="180" y="115" font-family="Inter,'Helvetica Neue',Arial,sans-serif" font-weight="800" font-size="96" letter-spacing="-3" fill="#0f172a">Pill<tspan fill="#2f7d4f">S</tspan>eek</text>
+</svg>
