@@ -8,21 +8,21 @@ export default function Header() {
 
   return (
     <header className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-4 h-20 flex items-center justify-between">
+      <div className="max-w-6xl mx-auto px-4 h-24 flex items-center justify-between">
         <Link
           href="/"
-          className="flex items-center gap-2 hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 rounded"
+          className="flex items-center gap-3 hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 rounded"
           aria-label="PillSeek home"
         >
-          <img src="/logo-mark.svg" alt="" width={56} height={56} className="h-12 w-12 object-contain" />
-          <span className="text-2xl font-bold tracking-tight">
+          <img src="/logo-mark.svg" alt="" width={64} height={64} className="h-16 w-16 object-contain" />
+          <span className="text-3xl font-bold tracking-tight">
             <span className="text-slate-900">Pill</span><span className="text-emerald-700">Seek</span>
           </span>
         </Link>
 
-        <nav className="hidden sm:flex items-center gap-6" aria-label="Main navigation">
-          <Link href="/" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">Home</Link>
-          <Link href="/search" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">Search</Link>
+        <nav className="hidden sm:flex items-center gap-8" aria-label="Main navigation">
+          <Link href="/" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">Home</Link>
+          <Link href="/search" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">Search</Link>
         </nav>
 
         <button
@@ -33,9 +33,9 @@ export default function Header() {
           aria-label={menuOpen ? 'Close menu' : 'Open menu'}
         >
           {menuOpen ? (
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
           ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/></svg>
           )}
         </button>
       </div>
