@@ -3,33 +3,33 @@ import Link from 'next/link'
 import { breadcrumbSchema, faqSchema, safeJsonLd } from '../lib/structured-data'
 
 export const metadata: Metadata = {
-  title: 'About IDMyPills — Free Pill Identifier',
+  title: 'About PillSeek — Free Pill Identifier',
   description:
-    'Learn about IDMyPills: our mission to help patients identify medications safely, our data sources (FDA NDC, DailyMed, RxNorm), and our editorial standards.',
+    'Learn about PillSeek: our mission to help patients identify medications safely, our data sources (FDA NDC, DailyMed, RxNorm), and our editorial standards.',
   alternates: { canonical: '/about' },
   openGraph: {
-    title: 'About IDMyPills — Free Pill Identifier',
+    title: 'About PillSeek — Free Pill Identifier',
     description:
-      'IDMyPills helps patients and caregivers identify medications using FDA-sourced data. Learn about our mission and editorial standards.',
+      'PillSeek helps patients and caregivers identify medications using FDA-sourced data. Learn about our mission and editorial standards.',
     type: 'website',
   },
 }
 
 const faqs = [
   {
-    question: 'What is IDMyPills?',
+    question: 'What is PillSeek?',
     answer:
-      'IDMyPills is a free online pill identification tool that helps patients, caregivers, and healthcare professionals identify medications by imprint code, color, shape, or drug name. Our database is powered by data from the FDA National Drug Code (NDC) Directory and DailyMed.',
+      'PillSeek is a free online pill identification tool that helps patients, caregivers, and healthcare professionals identify medications by imprint code, color, shape, or drug name. Our database is powered by data from the FDA National Drug Code (NDC) Directory and DailyMed.',
   },
   {
-    question: 'Where does IDMyPills data come from?',
+    question: 'Where does PillSeek data come from?',
     answer:
       'All medication data is sourced from the FDA National Drug Code (NDC) Directory, DailyMed (the official labeling database maintained by the U.S. National Library of Medicine), and RxNorm (the normalized drug naming system). We do not fabricate or infer drug information.',
   },
   {
-    question: 'Is IDMyPills a substitute for medical advice?',
+    question: 'Is PillSeek a substitute for medical advice?',
     answer:
-      'No. IDMyPills is for educational and identification purposes only. It is not a substitute for professional medical advice, diagnosis, or treatment. Always consult a licensed pharmacist or physician before making any medication decision.',
+      'No. PillSeek is for educational and identification purposes only. It is not a substitute for professional medical advice, diagnosis, or treatment. Always consult a licensed pharmacist or physician before making any medication decision.',
   },
   {
     question: 'How often is the data updated?',
@@ -66,26 +66,26 @@ export default function AboutPage() {
           </ol>
         </nav>
 
-        <h1 className="text-3xl font-bold text-slate-900 mb-4">About IDMyPills</h1>
+        <h1 className="text-3xl font-bold text-slate-900 mb-4">About PillSeek</h1>
 
         <section className="bg-white border border-slate-200 rounded-xl p-6 mb-6 shadow-sm">
           <h2 className="text-xl font-semibold text-slate-800 mb-3">Our Mission</h2>
           <p className="text-slate-700 leading-relaxed mb-4">
-            IDMyPills was created to give patients, caregivers, and healthcare professionals a
+            PillSeek was created to give patients, caregivers, and healthcare professionals a
             fast, reliable way to identify medications. Whether you found an unknown pill at home,
             need to confirm a prescription, or are a nurse checking a patient&rsquo;s medication —
-            IDMyPills provides clear, authoritative identification using government-sourced data.
+            PillSeek provides clear, authoritative identification using government-sourced data.
           </p>
           <p className="text-slate-700 leading-relaxed">
             We believe medication safety information should be freely accessible to everyone. All
-            features on IDMyPills are and will always remain <strong>100% free</strong>.
+            features on PillSeek are and will always remain <strong>100% free</strong>.
           </p>
         </section>
 
         <section className="bg-white border border-slate-200 rounded-xl p-6 mb-6 shadow-sm">
           <h2 className="text-xl font-semibold text-slate-800 mb-3">Data Sources</h2>
           <p className="text-slate-700 leading-relaxed mb-4">
-            All pill data on IDMyPills is sourced exclusively from authoritative, government-maintained databases:
+            All pill data on PillSeek is sourced exclusively from authoritative, government-maintained databases:
           </p>
           <ul className="space-y-3 text-slate-700">
             <li className="flex gap-3">
@@ -158,7 +158,7 @@ export default function AboutPage() {
 
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
           <p className="text-amber-800 text-sm leading-relaxed">
-            <strong>⚠️ Medical Disclaimer:</strong> IDMyPills is for educational and informational
+            <strong>⚠️ Medical Disclaimer:</strong> PillSeek is for educational and informational
             purposes only. It is not a substitute for professional medical advice, diagnosis, or
             treatment.{' '}
             <Link href="/medical-disclaimer" className="underline hover:text-amber-900">

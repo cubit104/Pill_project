@@ -1,9 +1,9 @@
 import type { PillDetail } from '../types'
 
 const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL || 'https://idmypills.com'
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
-const SITE_NAME = 'IDMyPills'
+const SITE_NAME = 'PillSeek'
 
 /**
  * Safely serialize an object to a JSON-LD string, escaping characters that
@@ -45,7 +45,7 @@ export function organizationSchema() {
     contactPoint: {
       '@type': 'ContactPoint',
       contactType: 'customer support',
-      email: 'contact@idmypills.com',
+      email: 'contact@pillseek.com',
       availableLanguage: 'English',
     },
   }

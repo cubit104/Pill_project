@@ -5,7 +5,7 @@ import { breadcrumbSchema, safeJsonLd } from '../lib/structured-data'
 export const metadata: Metadata = {
   title: 'Data Sources',
   description:
-    'IDMyPills uses FDA NDC Directory, DailyMed, and RxNorm as data sources. Learn about each source, what data we use, and when it was last updated.',
+    'PillSeek uses FDA NDC Directory, DailyMed, and RxNorm as data sources. Learn about each source, what data we use, and when it was last updated.',
   alternates: { canonical: '/sources' },
 }
 
@@ -33,7 +33,7 @@ export default function SourcesPage() {
 
         <h1 className="text-3xl font-bold text-slate-900 mb-4">Data Sources</h1>
         <p className="text-slate-600 mb-8 leading-relaxed">
-          IDMyPills is built on authoritative, government-maintained databases. We do not create
+          PillSeek is built on authoritative, government-maintained databases. We do not create
           or infer drug information — everything displayed comes directly from these sources.
         </p>
 
@@ -156,7 +156,7 @@ export default function SourcesPage() {
                   RxNorm provides a normalized drug naming system for clinical drugs. It links
                   names of drugs to many of the drug vocabularies commonly used in pharmacy
                   management and drug interaction software. RxCUI identifiers displayed on
-                  IDMyPills come from RxNorm.
+                  PillSeek come from RxNorm.
                 </p>
                 <div className="flex flex-wrap gap-3 text-xs">
                   <span className="bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-full font-medium">

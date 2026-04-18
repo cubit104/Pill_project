@@ -7,7 +7,7 @@ import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../lib/structure
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL || 'https://idmypills.com'
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
 
 function toTitleCase(str: string): string {
@@ -142,7 +142,7 @@ export default async function DrugHubPage(
               </h3>
               <p className="text-slate-600 text-sm leading-relaxed">
                 Look for the imprint code stamped on the pill, then note the color and shape.
-                Use IDMyPills to search by imprint code, or filter by color and shape, to find
+                Use PillSeek to search by imprint code, or filter by color and shape, to find
                 the exact {displayName} match.
               </p>
             </div>

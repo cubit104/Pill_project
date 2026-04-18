@@ -5,7 +5,7 @@ import { breadcrumbSchema, safeJsonLd } from '../lib/structured-data'
 export const metadata: Metadata = {
   title: 'Terms of Use',
   description:
-    'Read the IDMyPills Terms of Use. By using this service you agree to these terms, including that IDMyPills is for informational purposes only.',
+    'Read the PillSeek Terms of Use. By using this service you agree to these terms, including that PillSeek is for informational purposes only.',
   alternates: { canonical: '/terms' },
 }
 
@@ -40,7 +40,7 @@ export default function TermsPage() {
           <section className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-800 mb-3">1. Acceptance of Terms</h2>
             <p className="text-slate-700 text-sm leading-relaxed">
-              By accessing or using IDMyPills (&ldquo;the Service&rdquo;), you agree to be bound
+              By accessing or using PillSeek (&ldquo;the Service&rdquo;), you agree to be bound
               by these Terms of Use. If you do not agree to these terms, please do not use the
               Service.
             </p>
@@ -49,7 +49,7 @@ export default function TermsPage() {
           <section className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-800 mb-3">2. Educational Use Only</h2>
             <p className="text-slate-700 text-sm leading-relaxed">
-              IDMyPills is provided for <strong>educational and informational purposes only</strong>.
+              PillSeek is provided for <strong>educational and informational purposes only</strong>.
               The Service is designed to help identify medications by physical characteristics and
               imprint codes. It is <strong>not</strong> intended to be used as a substitute for
               professional medical advice, diagnosis, or treatment. Always seek the advice of a
@@ -62,7 +62,7 @@ export default function TermsPage() {
             <h2 className="text-lg font-semibold text-slate-800 mb-3">3. Accuracy of Information</h2>
             <p className="text-slate-700 text-sm leading-relaxed">
               While we strive to provide accurate information sourced from the FDA and DailyMed,
-              IDMyPills makes no warranty, express or implied, regarding the accuracy, completeness,
+              PillSeek makes no warranty, express or implied, regarding the accuracy, completeness,
               or currency of any information on the Service. Drug databases are complex and may
               contain errors. Always confirm medication identification with a licensed pharmacist.
             </p>
@@ -71,7 +71,7 @@ export default function TermsPage() {
           <section className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-800 mb-3">4. Limitation of Liability</h2>
             <p className="text-slate-700 text-sm leading-relaxed">
-              To the maximum extent permitted by law, IDMyPills and its operators shall not be
+              To the maximum extent permitted by law, PillSeek and its operators shall not be
               liable for any direct, indirect, incidental, special, or consequential damages
               resulting from your use of or inability to use the Service, or from any errors or
               omissions in the content.
@@ -115,8 +115,8 @@ export default function TermsPage() {
             <h2 className="text-lg font-semibold text-slate-800 mb-3">7. Contact</h2>
             <p className="text-slate-700 text-sm leading-relaxed">
               Questions about these Terms? Contact us at{' '}
-              <a href="mailto:contact@idmypills.com" className="text-sky-600 hover:underline">
-                contact@idmypills.com
+              <a href="mailto:contact@pillseek.com" className="text-sky-600 hover:underline">
+                contact@pillseek.com
               </a>
               .
             </p>

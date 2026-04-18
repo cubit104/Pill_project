@@ -386,10 +386,10 @@ def test_image_base_has_default():
     assert "supabase.co" in IMAGE_BASE
 
 
-def test_cors_includes_idmypills():
-    """CORS default fallback origins in main.py should include idmypills.com."""
+def test_cors_includes_pillseek():
+    """CORS default fallback origins in main.py should include pillseek.com."""
     import inspect
     import main as app_module
     source = inspect.getsource(app_module)
-    # Verify the default CORS allowed origins string (the os.getenv fallback) includes idmypills.com
-    assert "idmypills.com" in source, "idmypills.com not found in CORS default origins in main.py"
+    # Verify the default CORS allowed origins string (the os.getenv fallback) includes pillseek.com
+    assert "pillseek.com" in source, "pillseek.com not found in CORS default origins in main.py"

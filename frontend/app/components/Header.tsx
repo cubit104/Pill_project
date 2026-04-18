@@ -13,10 +13,10 @@ export default function Header() {
         <Link
           href="/"
           className="flex items-center gap-2 text-sky-700 font-bold text-xl hover:text-sky-800 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 rounded"
-          aria-label="IDMyPills home"
+          aria-label="PillSeek home"
         >
           <span role="img" aria-hidden="true">💊</span>
-          <span>IDMyPills</span>
+          <span>PillSeek</span>
         </Link>
 
         {/* Desktop Nav */}

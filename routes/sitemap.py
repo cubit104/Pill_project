@@ -53,7 +53,7 @@ def sitemap():
         with database.db_engine.connect() as conn:
             slugs = _fetch_all_slugs(conn)
 
-        base_url = os.getenv("SITE_URL", "https://idmypills.com").rstrip("/")
+        base_url = os.getenv("SITE_URL", "https://pillseek.com").rstrip("/")
         pill_url_template = (
             "  <url>"
             "<loc>{base}/pill/{slug}</loc>"

@@ -5,30 +5,30 @@ import { breadcrumbSchema, faqSchema, safeJsonLd } from '../lib/structured-data'
 export const metadata: Metadata = {
   title: 'Medical Disclaimer',
   description:
-    'IDMyPills is for educational and identification purposes only. Not a substitute for professional medical advice. Always consult a licensed pharmacist or physician.',
+    'PillSeek is for educational and identification purposes only. Not a substitute for professional medical advice. Always consult a licensed pharmacist or physician.',
   alternates: { canonical: '/medical-disclaimer' },
 }
 
 const faqs = [
   {
-    question: 'Can I use IDMyPills to identify a medication and take it?',
+    question: 'Can I use PillSeek to identify a medication and take it?',
     answer:
       'No. Pill identification is only the first step. Even after identifying a medication, you should consult a licensed pharmacist or physician before taking any medication, especially if you are unsure whether it is appropriate for you.',
   },
   {
     question: 'What should I do if I find an unknown pill?',
     answer:
-      'If you find an unknown pill, you can use IDMyPills to help identify it visually. However, always confirm with a licensed pharmacist. If someone may have ingested an unknown substance, contact Poison Control (1-800-222-1222 in the US) or emergency services immediately.',
+      'If you find an unknown pill, you can use PillSeek to help identify it visually. However, always confirm with a licensed pharmacist. If someone may have ingested an unknown substance, contact Poison Control (1-800-222-1222 in the US) or emergency services immediately.',
   },
   {
-    question: 'Is IDMyPills data accurate?',
+    question: 'Is PillSeek data accurate?',
     answer:
-      'IDMyPills sources data directly from the FDA NDC Directory and DailyMed. While we strive for accuracy, drug databases can contain errors. Always confirm medication identification with a licensed pharmacist before relying on it for any medical decision.',
+      'PillSeek sources data directly from the FDA NDC Directory and DailyMed. While we strive for accuracy, drug databases can contain errors. Always confirm medication identification with a licensed pharmacist before relying on it for any medical decision.',
   },
   {
-    question: 'Does IDMyPills provide dosing information?',
+    question: 'Does PillSeek provide dosing information?',
     answer:
-      'No. IDMyPills displays basic drug information as filed with the FDA (strength, ingredients, form) but does not provide dosing instructions, treatment recommendations, or medical advice of any kind.',
+      'No. PillSeek displays basic drug information as filed with the FDA (strength, ingredients, form) but does not provide dosing instructions, treatment recommendations, or medical advice of any kind.',
   },
 ]
 
@@ -66,7 +66,7 @@ export default function MedicalDisclaimerPage() {
             <div>
               <h1 className="text-xl font-bold text-red-800 mb-2">Medical Disclaimer</h1>
               <p className="text-red-700 leading-relaxed font-medium">
-                IDMyPills is for <strong>educational and identification purposes only</strong>.
+                PillSeek is for <strong>educational and identification purposes only</strong>.
                 It is <strong>not medical advice</strong> and must not be used as a substitute
                 for professional medical advice, diagnosis, or treatment. Always consult a
                 licensed pharmacist or physician before making any medication decision.
@@ -78,15 +78,15 @@ export default function MedicalDisclaimerPage() {
         <div className="space-y-6">
           <section className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-800 mb-3">
-              Purpose of IDMyPills
+              Purpose of PillSeek
             </h2>
             <p className="text-slate-700 text-sm leading-relaxed mb-3">
-              IDMyPills is a pill identification reference tool. It is designed to help patients,
+              PillSeek is a pill identification reference tool. It is designed to help patients,
               caregivers, and healthcare professionals visually identify medications by their
               physical characteristics (color, shape, imprint code).
             </p>
             <p className="text-slate-700 text-sm leading-relaxed">
-              IDMyPills does <strong>not</strong>:
+              PillSeek does <strong>not</strong>:
             </p>
             <ul className="mt-2 space-y-1 text-slate-700 text-sm">
               <li className="flex gap-2"><span className="text-red-500">✗</span> Provide dosing recommendations</li>
@@ -120,7 +120,7 @@ export default function MedicalDisclaimerPage() {
               Always Consult a Professional
             </h2>
             <p className="text-slate-700 text-sm leading-relaxed">
-              Even after identifying a medication using IDMyPills, always confirm the identification
+              Even after identifying a medication using PillSeek, always confirm the identification
               with a licensed pharmacist. Pill appearances can be similar across different
               medications, and database errors can occur. A pharmacist can verify the medication
               and advise whether it is safe and appropriate for you.
@@ -132,8 +132,8 @@ export default function MedicalDisclaimerPage() {
               Data Sources and Accuracy
             </h2>
             <p className="text-slate-700 text-sm leading-relaxed">
-              IDMyPills data is sourced from the FDA National Drug Code (NDC) Directory and
-              DailyMed. While these are authoritative sources, IDMyPills makes no warranty
+              PillSeek data is sourced from the FDA National Drug Code (NDC) Directory and
+              DailyMed. While these are authoritative sources, PillSeek makes no warranty
               regarding the accuracy, completeness, or currency of the information displayed.
               Medication formulations can change, and some older entries may be outdated.
             </p>

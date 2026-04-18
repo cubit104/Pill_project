@@ -7,7 +7,7 @@ import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../lib/structure
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL || 'https://idmypills.com'
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
 
 function toTitleCase(str: string): string {

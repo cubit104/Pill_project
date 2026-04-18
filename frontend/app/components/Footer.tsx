@@ -8,7 +8,7 @@ export default function Footer() {
       {/* Medical Disclaimer */}
       <div className="bg-amber-50 border-b border-amber-200 py-4 px-4">
         <p className="max-w-4xl mx-auto text-amber-800 text-sm text-center leading-relaxed">
-          <strong>⚠️ Medical Disclaimer:</strong> IDMyPills is intended for educational and
+          <strong>⚠️ Medical Disclaimer:</strong> PillSeek is intended for educational and
           informational purposes only. This tool is not a substitute for professional medical
           advice, diagnosis, or treatment. Always consult a qualified healthcare professional
           before making any medication decisions.{' '}
@@ -26,10 +26,10 @@ export default function Footer() {
             <Link
               href="/"
               className="flex items-center gap-2 text-sky-700 font-bold text-lg mb-3"
-              aria-label="IDMyPills home"
+              aria-label="PillSeek home"
             >
               <span role="img" aria-hidden="true">💊</span>
-              <span>IDMyPills</span>
+              <span>PillSeek</span>
             </Link>
             <p className="text-slate-500 text-xs leading-relaxed">
               Free pill identification powered by FDA &amp; DailyMed data. For educational
@@ -112,7 +112,7 @@ export default function Footer() {
         {/* Bottom bar */}
         <div className="border-t border-slate-100 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="text-slate-400 text-xs">
-            © {year} IDMyPills. All rights reserved. Data sourced from FDA NDC &amp; DailyMed.
+            © {year} PillSeek. All rights reserved. Data sourced from FDA NDC &amp; DailyMed.
           </p>
           <p className="text-slate-400 text-xs">
             Not a medical device. For identification purposes only.
