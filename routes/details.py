@@ -9,10 +9,9 @@ from sqlalchemy.exc import SQLAlchemyError
 import database
 from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__) 
 
 router = APIRouter()
-
 
 @router.get("/details")
 def get_pill_details(
@@ -56,7 +55,7 @@ def get_pill_details(
                 norm_name_val = normalize_name(drug_name)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
+                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\s]+',' ','g')) = UPPER(:imprint)
                       AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)
                     LIMIT 1
                 """)
@@ -66,7 +65,7 @@ def get_pill_details(
                 norm_imp = normalize_imprint(imprint)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
+                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\s]+',' ','g')) = UPPER(:imprint)
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"imprint": norm_imp})
@@ -89,19 +88,26 @@ def get_pill_details(
 
             columns = result.keys()
             pill_info = dict(zip(columns, row))
+
+            # Capture RAW values BEFORE normalization for image query
+            # (DB stores raw lowercase values; normalize_fields converts to Title Case)
+            raw_medicine_name = pill_info.get("medicine_name", "") or ""
+            raw_splimprint = pill_info.get("splimprint", "") or ""
+            raw_image_filename = pill_info.get("image_filename", "") or ""
+
             pill_info = normalize_fields(pill_info)
 
             if used_ndc:
-                filenames = pill_info.get("image_filename", "")
+                filenames = raw_image_filename
             else:
                 image_q = text("""
                     SELECT image_filename FROM pillfinder
-                    WHERE medicine_name = :medicine_name
-                      AND splimprint    = :splimprint
+                    WHERE LOWER(TRIM(medicine_name)) = LOWER(TRIM(:medicine_name))
+                      AND COALESCE(splimprint, '') = COALESCE(:splimprint, '')
                 """)
                 img_rows = conn.execute(image_q, {
-                    "medicine_name": pill_info.get("medicine_name", ""),
-                    "splimprint": pill_info.get("splimprint", ""),
+                    "medicine_name": raw_medicine_name,
+                    "splimprint": raw_splimprint,
                 })
                 filenames = ",".join(r[0] for r in img_rows if r[0])
 
@@ -117,7 +123,6 @@ def get_pill_details(
     except Exception as e:
         logger.error(f"Error in get_pill_details: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
-
 
 @router.get("/api/pill/{slug}")
 def get_pill_by_slug(slug: str):
@@ -136,17 +141,24 @@ def get_pill_by_slug(slug: str):
 
             columns = result.keys()
             pill_info = dict(zip(columns, row))
+
+            # Capture RAW values BEFORE normalization for image query
+            # (DB stores raw lowercase values; normalize_fields converts to Title Case)
+            raw_medicine_name = pill_info.get("medicine_name", "") or ""
+            raw_splimprint = pill_info.get("splimprint", "") or ""
+
             pill_info = normalize_fields(pill_info)
 
             # Aggregate images from all matching rows (same drug + imprint)
+            # Use case-insensitive match to be safe across data variations
             image_q = text("""
                 SELECT image_filename FROM pillfinder
-                WHERE medicine_name = :medicine_name
-                  AND splimprint = :splimprint
+                WHERE LOWER(TRIM(medicine_name)) = LOWER(TRIM(:medicine_name))
+                  AND COALESCE(splimprint, '') = COALESCE(:splimprint, '')
             """)
             img_rows = conn.execute(image_q, {
-                "medicine_name": pill_info.get("medicine_name", ""),
-                "splimprint": pill_info.get("splimprint", ""),
+                "medicine_name": raw_medicine_name,
+                "splimprint": raw_splimprint,
             })
             filenames = ",".join(r[0] for r in img_rows if r[0])
 
