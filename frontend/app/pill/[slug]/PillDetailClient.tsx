@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import type { PillDetail } from '../../types'
 
 function PillIconLarge() {
@@ -75,7 +76,27 @@ function generatePillDescription(pill: PillDetail): string {
   return parts.join(' ')
 }
 
-export default function PillDetailClient({ pill }: { pill: PillDetail }) {
+function buildImageAlt(pill: PillDetail, index?: number): string {
+  const parts = [
+    pill.color,
+    pill.shape,
+    'pill',
+    pill.imprint ? `with imprint ${pill.imprint}` : null,
+    '—',
+    pill.drug_name,
+    pill.strength,
+  ].filter(Boolean)
+  const base = parts.join(' ')
+  return index && index > 1 ? `${base} (view ${index})` : base
+}
+
+export default function PillDetailClient({
+  pill,
+  slug,
+}: {
+  pill: PillDetail
+  slug?: string
+}) {
   const router = useRouter()
   const [zoomImage, setZoomImage] = useState<string | null>(null)
 
@@ -113,7 +134,7 @@ export default function PillDetailClient({ pill }: { pill: PillDetail }) {
           </button>
           <img
             src={zoomImage}
-            alt={`${pill.drug_name} zoomed`}
+            alt={buildImageAlt(pill)}
             className="max-w-full max-h-full object-contain rounded-xl"
             onClick={(e) => e.stopPropagation()}
           />
@@ -121,6 +142,36 @@ export default function PillDetailClient({ pill }: { pill: PillDetail }) {
       )}
 
       <div className="max-w-3xl mx-auto px-4 py-8">
+        {/* Breadcrumbs */}
+        <nav aria-label="Breadcrumb" className="mb-4">
+          <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
+            <li>
+              <Link href="/" className="hover:text-sky-700 transition-colors">
+                Home
+              </Link>
+            </li>
+            {pill.drug_name && pill.drug_name !== 'Unknown' && (
+              <>
+                <li aria-hidden="true" className="select-none">›</li>
+                <li>
+                  <Link
+                    href={`/drug/${encodeURIComponent(pill.drug_name.toLowerCase())}`}
+                    className="hover:text-sky-700 transition-colors"
+                  >
+                    {pill.drug_name}
+                  </Link>
+                </li>
+              </>
+            )}
+            <li aria-hidden="true" className="select-none">›</li>
+            <li aria-current="page" className="text-slate-700 font-medium truncate max-w-xs">
+              {pill.drug_name}
+              {pill.strength ? ` ${pill.strength}` : ''}
+              {pill.imprint ? ` (${pill.imprint})` : ''}
+            </li>
+          </ol>
+        </nav>
+
         {/* Back Button */}
         <button
           onClick={() => router.back()}
@@ -143,8 +194,11 @@ export default function PillDetailClient({ pill }: { pill: PillDetail }) {
                 >
                   <img
                     src={images[0]}
-                    alt={`${pill.drug_name} pill`}
+                    alt={buildImageAlt(pill)}
                     className="w-72 h-72 object-contain bg-slate-50"
+                    width={288}
+                    height={288}
+                    loading="eager"
                   />
                 </button>
               ) : (
@@ -162,21 +216,30 @@ export default function PillDetailClient({ pill }: { pill: PillDetail }) {
               )}
               {pill.imprint && (
                 <div className="mb-3">
-                  <span className="font-mono text-sm bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200">
+                  <Link
+                    href={`/imprint/${encodeURIComponent(pill.imprint)}`}
+                    className="font-mono text-sm bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 hover:border-sky-300 transition-colors"
+                  >
                     Imprint: {pill.imprint}
-                  </span>
+                  </Link>
                 </div>
               )}
               <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
                 {pill.color && (
-                  <span className="text-xs bg-sky-50 text-sky-700 border border-sky-200 px-2.5 py-1 rounded-full font-medium">
+                  <Link
+                    href={`/color/${encodeURIComponent(pill.color.toLowerCase())}`}
+                    className="text-xs bg-sky-50 text-sky-700 border border-sky-200 px-2.5 py-1 rounded-full font-medium hover:bg-sky-100 transition-colors"
+                  >
                     {pill.color}
-                  </span>
+                  </Link>
                 )}
                 {pill.shape && (
-                  <span className="text-xs bg-teal-50 text-teal-700 border border-teal-200 px-2.5 py-1 rounded-full font-medium">
+                  <Link
+                    href={`/shape/${encodeURIComponent(pill.shape.toLowerCase())}`}
+                    className="text-xs bg-teal-50 text-teal-700 border border-teal-200 px-2.5 py-1 rounded-full font-medium hover:bg-teal-100 transition-colors"
+                  >
                     {pill.shape}
-                  </span>
+                  </Link>
                 )}
                 {pill.dea_schedule && (
                   <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full font-medium">
@@ -199,8 +262,11 @@ export default function PillDetailClient({ pill }: { pill: PillDetail }) {
                 >
                   <img
                     src={img}
-                    alt={`${pill.drug_name} alternate view ${idx + 2}`}
+                    alt={buildImageAlt(pill, idx + 2)}
                     className="w-28 h-28 object-contain bg-slate-50"
+                    width={112}
+                    height={112}
+                    loading="lazy"
                   />
                 </button>
               ))}
@@ -276,12 +342,55 @@ export default function PillDetailClient({ pill }: { pill: PillDetail }) {
           </dl>
         </div>
 
+        {/* Related Links */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-4">Browse Related Pills</h2>
+          <div className="flex flex-wrap gap-2">
+            {pill.drug_name && pill.drug_name !== 'Unknown' && (
+              <Link
+                href={`/drug/${encodeURIComponent(pill.drug_name.toLowerCase())}`}
+                className="text-sm bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 hover:border-sky-300 transition-colors"
+              >
+                More {pill.drug_name} pills →
+              </Link>
+            )}
+            {pill.color && (
+              <Link
+                href={`/color/${encodeURIComponent(pill.color.toLowerCase())}`}
+                className="text-sm bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 hover:border-sky-300 transition-colors"
+              >
+                {pill.color} pills →
+              </Link>
+            )}
+            {pill.shape && (
+              <Link
+                href={`/shape/${encodeURIComponent(pill.shape.toLowerCase())}`}
+                className="text-sm bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 hover:border-sky-300 transition-colors"
+              >
+                {pill.shape} pills →
+              </Link>
+            )}
+            {pill.imprint && (
+              <Link
+                href={`/imprint/${encodeURIComponent(pill.imprint)}`}
+                className="text-sm bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 hover:border-sky-300 transition-colors"
+              >
+                Imprint {pill.imprint} →
+              </Link>
+            )}
+          </div>
+        </div>
+
         {/* Disclaimer */}
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
           <p className="text-amber-800 text-sm leading-relaxed">
             <strong>⚠️ Important:</strong> This information is for educational purposes only.
             Do not use this tool for medical diagnosis or treatment decisions. Always consult
-            your pharmacist or healthcare provider for questions about your medications.
+            your pharmacist or healthcare provider for questions about your medications.{' '}
+            <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
+              Read full medical disclaimer
+            </Link>
+            .
           </p>
         </div>
       </div>

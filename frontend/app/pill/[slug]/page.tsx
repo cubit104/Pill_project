@@ -2,8 +2,15 @@ import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import PillDetailClient from './PillDetailClient'
 import type { PillDetail } from '../../types'
+import {
+  breadcrumbSchema,
+  medicalWebPageSchema,
+} from '../../lib/structured-data'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
+const SITE_URL = (
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://idmypills.com'
+).replace(/\/$/, '')
 
 async function fetchPill(slug: string): Promise<PillDetail | null> {
   const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, {
@@ -42,23 +49,71 @@ export async function generateMetadata(
   const { slug } = await params
   const pill = await fetchPill(slug)
   if (!pill) {
-    return { title: 'Pill Not Found — IDMyPills' }
+    return {
+      title: 'Pill Not Found',
+      robots: { index: false, follow: true },
+    }
   }
-  const title = `${pill.drug_name}${pill.imprint ? ` (${pill.imprint})` : ''} — IDMyPills`
-  const description = `Identify ${pill.drug_name} pill${pill.imprint ? ` with imprint ${pill.imprint}` : ''}.${pill.color ? ` ${pill.color}` : ''}${pill.shape ? ` ${pill.shape}` : ''}${pill.strength ? ` ${pill.strength}` : ''}. View images and full drug information.`
+
+  // Build SEO title: {Color} {Shape} {Drug Name} {Strength} Pill With Imprint {Imprint} | IDMyPills
+  const titleParts = [
+    pill.color,
+    pill.shape,
+    pill.drug_name,
+    pill.strength,
+    'Pill',
+    pill.imprint ? `With Imprint ${pill.imprint}` : null,
+  ].filter(Boolean)
+  const title = titleParts.join(' ')
+
+  // Build meta description ≤155 chars
+  const descParts = [
+    `Identify the ${[pill.color, pill.shape].filter(Boolean).join(' ')} ${pill.drug_name}`,
+    pill.strength ? `${pill.strength}` : null,
+    pill.imprint ? `pill with imprint ${pill.imprint}` : 'pill',
+    '— view images, drug info, ingredients, and manufacturer details.',
+  ].filter(Boolean)
+  const description = descParts.join(' ').slice(0, 155)
+
   const images = pill.images && pill.images.length > 0
     ? pill.images
     : pill.image_url
     ? [pill.image_url]
     : []
+
+  const canonicalUrl = `${SITE_URL}/pill/${encodeURIComponent(slug)}`
+
+  // Determine indexability — only index if we have meaningful data
+  const hasData = !!(pill.drug_name && pill.drug_name !== 'Unknown' && (pill.imprint || pill.ndc))
+  const robots = hasData
+    ? { index: true, follow: true }
+    : { index: false, follow: true }
+
   return {
     title,
     description,
+    robots,
     alternates: { canonical: `/pill/${encodeURIComponent(slug)}` },
     openGraph: {
       title,
       description,
-      ...(images.length > 0 && { images: [{ url: images[0] }] }),
+      url: canonicalUrl,
+      type: 'article',
+      siteName: 'IDMyPills',
+      ...(images.length > 0 && {
+        images: [
+          {
+            url: images[0],
+            alt: `${[pill.color, pill.shape, pill.drug_name].filter(Boolean).join(' ')} pill with imprint ${pill.imprint}`,
+          },
+        ],
+      }),
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      ...(images.length > 0 && { images: [images[0]] }),
     },
   }
 }
@@ -69,5 +124,28 @@ export default async function PillDetailPage(
   const { slug } = await params
   const pill = await fetchPill(slug)
   if (!pill) notFound()
-  return <PillDetailClient pill={pill} />
+
+  const breadcrumbs = breadcrumbSchema([
+    { name: 'Home', url: '/' },
+    ...(pill.drug_name && pill.drug_name !== 'Unknown'
+      ? [{ name: pill.drug_name, url: `/drug/${encodeURIComponent(pill.drug_name.toLowerCase())}` }]
+      : []),
+    { name: pill.drug_name ?? slug, url: `/pill/${encodeURIComponent(slug)}` },
+  ])
+
+  const medPage = medicalWebPageSchema(pill, slug)
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(medPage) }}
+      />
+      <PillDetailClient pill={pill} slug={slug} />
+    </>
+  )
 }

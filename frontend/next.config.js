@@ -17,7 +17,6 @@ const nextConfig = {
       { source: '/filters', destination: `${apiBase}/filters` },
       { source: '/suggestions', destination: `${apiBase}/suggestions` },
       { source: '/details', destination: `${apiBase}/details` },
-      { source: '/sitemap.xml', destination: `${apiBase}/sitemap.xml` },
       { source: '/health', destination: `${apiBase}/health` },
       { source: '/ndc_lookup', destination: `${apiBase}/ndc_lookup` },
       { source: '/reload-data', destination: `${apiBase}/reload-data` },
