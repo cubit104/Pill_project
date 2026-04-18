@@ -132,7 +132,7 @@ export default function HomePage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
               { href: '/color/white', label: 'White Pills', icon: '⬜' },
-              { href: '/color/round', label: 'Round Pills', icon: '🔵' },
+              { href: '/shape/round', label: 'Round Pills', icon: '🔵' },
               { href: '/shape/oval', label: 'Oval Pills', icon: '💊' },
               { href: '/shape/capsule', label: 'Capsule Pills', icon: '🔴' },
             ].map((cat) => (
