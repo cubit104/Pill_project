@@ -79,7 +79,7 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-xl p-6 text-left border border-emerald-100">
+     <div className="bg-emerald-50 rounded-2xl shadow-xl p-6 text-left border border-emerald-200">
       <div className="flex border-b border-slate-200 mb-4" role="tablist" aria-label="Search type">
         {TABS.map((tab) => (
           <button
