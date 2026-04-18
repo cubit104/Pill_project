@@ -1,9 +1,9 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { breadcrumbSchema } from '../lib/structured-data'
+import { breadcrumbSchema, safeJsonLd } from '../lib/structured-data'
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy — IDMyPills',
+  title: 'Privacy Policy',
   description:
     'Read the IDMyPills privacy policy. We are committed to protecting your privacy and only collect essential data to operate the service.',
   alternates: { canonical: '/privacy' },
@@ -21,7 +21,7 @@ export default function PrivacyPage() {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }}
       />
 
       <div className="max-w-3xl mx-auto px-4 py-12">

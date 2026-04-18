@@ -1,9 +1,9 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { breadcrumbSchema } from '../lib/structured-data'
+import { breadcrumbSchema, safeJsonLd } from '../lib/structured-data'
 
 export const metadata: Metadata = {
-  title: 'Terms of Use — IDMyPills',
+  title: 'Terms of Use',
   description:
     'Read the IDMyPills Terms of Use. By using this service you agree to these terms, including that IDMyPills is for informational purposes only.',
   alternates: { canonical: '/terms' },
@@ -21,7 +21,7 @@ export default function TermsPage() {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }}
       />
 
       <div className="max-w-3xl mx-auto px-4 py-12">

@@ -5,6 +5,15 @@ const SITE_URL = (
 ).replace(/\/$/, '')
 const SITE_NAME = 'IDMyPills'
 
+/**
+ * Safely serialize an object to a JSON-LD string, escaping characters that
+ * could break out of a `<script>` tag (e.g., `</script>`).
+ * This prevents XSS when injecting structured data via dangerouslySetInnerHTML.
+ */
+export function safeJsonLd(obj: unknown): string {
+  return JSON.stringify(obj).replace(/</g, '\\u003c')
+}
+
 export function websiteSchema() {
   return {
     '@context': 'https://schema.org',
@@ -67,11 +76,21 @@ export function medicalWebPageSchema(pill: PillDetail, slug: string) {
     pill.strength,
   ].filter(Boolean)
   const name = nameParts.join(' ')
+
+  // Build parenthetical safely so parentheses are always balanced
+  const colorShape =
+    pill.color && pill.shape
+      ? `(${pill.color} ${pill.shape})`
+      : pill.color
+        ? `(${pill.color})`
+        : pill.shape
+          ? `(${pill.shape})`
+          : null
+
   const description = [
     `Pill identification page for ${pill.drug_name}`,
     pill.imprint ? `with imprint ${pill.imprint}` : null,
-    pill.color ? `(${pill.color}` : null,
-    pill.shape ? `${pill.shape})` : null,
+    colorShape,
   ]
     .filter(Boolean)
     .join(' ')
@@ -87,12 +106,16 @@ export function medicalWebPageSchema(pill: PillDetail, slug: string) {
       name: pill.drug_name,
       ...(pill.dosage_form && { dosageForm: pill.dosage_form }),
       ...(pill.ingredients && { activeIngredient: pill.ingredients }),
-      ...(pill.manufacturer && { manufacturer: pill.manufacturer }),
+      ...(pill.manufacturer && {
+        manufacturer: {
+          '@type': 'Organization',
+          name: pill.manufacturer,
+        },
+      }),
     },
     audience: {
       '@type': 'Patient',
     },
-    lastReviewed: new Date().toISOString().split('T')[0],
     medicalAudience: {
       '@type': 'MedicalAudience',
       audienceType: 'Patient',

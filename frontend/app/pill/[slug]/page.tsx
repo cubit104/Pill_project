@@ -5,6 +5,7 @@ import type { PillDetail } from '../../types'
 import {
   breadcrumbSchema,
   medicalWebPageSchema,
+  safeJsonLd,
 } from '../../lib/structured-data'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
@@ -139,11 +140,11 @@ export default async function PillDetailPage(
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(medPage) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(medPage) }}
       />
       <PillDetailClient pill={pill} slug={slug} />
     </>

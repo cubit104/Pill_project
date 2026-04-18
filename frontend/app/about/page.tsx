@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { breadcrumbSchema, faqSchema } from '../lib/structured-data'
+import { breadcrumbSchema, faqSchema, safeJsonLd } from '../lib/structured-data'
 
 export const metadata: Metadata = {
   title: 'About IDMyPills — Free Pill Identifier',
@@ -49,11 +49,11 @@ export default function AboutPage() {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(faqJsonLd) }}
       />
 
       <div className="max-w-3xl mx-auto px-4 py-12">

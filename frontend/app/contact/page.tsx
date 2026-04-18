@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { breadcrumbSchema } from '../lib/structured-data'
+import { breadcrumbSchema, safeJsonLd } from '../lib/structured-data'
 
 export const metadata: Metadata = {
   title: 'Contact IDMyPills',
@@ -19,7 +19,7 @@ export default function ContactPage() {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }}
       />
 
       <div className="max-w-2xl mx-auto px-4 py-12">

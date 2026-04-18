@@ -10,11 +10,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly',
       priority: 1.0,
     },
-    {
-      url: `${SITE_URL}/search`,
-      changeFrequency: 'weekly',
-      priority: 0.8,
-    },
+    // /search is noindex,follow — omit from sitemap to avoid mixed signals
     {
       url: `${SITE_URL}/about`,
       changeFrequency: 'monthly',

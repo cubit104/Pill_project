@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import HomeSearch from './components/HomeSearch'
 import Link from 'next/link'
+import { websiteSchema, organizationSchema, safeJsonLd } from './lib/structured-data'
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://idmypills.com'
@@ -29,6 +30,16 @@ export const metadata: Metadata = {
 export default function HomePage() {
   return (
     <>
+      {/* Homepage-only JSON-LD: WebSite (with SearchAction) + Organization */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(websiteSchema()) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(organizationSchema()) }}
+      />
+
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-sky-700 to-sky-900 text-white py-20 px-4">
         <div className="max-w-4xl mx-auto text-center">

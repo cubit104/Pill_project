@@ -2,7 +2,6 @@ import type { Metadata } from 'next'
 import './globals.css'
 import Header from './components/Header'
 import Footer from './components/Footer'
-import { websiteSchema, organizationSchema } from './lib/structured-data'
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://idmypills.com'
@@ -45,20 +44,9 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  const websiteJsonLd = websiteSchema()
-  const orgJsonLd = organizationSchema()
-
   return (
     <html lang="en">
       <head>
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
-        />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }}
-        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>

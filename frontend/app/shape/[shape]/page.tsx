@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import PillCard from '../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../types'
-import { breadcrumbSchema, hubPageSchema } from '../../lib/structured-data'
+import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../lib/structured-data'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -76,11 +76,11 @@ export default async function ShapeHubPage(
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(hubJson) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(hubJson) }}
       />
 
       <div className="max-w-6xl mx-auto px-4 py-8">

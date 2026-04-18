@@ -1,9 +1,9 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { breadcrumbSchema, faqSchema } from '../lib/structured-data'
+import { breadcrumbSchema, faqSchema, safeJsonLd } from '../lib/structured-data'
 
 export const metadata: Metadata = {
-  title: 'Medical Disclaimer — IDMyPills',
+  title: 'Medical Disclaimer',
   description:
     'IDMyPills is for educational and identification purposes only. Not a substitute for professional medical advice. Always consult a licensed pharmacist or physician.',
   alternates: { canonical: '/medical-disclaimer' },
@@ -43,11 +43,11 @@ export default function MedicalDisclaimerPage() {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(faqJsonLd) }}
       />
 
       <div className="max-w-3xl mx-auto px-4 py-12">

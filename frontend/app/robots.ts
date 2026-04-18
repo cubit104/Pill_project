@@ -10,11 +10,14 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: '*',
         allow: '/',
+        // Only disallow paths that should never be crawled.
+        // Search result pages (/search?q=...) are handled via page-level
+        // `noindex,follow` meta robots — robots.txt query-string patterns
+        // are inconsistently supported and would prevent crawlers from
+        // honoring the noindex directive.
         disallow: [
           '/api/',
           '/admin/',
-          // Disallow search result URLs with query params — these are not ranking surfaces
-          '/search?*',
         ],
       },
     ],
