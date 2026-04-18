@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="ps-mark-light-title">
+  <title id="ps-mark-light-title">PillSeek</title>
+  <defs>
+    <!--
+      PillSeek logo mark — light/inverted variant for dark backgrounds.
+      Magnifier stroke = white; lens fill = translucent white (15% opacity).
+      Capsule left half = white; right half = transparent with white outline.
+    -->
+    <clipPath id="ps-lens-clip-light">
+      <circle cx="220" cy="215" r="130"/>
+    </clipPath>
+  </defs>
+
+  <!-- Lens fill (translucent white) -->
+  <circle cx="220" cy="215" r="150" fill="#ffffff" fill-opacity="0.15"/>
+
+  <!-- Capsule pill inside the lens, tilted 15° for dynamism -->
+  <g transform="translate(220,215) rotate(15)" clip-path="url(#ps-lens-clip-light)">
+    <!-- Left half: white solid -->
+    <path d="M 0,-13 L -46,-13 A 13,13 0 0,0 -46,13 L 0,13 Z" fill="#ffffff"/>
+    <!-- Right half: transparent (white outline only) -->
+    <path d="M 0,-13 L 46,-13 A 13,13 0 0,1 46,13 L 0,13 Z" fill="none"/>
+    <!-- Full capsule outline (white) -->
+    <rect x="-59" y="-13" width="118" height="26" rx="13" fill="none" stroke="#ffffff" stroke-width="8"/>
+    <!-- Subtle highlight on left half -->
+    <path d="M -54,-4 Q -27,-9 -4,-4" stroke="#ffffff" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.5"/>
+  </g>
+
+  <!-- Magnifying glass ring (white) — drawn after capsule -->
+  <circle cx="220" cy="215" r="150" fill="none" stroke="#ffffff" stroke-width="36"/>
+
+  <!-- Handle: white rounded stroke at 45° from lower-right of circle -->
+  <line x1="324" y1="319" x2="404" y2="399"
+        stroke="#ffffff" stroke-width="42" stroke-linecap="round"/>
+</svg>

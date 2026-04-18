@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-labelledby="og-title">
+  <title id="og-title">PillSeek — Free Pill Identifier</title>
+  <!--
+    PillSeek OG image — 1200×630
+    Brand gradient: sky-500 (#0ea5e9) top-left → sky-800 (#075985) bottom-right.
+    White logo lockup centered-left. Tagline right side.
+    Clean, type-driven. No emoji. Looks like Linear/Stripe marketing.
+  -->
+  <defs>
+    <linearGradient id="og-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#075985"/>
+    </linearGradient>
+    <!-- Clip mark to its bounds -->
+    <clipPath id="og-lens-clip">
+      <circle cx="220" cy="215" r="130"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background gradient -->
+  <rect width="1200" height="630" fill="url(#og-bg)"/>
+
+  <!-- Subtle texture: faint large circle decorative element at top-right -->
+  <circle cx="1050" cy="-60" r="340" fill="none" stroke="#ffffff" stroke-width="1" opacity="0.08"/>
+  <circle cx="1050" cy="-60" r="240" fill="none" stroke="#ffffff" stroke-width="1" opacity="0.06"/>
+
+  <!-- Logo lockup (light variant) — centered-left -->
+  <!-- Mark (140×140 scaled from 512×512) at x=80, y=210 -->
+  <svg x="80" y="210" width="140" height="140" viewBox="0 0 512 512">
+    <circle cx="220" cy="215" r="150" fill="#ffffff" fill-opacity="0.15"/>
+    <g transform="translate(220,215) rotate(15)" clip-path="url(#og-lens-clip)">
+      <path d="M 0,-13 L -46,-13 A 13,13 0 0,0 -46,13 L 0,13 Z" fill="#ffffff"/>
+      <path d="M 0,-13 L 46,-13 A 13,13 0 0,1 46,13 L 0,13 Z" fill="none"/>
+      <rect x="-59" y="-13" width="118" height="26" rx="13" fill="none" stroke="#ffffff" stroke-width="8"/>
+      <path d="M -54,-4 Q -27,-9 -4,-4" stroke="#ffffff" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.5"/>
+    </g>
+    <circle cx="220" cy="215" r="150" fill="none" stroke="#ffffff" stroke-width="36"/>
+    <line x1="324" y1="319" x2="404" y2="399" stroke="#ffffff" stroke-width="42" stroke-linecap="round"/>
+  </svg>
+
+  <!-- Wordmark next to mark -->
+  <text
+    x="232"
+    y="297"
+    font-family="Inter, Manrope, system-ui, -apple-system, sans-serif"
+    font-weight="700"
+    font-size="72"
+    fill="#ffffff"
+    letter-spacing="-1"
+  >PillSeek</text>
+
+  <!-- Divider line -->
+  <line x1="80" y1="375" x2="560" y2="375" stroke="#ffffff" stroke-width="1" opacity="0.25"/>
+
+  <!-- Tagline — weight 600, size 44px -->
+  <text
+    x="80"
+    y="430"
+    font-family="Inter, Manrope, system-ui, -apple-system, sans-serif"
+    font-weight="600"
+    font-size="44"
+    fill="#ffffff"
+    opacity="0.95"
+  >Free Pill Identifier by</text>
+  <text
+    x="80"
+    y="486"
+    font-family="Inter, Manrope, system-ui, -apple-system, sans-serif"
+    font-weight="600"
+    font-size="44"
+    fill="#ffffff"
+    opacity="0.95"
+  >Imprint, Color &amp; Shape</text>
+
+  <!-- Footer — pillseek.com in sky-200 -->
+  <text
+    x="80"
+    y="592"
+    font-family="Inter, Manrope, system-ui, -apple-system, sans-serif"
+    font-weight="400"
+    font-size="22"
+    fill="#bae6fd"
+    opacity="0.85"
+  >pillseek.com</text>
+</svg>

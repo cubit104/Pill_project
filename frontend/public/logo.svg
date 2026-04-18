@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 50" role="img" aria-labelledby="ps-logo-title">
+  <title id="ps-logo-title">PillSeek</title>
+  <!--
+    PillSeek horizontal logo lockup — primary variant.
+    For use on light backgrounds (white/slate-50 header).
+    viewBox: 220×50 → renders at 160×36 in the header.
+    Mark: 50×50 inlined at left. Gap: 10px. Wordmark from x=60.
+  -->
+
+  <!-- Mark (50×50 scaled from 512×512 source) -->
+  <svg x="0" y="0" width="50" height="50" viewBox="0 0 512 512">
+    <defs>
+      <clipPath id="logo-lens-clip">
+        <circle cx="220" cy="215" r="130"/>
+      </clipPath>
+    </defs>
+    <!-- Lens fill (sky-100) -->
+    <circle cx="220" cy="215" r="150" fill="#e0f2fe"/>
+    <!-- Capsule pill inside lens, 15° tilt -->
+    <g transform="translate(220,215) rotate(15)" clip-path="url(#logo-lens-clip)">
+      <path d="M 0,-13 L -46,-13 A 13,13 0 0,0 -46,13 L 0,13 Z" fill="#0369a1"/>
+      <path d="M 0,-13 L 46,-13 A 13,13 0 0,1 46,13 L 0,13 Z" fill="#ffffff"/>
+      <rect x="-59" y="-13" width="118" height="26" rx="13" fill="none" stroke="#0369a1" stroke-width="8"/>
+      <path d="M -54,-4 Q -27,-9 -4,-4" stroke="#ffffff" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.75"/>
+    </g>
+    <!-- Magnifying glass ring -->
+    <circle cx="220" cy="215" r="150" fill="none" stroke="#0369a1" stroke-width="36"/>
+    <!-- Handle -->
+    <line x1="324" y1="319" x2="404" y2="399" stroke="#0369a1" stroke-width="42" stroke-linecap="round"/>
+  </svg>
+
+  <!-- Wordmark: "PillSeek" — Inter/Manrope 700, slate-900, tight kerning -->
+  <text
+    x="60"
+    y="37"
+    font-family="Inter, Manrope, system-ui, -apple-system, sans-serif"
+    font-weight="700"
+    font-size="30"
+    fill="#0f172a"
+    letter-spacing="-0.5"
+  >PillSeek</text>
+</svg>

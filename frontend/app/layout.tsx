@@ -28,14 +28,14 @@ export const metadata: Metadata = {
     description:
       'Identify any pill by imprint code, color, shape, or drug name. Free medication lookup tool powered by FDA data.',
     url: SITE_URL,
-    images: [{ url: `${SITE_URL}/icon.png`, width: 512, height: 512, alt: 'PillSeek logo' }],
+    images: [{ url: `${SITE_URL}/og-image.png`, width: 1200, height: 630, alt: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape' }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
     description:
       'Identify any pill by imprint code, color, shape, or drug name. Powered by FDA data.',
-    images: [`${SITE_URL}/icon.png`],
+    images: [`${SITE_URL}/og-image.png`],
   },
 }
 
