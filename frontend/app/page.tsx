@@ -143,17 +143,17 @@ export default function HomePage() {
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
-              { href: '/color/white', label: 'White Pills', icon: '⬜' },
-              { href: '/shape/round', label: 'Round Pills', icon: '🔵' },
-              { href: '/shape/oval', label: 'Oval Pills', icon: '💊' },
-              { href: '/shape/capsule', label: 'Capsule Pills', icon: '🔴' },
+              { href: '/color/white', label: 'White Pills', dot: 'bg-white border-2 border-slate-300', shape: 'rounded-full' },
+              { href: '/shape/round', label: 'Round Pills', dot: 'bg-emerald-600', shape: 'rounded-full' },
+              { href: '/shape/oval', label: 'Oval Pills', dot: 'bg-emerald-600', shape: 'rounded-full w-10 h-6' },
+              { href: '/shape/capsule', label: 'Capsule Pills', dot: 'bg-emerald-600', shape: 'rounded-full w-10 h-4' },
             ].map((cat) => (
               <Link
                 key={cat.href}
                 href={cat.href}
-                className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center hover:bg-emerald-50 hover:border-emerald-300 transition-colors"
+                className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center hover:bg-emerald-50 hover:border-emerald-300 transition-colors flex flex-col items-center"
               >
-                <div className="text-3xl mb-2" role="img" aria-hidden="true">{cat.icon}</div>
+                <div className={`mb-2 ${cat.dot} ${cat.shape || 'w-8 h-8'}`} aria-hidden="true" />
                 <p className="text-sm font-medium text-slate-700">{cat.label}</p>
               </Link>
             ))}
