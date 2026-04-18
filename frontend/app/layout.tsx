@@ -10,11 +10,11 @@ const SITE_URL = (
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
+    default: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
     template: '%s | PillSeek',
   },
   description:
-    'Identify any pill by imprint code, color, shape, or drug name. Free medication lookup tool powered by FDA data — trusted by patients and caregivers.',
+    'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Free medication lookup tool powered by FDA data — trusted by patients and caregivers.',
   keywords:
     'pill identifier, medication identification, imprint code, drug lookup, pill finder, identify pill by imprint',
   authors: [{ name: 'PillSeek' }],
@@ -24,17 +24,17 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: 'PillSeek',
-    title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
+    title: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
     description:
-      'Identify any pill by imprint code, color, shape, or drug name. Free medication lookup tool powered by FDA data.',
+      'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Free medication lookup tool powered by FDA data.',
     url: SITE_URL,
     images: [{ url: `${SITE_URL}/icon.png`, width: 512, height: 512, alt: 'PillSeek logo' }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
+    title: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
     description:
-      'Identify any pill by imprint code, color, shape, or drug name. Powered by FDA data.',
+      'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Powered by FDA data.',
     images: [`${SITE_URL}/icon.png`],
   },
 }

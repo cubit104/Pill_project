@@ -49,7 +49,7 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => { fetchSuggestions(query, activeTab) }, 300)
+    debounceRef.current = setTimeout(() => { fetchSuggestions(query, activeTab) }, 120)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [query, activeTab, fetchSuggestions])
 
@@ -65,7 +65,11 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {
-        setQuery(suggestions[highlightedIndex]); setShowSuggestions(false); setHighlightedIndex(-1)
+        const picked = suggestions[highlightedIndex]
+        setQuery(picked)
+        setShowSuggestions(false)
+        setHighlightedIndex(-1)
+        onSearch({ q: picked, type: activeTab, color: color || undefined, shape: shape || undefined })
       } else { handleSubmit() }
     } else if (e.key === 'ArrowDown') {
       e.preventDefault(); setHighlightedIndex((prev) => Math.min(prev + 1, suggestions.length - 1))
@@ -130,7 +134,13 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
                 key={suggestion}
                 role="option"
                 aria-selected={index === highlightedIndex}
-                onMouseDown={() => { setQuery(suggestion); setShowSuggestions(false); setHighlightedIndex(-1) }}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  setQuery(suggestion)
+                  setShowSuggestions(false)
+                  setHighlightedIndex(-1)
+                  onSearch({ q: suggestion, type: activeTab, color: color || undefined, shape: shape || undefined })
+                }}
                 className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
                   index === highlightedIndex ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'
                 }`}

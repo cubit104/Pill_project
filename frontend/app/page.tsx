@@ -8,22 +8,22 @@ const SITE_URL = (
 ).replace(/\/$/, '')
 
 export const metadata: Metadata = {
-  title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
+  title: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
   description:
-    'Identify any pill free using imprint codes, color, shape, drug name, or NDC number. Powered by FDA & DailyMed data. Trusted by patients and caregivers.',
+    'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Powered by FDA & DailyMed data. Trusted by patients and caregivers.',
   alternates: { canonical: '/' },
   openGraph: {
-    title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
+    title: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
     description:
-      'Identify any pill free using imprint codes, color, shape, drug name, or NDC number. Powered by FDA & DailyMed data.',
+      'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Powered by FDA & DailyMed data.',
     url: SITE_URL,
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
+    title: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
     description:
-      'Identify any pill free using imprint codes, color, shape, drug name, or NDC number. Powered by FDA & DailyMed data.',
+      'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Powered by FDA & DailyMed data.',
   },
 }
 
