@@ -12,11 +12,16 @@ export default function Header() {
         {/* Logo */}
         <Link
           href="/"
-          className="flex items-center gap-2 text-sky-700 font-bold text-xl hover:text-sky-800 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 rounded"
+          className="flex items-center hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 rounded"
           aria-label="PillSeek home"
         >
-          <span role="img" aria-hidden="true">💊</span>
-          <span>PillSeek</span>
+          <img
+            src="/logo.svg"
+            alt="PillSeek"
+            width={170}
+            height={40}
+            className="h-9 w-auto"
+          />
         </Link>
 
         {/* Desktop Nav */}
