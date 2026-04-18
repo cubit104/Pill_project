@@ -43,10 +43,10 @@ export default function HomePage() {
       <section className="bg-gradient-to-b from-slate-50 to-white py-20 px-4">
         <div className="max-w-4xl mx-auto text-center">
           <img
-            src="/logo-mark.svg"
+            src="/1.png"
             alt=""
-            width={144}
-            height={144}
+            width={220}
+            height={220}
             className="mx-auto mb-6"
           />
           <h1 className="text-5xl font-bold mb-4 tracking-tight text-slate-900">
