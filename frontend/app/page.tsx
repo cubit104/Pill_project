@@ -143,17 +143,50 @@ export default function HomePage() {
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
-              { href: '/color/white', label: 'White Pills', dot: 'bg-white border-2 border-slate-300', shape: 'rounded-full' },
-              { href: '/shape/round', label: 'Round Pills', dot: 'bg-emerald-600', shape: 'rounded-full' },
-              { href: '/shape/oval', label: 'Oval Pills', dot: 'bg-emerald-600', shape: 'rounded-full w-10 h-6' },
-              { href: '/shape/capsule', label: 'Capsule Pills', dot: 'bg-emerald-600', shape: 'rounded-full w-10 h-4' },
+              {
+                href: '/color/white',
+                label: 'White Pills',
+                svg: (
+                  <svg viewBox="0 0 40 40" className="w-10 h-10">
+                    <circle cx="20" cy="20" r="14" fill="#ffffff" stroke="#94a3b8" strokeWidth="2" />
+                  </svg>
+                ),
+              },
+              {
+                href: '/shape/round',
+                label: 'Round Pills',
+                svg: (
+                  <svg viewBox="0 0 40 40" className="w-10 h-10">
+                    <circle cx="20" cy="20" r="14" fill="#10b981" />
+                  </svg>
+                ),
+              },
+              {
+                href: '/shape/oval',
+                label: 'Oval Pills',
+                svg: (
+                  <svg viewBox="0 0 40 40" className="w-10 h-10">
+                    <ellipse cx="20" cy="20" rx="16" ry="9" fill="#10b981" />
+                  </svg>
+                ),
+              },
+              {
+                href: '/shape/capsule',
+                label: 'Capsule Pills',
+                svg: (
+                  <svg viewBox="0 0 40 40" className="w-10 h-10">
+                    <rect x="4" y="13" width="32" height="14" rx="7" fill="#10b981" />
+                    <rect x="4" y="13" width="16" height="14" rx="7" fill="#f87171" />
+                  </svg>
+                ),
+              },
             ].map((cat) => (
               <Link
                 key={cat.href}
                 href={cat.href}
                 className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center hover:bg-emerald-50 hover:border-emerald-300 transition-colors flex flex-col items-center"
               >
-                <div className={`mb-2 ${cat.dot} ${cat.shape || 'w-8 h-8'}`} aria-hidden="true" />
+                <div className="mb-2" aria-hidden="true">{cat.svg}</div>
                 <p className="text-sm font-medium text-slate-700">{cat.label}</p>
               </Link>
             ))}
