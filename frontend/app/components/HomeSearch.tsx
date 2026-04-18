@@ -44,12 +44,12 @@ export default function HomeSearch() {
 
   if (filtersLoading) {
     return (
-      <div className="bg-white rounded-2xl shadow-xl p-6 animate-pulse">
+      <div className="bg-emerald-50 rounded-2xl shadow-xl p-6 animate-pulse border border-emerald-200">
         <div className="h-10 bg-slate-200 rounded-lg mb-4" />
         <div className="flex gap-3">
           <div className="h-10 bg-slate-200 rounded-lg flex-1" />
           <div className="h-10 bg-slate-200 rounded-lg flex-1" />
-          <div className="h-10 bg-sky-200 rounded-lg w-24" />
+          <div className="h-10 bg-emerald-200 rounded-lg w-24" />
         </div>
       </div>
     )
