@@ -9,9 +9,49 @@ from sqlalchemy.exc import SQLAlchemyError
 import database
 from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames
 
-logger = logging.getLogger(__name__) 
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+def _aggregate_image_filenames(conn, raw_medicine_name: str, raw_splimprint: str, own_image_filename: str) -> str:
+    """Collect image filenames for a pill by combining the row's own image_filename
+    with any others found for the same drug+imprint (normalized comparison)."""
+    collected = []
+    seen = set()
+
+    def _add(value):
+        if not value:
+            return
+        for part in re.split(r"[,;]+", str(value)):
+            p = part.strip()
+            if p and p not in seen:
+                seen.add(p)
+                collected.append(p)
+
+    # 1) Row's own image_filename first
+    _add(own_image_filename)
+
+    # 2) Aggregate from other rows with the same drug+imprint (normalized)
+    try:
+        image_q = text("""
+            SELECT image_filename FROM pillfinder
+            WHERE LOWER(TRIM(medicine_name)) = LOWER(TRIM(:medicine_name))
+              AND UPPER(REGEXP_REPLACE(COALESCE(splimprint, ''), '[;,\\s]+', ' ', 'g'))
+                = UPPER(REGEXP_REPLACE(COALESCE(:splimprint, ''), '[;,\\s]+', ' ', 'g'))
+              AND image_filename IS NOT NULL
+              AND image_filename != ''
+        """)
+        img_rows = conn.execute(image_q, {
+            "medicine_name": raw_medicine_name,
+            "splimprint": raw_splimprint,
+        })
+        for r in img_rows:
+            _add(r[0])
+    except Exception as e:
+        logger.warning(f"Image aggregation query failed: {e}")
+
+    return ",".join(collected)
+
 
 @router.get("/details")
 def get_pill_details(
@@ -55,7 +95,7 @@ def get_pill_details(
                 norm_name_val = normalize_name(drug_name)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\s]+',' ','g')) = UPPER(:imprint)
+                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
                       AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)
                     LIMIT 1
                 """)
@@ -65,7 +105,7 @@ def get_pill_details(
                 norm_imp = normalize_imprint(imprint)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\s]+',' ','g')) = UPPER(:imprint)
+                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"imprint": norm_imp})
@@ -89,8 +129,7 @@ def get_pill_details(
             columns = result.keys()
             pill_info = dict(zip(columns, row))
 
-            # Capture RAW values BEFORE normalization for image query
-            # (DB stores raw lowercase values; normalize_fields converts to Title Case)
+            # Capture RAW values BEFORE normalization (DB stores raw lowercase)
             raw_medicine_name = pill_info.get("medicine_name", "") or ""
             raw_splimprint = pill_info.get("splimprint", "") or ""
             raw_image_filename = pill_info.get("image_filename", "") or ""
@@ -100,16 +139,7 @@ def get_pill_details(
             if used_ndc:
                 filenames = raw_image_filename
             else:
-                image_q = text("""
-                    SELECT image_filename FROM pillfinder
-                    WHERE LOWER(TRIM(medicine_name)) = LOWER(TRIM(:medicine_name))
-                      AND COALESCE(splimprint, '') = COALESCE(:splimprint, '')
-                """)
-                img_rows = conn.execute(image_q, {
-                    "medicine_name": raw_medicine_name,
-                    "splimprint": raw_splimprint,
-                })
-                filenames = ",".join(r[0] for r in img_rows if r[0])
+                filenames = _aggregate_image_filenames(conn, raw_medicine_name, raw_splimprint, raw_image_filename)
 
         image_data = process_image_filenames(filenames)
         pill_info.update(image_data)
@@ -123,6 +153,7 @@ def get_pill_details(
     except Exception as e:
         logger.error(f"Error in get_pill_details: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @router.get("/api/pill/{slug}")
 def get_pill_by_slug(slug: str):
@@ -142,29 +173,20 @@ def get_pill_by_slug(slug: str):
             columns = result.keys()
             pill_info = dict(zip(columns, row))
 
-            # Capture RAW values BEFORE normalization for image query
-            # (DB stores raw lowercase values; normalize_fields converts to Title Case)
+            # Capture RAW values BEFORE normalization (DB stores raw lowercase)
             raw_medicine_name = pill_info.get("medicine_name", "") or ""
             raw_splimprint = pill_info.get("splimprint", "") or ""
+            raw_image_filename = pill_info.get("image_filename", "") or ""
 
             pill_info = normalize_fields(pill_info)
 
-            # Aggregate images from all matching rows (same drug + imprint)
-            # Use case-insensitive match to be safe across data variations
-            image_q = text("""
-                SELECT image_filename FROM pillfinder
-                WHERE LOWER(TRIM(medicine_name)) = LOWER(TRIM(:medicine_name))
-                  AND COALESCE(splimprint, '') = COALESCE(:splimprint, '')
-            """)
-            img_rows = conn.execute(image_q, {
-                "medicine_name": raw_medicine_name,
-                "splimprint": raw_splimprint,
-            })
-            filenames = ",".join(r[0] for r in img_rows if r[0])
+            # Aggregate images: own row first, then other rows with same drug+imprint (normalized)
+            filenames = _aggregate_image_filenames(conn, raw_medicine_name, raw_splimprint, raw_image_filename)
 
-            # Process all aggregated images
             image_data = process_image_filenames(filenames)
             image_urls = image_data.get("image_urls", [])
+
+            logger.info(f"Slug {slug}: medicine_name={raw_medicine_name!r}, splimprint={raw_splimprint!r}, found {len(image_urls)} images, own_filename={raw_image_filename!r}")
 
             mapped = {
                 "drug_name": pill_info.get("medicine_name"),
