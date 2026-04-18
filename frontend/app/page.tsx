@@ -39,27 +39,30 @@ export default function HomePage() {
         dangerouslySetInnerHTML={{ __html: safeJsonLd(organizationSchema()) }}
       />
 
-      <section className="bg-gradient-to-br from-sky-700 to-sky-900 text-white py-20 px-4">
+      {/* Hero Section — clean white, Drugs.com style */}
+      <section className="bg-gradient-to-b from-slate-50 to-white py-20 px-4">
         <div className="max-w-4xl mx-auto text-center">
           <img
-            src="/logo-mark-light.svg"
+            src="/logo-mark.svg"
             alt=""
             width={144}
             height={144}
-            className="mx-auto mb-6 drop-shadow-2xl"
+            className="mx-auto mb-6"
           />
-          <h1 className="text-5xl font-bold mb-4 tracking-tight">PillSeek</h1>
-          <p className="text-xl text-sky-100 mb-2 font-medium">
+          <h1 className="text-5xl font-bold mb-4 tracking-tight text-slate-900">
+            Know your pill. <span className="text-emerald-700">Be sure.</span>
+          </h1>
+          <p className="text-xl text-slate-600 mb-2 font-medium">
             Identify Any Medication by Imprint, Color, or Shape
           </p>
-          <p className="text-sky-200 text-sm mb-10">
+          <p className="text-slate-500 text-sm mb-10">
             Search our database of thousands of FDA-approved medications instantly
           </p>
           <HomeSearch />
         </div>
       </section>
 
-      <section className="bg-white border-b border-slate-200 py-10 px-4">
+      <section className="bg-white border-y border-slate-200 py-10 px-4">
         <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
           {[
             { value: '10,000+', label: 'Medications' },
@@ -68,7 +71,7 @@ export default function HomePage() {
             { value: '24/7', label: 'Available' },
           ].map((stat) => (
             <div key={stat.label}>
-              <p className="text-3xl font-bold text-sky-700">{stat.value}</p>
+              <p className="text-3xl font-bold text-emerald-700">{stat.value}</p>
               <p className="text-slate-600 text-sm mt-1">{stat.label}</p>
             </div>
           ))}
@@ -148,7 +151,7 @@ export default function HomePage() {
               <Link
                 key={cat.href}
                 href={cat.href}
-                className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center hover:bg-sky-50 hover:border-sky-300 transition-colors"
+                className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center hover:bg-emerald-50 hover:border-emerald-300 transition-colors"
               >
                 <div className="text-3xl mb-2" role="img" aria-hidden="true">{cat.icon}</div>
                 <p className="text-sm font-medium text-slate-700">{cat.label}</p>
@@ -160,11 +163,11 @@ export default function HomePage() {
 
       <section className="py-12 px-4">
         <div className="max-w-4xl mx-auto">
-          <div className="bg-sky-50 border border-sky-200 rounded-xl p-6 text-center">
-            <h2 className="text-lg font-semibold text-sky-900 mb-3">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center">
+            <h2 className="text-lg font-semibold text-emerald-900 mb-3">
               Built on Trusted, Authoritative Data
             </h2>
-            <p className="text-sky-800 text-sm leading-relaxed max-w-2xl mx-auto mb-4">
+            <p className="text-emerald-800 text-sm leading-relaxed max-w-2xl mx-auto mb-4">
               PillSeek pulls directly from the{' '}
               <strong>FDA National Drug Code (NDC) Directory</strong>,{' '}
               <strong>DailyMed</strong>, and <strong>RxNorm</strong> — the same
@@ -172,15 +175,15 @@ export default function HomePage() {
               kept up to date and presented exactly as filed with the FDA.
             </p>
             <div className="flex flex-wrap justify-center gap-3 text-sm">
-              <Link href="/about" className="text-sky-700 hover:text-sky-900 underline font-medium">
+              <Link href="/about" className="text-emerald-700 hover:text-emerald-900 underline font-medium">
                 About PillSeek
               </Link>
-              <span className="text-sky-400">·</span>
-              <Link href="/sources" className="text-sky-700 hover:text-sky-900 underline font-medium">
+              <span className="text-emerald-400">·</span>
+              <Link href="/sources" className="text-emerald-700 hover:text-emerald-900 underline font-medium">
                 Data Sources
               </Link>
-              <span className="text-sky-400">·</span>
-              <Link href="/medical-disclaimer" className="text-sky-700 hover:text-sky-900 underline font-medium">
+              <span className="text-emerald-400">·</span>
+              <Link href="/medical-disclaimer" className="text-emerald-700 hover:text-emerald-900 underline font-medium">
                 Medical Disclaimer
               </Link>
             </div>
