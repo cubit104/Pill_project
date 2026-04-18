@@ -1,14 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" role="img" aria-labelledby="pstitle">
-  <title id="pstitle">PillSeek</title>
-  <g transform="rotate(-30 256 256)">
-    <path d="M 96 216 A 40 40 0 0 0 96 296 L 256 296 L 256 216 Z" fill="#2f7d4f"/>
-    <path d="M 256 216 L 416 216 A 40 40 0 0 1 416 296 L 256 296 Z" fill="#ffffff"/>
-    <rect x="96" y="216" width="320" height="80" rx="40" ry="40" fill="none" stroke="#1f5a38" stroke-width="6"/>
-    <line x1="256" y1="216" x2="256" y2="296" stroke="#ffffff" stroke-width="10"/>
-    <path d="M 120 232 Q 170 224 215 230" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.85"/>
-    <text x="256" y="284" text-anchor="middle" font-family="'Playfair Display','Cinzel',Georgia,serif" font-weight="700" font-size="92" fill="#1f5a38">P</text>
-  </g>
-  <circle cx="360" cy="180" r="110" fill="rgba(47,125,79,0.06)" stroke="#1f5a38" stroke-width="22"/>
-  <circle cx="360" cy="180" r="82" fill="none" stroke="#1f5a38" stroke-width="5" opacity="0.85"/>
-  <line x1="438" y1="258" x2="478" y2="298" stroke="#1f5a38" stroke-width="30" stroke-linecap="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none"><title>PillSeek</title><g transform="rotate(-50 230 290)"><path d="M 70 200 A 80 80 0 0 0 70 360 L 230 360 L 230 200 Z" fill="#1f7a47"/><path d="M 230 200 L 390 200 A 80 80 0 0 1 390 360 L 230 360 Z" fill="#ffffff"/><rect x="70" y="200" width="320" height="160" rx="80" ry="80" fill="none" stroke="#1f7a47" stroke-width="14"/><line x1="230" y1="200" x2="230" y2="360" stroke="#1f7a47" stroke-width="14"/><path d="M 100 320 Q 130 345 170 348" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" opacity="0.85"/><text x="310" y="320" text-anchor="middle" font-family="Georgia,serif" font-weight="700" font-size="170" fill="#1f7a47">P</text></g><circle cx="350" cy="170" r="118" fill="none" stroke="#1f7a47" stroke-width="22"/><circle cx="350" cy="170" r="92" fill="none" stroke="#1f7a47" stroke-width="8"/><rect x="430" y="248" width="38" height="125" rx="14" transform="rotate(-45 449 310)" fill="#ffffff" stroke="#1f7a47" stroke-width="12"/></svg>
