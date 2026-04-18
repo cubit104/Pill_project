@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 140" width="620" height="140" role="img" aria-labelledby="pillseek-logo-title">
+  <title id="pillseek-logo-title">PillSeek</title>
+
+  <!--
+    PillSeek full-lockup logo — 620×140 viewBox
+    Mark (80×80) on the left, wordmark on the right.
+  -->
+
+  <!-- ── Icon mark — scaled from 512×512 → 80×80 (scale 0.15625), placed at (20,30) ── -->
+  <g transform="translate(20,30) scale(0.15625)">
+
+    <!-- Pill: left half sky-700, right half white, rotated 30° around (256,256) -->
+    <g transform="rotate(30,256,256)">
+      <path d="M 166,206 L 256,206 L 256,306 L 166,306 A 50,50 0 0,1 166,206 Z"
+            fill="#0369a1"/>
+      <path d="M 256,206 L 346,206 A 50,50 0 0,1 346,306 L 256,306 Z"
+            fill="#ffffff"/>
+      <path d="M 166,206 L 346,206 A 50,50 0 0,1 346,306 L 166,306 A 50,50 0 0,1 166,206 Z"
+            fill="none" stroke="#0369a1" stroke-width="6" stroke-linejoin="round"/>
+      <line x1="256" y1="206" x2="256" y2="306" stroke="#0369a1" stroke-width="6"/>
+      <line x1="190" y1="224" x2="322" y2="224"
+            stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity="0.45"/>
+    </g>
+
+    <!-- Magnifying glass -->
+    <line x1="366" y1="292" x2="438" y2="368"
+          stroke="#075985" stroke-width="30" stroke-linecap="round"/>
+    <circle cx="312" cy="232" r="84" fill="none" stroke="#075985" stroke-width="36"/>
+
+  </g>
+
+  <!-- ── Wordmark: "PillSeek" ── -->
+  <!-- font-size 72 in a 140-tall canvas gives good cap-height × 1.4 ratio -->
+  <text
+    font-family="Inter, Manrope, system-ui, -apple-system, sans-serif"
+    font-weight="700"
+    font-size="72"
+    dominant-baseline="central"
+    y="70"
+    letter-spacing="-1"
+    x="118"
+  >
+    <tspan fill="#0f172a">Pill</tspan><tspan fill="#0369a1">S</tspan><tspan fill="#0f172a">eek</tspan>
+  </text>
+
+</svg>

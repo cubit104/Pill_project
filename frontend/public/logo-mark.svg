@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="pillseek-mark-title">
+  <title id="pillseek-mark-title">PillSeek</title>
+
+  <!--
+    PillSeek icon mark — 512×512 viewBox
+    Palette:
+      sky-700  #0369a1  (primary fill / stroke)
+      sky-800  #075985  (magnifier)
+      sky-100  #e0f2fe  (tint)
+      white    #ffffff
+  -->
+
+  <!-- ── Pill capsule, rotated 30 ° around canvas centre (256,256) ── -->
+  <!-- Canvas rect before rotation: x=116 y=206 width=280 height=100 rx=50 -->
+  <!-- Left-cap centre (166,256), right-cap centre (346,256)          -->
+
+  <g transform="rotate(30,256,256)">
+
+    <!-- Left half — sky-700 solid -->
+    <path d="M 166,206 L 256,206 L 256,306 L 166,306 A 50,50 0 0,1 166,206 Z"
+          fill="#0369a1"/>
+
+    <!-- Right half — white -->
+    <path d="M 256,206 L 346,206 A 50,50 0 0,1 346,306 L 256,306 Z"
+          fill="#ffffff"/>
+
+    <!-- Full outline -->
+    <path d="M 166,206 L 346,206 A 50,50 0 0,1 346,306 L 166,306 A 50,50 0 0,1 166,206 Z"
+          fill="none" stroke="#0369a1" stroke-width="6" stroke-linejoin="round"/>
+
+    <!-- Centre divider -->
+    <line x1="256" y1="206" x2="256" y2="306" stroke="#0369a1" stroke-width="6"/>
+
+    <!-- Highlight — subtle white line near top edge -->
+    <line x1="190" y1="224" x2="322" y2="224"
+          stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity="0.45"/>
+
+  </g>
+
+  <!-- ── Magnifying glass ── -->
+
+  <!-- Handle (drawn first so lens ring sits on top) -->
+  <line x1="366" y1="292" x2="438" y2="368"
+        stroke="#075985" stroke-width="30" stroke-linecap="round"/>
+
+  <!-- Lens ring — no fill so pill shows through -->
+  <circle cx="312" cy="232" r="84" fill="none" stroke="#075985" stroke-width="36"/>
+
+</svg>

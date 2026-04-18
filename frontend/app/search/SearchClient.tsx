@@ -174,7 +174,7 @@ function SearchPageInner() {
       {/* Empty State (no search yet) */}
       {!loading && !hasSearch && !error && (
         <div className="text-center py-16">
-          <div className="text-5xl mb-4" role="img" aria-label="Pill">💊</div>
+          <img src="/logo-mark.svg" alt="" width="72" height="72" className="mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-slate-800 mb-2">
             Enter a search above to find pills
           </h2>

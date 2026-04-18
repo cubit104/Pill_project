@@ -178,6 +178,24 @@ npm run dev    # development server at http://localhost:3000
 npm run build  # production static export to frontend/out/
 ```
 
+## Brand assets
+
+All brand imagery is generated from SVG source files in `frontend/public/`:
+
+- `logo-mark.svg` — icon only (used for favicon, app icons, `Organization.logo`)
+- `logo.svg` — full lockup (used in site header)
+- `og-image.svg` — social sharing card
+
+To regenerate the rasterised PNG / ICO assets after editing an SVG:
+
+```bash
+cd frontend
+npm run generate-assets
+```
+
+This produces `icon.png`, `apple-touch-icon.png`, `favicon.ico`, `og-image.png`, etc.
+Commit both the SVG sources and the generated PNGs.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

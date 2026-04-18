@@ -43,9 +43,7 @@ export default function HomePage() {
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-sky-700 to-sky-900 text-white py-20 px-4">
         <div className="max-w-4xl mx-auto text-center">
-          <div className="text-6xl mb-4" role="img" aria-label="Pill emoji">
-            💊
-          </div>
+          <img src="/logo-mark.svg" alt="" width="96" height="96" className="mx-auto mb-4" />
           <h1 className="text-5xl font-bold mb-4 tracking-tight">PillSeek</h1>
           <p className="text-xl text-sky-100 mb-2 font-medium">
             Identify Any Medication by Imprint, Color, or Shape
@@ -144,7 +142,7 @@ export default function HomePage() {
             {[
               { href: '/color/white', label: 'White Pills', icon: '⬜' },
               { href: '/shape/round', label: 'Round Pills', icon: '🔵' },
-              { href: '/shape/oval', label: 'Oval Pills', icon: '💊' },
+              { href: '/shape/oval', label: 'Oval Pills', icon: '⬭' },
               { href: '/shape/capsule', label: 'Capsule Pills', icon: '🔴' },
             ].map((cat) => (
               <Link

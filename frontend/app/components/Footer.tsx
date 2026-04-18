@@ -28,8 +28,7 @@ export default function Footer() {
               className="flex items-center gap-2 text-sky-700 font-bold text-lg mb-3"
               aria-label="PillSeek home"
             >
-              <span role="img" aria-hidden="true">💊</span>
-              <span>PillSeek</span>
+              <img src="/logo.svg" alt="PillSeek" width="120" height="28" />
             </Link>
             <p className="text-slate-500 text-xs leading-relaxed">
               Free pill identification powered by FDA &amp; DailyMed data. For educational

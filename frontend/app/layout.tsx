@@ -28,14 +28,14 @@ export const metadata: Metadata = {
     description:
       'Identify any pill by imprint code, color, shape, or drug name. Free medication lookup tool powered by FDA data.',
     url: SITE_URL,
-    images: [{ url: `${SITE_URL}/icon.png`, width: 512, height: 512, alt: 'PillSeek logo' }],
+    images: [{ url: `${SITE_URL}/og-image.png`, width: 1200, height: 630, alt: 'PillSeek logo' }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'PillSeek — Free Pill Identifier by Imprint, Color & Shape',
     description:
       'Identify any pill by imprint code, color, shape, or drug name. Powered by FDA data.',
-    images: [`${SITE_URL}/icon.png`],
+    images: [`${SITE_URL}/og-image.png`],
   },
 }
 
@@ -49,6 +49,9 @@ export default function RootLayout({
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="icon" href="/icon.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
       <body className="bg-slate-50 text-slate-900 antialiased min-h-screen flex flex-col font-sans">
         <Header />
