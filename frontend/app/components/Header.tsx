@@ -8,14 +8,14 @@ export default function Header() {
 
   return (
     <header className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-4 h-24 flex items-center justify-between">
+      <div className="max-w-6xl mx-auto px-4 h-20 flex items-center justify-between">
         <Link
           href="/"
-          className="flex items-center gap-3 hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 rounded"
+          className="flex items-center gap-1 hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 rounded"
           aria-label="PillSeek home"
         >
-          <img src="/logo-mark.svg" alt="" width={64} height={64} className="h-16 w-16 object-contain" />
-          <span className="text-3xl font-bold tracking-tight">
+          <img src="/logo-mark.svg" alt="" width={44} height={44} className="h-11 w-11 object-contain" />
+          <span className="text-3xl font-extrabold tracking-tight">
             <span className="text-slate-900">Pill</span><span className="text-emerald-700">Seek</span>
           </span>
         </Link>
