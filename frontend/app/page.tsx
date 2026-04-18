@@ -45,8 +45,8 @@ export default function HomePage() {
           <img
             src="/logo-mark.svg"
             alt=""
-            width={220}
-            height={220}
+            width={160}
+            height={160}
             className="mx-auto mb-6"
           />
           <h1 className="text-5xl font-bold mb-4 tracking-tight text-slate-900">
