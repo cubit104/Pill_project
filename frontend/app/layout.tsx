@@ -21,6 +21,7 @@ export const metadata: Metadata = {
   creator: 'PillSeek',
   publisher: 'PillSeek',
   robots: { index: true, follow: true },
+  manifest: '/site.webmanifest',
   openGraph: {
     type: 'website',
     siteName: 'PillSeek',
@@ -28,14 +29,12 @@ export const metadata: Metadata = {
     description:
       'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Free medication lookup tool powered by FDA data.',
     url: SITE_URL,
-    images: [{ url: `${SITE_URL}/icon.png`, width: 512, height: 512, alt: 'PillSeek logo' }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
     description:
       'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Powered by FDA data.',
-    images: [`${SITE_URL}/icon.png`],
   },
 }
 
