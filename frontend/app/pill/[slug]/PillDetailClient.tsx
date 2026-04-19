@@ -398,7 +398,7 @@ export default function PillDetailClient({
                     {p.image_url && (
                       <img
                         src={p.image_url}
-                        alt={`${p.drug_name}${p.strength ? ` ${p.strength}` : ''} — ${[p.color, p.shape, 'pill'].filter(Boolean).join(' ')}${p.imprint ? ` with imprint ${p.imprint}` : ''}`}
+                        alt={`${p.drug_name}${p.strength ? ` ${p.strength}` : ''} — ${[p.color, p.shape].filter(Boolean).join(' ') || 'pill'}${p.imprint ? ` with imprint ${p.imprint}` : ''}`}
                         className="w-12 h-12 object-contain rounded bg-slate-50 shrink-0"
                         width={48}
                         height={48}

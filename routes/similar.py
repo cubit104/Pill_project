@@ -87,7 +87,7 @@ def get_similar_pills(slug: str):
                     "slug": slug,
                     "color": own_color,
                     "shape": own_shape,
-                    "imprint": own_imprint or "",
+                    "imprint": own_imprint if own_imprint is not None else "",
                 },
             ).fetchall()
 
