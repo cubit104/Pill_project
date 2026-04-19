@@ -147,6 +147,7 @@ export default async function PillDetailPage(
     year: 'numeric',
     month: 'long',
     day: 'numeric',
+    timeZone: 'UTC',
   })
 
   return (
@@ -159,7 +160,13 @@ export default async function PillDetailPage(
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: safeJsonLd(medPage) }}
       />
-      <PillDetailClient pill={pill} slug={slug} lastUpdatedIso={lastUpdatedIso} formattedDate={formattedDate} />
+      <PillDetailClient
+        pill={pill}
+        slug={slug}
+        lastUpdatedIso={lastUpdatedIso}
+        formattedDate={formattedDate}
+        reviewer={DEFAULT_REVIEWER}
+      />
     </>
   )
 }

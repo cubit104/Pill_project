@@ -13,6 +13,11 @@ export interface Reviewer {
   name: string
   credentials: string  // e.g. "PharmD, RPh" or "MD, Internal Medicine"
   role: 'author' | 'medical_reviewer' | 'editor'
+  /**
+   * Schema.org @type for the reviewedBy node. Use 'Organization' for team
+   * entries and 'Person' for individually named reviewers.
+   */
+  schemaType: 'Person' | 'Organization'
   bio: string
   url: string          // /about#reviewer-{id} until individual pages exist
   sameAs?: string[]    // LinkedIn, ORCID, etc. — leave empty until accounts exist
@@ -24,6 +29,7 @@ export const REVIEWERS: Reviewer[] = [
     name: 'PillSeek Editorial Team',
     credentials: 'Editorial & Engineering',
     role: 'editor',
+    schemaType: 'Organization',
     bio: 'The PillSeek editorial and engineering team curates content sourced directly from FDA NDC Directory, DailyMed, and RxNorm. All pill identification data is pulled verbatim from government sources — we do not author drug content.',
     url: '/about#editorial-team',
   },

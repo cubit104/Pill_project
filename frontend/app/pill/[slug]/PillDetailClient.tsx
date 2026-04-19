@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail } from '../../types'
+import type { Reviewer } from '../../lib/reviewers'
 
 function PillIconLarge() {
   return (
@@ -95,11 +96,13 @@ export default function PillDetailClient({
   slug,
   lastUpdatedIso,
   formattedDate,
+  reviewer,
 }: {
   pill: PillDetail
   slug?: string
   lastUpdatedIso?: string
   formattedDate?: string
+  reviewer?: Reviewer
 }) {
   const router = useRouter()
   const [zoomImage, setZoomImage] = useState<string | null>(null)
@@ -186,18 +189,14 @@ export default function PillDetailClient({
         </button>
 
         {/* Reviewed by / Last updated — matches JSON-LD dateModified / lastReviewed */}
-        {(lastUpdatedIso || formattedDate) && (
+        {reviewer && lastUpdatedIso && formattedDate && (
           <p className="text-xs text-slate-500 mb-3">
             Reviewed by{' '}
-            <Link href="/about#editorial-team" className="underline hover:text-slate-700">
-              PillSeek Editorial Team
+            <Link href={reviewer.url} className="underline hover:text-slate-700">
+              {reviewer.name}
             </Link>
-            {formattedDate && lastUpdatedIso && (
-              <>
-                {' · '}Last updated{' '}
-                <time dateTime={lastUpdatedIso}>{formattedDate}</time>
-              </>
-            )}
+            {' · '}Last updated{' '}
+            <time dateTime={lastUpdatedIso}>{formattedDate}</time>
           </p>
         )}
 

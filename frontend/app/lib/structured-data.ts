@@ -130,7 +130,7 @@ export function medicalWebPageSchema(
     lastReviewed: opts?.dateModified ?? fallbackDate,
     reviewedBy: opts?.reviewer
       ? stripUndefined({
-          '@type': 'Person' as const,
+          '@type': opts.reviewer.schemaType,
           name: opts.reviewer.name,
           jobTitle: opts.reviewer.credentials,
           url: `${SITE_URL}${opts.reviewer.url}`,

@@ -3,6 +3,10 @@ import Link from 'next/link'
 import { breadcrumbSchema, faqSchema, safeJsonLd } from '../lib/structured-data'
 import { REVIEWERS } from '../lib/reviewers'
 
+const SITE_URL = (
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
+).replace(/\/$/, '')
+
 export const metadata: Metadata = {
   title: 'About PillSeek — Free Pill Identifier',
   description:
@@ -54,7 +58,7 @@ export default function AboutPage() {
     '@context': 'https://schema.org',
     '@type': 'AboutPage',
     name: 'About PillSeek',
-    url: 'https://pillseek.com/about',
+    url: `${SITE_URL}/about`,
     author: { '@type': 'Organization', name: 'PillSeek' },
     dateModified: new Date().toISOString(),
   }
