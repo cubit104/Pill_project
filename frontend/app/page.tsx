@@ -3,6 +3,7 @@ import Image from 'next/image'
 import HomeSearch from './components/HomeSearch'
 import Link from 'next/link'
 import { websiteSchema, organizationSchema, safeJsonLd } from './lib/structured-data'
+import PopularMedications from './components/PopularMedications'
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
@@ -242,6 +243,8 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      <PopularMedications />
 
       <section className="py-12 px-4">
         <div className="max-w-4xl mx-auto">
