@@ -147,6 +147,7 @@ export default function PillDetailClient({
             width={600}
             height={600}
             sizes="(max-width: 640px) 90vw, 600px"
+            unoptimized
             className="max-w-full max-h-full object-contain rounded-xl"
             onClick={(e) => e.stopPropagation()}
           />
@@ -223,6 +224,7 @@ export default function PillDetailClient({
                     height={288}
                     sizes="(max-width: 640px) 100vw, 288px"
                     priority
+                    unoptimized
                     className="w-72 h-72 object-contain bg-slate-50"
                   />
                 </button>
@@ -291,6 +293,7 @@ export default function PillDetailClient({
                     width={112}
                     height={112}
                     sizes="112px"
+                    unoptimized
                     className="w-28 h-28 object-contain bg-slate-50"
                   />
                 </button>

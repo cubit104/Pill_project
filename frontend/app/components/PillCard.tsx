@@ -130,6 +130,7 @@ export default function PillCard({ pill }: PillCardProps) {
                   width={160}
                   height={160}
                   sizes="160px"
+                  unoptimized
                   className="w-40 h-40 object-contain rounded-lg border border-slate-100 bg-gray-50"
                 />
                 {images.length > 1 && (
