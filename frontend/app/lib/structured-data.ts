@@ -160,8 +160,12 @@ export function medicalWebPageSchema(
         })
       : undefined,
     about: {
-      '@type': 'Drug' as const,
+      '@type': 'MedicalEntity' as const,
+      additionalType: 'https://schema.org/Drug',
       name: pill.drug_name,
+      // dosageForm, activeIngredient, and manufacturer are Drug-specific properties
+      // which are preserved here because Schema.org allows additional properties on MedicalEntity
+      // and crawlers that understand Drug semantics will use them via additionalType.
       ...(pill.dosage_form && { dosageForm: pill.dosage_form }),
       ...(pill.ingredients && { activeIngredient: pill.ingredients }),
       ...(pill.manufacturer && {
