@@ -31,7 +31,7 @@ export function buildIdentificationSummary(pill: PillDetail): string {
   const physical = [pill.color, pill.shape].filter(Boolean).join(' ')
   // Determine article based on the first character of the first word that will appear
   // in the sentence. Only matters when physical is non-empty.
-  const article = physical
+  const article = physical && physical.length > 0
     ? ('aeiou'.includes(physical[0].toLowerCase()) ? 'an' : 'a')
     : 'a'
 

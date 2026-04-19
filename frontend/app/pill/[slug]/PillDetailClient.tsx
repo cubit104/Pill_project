@@ -398,7 +398,7 @@ export default function PillDetailClient({
                     {p.image_url && (
                       <img
                         src={p.image_url}
-                        alt={[p.color, p.shape, 'pill', p.imprint ? `with imprint ${p.imprint}` : null, '—', p.drug_name].filter(Boolean).join(' ')}
+                        alt={[p.color, p.shape, 'pill', p.imprint ? `with imprint ${p.imprint}` : null, 'for', p.drug_name].filter(Boolean).join(' ')}
                         className="w-12 h-12 object-contain rounded bg-slate-50 shrink-0"
                         width={48}
                         height={48}

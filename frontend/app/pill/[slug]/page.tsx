@@ -221,9 +221,10 @@ export default async function PillDetailPage(
   ])
 
   // Use a real DB timestamp when available; omit dateModified/lastReviewed when not.
-  const lastUpdatedIso = pill.updated_at && pill.updated_at.length > 0
-    ? pill.updated_at
-    : undefined
+  const lastUpdatedIso =
+    pill.updated_at && typeof pill.updated_at === 'string' && pill.updated_at.length > 0
+      ? pill.updated_at
+      : undefined
 
   const formattedDate = lastUpdatedIso
     ? new Date(lastUpdatedIso).toLocaleDateString('en-US', {

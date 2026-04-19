@@ -561,11 +561,12 @@ def test_api_pill_similar_not_found(client):
 
 
 def test_api_pill_similar_no_color_shape_returns_empty(client):
-    """GET /api/pill/{slug}/similar should return empty list when pill has no color or shape."""
+    """GET /api/pill/{slug}/similar should return empty list when pill is missing color or shape."""
     import database as db_module
     mock_result = MagicMock()
-    # source_row: (medicine_name, splimprint, splcolor_text, splshape_text) — no color/shape
-    mock_result.fetchone.return_value = ("Aspirin", "BAYER", None, None)
+    # source_row: (medicine_name, splimprint, splcolor_text, splshape_text)
+    # Missing shape — cannot reliably match visually similar pills without both fields.
+    mock_result.fetchone.return_value = ("Aspirin", "BAYER", "White", None)
     conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
     conn_mock.execute.side_effect = None
     conn_mock.execute.return_value = mock_result

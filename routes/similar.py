@@ -56,8 +56,8 @@ def get_similar_pills(slug: str):
 
             own_name, own_imprint, own_color, own_shape = source_row
 
-            # If we don't have enough info to find visually similar pills, return empty.
-            if not own_color and not own_shape:
+            # If we don't have both color and shape, we can't reliably find visually similar pills.
+            if not own_color or not own_shape:
                 return {"similar": []}
 
             # 2) Find similar pills: same color + shape + matching imprint.
