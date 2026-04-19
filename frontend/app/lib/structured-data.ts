@@ -29,12 +29,14 @@ export function safeJsonLd(obj: unknown): string {
  */
 export function buildIdentificationSummary(pill: PillDetail): string {
   const physical = [pill.color, pill.shape].filter(Boolean).join(' ')
-  const article = physical && 'aeiou'.includes(physical[0].toLowerCase()) ? 'an' : 'a'
+  // Determine article based on the first character of the first word that will appear
+  // in the sentence. Only matters when physical is non-empty.
+  const article = physical
+    ? ('aeiou'.includes(physical[0].toLowerCase()) ? 'an' : 'a')
+    : 'a'
 
-  const sentence1Parts: string[] = []
-  if (physical) sentence1Parts.push(`${article} ${physical}`)
-  const s1Base = sentence1Parts.length > 0
-    ? `This is ${sentence1Parts[0]} pill`
+  const s1Base = physical
+    ? `This is ${article} ${physical} pill`
     : 'This pill'
 
   const s1Imprint = pill.imprint ? ` with imprint ${pill.imprint}` : ''
