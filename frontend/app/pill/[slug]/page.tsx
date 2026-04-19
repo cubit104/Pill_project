@@ -156,7 +156,14 @@ export async function generateMetadata(
 
   // Identification summary is shared between on-page paragraph, meta description, and JSON-LD
   const identificationSummary = buildIdentificationSummary(pill)
-  const description = identificationSummary.slice(0, 155)
+  // Truncate at a word boundary so the meta description doesn't end mid-word
+  const truncateAtWord = (text: string, limit: number) => {
+    if (text.length <= limit) return text
+    const truncated = text.slice(0, limit)
+    const lastSpace = truncated.lastIndexOf(' ')
+    return lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated
+  }
+  const description = truncateAtWord(identificationSummary, 155)
 
   const images = pill.images && pill.images.length > 0
     ? pill.images

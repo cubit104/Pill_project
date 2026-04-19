@@ -61,8 +61,8 @@ def get_similar_pills(slug: str):
                 return {"similar": []}
 
             # 2) Find similar pills: same color + shape + matching imprint.
-            # Priority: different drug name first (confusion risk), then same drug/different NDC.
-            # We use LOWER() normalisation for case-insensitive imprint matching.
+            # Fetch up to 10 candidates (deduplicated by medicine_name+strength), then
+            # sort in Python to surface different drug names first (higher confusion risk).
             rows = conn.execute(
                 text("""
                     SELECT DISTINCT ON (medicine_name, spl_strength)
@@ -80,25 +80,26 @@ def get_similar_pills(slug: str):
                       AND LOWER(TRIM(COALESCE(splcolor_text, ''))) = LOWER(TRIM(:color))
                       AND LOWER(TRIM(COALESCE(splshape_text, ''))) = LOWER(TRIM(:shape))
                       AND LOWER(TRIM(COALESCE(splimprint, ''))) = LOWER(TRIM(:imprint))
-                    ORDER BY
-                        medicine_name,
-                        spl_strength,
-                        slug,
-                        -- Prefer different drug names (higher confusion risk) first
-                        CASE WHEN LOWER(TRIM(COALESCE(medicine_name, ''))) != LOWER(TRIM(:own_name)) THEN 0 ELSE 1 END
-                    LIMIT 5
+                    ORDER BY medicine_name, spl_strength, slug
+                    LIMIT 10
                 """),
                 {
                     "slug": slug,
-                    "color": own_color or "",
-                    "shape": own_shape or "",
+                    "color": own_color,
+                    "shape": own_shape,
                     "imprint": own_imprint or "",
-                    "own_name": own_name or "",
                 },
             ).fetchall()
 
+            # Sort so different drug names (higher confusion risk) appear first.
+            own_name_lower = (own_name or "").lower().strip()
+            rows = sorted(
+                rows,
+                key=lambda r: 0 if (r[1] or "").lower().strip() != own_name_lower else 1,
+            )
+
             results = []
-            for r in rows:
+            for r in rows[:5]:
                 (
                     r_slug, r_name, r_strength, r_imprint,
                     r_color, r_shape, r_manufacturer, r_image_filename,
