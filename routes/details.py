@@ -194,6 +194,7 @@ def get_pill_by_slug(slug: str):
                 "color": pill_info.get("splcolor_text"),
                 "shape": pill_info.get("splshape_text"),
                 "ndc": pill_info.get("ndc11"),
+                "ndc9": pill_info.get("ndc9"),
                 "rxcui": str(pill_info.get("rxcui", "") or ""),
                 "slug": pill_info.get("slug"),
                 "strength": pill_info.get("spl_strength"),
@@ -211,6 +212,9 @@ def get_pill_by_slug(slug: str):
                 "images": image_urls,
                 "has_multiple_images": len(image_urls) > 1,
                 "carousel_images": [{"id": i, "url": url} for i, url in enumerate(image_urls)],
+                # Source-citation / freshness fields — present only when the DB has them
+                "spl_set_id": pill_info.get("spl_set_id") or pill_info.get("setid") or pill_info.get("spl_set_id_value"),
+                "updated_at": str(pill_info.get("updated_at") or pill_info.get("last_updated") or pill_info.get("ingested_at") or "") or None,
             }
 
         return mapped

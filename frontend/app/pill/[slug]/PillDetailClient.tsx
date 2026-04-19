@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import type { PillDetail, RelatedDrug } from '../../types'
+import type { PillDetail, RelatedDrug, SimilarPill } from '../../types'
 import type { Reviewer } from '../../lib/reviewers'
 import { classSlugify } from '../../lib/slug'
 
@@ -34,50 +34,6 @@ function DetailRow({ label, value }: { label: string; value?: string }) {
   )
 }
 
-
-function generatePillDescription(pill: PillDetail): string {
-  const parts: string[] = []
-
-  // Basic physical description
-  const colorShape = [pill.color, pill.shape].filter(Boolean).join(' ')
-  const sizeStr = pill.size ? `${pill.size} mm` : ''
-  const form = pill.dosage_form || 'Pill'
-  // Use "an" before vowel sounds, "a" otherwise
-  const firstWord = (colorShape || form)[0]?.toLowerCase() ?? ''
-  const article = 'aeiou'.includes(firstWord) ? 'an' : 'a'
-  let intro = `This medication is ${article}`
-  if (colorShape) intro += ` ${colorShape}`
-  if (sizeStr) intro += ` ${sizeStr},`
-  intro += ` ${form}`
-  if (pill.imprint) {
-    intro += ` with imprint "${pill.imprint}".`
-  } else {
-    intro += '.'
-  }
-  parts.push(intro)
-
-  // Strength / ingredients
-  if (pill.strength && pill.ingredients) {
-    parts.push(`It contains ${pill.strength} of ${pill.ingredients}.`)
-  } else if (pill.ingredients) {
-    parts.push(`It contains ${pill.ingredients}.`)
-  }
-
-  // Pharma class
-  if (pill.pharma_class) {
-    parts.push(`This belongs to the ${pill.pharma_class} pharmacologic class.`)
-  }
-
-  // Manufacturer
-  if (pill.manufacturer) {
-    parts.push(`It is manufactured by ${pill.manufacturer}.`)
-  }
-
-  parts.push('For details please contact your physician.')
-
-  return parts.join(' ')
-}
-
 function buildImageAlt(pill: PillDetail, index?: number): string {
   const parts = [
     pill.color,
@@ -92,6 +48,29 @@ function buildImageAlt(pill: PillDetail, index?: number): string {
   return index && index > 1 ? `${base} (view ${index})` : base
 }
 
+/** Accordion item for the FAQ block. */
+function FaqItem({ question, answer }: { question: string; answer: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="border-b border-slate-100 last:border-0">
+      <button
+        type="button"
+        className="w-full flex justify-between items-center py-3 text-left text-sm font-medium text-slate-800 hover:text-emerald-700 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span>{question}</span>
+        <span className="ml-4 shrink-0 text-slate-400 select-none" aria-hidden="true">
+          {open ? '▲' : '▼'}
+        </span>
+      </button>
+      {open && (
+        <p className="pb-3 text-sm text-slate-700 leading-relaxed">{answer}</p>
+      )}
+    </div>
+  )
+}
+
 export default function PillDetailClient({
   pill,
   slug,
@@ -100,6 +79,9 @@ export default function PillDetailClient({
   reviewer,
   related,
   pharmaClass,
+  similar,
+  faqItems,
+  identificationSummary,
 }: {
   pill: PillDetail
   slug?: string
@@ -108,6 +90,9 @@ export default function PillDetailClient({
   reviewer?: Reviewer
   related?: RelatedDrug[]
   pharmaClass?: string
+  similar?: SimilarPill[]
+  faqItems?: Array<{ question: string; answer: string }>
+  identificationSummary?: string
 }) {
   const router = useRouter()
   const [zoomImage, setZoomImage] = useState<string | null>(null)
@@ -193,15 +178,19 @@ export default function PillDetailClient({
           ← Back
         </button>
 
-        {/* Reviewed by / Last updated — matches JSON-LD dateModified / lastReviewed */}
-        {reviewer && lastUpdatedIso && formattedDate && (
+        {/* Reviewed by / Last verified — matches JSON-LD dateModified / lastReviewed */}
+        {reviewer && (
           <p className="text-xs text-slate-500 mb-3">
             Reviewed by{' '}
             <Link href={reviewer.url} className="underline hover:text-slate-700">
               {reviewer.name}
             </Link>
-            {' · '}Last updated{' '}
-            <time dateTime={lastUpdatedIso}>{formattedDate}</time>
+            {lastUpdatedIso && formattedDate && (
+              <>
+                {' · '}Last verified{' '}
+                <time dateTime={lastUpdatedIso}>{formattedDate}</time>
+              </>
+            )}
           </p>
         )}
 
@@ -298,11 +287,47 @@ export default function PillDetailClient({
           )}
         </div>
 
-        {/* Description Paragraph */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          <h2 className="text-base font-semibold text-slate-800 mb-3">About This Medication</h2>
-          <p className="text-sm text-slate-700 leading-relaxed">{generatePillDescription(pill)}</p>
-        </div>
+        {/* Identification Summary */}
+        {identificationSummary && (
+          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-3">Pill Identification</h2>
+            <p className="text-sm text-slate-700 leading-relaxed">{identificationSummary}</p>
+          </section>
+        )}
+
+        {/* Safety Checklist */}
+        <section className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6" aria-label="Safety checklist">
+          <h2 className="text-sm font-semibold text-amber-900 mb-3">⚠️ What to verify before taking this medication</h2>
+          <ul className="space-y-2 text-sm text-amber-800 leading-relaxed list-none">
+            <li className="flex gap-2">
+              <span aria-hidden="true">✓</span>
+              <span>Verify the imprint, color, and shape match exactly — even a single different character can mean a different drug.</span>
+            </li>
+            <li className="flex gap-2">
+              <span aria-hidden="true">✓</span>
+              <span>Check the expiration date on the original packaging.</span>
+            </li>
+            <li className="flex gap-2">
+              <span aria-hidden="true">✓</span>
+              <span>Look for signs of tampering, discoloration, or unusual odor.</span>
+            </li>
+            <li className="flex gap-2">
+              <span aria-hidden="true">✓</span>
+              <span>Confirm with your pharmacist or prescriber before taking any medication you are unsure about.</span>
+            </li>
+            <li className="flex gap-2">
+              <span aria-hidden="true">✓</span>
+              <span>Never take medication prescribed to someone else.</span>
+            </li>
+          </ul>
+          <p className="mt-3 text-xs text-amber-700">
+            This is patient-safety guidance, not medical advice.{' '}
+            <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
+              Read full medical disclaimer
+            </Link>
+            .
+          </p>
+        </section>
 
         {/* Basic Information */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
@@ -352,6 +377,44 @@ export default function PillDetailClient({
               </div>
             </dl>
           </div>
+        )}
+
+        {/* Similar-looking Pills (Confusion Risk) */}
+        {similar && similar.length > 0 && (
+          <section className="bg-white border border-amber-200 rounded-xl shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-1">
+              Similar-looking pills — double-check before taking
+            </h2>
+            <p className="text-xs text-slate-500 mb-4">
+              This pill looks similar to the following. Verify the imprint, color, and shape carefully before taking any medication.
+            </p>
+            <ul className="grid sm:grid-cols-2 gap-3">
+              {similar.map((p) => (
+                <li key={p.slug}>
+                  <Link
+                    href={`/pill/${encodeURIComponent(p.slug)}`}
+                    className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-amber-300 hover:bg-amber-50 transition-colors"
+                  >
+                    {p.image_url && (
+                      <img
+                        src={p.image_url}
+                        alt={`${[p.color, p.shape].filter(Boolean).join(' ')} pill with imprint ${p.imprint} — ${p.drug_name}`}
+                        className="w-12 h-12 object-contain rounded bg-slate-50 shrink-0"
+                        width={48}
+                        height={48}
+                        loading="lazy"
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-medium text-slate-900 truncate">{p.drug_name}</div>
+                      {p.strength && <div className="text-xs text-slate-500">{p.strength}</div>}
+                      {p.imprint && <div className="text-xs text-slate-400 font-mono">Imprint: {p.imprint}</div>}
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
         {/* Related Medications */}
@@ -408,6 +471,73 @@ export default function PillDetailClient({
           </dl>
         </div>
 
+        {/* FAQ Block */}
+        {faqItems && faqItems.length > 0 && (
+          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-4">Frequently Asked Questions</h2>
+            <dl>
+              {faqItems.map((item) => (
+                <FaqItem key={item.question} question={item.question} answer={item.answer} />
+              ))}
+            </dl>
+          </section>
+        )}
+
+        {/* Source Citations */}
+        <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-3">Data Sources</h2>
+          <ul className="space-y-2 text-sm text-slate-700">
+            {pill.ndc && (
+              <li>
+                <strong>FDA NDC Directory</strong>
+                {' — '}
+                <a
+                  href={`https://dailymed.nlm.nih.gov/dailymed/search.cfm?query=${encodeURIComponent(pill.ndc)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sky-700 hover:underline"
+                >
+                  Search DailyMed for NDC {pill.ndc}
+                </a>
+              </li>
+            )}
+            {pill.spl_set_id && (
+              <li>
+                <strong>DailyMed SPL</strong>
+                {' — '}
+                <a
+                  href={`https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=${encodeURIComponent(pill.spl_set_id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sky-700 hover:underline"
+                >
+                  View SPL document (Set ID: {pill.spl_set_id})
+                </a>
+              </li>
+            )}
+            {pill.rxcui && (
+              <li>
+                <strong>RxNorm</strong>
+                {' — '}
+                <a
+                  href={`https://mor.nlm.nih.gov/RxNav/search?searchBy=RXCUI&searchTerm=${encodeURIComponent(pill.rxcui)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sky-700 hover:underline"
+                >
+                  View in RxNav (RxCUI: {pill.rxcui})
+                </a>
+              </li>
+            )}
+          </ul>
+          {lastUpdatedIso && formattedDate && (
+            <p className="mt-3 text-xs text-slate-500">
+              Data last verified:{' '}
+              <time dateTime={lastUpdatedIso}>{formattedDate}</time>
+            </p>
+          )}
+        </section>
+
         {/* Related Links */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-base font-semibold text-slate-800 mb-4">Browse Related Pills</h2>
@@ -463,3 +593,4 @@ export default function PillDetailClient({
     </>
   )
 }
+

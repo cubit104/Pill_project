@@ -1,9 +1,11 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import PillDetailClient from './PillDetailClient'
-import type { PillDetail, RelatedDrug } from '../../types'
+import type { PillDetail, RelatedDrug, SimilarPill } from '../../types'
 import {
   breadcrumbSchema,
+  buildIdentificationSummary,
+  faqSchema,
   medicalWebPageSchema,
   safeJsonLd,
 } from '../../lib/structured-data'
@@ -27,6 +29,7 @@ async function fetchPill(slug: string): Promise<PillDetail | null> {
     color: raw.color ?? raw.splcolor_text,
     shape: raw.shape ?? raw.splshape_text,
     ndc: raw.ndc ?? raw.ndc11,
+    ndc9: raw.ndc9,
     rxcui: raw.rxcui,
     slug: raw.slug,
     strength: raw.strength ?? raw.spl_strength,
@@ -42,6 +45,8 @@ async function fetchPill(slug: string): Promise<PillDetail | null> {
     route: raw.route,
     image_url: raw.image_url ?? (Array.isArray(raw.image_urls) ? raw.image_urls[0] : undefined),
     images: raw.images ?? raw.image_urls ?? [],
+    spl_set_id: raw.spl_set_id ?? undefined,
+    updated_at: raw.updated_at ?? undefined,
   }
 }
 
@@ -55,6 +60,75 @@ async function fetchRelated(slug: string): Promise<{ pharma_class: string | null
   } catch {
     return { pharma_class: null, related: [] }
   }
+}
+
+async function fetchSimilar(slug: string): Promise<SimilarPill[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}/similar`, {
+      next: { revalidate: 3600 },
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    return Array.isArray(data.similar) ? data.similar : []
+  } catch {
+    return []
+  }
+}
+
+/** Build FAQ items from real DB fields for both visible UI and FAQPage JSON-LD. */
+function buildFaqItems(pill: PillDetail): Array<{ question: string; answer: string }> {
+  const items: Array<{ question: string; answer: string }> = []
+
+  if (pill.drug_name && pill.drug_name !== 'Unknown') {
+    const a1Parts = [
+      `This pill is identified as ${pill.drug_name}`,
+      pill.strength ? pill.strength : null,
+      pill.dosage_form ? `, a ${pill.dosage_form}` : null,
+      pill.manufacturer ? ` manufactured by ${pill.manufacturer}` : null,
+    ].filter(Boolean)
+    items.push({
+      question: 'What is this pill?',
+      answer: `${a1Parts.join('')}.`,
+    })
+  }
+
+  if (pill.imprint) {
+    const physicalDesc = [pill.color, pill.shape].filter(Boolean).join(' ')
+    items.push({
+      question: `What does the imprint "${pill.imprint}" mean?`,
+      answer: `The imprint "${pill.imprint}" on this${physicalDesc ? ` ${physicalDesc}` : ''} pill helps identify it as ${pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : 'this medication'}. Pill imprints are assigned by manufacturers and registered with the FDA.`,
+    })
+  }
+
+  if (pill.manufacturer) {
+    items.push({
+      question: 'Who makes this medication?',
+      answer: `This medication is manufactured by ${pill.manufacturer}.${pill.ndc ? ` The NDC (National Drug Code) is ${pill.ndc}.` : ''}`,
+    })
+  }
+
+  if (pill.ingredients) {
+    items.push({
+      question: 'What are the active ingredients?',
+      answer: `The active ingredients in this medication are: ${pill.ingredients}.`,
+    })
+  }
+
+  if (pill.dea_schedule) {
+    const scheduleLabels: Record<string, string> = {
+      '1': 'a Schedule I controlled substance with high abuse potential and no accepted medical use',
+      '2': 'a Schedule II controlled substance with high abuse potential and severe dependence risk',
+      '3': 'a Schedule III controlled substance with moderate abuse potential',
+      '4': 'a Schedule IV controlled substance with low abuse potential',
+      '5': 'a Schedule V controlled substance — the lowest abuse potential among controlled substances',
+    }
+    items.push({
+      question: 'Is this medication a controlled substance?',
+      answer: `Yes, ${pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : 'this medication'} is classified as ${scheduleLabels[pill.dea_schedule] ?? `a DEA Schedule ${pill.dea_schedule} controlled substance`}.`,
+    })
+  }
+
+  return items
 }
 
 export async function generateMetadata(
@@ -80,14 +154,9 @@ export async function generateMetadata(
   ].filter(Boolean)
   const title = titleParts.join(' ')
 
-  // Build meta description ≤155 chars
-  const descParts = [
-    `Identify the ${[pill.color, pill.shape].filter(Boolean).join(' ')} ${pill.drug_name}`,
-    pill.strength ? `${pill.strength}` : null,
-    pill.imprint ? `pill with imprint ${pill.imprint}` : 'pill',
-    '— view images, drug info, ingredients, and manufacturer details.',
-  ].filter(Boolean)
-  const description = descParts.join(' ').slice(0, 155)
+  // Identification summary is shared between on-page paragraph, meta description, and JSON-LD
+  const identificationSummary = buildIdentificationSummary(pill)
+  const description = identificationSummary.slice(0, 155)
 
   const images = pill.images && pill.images.length > 0
     ? pill.images
@@ -136,9 +205,10 @@ export default async function PillDetailPage(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params
-  const [pill, relatedData] = await Promise.all([
+  const [pill, relatedData, similarPills] = await Promise.all([
     fetchPill(slug),
     fetchRelated(slug),
+    fetchSimilar(slug),
   ])
   if (!pill) notFound()
 
@@ -150,20 +220,29 @@ export default async function PillDetailPage(
     { name: pill.drug_name ?? slug, url: `/pill/${encodeURIComponent(slug)}` },
   ])
 
-  const nowIso = new Date().toISOString()
+  // Use a real DB timestamp when available; omit dateModified/lastReviewed when not.
+  const lastUpdatedIso = pill.updated_at && pill.updated_at.length > 0
+    ? pill.updated_at
+    : undefined
+
+  const formattedDate = lastUpdatedIso
+    ? new Date(lastUpdatedIso).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        timeZone: 'UTC',
+      })
+    : undefined
+
+  const identificationSummary = buildIdentificationSummary(pill)
 
   const medPage = medicalWebPageSchema(pill, slug, {
-    dateModified: nowIso,
+    dateModified: lastUpdatedIso,
     reviewer: DEFAULT_REVIEWER,
+    description: identificationSummary,
   })
 
-  const lastUpdatedIso = nowIso
-  const formattedDate = new Date(nowIso).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone: 'UTC',
-  })
+  const faqItems = buildFaqItems(pill)
 
   return (
     <>
@@ -175,6 +254,12 @@ export default async function PillDetailPage(
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: safeJsonLd(medPage) }}
       />
+      {faqItems.length > 0 && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(faqSchema(faqItems)) }}
+        />
+      )}
       <PillDetailClient
         pill={pill}
         slug={slug}
@@ -183,7 +268,11 @@ export default async function PillDetailPage(
         reviewer={DEFAULT_REVIEWER}
         related={relatedData.related}
         pharmaClass={relatedData.pharma_class ?? undefined}
+        similar={similarPills}
+        faqItems={faqItems}
+        identificationSummary={identificationSummary}
       />
     </>
   )
 }
+

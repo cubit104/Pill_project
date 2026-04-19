@@ -542,3 +542,125 @@ def test_api_class_limit_too_large_rejected(client):
     """GET /api/class/{class_slug} with limit > 500 should return 422."""
     response = client.get("/api/class/salicylates?limit=9999")
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# /api/pill/{slug}/similar endpoint
+# ---------------------------------------------------------------------------
+
+def test_api_pill_similar_not_found(client):
+    """GET /api/pill/{slug}/similar should return 404 when slug does not exist."""
+    import database as db_module
+    mock_result = MagicMock()
+    mock_result.fetchone.return_value = None
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = mock_result
+    response = client.get("/api/pill/nonexistent-slug/similar")
+    assert response.status_code == 404
+
+
+def test_api_pill_similar_no_color_shape_returns_empty(client):
+    """GET /api/pill/{slug}/similar should return empty list when pill has no color or shape."""
+    import database as db_module
+    mock_result = MagicMock()
+    # source_row: (medicine_name, splimprint, splcolor_text, splshape_text) — no color/shape
+    mock_result.fetchone.return_value = ("Aspirin", "BAYER", None, None)
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = mock_result
+    response = client.get("/api/pill/aspirin-500mg/similar")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["similar"] == []
+
+
+def test_api_pill_similar_returns_similar_key(client):
+    """GET /api/pill/{slug}/similar response must include a 'similar' key."""
+    import database as db_module
+
+    def execute_side_effect(query, params=None):
+        mock_res = MagicMock()
+        if params and "slug" in params and "color" not in params:
+            mock_res.fetchone.return_value = ("Aspirin", "BAYER", "White", "Round")
+        else:
+            mock_res.fetchall.return_value = []
+        return mock_res
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = execute_side_effect
+    response = client.get("/api/pill/aspirin-500mg/similar")
+    assert response.status_code == 200
+    data = response.json()
+    assert "similar" in data
+    assert isinstance(data["similar"], list)
+
+
+def test_api_pill_similar_happy_path(client):
+    """GET /api/pill/{slug}/similar returns up to 5 similar pills with expected fields."""
+    import database as db_module
+
+    similar_rows = [
+        (
+            "ibuprofen-200mg",   # slug
+            "Ibuprofen",         # medicine_name
+            "200mg",             # spl_strength
+            "BAYER",             # splimprint
+            "White",             # splcolor_text
+            "Round",             # splshape_text
+            "Pfizer",            # author (manufacturer)
+            None,                # image_filename
+        ),
+    ]
+
+    def execute_side_effect(query, params=None):
+        mock_res = MagicMock()
+        if params and "slug" in params and "color" not in params:
+            # First call: resolve source pill
+            mock_res.fetchone.return_value = ("Aspirin", "BAYER", "White", "Round")
+        else:
+            # Second call: find similar pills
+            mock_res.fetchall.return_value = similar_rows
+        return mock_res
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = execute_side_effect
+    response = client.get("/api/pill/aspirin-500mg/similar")
+    assert response.status_code == 200
+    data = response.json()
+    assert "similar" in data
+    assert len(data["similar"]) == 1
+
+    pill = data["similar"][0]
+    assert pill["slug"] == "ibuprofen-200mg"
+    assert pill["drug_name"] == "Ibuprofen"
+    assert pill["strength"] == "200mg"
+    assert pill["imprint"] == "BAYER"
+    assert pill["color"] == "White"
+    assert pill["shape"] == "Round"
+    assert pill["manufacturer"] == "Pfizer"
+    assert pill["image_url"] is None
+
+
+def test_api_pill_similar_image_url_built_from_filename(client):
+    """GET /api/pill/{slug}/similar image_url is derived from image_filename when present."""
+    import database as db_module
+    from utils import IMAGE_BASE
+
+    similar_rows = [
+        ("other-pill", "Other Drug", "10mg", "M 123", "Blue", "Oval", "Acme", "other.jpg"),
+    ]
+
+    def execute_side_effect(query, params=None):
+        mock_res = MagicMock()
+        if params and "slug" in params and "color" not in params:
+            mock_res.fetchone.return_value = ("My Drug", "M 123", "Blue", "Oval")
+        else:
+            mock_res.fetchall.return_value = similar_rows
+        return mock_res
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = execute_side_effect
+    response = client.get("/api/pill/my-drug/similar")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["similar"]) == 1
+    assert data["similar"][0]["image_url"] == f"{IMAGE_BASE}/other.jpg"
+
