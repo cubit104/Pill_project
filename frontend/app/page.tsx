@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Image from 'next/image'
 import HomeSearch from './components/HomeSearch'
 import Link from 'next/link'
 import { websiteSchema, organizationSchema, safeJsonLd } from './lib/structured-data'
@@ -42,11 +43,12 @@ export default function HomePage() {
       {/* Hero Section — tighter spacing */}
       <section className="bg-gradient-to-b from-slate-50 to-white pt-8 pb-12 px-4">
         <div className="max-w-4xl mx-auto text-center">
-          <img
+          <Image
             src="/logo-mark.svg"
             alt=""
             width={96}
             height={96}
+            priority
             className="mx-auto mb-4"
           />
           <h1 className="text-4xl sm:text-5xl font-bold mb-3 tracking-tight text-slate-900">
