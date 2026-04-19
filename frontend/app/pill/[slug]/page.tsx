@@ -14,13 +14,13 @@ const SITE_URL = (
 ).replace(/\/$/, '')
 
 async function fetchPill(slug: string): Promise<PillDetail | null> {
-  const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, {
-    next: { revalidate: 3600 },
-  })
-  if (res.status === 404) return null
-  if (!res.ok) throw new Error(`API error ${res.status}`)
-  const raw = await res.json()
-  return {
+  try {
+    const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, {
+      next: { revalidate: 3600 },
+    })
+    if (!res.ok) return null
+    const raw = await res.json()
+    return {
     drug_name: raw.drug_name ?? raw.medicine_name ?? 'Unknown',
     imprint: raw.imprint ?? raw.splimprint ?? '',
     color: raw.color ?? raw.splcolor_text,
@@ -42,6 +42,10 @@ async function fetchPill(slug: string): Promise<PillDetail | null> {
     image_url: raw.image_url ?? (Array.isArray(raw.image_urls) ? raw.image_urls[0] : undefined),
     images: raw.images ?? raw.image_urls ?? [],
   }
+  } catch (e) {
+    console.error('fetchPill error:', e)
+    return null
+  }
 }
 
 async function fetchRelated(slug: string): Promise<{ pharma_class: string | null; related: RelatedDrug[] }> {
@@ -60,7 +64,13 @@ export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params
-  const pill = await fetchPill(slug)
+  let pill: PillDetail | null = null
+  try {
+    pill = await fetchPill(slug)
+  } catch (e) {
+    console.error('generateMetadata fetchPill error:', e)
+    // fall through to "not found" metadata
+  }
   if (!pill) {
     return {
       title: 'Pill Not Found',
