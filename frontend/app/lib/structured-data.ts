@@ -1,4 +1,12 @@
 import type { PillDetail } from '../types'
+import type { Reviewer } from './reviewers'
+
+/** Remove undefined values from an object so JSON-LD stays clean. */
+function stripUndefined<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined)
+  ) as Partial<T>
+}
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
@@ -41,12 +49,16 @@ export function organizationSchema() {
       '@type': 'ImageObject',
       url: `${SITE_URL}/icon.png`,
     },
+    description: 'PillSeek is a free pill identification service powered by FDA NDC Directory, DailyMed, and RxNorm data.',
+    foundingDate: '2025',
+    // Leave sameAs empty until official social accounts are created
     sameAs: [],
     contactPoint: {
       '@type': 'ContactPoint',
       contactType: 'customer support',
       email: 'contact@pillseek.com',
-      availableLanguage: 'English',
+      availableLanguage: ['English'],
+      url: `${SITE_URL}/contact`,
     },
   }
 }
@@ -68,7 +80,15 @@ export function breadcrumbSchema(
   }
 }
 
-export function medicalWebPageSchema(pill: PillDetail, slug: string) {
+export function medicalWebPageSchema(
+  pill: PillDetail,
+  slug: string,
+  opts?: {
+    datePublished?: string  // ISO 8601
+    dateModified?: string   // ISO 8601
+    reviewer?: Reviewer
+  }
+) {
   const nameParts = [
     pill.color,
     pill.shape,
@@ -95,32 +115,56 @@ export function medicalWebPageSchema(pill: PillDetail, slug: string) {
     .filter(Boolean)
     .join(' ')
 
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'MedicalWebPage',
+  const fallbackDate = new Date().toISOString()
+
+  return stripUndefined({
+    '@context': 'https://schema.org' as const,
+    '@type': 'MedicalWebPage' as const,
     name,
     description,
     url: `${SITE_URL}/pill/${encodeURIComponent(slug)}`,
+    inLanguage: 'en-US',
+    isPartOf: { '@type': 'WebSite' as const, name: SITE_NAME, url: SITE_URL },
+    datePublished: opts?.datePublished,
+    dateModified: opts?.dateModified ?? fallbackDate,
+    lastReviewed: opts?.dateModified ?? fallbackDate,
+    reviewedBy: opts?.reviewer
+      ? stripUndefined({
+          '@type': opts.reviewer.schemaType,
+          name: opts.reviewer.name,
+          jobTitle: opts.reviewer.credentials,
+          url: `${SITE_URL}${opts.reviewer.url}`,
+          ...(opts.reviewer.sameAs && opts.reviewer.sameAs.length > 0
+            ? { sameAs: opts.reviewer.sameAs }
+            : {}),
+        })
+      : undefined,
     about: {
-      '@type': 'Drug',
+      '@type': 'Drug' as const,
       name: pill.drug_name,
       ...(pill.dosage_form && { dosageForm: pill.dosage_form }),
       ...(pill.ingredients && { activeIngredient: pill.ingredients }),
       ...(pill.manufacturer && {
         manufacturer: {
-          '@type': 'Organization',
+          '@type': 'Organization' as const,
           name: pill.manufacturer,
         },
       }),
     },
     audience: {
-      '@type': 'Patient',
+      '@type': 'Patient' as const,
     },
     medicalAudience: {
-      '@type': 'MedicalAudience',
+      '@type': 'MedicalAudience' as const,
       audienceType: 'Patient',
     },
-  }
+    publisher: {
+      '@type': 'Organization' as const,
+      name: SITE_NAME,
+      url: SITE_URL,
+      logo: { '@type': 'ImageObject' as const, url: `${SITE_URL}/icon.png` },
+    },
+  })
 }
 
 export function faqSchema(items: Array<{ question: string; answer: string }>) {
@@ -142,17 +186,19 @@ export function hubPageSchema(opts: {
   name: string
   description: string
   url: string
+  dateModified?: string
 }) {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'CollectionPage',
+  return stripUndefined({
+    '@context': 'https://schema.org' as const,
+    '@type': 'CollectionPage' as const,
     name: opts.name,
     description: opts.description,
     url: opts.url.startsWith('http') ? opts.url : `${SITE_URL}${opts.url}`,
+    dateModified: opts.dateModified,
     isPartOf: {
-      '@type': 'WebSite',
+      '@type': 'WebSite' as const,
       name: SITE_NAME,
       url: SITE_URL,
     },
-  }
+  })
 }

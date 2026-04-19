@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail } from '../../types'
+import type { Reviewer } from '../../lib/reviewers'
 
 function PillIconLarge() {
   return (
@@ -93,9 +94,15 @@ function buildImageAlt(pill: PillDetail, index?: number): string {
 export default function PillDetailClient({
   pill,
   slug,
+  lastUpdatedIso,
+  formattedDate,
+  reviewer,
 }: {
   pill: PillDetail
   slug?: string
+  lastUpdatedIso?: string
+  formattedDate?: string
+  reviewer?: Reviewer
 }) {
   const router = useRouter()
   const [zoomImage, setZoomImage] = useState<string | null>(null)
@@ -180,6 +187,18 @@ export default function PillDetailClient({
         >
           ← Back
         </button>
+
+        {/* Reviewed by / Last updated — matches JSON-LD dateModified / lastReviewed */}
+        {reviewer && lastUpdatedIso && formattedDate && (
+          <p className="text-xs text-slate-500 mb-3">
+            Reviewed by{' '}
+            <Link href={reviewer.url} className="underline hover:text-slate-700">
+              {reviewer.name}
+            </Link>
+            {' · '}Last updated{' '}
+            <time dateTime={lastUpdatedIso}>{formattedDate}</time>
+          </p>
+        )}
 
         {/* Hero Card */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
