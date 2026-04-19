@@ -50,14 +50,11 @@ export const POPULAR_MEDICATIONS: PopularMed[] = [
   // Stomach & GI
   { name: 'Omeprazole', slug: 'omeprazole', category: 'Stomach & GI' },
   { name: 'Pantoprazole', slug: 'pantoprazole', category: 'Stomach & GI' },
-  { name: 'Ranitidine', slug: 'ranitidine', category: 'Stomach & GI' },
   { name: 'Famotidine', slug: 'famotidine', category: 'Stomach & GI' },
 
-  // Thyroid
-  { name: 'Levothyroxine', slug: 'levothyroxine', category: 'Thyroid' },
-
-  // Hormones
-  { name: 'Prednisone', slug: 'prednisone', category: 'Hormones' },
+  // Thyroid & Hormones
+  { name: 'Levothyroxine', slug: 'levothyroxine', category: 'Thyroid & Hormones' },
+  { name: 'Prednisone', slug: 'prednisone', category: 'Thyroid & Hormones' },
 
   // Allergies
   { name: 'Loratadine', slug: 'loratadine', category: 'Allergies' },
