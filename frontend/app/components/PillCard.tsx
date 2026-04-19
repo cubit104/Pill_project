@@ -1,10 +1,8 @@
 'use client'
 
-import Image from 'next/image'
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import type { PillResult } from '../types'
-import { buildPillAlt } from '../lib/pill-alt'
 
 interface PillCardProps {
   pill: PillResult
@@ -124,13 +122,9 @@ export default function PillCard({ pill }: PillCardProps) {
           {images.length > 0 ? (
             <div className="flex flex-col items-center gap-2">
               <div className="relative w-40 h-40">
-                <Image
+                <img
                   src={images[currentIndex]}
-                  alt={buildPillAlt(pill, { imageIndex: currentIndex, totalImages: images.length })}
-                  width={160}
-                  height={160}
-                  sizes="160px"
-                  unoptimized
+                  alt={drugName}
                   className="w-40 h-40 object-contain rounded-lg border border-slate-100 bg-gray-50"
                 />
                 {images.length > 1 && (
