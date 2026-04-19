@@ -1,8 +1,8 @@
 import Link from 'next/link'
-import { POPULAR_MEDICATIONS } from '../lib/popular-medications'
+import { POPULAR_MEDICATIONS, type PopularMed } from '../lib/popular-medications'
 
-function groupByCategory(meds: typeof POPULAR_MEDICATIONS) {
-  return meds.reduce<Record<string, typeof POPULAR_MEDICATIONS>>((acc, med) => {
+function groupByCategory(meds: PopularMed[]) {
+  return meds.reduce<Record<string, PopularMed[]>>((acc, med) => {
     if (!acc[med.category]) acc[med.category] = []
     acc[med.category].push(med)
     return acc

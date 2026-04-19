@@ -53,8 +53,10 @@ export const POPULAR_MEDICATIONS: PopularMed[] = [
   { name: 'Ranitidine', slug: 'ranitidine', category: 'Stomach & GI' },
   { name: 'Famotidine', slug: 'famotidine', category: 'Stomach & GI' },
 
-  // Thyroid / Hormones
+  // Thyroid
   { name: 'Levothyroxine', slug: 'levothyroxine', category: 'Thyroid' },
+
+  // Hormones
   { name: 'Prednisone', slug: 'prednisone', category: 'Hormones' },
 
   // Allergies
