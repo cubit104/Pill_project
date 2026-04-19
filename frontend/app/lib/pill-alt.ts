@@ -3,9 +3,9 @@ import type { PillResult, PillDetail } from '../types'
 /**
  * Superset of all raw pill field names that may appear in API responses
  * or internal data models. Allows buildPillAlt to work across PillResult,
- * PillDetail, and untyped raw API payloads without resorting to `as any`.
+ * PillDetail, and raw API payloads.
  */
-interface PillLike {
+export interface PillLike {
   drug_name?: string
   medicine_name?: string
   imprint?: string
@@ -29,7 +29,7 @@ interface PillLike {
  *   "Lisinopril 10mg pill"
  */
 export function buildPillAlt(
-  pill: Pick<PillDetail, 'drug_name' | 'imprint' | 'color' | 'shape' | 'strength'> | PillResult,
+  pill: Pick<PillDetail, 'drug_name' | 'imprint' | 'color' | 'shape' | 'strength'> | PillResult | PillLike,
   opts?: { imageIndex?: number; totalImages?: number }
 ): string {
   const p = pill as PillLike
@@ -40,14 +40,21 @@ export function buildPillAlt(
   const strength = p.strength ?? p.spl_strength
 
   const descriptor = [color, shape].filter(Boolean).join(' ').trim()
-  const parts: string[] = []
-  if (descriptor) parts.push(`${cap(descriptor)} pill`)
-  else parts.push('Pill')
-  if (imprint) parts.push(`with imprint ${imprint}`)
-  const prefix = parts.join(' ')
-
   const drugPart = [drugName, strength].filter(Boolean).join(' ').trim()
-  let result = drugPart ? `${prefix} — ${drugPart}` : prefix
+
+  let result: string
+  if (descriptor) {
+    // "{Color} {Shape} pill [with imprint {Imprint}] — {Drug} {Strength}"
+    const parts: string[] = [`${cap(descriptor)} pill`]
+    if (imprint) parts.push(`with imprint ${imprint}`)
+    const prefix = parts.join(' ')
+    result = drugPart ? `${prefix} — ${drugPart}` : prefix
+  } else {
+    // No color/shape: "{Drug} {Strength} pill [with imprint {Imprint}]"
+    const parts: string[] = [drugPart || 'Unknown', 'pill']
+    if (imprint) parts.push(`with imprint ${imprint}`)
+    result = parts.join(' ')
+  }
 
   // Disambiguate multi-image galleries for accessibility
   if (opts?.totalImages && opts.totalImages > 1 && opts.imageIndex != null) {

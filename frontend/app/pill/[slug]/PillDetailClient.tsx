@@ -135,7 +135,15 @@ export default function PillDetailClient({
           </button>
           <Image
             src={zoomImage}
-            alt={buildPillAlt(pill)}
+            alt={(() => {
+              const zoomImageIndex = images.indexOf(zoomImage)
+              return buildPillAlt(
+                pill,
+                images.length > 1 && zoomImageIndex >= 0
+                  ? { imageIndex: zoomImageIndex, totalImages: images.length }
+                  : undefined
+              )
+            })()}
             width={600}
             height={600}
             sizes="(max-width: 640px) 90vw, 600px"
