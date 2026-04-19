@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import Header from './components/Header'
 import Footer from './components/Footer'
@@ -6,6 +6,12 @@ import Footer from './components/Footer'
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#047857',
+}
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -15,8 +21,6 @@ export const metadata: Metadata = {
   },
   description:
     'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Free medication lookup tool powered by FDA data — trusted by patients and caregivers.',
-  keywords:
-    'pill identifier, medication identification, imprint code, drug lookup, pill finder, identify pill by imprint',
   authors: [{ name: 'PillSeek' }],
   creator: 'PillSeek',
   publisher: 'PillSeek',
@@ -36,6 +40,11 @@ export const metadata: Metadata = {
     description:
       'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Powered by FDA data.',
     images: [`${SITE_URL}/icon.png`],
+    site: '@pillseek',
+    creator: '@pillseek',
+  },
+  verification: {
+    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || '',
   },
 }
 
