@@ -1,5 +1,6 @@
 import re
 import logging
+from datetime import timezone
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, Query, HTTPException
@@ -12,6 +13,36 @@ from utils import normalize_imprint, normalize_name, normalize_fields, process_i
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _to_iso(value) -> Optional[str]:
+    """Convert a DB timestamp to an ISO 8601 string with a UTC 'Z' suffix.
+
+    Accepts datetime objects, date objects, or strings. Returns None when the
+    value is falsy or cannot be parsed, so the frontend never receives an empty
+    string that would cause `new Date("")` to fail silently.
+    """
+    if not value:
+        return None
+    import datetime
+    if isinstance(value, datetime.datetime):
+        # Ensure UTC offset; treat naive datetimes as UTC.
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if isinstance(value, datetime.date):
+        return value.strftime("%Y-%m-%dT00:00:00Z")
+    # String fallback — try to parse common formats before giving up.
+    s = str(value).strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.datetime.strptime(s, fmt)
+            return dt.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            continue
+    return None
 
 def _aggregate_image_filenames(conn, raw_medicine_name: str, raw_splimprint: str, own_image_filename: str) -> str:
     """Collect image filenames for a pill by combining the row's own image_filename
@@ -212,9 +243,15 @@ def get_pill_by_slug(slug: str):
                 "images": image_urls,
                 "has_multiple_images": len(image_urls) > 1,
                 "carousel_images": [{"id": i, "url": url} for i, url in enumerate(image_urls)],
-                # Source-citation / freshness fields — present only when the DB has them
+                # Source-citation / freshness fields — present only when the DB has them.
+                # updated_at is serialised as ISO 8601 with a trailing 'Z' so the frontend
+                # can reliably parse it with new Date() on all JS engines.
                 "spl_set_id": pill_info.get("spl_set_id") or pill_info.get("setid") or pill_info.get("spl_set_id_value"),
-                "updated_at": str(pill_info.get("updated_at") or pill_info.get("last_updated") or pill_info.get("ingested_at") or "") or None,
+                "updated_at": _to_iso(
+                    pill_info.get("updated_at")
+                    or pill_info.get("last_updated")
+                    or pill_info.get("ingested_at")
+                ),
             }
 
         return mapped

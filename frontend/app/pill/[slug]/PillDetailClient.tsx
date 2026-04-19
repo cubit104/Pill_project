@@ -475,11 +475,11 @@ export default function PillDetailClient({
         {faqItems && faqItems.length > 0 && (
           <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
             <h2 className="text-base font-semibold text-slate-800 mb-4">Frequently Asked Questions</h2>
-            <dl>
+            <div>
               {faqItems.map((item) => (
                 <FaqItem key={item.question} question={item.question} answer={item.answer} />
               ))}
-            </dl>
+            </div>
           </section>
         )}
 

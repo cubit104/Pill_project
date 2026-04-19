@@ -80,15 +80,13 @@ function buildFaqItems(pill: PillDetail): Array<{ question: string; answer: stri
   const items: Array<{ question: string; answer: string }> = []
 
   if (pill.drug_name && pill.drug_name !== 'Unknown') {
-    const a1Parts = [
-      `This pill is identified as ${pill.drug_name}`,
-      pill.strength ? pill.strength : null,
-      pill.dosage_form ? `, a ${pill.dosage_form}` : null,
-      pill.manufacturer ? ` manufactured by ${pill.manufacturer}` : null,
-    ].filter(Boolean)
+    // Build the answer as a proper sentence with correct spacing between parts.
+    const namePart = `This pill is identified as ${pill.drug_name}${pill.strength ? ` ${pill.strength}` : ''}`
+    const formPart = pill.dosage_form ? `, a ${pill.dosage_form}` : ''
+    const mfrPart = pill.manufacturer ? ` manufactured by ${pill.manufacturer}` : ''
     items.push({
       question: 'What is this pill?',
-      answer: `${a1Parts.join('')}.`,
+      answer: `${namePart}${formPart}${mfrPart}.`,
     })
   }
 
@@ -228,18 +226,27 @@ export default async function PillDetailPage(
   ])
 
   // Use a real DB timestamp when available; omit dateModified/lastReviewed when not.
-  const lastUpdatedIso =
+  // Validate by parsing the string — reject if Date.parse returns NaN (e.g. malformed values).
+  const rawTimestamp =
     pill.updated_at && typeof pill.updated_at === 'string' && pill.updated_at.length > 0
       ? pill.updated_at
       : undefined
+  const lastUpdatedIso =
+    rawTimestamp && !Number.isNaN(Date.parse(rawTimestamp)) ? rawTimestamp : undefined
 
   const formattedDate = lastUpdatedIso
-    ? new Date(lastUpdatedIso).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        timeZone: 'UTC',
-      })
+    ? (() => {
+        try {
+          return new Date(lastUpdatedIso).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            timeZone: 'UTC',
+          })
+        } catch {
+          return undefined
+        }
+      })()
     : undefined
 
   const identificationSummary = buildIdentificationSummary(pill)

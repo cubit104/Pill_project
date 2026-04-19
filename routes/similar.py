@@ -25,14 +25,15 @@ def _pill_image_url(image_filename: Optional[str]) -> Optional[str]:
 def get_similar_pills(slug: str):
     """Return up to 5 pills that could be visually confused with the given pill.
 
-    Matching heuristic (in priority order):
-    1. Same splshape_text AND splcolor_text AND LOWER(splimprint) = LOWER(:imprint)
-       but with a different medicine_name  (exact imprint, different drug — highest risk).
-    2. Same splshape_text AND splcolor_text AND LOWER(splimprint) = LOWER(:imprint)
-       regardless of drug name (catches same drug, different manufacturer / NDC).
+    The source pill's color, shape, and imprint are resolved first. If any of
+    these three fields is missing, an empty list is returned (insufficient data
+    for a reliable visual match).
 
-    Both groups are merged, deduplicated by (medicine_name, spl_strength), and capped
-    at 5 results. The current slug is always excluded.
+    Candidates are fetched with a single query that matches on all three fields
+    (case-insensitive), deduplicates by (medicine_name, spl_strength) using
+    DISTINCT ON, and fetches up to 10 rows. Python then re-sorts so pills with
+    a different drug name (highest confusion risk) appear first, and the result
+    is capped at 5. The current slug is always excluded.
     """
     if not database.db_engine:
         if not database.connect_to_database():
@@ -56,8 +57,8 @@ def get_similar_pills(slug: str):
 
             own_name, own_imprint, own_color, own_shape = source_row
 
-            # If we don't have both color and shape, we can't reliably find visually similar pills.
-            if not own_color or not own_shape:
+            # All three fields are required for a reliable visual match.
+            if not own_color or not own_shape or not own_imprint:
                 return {"similar": []}
 
             # 2) Find similar pills: same color + shape + matching imprint.
