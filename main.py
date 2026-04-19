@@ -71,7 +71,7 @@ except Exception as e:
     logger.error(f"Error mounting images directory: {e}")
 
 # Include all route modules
-from routes import search, details, filters, ndc, sitemap, health  # noqa: E402
+from routes import search, details, filters, ndc, sitemap, health, similar  # noqa: E402
 
 app.include_router(search.router)
 app.include_router(details.router)
@@ -79,6 +79,7 @@ app.include_router(filters.router)
 app.include_router(ndc.router)
 app.include_router(sitemap.router)
 app.include_router(health.router)
+app.include_router(similar.router)
 
 
 def regenerate_slugs():

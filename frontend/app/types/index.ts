@@ -4,6 +4,7 @@ export interface PillResult {
   color?: string
   shape?: string
   ndc?: string
+  ndc9?: string
   rxcui?: string
   slug?: string
   image_url?: string
@@ -25,6 +26,21 @@ export interface PillDetail extends PillResult {
   brand_names?: string
   status_rx_otc?: string
   route?: string
+  /** DailyMed SPL Set ID — links to https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=... */
+  spl_set_id?: string
+  /** ISO 8601 timestamp from the DB (updated_at / last_updated / ingested_at). */
+  updated_at?: string
+}
+
+export interface SimilarPill {
+  slug: string
+  drug_name: string
+  strength?: string
+  imprint?: string
+  color?: string
+  shape?: string
+  manufacturer?: string
+  image_url?: string
 }
 
 export interface RelatedDrug {

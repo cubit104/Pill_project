@@ -22,6 +22,40 @@ export function safeJsonLd(obj: unknown): string {
   return JSON.stringify(obj).replace(/</g, '\\u003c')
 }
 
+/**
+ * Build a 2-sentence identification summary from real DB fields.
+ * Used as: visible paragraph, meta description, and JSON-LD description.
+ * Any missing field is silently omitted — never renders "undefined" or empty parens.
+ */
+export function buildIdentificationSummary(pill: PillDetail): string {
+  const physical = [pill.color, pill.shape].filter(Boolean).join(' ')
+  // Determine article based on the first character of the first word that will appear
+  // in the sentence. Only matters when physical is non-empty.
+  const article = physical && physical.length > 0
+    ? ('aeiou'.includes(physical[0].toLowerCase()) ? 'an' : 'a')
+    : 'a'
+
+  const s1Base = physical
+    ? `This is ${article} ${physical} pill`
+    : 'This pill'
+
+  const s1Imprint = pill.imprint ? ` with imprint ${pill.imprint}` : ''
+  const s1Drug = pill.drug_name && pill.drug_name !== 'Unknown'
+    ? `, identified as ${pill.drug_name}${pill.strength ? ` ${pill.strength}` : ''}`
+    : ''
+  const s1Mfr = pill.manufacturer ? ` manufactured by ${pill.manufacturer}` : ''
+
+  const sentence1 = `${s1Base}${s1Imprint}${s1Drug}${s1Mfr}.`
+
+  const s2Parts: string[] = []
+  if (pill.dosage_form) s2Parts.push(`supplied as ${pill.dosage_form}`)
+  if (pill.ndc) s2Parts.push(`distributed under NDC ${pill.ndc}`)
+
+  const sentence2 = s2Parts.length > 0 ? `It is ${s2Parts.join(' and ')}.` : ''
+
+  return [sentence1, sentence2].filter(Boolean).join(' ')
+}
+
 export function websiteSchema() {
   return {
     '@context': 'https://schema.org',
@@ -85,8 +119,9 @@ export function medicalWebPageSchema(
   slug: string,
   opts?: {
     datePublished?: string  // ISO 8601
-    dateModified?: string   // ISO 8601
+    dateModified?: string   // ISO 8601 — must be a real timestamp; do NOT pass new Date().toISOString()
     reviewer?: Reviewer
+    description?: string    // pre-built identification summary; falls back to basic description
   }
 ) {
   const nameParts = [
@@ -97,25 +132,8 @@ export function medicalWebPageSchema(
   ].filter(Boolean)
   const name = nameParts.join(' ')
 
-  // Build parenthetical safely so parentheses are always balanced
-  const colorShape =
-    pill.color && pill.shape
-      ? `(${pill.color} ${pill.shape})`
-      : pill.color
-        ? `(${pill.color})`
-        : pill.shape
-          ? `(${pill.shape})`
-          : null
-
-  const description = [
-    `Pill identification page for ${pill.drug_name}`,
-    pill.imprint ? `with imprint ${pill.imprint}` : null,
-    colorShape,
-  ]
-    .filter(Boolean)
-    .join(' ')
-
-  const fallbackDate = new Date().toISOString()
+  // Use the identification summary if provided; otherwise build a minimal fallback.
+  const description = opts?.description ?? buildIdentificationSummary(pill)
 
   return stripUndefined({
     '@context': 'https://schema.org' as const,
@@ -126,8 +144,10 @@ export function medicalWebPageSchema(
     inLanguage: 'en-US',
     isPartOf: { '@type': 'WebSite' as const, name: SITE_NAME, url: SITE_URL },
     datePublished: opts?.datePublished,
-    dateModified: opts?.dateModified ?? fallbackDate,
-    lastReviewed: opts?.dateModified ?? fallbackDate,
+    // Only set dateModified / lastReviewed when we have a real timestamp.
+    // Never pass new Date().toISOString() here — Google penalises fake freshness.
+    dateModified: opts?.dateModified,
+    lastReviewed: opts?.dateModified,
     reviewedBy: opts?.reviewer
       ? stripUndefined({
           '@type': opts.reviewer.schemaType,
