@@ -115,6 +115,8 @@ export function medicalWebPageSchema(
     .filter(Boolean)
     .join(' ')
 
+  const fallbackDate = new Date().toISOString()
+
   return stripUndefined({
     '@context': 'https://schema.org' as const,
     '@type': 'MedicalWebPage' as const,
@@ -124,8 +126,8 @@ export function medicalWebPageSchema(
     inLanguage: 'en-US',
     isPartOf: { '@type': 'WebSite' as const, name: SITE_NAME, url: SITE_URL },
     datePublished: opts?.datePublished,
-    dateModified: opts?.dateModified ?? new Date().toISOString(),
-    lastReviewed: opts?.dateModified ?? new Date().toISOString(),
+    dateModified: opts?.dateModified ?? fallbackDate,
+    lastReviewed: opts?.dateModified ?? fallbackDate,
     reviewedBy: opts?.reviewer
       ? stripUndefined({
           '@type': 'Person' as const,

@@ -135,13 +135,15 @@ export default async function PillDetailPage(
     { name: pill.drug_name ?? slug, url: `/pill/${encodeURIComponent(slug)}` },
   ])
 
+  const nowIso = new Date().toISOString()
+
   const medPage = medicalWebPageSchema(pill, slug, {
-    dateModified: new Date().toISOString(),
+    dateModified: nowIso,
     reviewer: DEFAULT_REVIEWER,
   })
 
-  const lastUpdatedIso = new Date().toISOString()
-  const formattedDate = new Date().toLocaleDateString('en-US', {
+  const lastUpdatedIso = nowIso
+  const formattedDate = new Date(nowIso).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
