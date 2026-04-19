@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import PillDetailClient from './PillDetailClient'
-import type { PillDetail } from '../../types'
+import type { PillDetail, RelatedDrug } from '../../types'
 import {
   breadcrumbSchema,
   medicalWebPageSchema,
@@ -42,6 +42,18 @@ async function fetchPill(slug: string): Promise<PillDetail | null> {
     route: raw.route,
     image_url: raw.image_url ?? (Array.isArray(raw.image_urls) ? raw.image_urls[0] : undefined),
     images: raw.images ?? raw.image_urls ?? [],
+  }
+}
+
+async function fetchRelated(slug: string): Promise<{ pharma_class: string | null; related: RelatedDrug[] }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/related/${encodeURIComponent(slug)}`, {
+      next: { revalidate: 3600 },
+    })
+    if (!res.ok) return { pharma_class: null, related: [] }
+    return await res.json()
+  } catch {
+    return { pharma_class: null, related: [] }
   }
 }
 
@@ -124,7 +136,10 @@ export default async function PillDetailPage(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params
-  const pill = await fetchPill(slug)
+  const [pill, relatedData] = await Promise.all([
+    fetchPill(slug),
+    fetchRelated(slug),
+  ])
   if (!pill) notFound()
 
   const breadcrumbs = breadcrumbSchema([
@@ -166,6 +181,8 @@ export default async function PillDetailPage(
         lastUpdatedIso={lastUpdatedIso}
         formattedDate={formattedDate}
         reviewer={DEFAULT_REVIEWER}
+        related={relatedData.related}
+        pharmaClass={relatedData.pharma_class ?? undefined}
       />
     </>
   )

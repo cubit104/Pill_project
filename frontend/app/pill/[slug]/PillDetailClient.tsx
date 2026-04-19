@@ -3,8 +3,9 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import type { PillDetail } from '../../types'
+import type { PillDetail, RelatedDrug } from '../../types'
 import type { Reviewer } from '../../lib/reviewers'
+import { classSlugify } from '../../lib/slug'
 
 function PillIconLarge() {
   return (
@@ -97,12 +98,16 @@ export default function PillDetailClient({
   lastUpdatedIso,
   formattedDate,
   reviewer,
+  related,
+  pharmaClass,
 }: {
   pill: PillDetail
   slug?: string
   lastUpdatedIso?: string
   formattedDate?: string
   reviewer?: Reviewer
+  related?: RelatedDrug[]
+  pharmaClass?: string
 }) {
   const router = useRouter()
   const [zoomImage, setZoomImage] = useState<string | null>(null)
@@ -334,9 +339,51 @@ export default function PillDetailClient({
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
             <h2 className="text-base font-semibold text-slate-800 mb-4">Pharmaceutical Classification</h2>
             <dl>
-              <DetailRow label="Pharmacologic Class" value={pill.pharma_class} />
+              <div className="py-3 border-b border-slate-100 last:border-0 flex flex-col sm:flex-row sm:items-start gap-1">
+                <dt className="text-sm font-medium text-slate-500 sm:w-44 shrink-0">Pharmacologic Class</dt>
+                <dd className="text-sm text-slate-800 sm:flex-1">
+                  <Link
+                    href={`/class/${encodeURIComponent(classSlugify(pill.pharma_class))}`}
+                    className="text-emerald-700 hover:underline"
+                  >
+                    {pill.pharma_class}
+                  </Link>
+                </dd>
+              </div>
             </dl>
           </div>
+        )}
+
+        {/* Related Medications */}
+        {related && related.length > 0 && pharmaClass && (
+          <section className="mt-0 mb-6 bg-white border border-slate-200 rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-1">Related Medications</h2>
+            <p className="text-sm text-slate-500 mb-4">
+              Other drugs in the same class:{' '}
+              <Link
+                href={`/class/${encodeURIComponent(classSlugify(pharmaClass))}`}
+                className="text-emerald-700 hover:underline"
+              >
+                {pharmaClass}
+              </Link>
+            </p>
+            <ul className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {related.map((r) => (
+                <li key={r.slug}>
+                  <Link
+                    href={`/pill/${encodeURIComponent(r.slug)}`}
+                    className="block p-3 border border-slate-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50"
+                  >
+                    <div className="font-medium text-slate-900">{r.drug_name}</div>
+                    {r.strength && <div className="text-xs text-slate-500">{r.strength}</div>}
+                    {(r.color || r.shape) && (
+                      <div className="text-xs text-slate-400 mt-0.5">{[r.color, r.shape].filter(Boolean).join(' • ')}</div>
+                    )}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
         {/* Ingredients */}

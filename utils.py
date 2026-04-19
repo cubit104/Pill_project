@@ -158,6 +158,20 @@ def generate_slug(medicine_name: str, spl_strength: str) -> str:
     return slug or "unknown"
 
 
+def slugify_class(class_name: str) -> str:
+    """Convert a pharmacologic class name to a URL-safe slug.
+
+    Example: "HMG-CoA Reductase Inhibitors" → "hmg-coa-reductase-inhibitors"
+             "ACE Inhibitors [EPC]" → "ace-inhibitors-epc"
+    """
+    if not class_name:
+        return "unknown"
+    slug = str(class_name).lower()
+    slug = re.sub(r'[^a-z0-9]+', '-', slug)
+    slug = slug.strip('-')
+    return slug or "unknown"
+
+
 def get_image_url(filename: str) -> str:
     """Get image URL from filename, removing validation"""
     if not filename:

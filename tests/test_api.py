@@ -393,3 +393,152 @@ def test_cors_includes_pillseek():
     source = inspect.getsource(app_module)
     # Verify the default CORS allowed origins string (the os.getenv fallback) includes pillseek.com
     assert "pillseek.com" in source, "pillseek.com not found in CORS default origins in main.py"
+
+
+# ---------------------------------------------------------------------------
+# /api/related/{slug} endpoint
+# ---------------------------------------------------------------------------
+
+def test_api_related_not_found(client):
+    """GET /api/related/{slug} should return 404 when slug does not exist."""
+    import database as db_module
+    mock_result = MagicMock()
+    mock_result.fetchone.return_value = None
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/related/nonexistent-slug")
+    assert response.status_code == 404
+
+
+def test_api_related_no_pharma_class(client):
+    """GET /api/related/{slug} should return empty related list when pill has no pharma class."""
+    import database as db_module
+    mock_result = MagicMock()
+    # Row: (medicine_name, dailymed_pharma_class_epc, pharmclass_fda_epc) - both class cols None
+    mock_result.fetchone.return_value = ("Aspirin", None, None)
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/related/aspirin-500mg")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["pharma_class"] is None
+    assert data["related"] == []
+
+
+def test_api_related_happy_path(client):
+    """GET /api/related/{slug} should return related drugs list with expected keys."""
+    import database as db_module
+
+    pill_row = MagicMock()
+    pill_row.__getitem__ = lambda self, i: ("Aspirin", "Salicylates", None)[i]
+
+    related_rows = [
+        ("Ibuprofen", "200mg", "ibuprofen-200mg", "White", "Round", None),
+        ("Naproxen", "500mg", "naproxen-500mg", "Blue", "Oval", None),
+    ]
+
+    def execute_side_effect(query, params=None):
+        mock_res = MagicMock()
+        # First call: look up the pill row
+        if params and "slug" in params and "cls" not in params:
+            mock_res.fetchone.return_value = ("Aspirin", "Salicylates", None)
+        else:
+            mock_res.fetchall.return_value = related_rows
+        return mock_res
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = execute_side_effect
+    response = client.get("/api/related/aspirin-500mg")
+    assert response.status_code == 200
+    data = response.json()
+    assert "pharma_class" in data
+    assert "related" in data
+    assert isinstance(data["related"], list)
+
+
+def test_api_related_limit_too_large_rejected(client):
+    """GET /api/related/{slug} with limit > 50 should return 422."""
+    response = client.get("/api/related/aspirin-500mg?limit=999")
+    assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# /api/classes endpoint
+# ---------------------------------------------------------------------------
+
+def test_api_classes_returns_200(client):
+    """GET /api/classes should return 200 with a JSON array."""
+    import database as db_module
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = [
+        ("Salicylates", 5),
+        ("ACE Inhibitors", 12),
+    ]
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/classes")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+
+
+def test_api_classes_response_shape(client):
+    """GET /api/classes should return items with class_name, slug, count."""
+    import database as db_module
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = [("Salicylates", 5)]
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = mock_result
+    response = client.get("/api/classes")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    item = data[0]
+    assert item["class_name"] == "Salicylates"
+    assert item["slug"] == "salicylates"
+    assert item["count"] == 5
+
+
+# ---------------------------------------------------------------------------
+# /api/class/{class_slug} endpoint
+# ---------------------------------------------------------------------------
+
+def test_api_class_not_found(client):
+    """GET /api/class/{class_slug} should return 404 for an unknown class slug."""
+    import database as db_module
+    mock_result = MagicMock()
+    mock_result.scalar.return_value = None
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = mock_result
+    response = client.get("/api/class/nonexistent-class")
+    assert response.status_code == 404
+
+
+def test_api_class_happy_path(client):
+    """GET /api/class/{class_slug} should return class info and drug list."""
+    import database as db_module
+
+    drug_rows = [
+        ("Ibuprofen", "200mg", "ibuprofen-200mg", "White", "Round", None),
+    ]
+
+    def execute_side_effect(query, params=None):
+        mock_res = MagicMock()
+        if params and "class_slug" in params:
+            mock_res.scalar.return_value = "Salicylates"
+        else:
+            mock_res.fetchall.return_value = drug_rows
+        return mock_res
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = execute_side_effect
+    response = client.get("/api/class/salicylates")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["class_name"] == "Salicylates"
+    assert data["slug"] == "salicylates"
+    assert "drugs" in data
+    assert isinstance(data["drugs"], list)
+
+
+def test_api_class_limit_too_large_rejected(client):
+    """GET /api/class/{class_slug} with limit > 500 should return 422."""
+    response = client.get("/api/class/salicylates?limit=9999")
+    assert response.status_code == 422
