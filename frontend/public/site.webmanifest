@@ -1,0 +1,13 @@
+{
+  "name": "PillSeek",
+  "short_name": "PillSeek",
+  "description": "Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#047857",
+  "icons": [
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}
