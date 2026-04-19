@@ -3,9 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import type { PillDetail } from '../../types'
+import type { PillDetail, RelatedDrug } from '../../types'
 import type { Reviewer } from '../../lib/reviewers'
-import type { RelatedDrug } from './page'
 import { classSlugify } from '../../lib/slug'
 
 function PillIconLarge() {

@@ -27,6 +27,15 @@ export interface PillDetail extends PillResult {
   route?: string
 }
 
+export interface RelatedDrug {
+  drug_name: string
+  strength?: string
+  slug: string
+  color?: string
+  shape?: string
+  image_url?: string
+}
+
 export interface FilterOption {
   name: string
   hex?: string

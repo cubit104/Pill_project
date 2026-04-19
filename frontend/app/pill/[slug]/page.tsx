@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import PillDetailClient from './PillDetailClient'
-import type { PillDetail } from '../../types'
+import type { PillDetail, RelatedDrug } from '../../types'
 import {
   breadcrumbSchema,
   medicalWebPageSchema,
@@ -13,15 +13,6 @@ const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
-
-export interface RelatedDrug {
-  drug_name: string
-  strength?: string
-  slug: string
-  color?: string
-  shape?: string
-  image_url?: string
-}
 
 async function fetchPill(slug: string): Promise<PillDetail | null> {
   const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, {

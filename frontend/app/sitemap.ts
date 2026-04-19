@@ -49,8 +49,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       fetch(`${API_BASE}/api/classes`, { next: { revalidate: 86400 } }),
     ])
 
-    const slugs: string[] = slugRes.ok ? await slugRes.json() : []
-    const classes: Array<{ slug: string }> = classRes.ok ? await classRes.json() : []
+    if (!slugRes.ok) {
+      console.error(
+        `[sitemap] Failed to fetch slugs from backend: ${slugRes.status} ${slugRes.statusText}`
+      )
+      throw new Error(`Failed to fetch slugs: ${slugRes.status} ${slugRes.statusText}`)
+    }
+
+    const slugs: string[] = await slugRes.json()
+
+    let classes: Array<{ slug: string }> = []
+    if (!classRes.ok) {
+      console.error(
+        `[sitemap] Failed to fetch classes from backend: ${classRes.status} ${classRes.statusText}`
+      )
+    } else {
+      classes = await classRes.json()
+    }
 
     const pillPages: MetadataRoute.Sitemap = slugs.map((slug) => ({
       url: `${SITE_URL}/pill/${encodeURIComponent(slug)}`,

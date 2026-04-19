@@ -228,18 +228,27 @@ def get_pill_by_slug(slug: str):
 def _row_to_drug_dict(r: Any) -> Dict[str, Any]:
     """Convert a DB row (medicine_name, spl_strength, slug, splcolor_text, splshape_text, image_filename)
     to a drug dict suitable for API responses."""
+    image_url = None
+    if r[5]:
+        # Use the lightweight helper — just take the first filename, no extra processing
+        first_filename = str(r[5]).split(',')[0].strip()
+        if first_filename:
+            from utils import IMAGE_BASE
+            image_url = f"{IMAGE_BASE}/{first_filename}"
     return {
         "drug_name": r[0],
         "strength": r[1],
         "slug": r[2],
         "color": r[3],
         "shape": r[4],
-        "image_url": process_image_filenames(r[5] or "").get("image_urls", [None])[0] if r[5] else None,
+        "image_url": image_url,
     }
 
 
 @router.get("/api/related/{slug}")
-def get_related_by_class(slug: str, limit: int = 10):
+def get_related_by_class(slug: str, limit: int = Query(default=10, ge=1, le=50)):
+    """Return up to `limit` other medications in the same pharmacologic class.
+    Excludes the input pill itself and dedupes by drug_name+strength."""
     if not database.db_engine:
         if not database.connect_to_database():
             raise HTTPException(status_code=500, detail="Database connection not available")
@@ -260,18 +269,19 @@ def get_related_by_class(slug: str, limit: int = 10):
                 return {"pharma_class": None, "related": []}
 
             # 2) Find other drugs in the same class. Dedup by medicine_name+spl_strength.
+            # Exclude by slug (exact row) so same-name different-strength rows are included.
             q = text("""
                 SELECT DISTINCT ON (medicine_name, spl_strength)
                     medicine_name, spl_strength, slug, splcolor_text, splshape_text,
                     image_filename
                 FROM pillfinder
                 WHERE (dailymed_pharma_class_epc = :cls OR pharmclass_fda_epc = :cls)
-                  AND LOWER(TRIM(medicine_name)) != LOWER(TRIM(:own_name))
                   AND slug IS NOT NULL AND slug != ''
-                ORDER BY medicine_name, spl_strength
+                  AND slug != :slug
+                ORDER BY medicine_name, spl_strength, slug
                 LIMIT :limit
             """)
-            rows = conn.execute(q, {"cls": cls, "own_name": own_name, "limit": limit}).fetchall()
+            rows = conn.execute(q, {"cls": cls, "slug": slug, "limit": limit}).fetchall()
 
             related = [_row_to_drug_dict(r) for r in rows]
 
@@ -295,7 +305,10 @@ def list_pharma_classes():
             q = text("""
                 SELECT class_name, COUNT(*) AS count
                 FROM (
-                  SELECT COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
+                  SELECT DISTINCT
+                    medicine_name,
+                    spl_strength,
+                    COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
                   FROM pillfinder
                   WHERE (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
                     AND slug IS NOT NULL AND slug != ''
@@ -313,7 +326,7 @@ def list_pharma_classes():
 
 
 @router.get("/api/class/{class_slug}")
-def get_class_drugs(class_slug: str, limit: int = 100):
+def get_class_drugs(class_slug: str, limit: int = Query(default=100, ge=1, le=500)):
     """Return drugs in a pharmacologic class by slug."""
     if not database.db_engine:
         if not database.connect_to_database():
@@ -321,20 +334,27 @@ def get_class_drugs(class_slug: str, limit: int = 100):
 
     try:
         with database.db_engine.connect() as conn:
-            # Fetch all distinct classes and find the one whose slug matches
+            # Resolve class name in SQL using the same slug transform (lower + non-alnum → hyphen)
             q = text("""
-                SELECT DISTINCT COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
-                FROM pillfinder
-                WHERE (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
-                  AND slug IS NOT NULL AND slug != ''
+                SELECT DISTINCT class_name
+                FROM (
+                    SELECT COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
+                    FROM pillfinder
+                    WHERE (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
+                      AND slug IS NOT NULL AND slug != ''
+                ) sub
+                WHERE class_name IS NOT NULL
+                  AND LOWER(
+                      TRIM(BOTH '-' FROM REGEXP_REPLACE(
+                          LOWER(class_name),
+                          '[^a-z0-9]+',
+                          '-',
+                          'g'
+                      ))
+                  ) = :class_slug
+                LIMIT 1
             """)
-            class_rows = conn.execute(q).fetchall()
-
-            matched_class = None
-            for cr in class_rows:
-                if cr[0] and slugify_class(cr[0]) == class_slug:
-                    matched_class = cr[0]
-                    break
+            matched_class = conn.execute(q, {"class_slug": class_slug}).scalar()
 
             if not matched_class:
                 raise HTTPException(status_code=404, detail="Pharma class not found")
@@ -346,7 +366,7 @@ def get_class_drugs(class_slug: str, limit: int = 100):
                 FROM pillfinder
                 WHERE (dailymed_pharma_class_epc = :cls OR pharmclass_fda_epc = :cls)
                   AND slug IS NOT NULL AND slug != ''
-                ORDER BY medicine_name, spl_strength
+                ORDER BY medicine_name, spl_strength, slug
                 LIMIT :limit
             """)
             drug_rows = conn.execute(drug_q, {"cls": matched_class, "limit": limit}).fetchall()

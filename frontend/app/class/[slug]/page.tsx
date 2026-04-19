@@ -87,7 +87,6 @@ export default async function ClassHubPage(
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: 'Drug Classes', url: '/classes' },
     { name: class_name, url: `/class/${encodeURIComponent(slug)}` },
   ])
 
@@ -114,8 +113,6 @@ export default async function ClassHubPage(
         <nav aria-label="Breadcrumb" className="mb-6">
           <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
             <li><Link href="/" className="hover:text-sky-700">Home</Link></li>
-            <li aria-hidden="true" className="select-none">›</li>
-            <li><Link href="/classes" className="hover:text-sky-700">Drug Classes</Link></li>
             <li aria-hidden="true" className="select-none">›</li>
             <li className="text-slate-700 font-medium">{class_name}</li>
           </ol>
