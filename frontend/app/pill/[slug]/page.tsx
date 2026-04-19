@@ -8,6 +8,7 @@ import {
   safeJsonLd,
 } from '../../lib/structured-data'
 import { DEFAULT_REVIEWER } from '../../lib/reviewers'
+import { buildPillAlt } from '../../lib/pill-alt'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -118,7 +119,7 @@ export async function generateMetadata(
         images: [
           {
             url: images[0],
-            alt: `${[pill.color, pill.shape, pill.drug_name].filter(Boolean).join(' ')} pill with imprint ${pill.imprint}`,
+            alt: buildPillAlt(pill),
           },
         ],
       }),
