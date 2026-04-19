@@ -160,7 +160,8 @@ export function medicalWebPageSchema(
         })
       : undefined,
     about: {
-      '@type': 'Drug' as const,
+      '@type': 'MedicalEntity' as const,
+      additionalType: 'https://schema.org/Drug',
       name: pill.drug_name,
       ...(pill.dosage_form && { dosageForm: pill.dosage_form }),
       ...(pill.ingredients && { activeIngredient: pill.ingredients }),
