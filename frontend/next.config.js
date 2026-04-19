@@ -3,39 +3,10 @@ const nextConfig = {
   trailingSlash: true,
   images: {
     remotePatterns: [
-      // Supabase storage (primary image host)
       {
         protocol: 'https',
         hostname: 'uqdwcxizabmxwflkbfrb.supabase.co',
         pathname: '/storage/v1/object/public/images/**',
-      },
-      // Render backend (legacy fallback images)
-      {
-        protocol: 'https',
-        hostname: 'pill0project.onrender.com',
-        pathname: '/images/**',
-      },
-      // Own domain (same-origin proxy)
-      {
-        protocol: 'https',
-        hostname: 'pillseek.com',
-        pathname: '/images/**',
-      },
-      {
-        protocol: 'https',
-        hostname: 'www.pillseek.com',
-        pathname: '/images/**',
-      },
-      // DailyMed image sources
-      {
-        protocol: 'https',
-        hostname: 'www.accessdata.fda.gov',
-        pathname: '/spl/data/**',
-      },
-      {
-        protocol: 'https',
-        hostname: 'dailymed.nlm.nih.gov',
-        pathname: '/dailymed/image.cfm/**',
       },
     ],
   },

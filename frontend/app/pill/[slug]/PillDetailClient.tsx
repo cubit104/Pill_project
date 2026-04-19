@@ -1,13 +1,11 @@
 'use client'
 
-import Image from 'next/image'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug } from '../../types'
 import type { Reviewer } from '../../lib/reviewers'
 import { classSlugify } from '../../lib/slug'
-import { buildPillAlt } from '../../lib/pill-alt'
 
 function PillIconLarge() {
   return (
@@ -133,21 +131,9 @@ export default function PillDetailClient({
           >
             ×
           </button>
-          <Image
+          <img
             src={zoomImage}
-            alt={(() => {
-              const zoomImageIndex = images.indexOf(zoomImage)
-              return buildPillAlt(
-                pill,
-                images.length > 1 && zoomImageIndex >= 0
-                  ? { imageIndex: zoomImageIndex, totalImages: images.length }
-                  : undefined
-              )
-            })()}
-            width={600}
-            height={600}
-            sizes="(max-width: 640px) 90vw, 600px"
-            unoptimized
+            alt={pill.drug_name}
             className="max-w-full max-h-full object-contain rounded-xl"
             onClick={(e) => e.stopPropagation()}
           />
@@ -217,14 +203,9 @@ export default function PillDetailClient({
                   className="block rounded-xl overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
                   aria-label="Click to zoom pill image"
                 >
-                  <Image
+                  <img
                     src={images[0]}
-                    alt={buildPillAlt(pill, { imageIndex: 0, totalImages: images.length })}
-                    width={288}
-                    height={288}
-                    sizes="(max-width: 640px) 100vw, 288px"
-                    priority
-                    unoptimized
+                    alt={pill.drug_name}
                     className="w-72 h-72 object-contain bg-slate-50"
                   />
                 </button>
@@ -287,15 +268,11 @@ export default function PillDetailClient({
                   className="rounded-lg overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
                   aria-label={`View alternate pill image ${idx + 2}`}
                 >
-                  <Image
-                    src={img}
-                    alt={buildPillAlt(pill, { imageIndex: idx + 1, totalImages: images.length })}
-                    width={112}
-                    height={112}
-                    sizes="112px"
-                    unoptimized
-                    className="w-28 h-28 object-contain bg-slate-50"
-                  />
+                   <img
+                     src={img}
+                     alt={pill.drug_name}
+                     className="w-28 h-28 object-contain bg-slate-50"
+                   />
                 </button>
               ))}
             </div>

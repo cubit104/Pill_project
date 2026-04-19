@@ -8,8 +8,6 @@ import {
   safeJsonLd,
 } from '../../lib/structured-data'
 import { DEFAULT_REVIEWER } from '../../lib/reviewers'
-import { buildPillAlt } from '../../lib/pill-alt'
-
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
@@ -119,7 +117,7 @@ export async function generateMetadata(
         images: [
           {
             url: images[0],
-            alt: buildPillAlt(pill),
+            alt: pill.drug_name,
           },
         ],
       }),
