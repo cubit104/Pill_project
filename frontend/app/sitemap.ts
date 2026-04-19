@@ -44,18 +44,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ]
 
   try {
-    const res = await fetch(`${API_BASE}/api/slugs`, { next: { revalidate: 86400 } })
-    if (!res.ok) throw new Error(`Failed to fetch slugs: ${res.status}`)
-    const slugs: string[] = await res.json()
+    const [slugRes, classRes] = await Promise.all([
+      fetch(`${API_BASE}/api/slugs`, { next: { revalidate: 86400 } }),
+      fetch(`${API_BASE}/api/classes`, { next: { revalidate: 86400 } }),
+    ])
+
+    const slugs: string[] = slugRes.ok ? await slugRes.json() : []
+    const classes: Array<{ slug: string }> = classRes.ok ? await classRes.json() : []
+
     const pillPages: MetadataRoute.Sitemap = slugs.map((slug) => ({
       url: `${SITE_URL}/pill/${encodeURIComponent(slug)}`,
       changeFrequency: 'monthly',
       priority: 0.8,
     }))
-    return [...staticPages, ...pillPages]
+
+    const classPages: MetadataRoute.Sitemap = classes.map((c) => ({
+      url: `${SITE_URL}/class/${encodeURIComponent(c.slug)}`,
+      changeFrequency: 'monthly' as const,
+      priority: 0.6,
+    }))
+
+    return [...staticPages, ...pillPages, ...classPages]
   } catch (err) {
-    // Return static pages only if slugs endpoint is unavailable
-    console.error('[sitemap] Failed to fetch slugs from backend:', err)
+    // Return static pages only if endpoints are unavailable
+    console.error('[sitemap] Failed to fetch data from backend:', err)
     return staticPages
   }
 }

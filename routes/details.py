@@ -1,13 +1,13 @@
 import re
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, Query, HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
-from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames
+from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames, slugify_class
 
 logger = logging.getLogger(__name__)
 
@@ -223,3 +223,144 @@ def get_pill_by_slug(slug: str):
     except Exception as e:
         logger.error(f"Error in get_pill_by_slug: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+def _row_to_drug_dict(r: Any) -> Dict[str, Any]:
+    """Convert a DB row (medicine_name, spl_strength, slug, splcolor_text, splshape_text, image_filename)
+    to a drug dict suitable for API responses."""
+    return {
+        "drug_name": r[0],
+        "strength": r[1],
+        "slug": r[2],
+        "color": r[3],
+        "shape": r[4],
+        "image_url": process_image_filenames(r[5] or "").get("image_urls", [None])[0] if r[5] else None,
+    }
+
+
+@router.get("/api/related/{slug}")
+def get_related_by_class(slug: str, limit: int = 10):
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            # 1) Resolve the input pill's pharma class
+            row = conn.execute(text("""
+                SELECT medicine_name, dailymed_pharma_class_epc, pharmclass_fda_epc
+                FROM pillfinder WHERE slug = :slug LIMIT 1
+            """), {"slug": slug}).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            own_name, cls_epc, cls_fda = row
+            cls = cls_epc or cls_fda
+            if not cls:
+                return {"pharma_class": None, "related": []}
+
+            # 2) Find other drugs in the same class. Dedup by medicine_name+spl_strength.
+            q = text("""
+                SELECT DISTINCT ON (medicine_name, spl_strength)
+                    medicine_name, spl_strength, slug, splcolor_text, splshape_text,
+                    image_filename
+                FROM pillfinder
+                WHERE (dailymed_pharma_class_epc = :cls OR pharmclass_fda_epc = :cls)
+                  AND LOWER(TRIM(medicine_name)) != LOWER(TRIM(:own_name))
+                  AND slug IS NOT NULL AND slug != ''
+                ORDER BY medicine_name, spl_strength
+                LIMIT :limit
+            """)
+            rows = conn.execute(q, {"cls": cls, "own_name": own_name, "limit": limit}).fetchall()
+
+            related = [_row_to_drug_dict(r) for r in rows]
+
+            return {"pharma_class": cls, "related": related}
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_related_by_class: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.get("/api/classes")
+def list_pharma_classes():
+    """Return all pharma classes with counts, for sitemap + hub page discovery."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            q = text("""
+                SELECT class_name, COUNT(*) AS count
+                FROM (
+                  SELECT COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
+                  FROM pillfinder
+                  WHERE (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
+                    AND slug IS NOT NULL AND slug != ''
+                ) sub
+                WHERE class_name IS NOT NULL
+                GROUP BY class_name
+                HAVING COUNT(*) >= 2
+                ORDER BY COUNT(*) DESC
+            """)
+            rows = conn.execute(q).fetchall()
+            return [{"class_name": r[0], "slug": slugify_class(r[0]), "count": r[1]} for r in rows]
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in list_pharma_classes: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.get("/api/class/{class_slug}")
+def get_class_drugs(class_slug: str, limit: int = 100):
+    """Return drugs in a pharmacologic class by slug."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            # Fetch all distinct classes and find the one whose slug matches
+            q = text("""
+                SELECT DISTINCT COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
+                FROM pillfinder
+                WHERE (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
+                  AND slug IS NOT NULL AND slug != ''
+            """)
+            class_rows = conn.execute(q).fetchall()
+
+            matched_class = None
+            for cr in class_rows:
+                if cr[0] and slugify_class(cr[0]) == class_slug:
+                    matched_class = cr[0]
+                    break
+
+            if not matched_class:
+                raise HTTPException(status_code=404, detail="Pharma class not found")
+
+            drug_q = text("""
+                SELECT DISTINCT ON (medicine_name, spl_strength)
+                    medicine_name, spl_strength, slug, splcolor_text, splshape_text,
+                    image_filename
+                FROM pillfinder
+                WHERE (dailymed_pharma_class_epc = :cls OR pharmclass_fda_epc = :cls)
+                  AND slug IS NOT NULL AND slug != ''
+                ORDER BY medicine_name, spl_strength
+                LIMIT :limit
+            """)
+            drug_rows = conn.execute(drug_q, {"cls": matched_class, "limit": limit}).fetchall()
+
+            drugs = [_row_to_drug_dict(r) for r in drug_rows]
+
+            return {
+                "class_name": matched_class,
+                "slug": class_slug,
+                "count": len(drugs),
+                "drugs": drugs,
+            }
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_class_drugs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
