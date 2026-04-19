@@ -66,6 +66,7 @@ export default async function DrugHubPage(
     name: `${displayName} Pill Identification`,
     description: `Browse all ${displayName} pills and identify them by imprint, color, and shape using FDA NDC data.`,
     url: `/drug/${encodeURIComponent(name)}`,
+    dateModified: new Date().toISOString(),
   })
 
   return (

@@ -66,6 +66,7 @@ export default async function ShapeHubPage(
     name: `${displayShape} Pills`,
     description: `Browse ${displayShape.toLowerCase()} pills identified by imprint, color, and drug name using FDA data.`,
     url: `/shape/${encodeURIComponent(shape)}`,
+    dateModified: new Date().toISOString(),
   })
 
   const relatedShapes = [

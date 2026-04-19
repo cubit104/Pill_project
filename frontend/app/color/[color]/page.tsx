@@ -67,6 +67,7 @@ export default async function ColorHubPage(
     name: `${displayColor} Pills`,
     description: `Browse ${displayColor.toLowerCase()} pills identified by imprint, shape, and drug name using FDA data.`,
     url: `/color/${encodeURIComponent(color)}`,
+    dateModified: new Date().toISOString(),
   })
 
   const relatedColors = ['white', 'yellow', 'orange', 'pink', 'blue', 'green', 'red', 'purple']

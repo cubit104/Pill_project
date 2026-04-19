@@ -93,9 +93,13 @@ function buildImageAlt(pill: PillDetail, index?: number): string {
 export default function PillDetailClient({
   pill,
   slug,
+  lastUpdatedIso,
+  formattedDate,
 }: {
   pill: PillDetail
   slug?: string
+  lastUpdatedIso?: string
+  formattedDate?: string
 }) {
   const router = useRouter()
   const [zoomImage, setZoomImage] = useState<string | null>(null)
@@ -180,6 +184,22 @@ export default function PillDetailClient({
         >
           ← Back
         </button>
+
+        {/* Reviewed by / Last updated — matches JSON-LD dateModified / lastReviewed */}
+        {(lastUpdatedIso || formattedDate) && (
+          <p className="text-xs text-slate-500 mb-3">
+            Reviewed by{' '}
+            <Link href="/about#editorial-team" className="underline hover:text-slate-700">
+              PillSeek Editorial Team
+            </Link>
+            {formattedDate && lastUpdatedIso && (
+              <>
+                {' · '}Last updated{' '}
+                <time dateTime={lastUpdatedIso}>{formattedDate}</time>
+              </>
+            )}
+          </p>
+        )}
 
         {/* Hero Card */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">

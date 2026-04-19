@@ -7,6 +7,7 @@ import {
   medicalWebPageSchema,
   safeJsonLd,
 } from '../../lib/structured-data'
+import { DEFAULT_REVIEWER } from '../../lib/reviewers'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -134,7 +135,17 @@ export default async function PillDetailPage(
     { name: pill.drug_name ?? slug, url: `/pill/${encodeURIComponent(slug)}` },
   ])
 
-  const medPage = medicalWebPageSchema(pill, slug)
+  const medPage = medicalWebPageSchema(pill, slug, {
+    dateModified: new Date().toISOString(),
+    reviewer: DEFAULT_REVIEWER,
+  })
+
+  const lastUpdatedIso = new Date().toISOString()
+  const formattedDate = new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
 
   return (
     <>
@@ -146,7 +157,7 @@ export default async function PillDetailPage(
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: safeJsonLd(medPage) }}
       />
-      <PillDetailClient pill={pill} slug={slug} />
+      <PillDetailClient pill={pill} slug={slug} lastUpdatedIso={lastUpdatedIso} formattedDate={formattedDate} />
     </>
   )
 }
