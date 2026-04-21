@@ -90,7 +90,7 @@ function PillsListInner() {
     if (searchInput) params.set('q', searchInput)
     else params.delete('q')
     params.set('page', '1')
-    router.push(`/admin/pills?${params}`)
+    router.push(`/admin/pills?${params.toString()}`)
   }
 
   const handleDelete = async (id: string) => {

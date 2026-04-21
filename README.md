@@ -23,6 +23,29 @@ pillseek.com → Render → FastAPI serves everything
 - XML sitemap at `/sitemap.xml`
 - Mobile-first responsive design (Next.js + Tailwind CSS)
 - Schema.org structured data on pill detail pages
+- **Admin dashboard** at `/admin` — manage pills, images, drafts, users (see below)
+
+## Admin Dashboard
+
+A form-based admin dashboard lives at `/admin`. It allows non-technical users to manage pill data, images, and content without writing SQL.
+
+**Key features:**
+- Magic link authentication (no passwords)
+- Role-based access: `superadmin`, `editor`, `reviewer`, `readonly`
+- Pill CRUD with soft delete and restore
+- Draft + review + publish workflow for content changes
+- Image upload to Supabase Storage
+- Full audit log for every write action
+- Optimistic locking to prevent lost updates
+
+**Getting started with admin:**
+1. Run the SQL migrations in `supabase/migrations/` against your Supabase project
+2. Enable Magic Link auth in Supabase Dashboard → Authentication → Providers
+3. Set the required environment variables (see `.env.example`)
+4. Seed the first superadmin (see `ADMIN.md`)
+5. Navigate to `/admin/login` and enter your email
+
+See [`ADMIN.md`](./ADMIN.md) for architecture details and [`docs/admin-guide.md`](./docs/admin-guide.md) for the user guide.
 
 ## Requirements
 

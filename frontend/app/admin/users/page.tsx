@@ -1,7 +1,7 @@
 'use client'
 
 export const dynamic = 'force-dynamic'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../lib/supabase'
 import { UserPlus, UserX } from 'lucide-react'
@@ -36,7 +36,7 @@ export default function AdminUsersPage() {
   const [inviting, setInviting] = useState(false)
   const [success, setSuccess] = useState('')
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     const supabase = createClient()
     const {
       data: { session },
@@ -64,12 +64,11 @@ export default function AdminUsersPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [router])
 
   useEffect(() => {
     fetchData()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [fetchData])
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()

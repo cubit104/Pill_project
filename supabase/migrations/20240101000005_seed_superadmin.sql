@@ -1,6 +1,7 @@
 -- Seed the bootstrap superadmin.
--- Replace <ADMIN_BOOTSTRAP_EMAIL> with the actual email or use a DO block.
--- This migration must be run after the admin user has signed up via Supabase Auth.
+-- Before running this migration, set the bootstrap email via a Postgres configuration parameter:
+--   SET app.admin_bootstrap_email = 'admin@example.com';
+-- This migration must be run after the admin user has signed up via Supabase Auth magic link.
 DO $$
 DECLARE
   bootstrap_email TEXT := current_setting('app.admin_bootstrap_email', true);
