@@ -64,7 +64,7 @@ export default function AdminDashboard() {
         })
         if (recentRes.ok) {
           const recentData = await recentRes.json()
-          setRecentPills(recentData.pills ?? recentData)
+          setRecentPills(recentData)
         }
       } catch {
         setError('Failed to load dashboard stats')

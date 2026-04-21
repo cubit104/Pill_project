@@ -276,7 +276,7 @@ export default function AdminDuplicatesPage() {
                 <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs font-bold mr-2">
                   {group.count} duplicates
                 </span>
-                {group.key.norm_name || '(no name)'} — {group.key.norm_strength || 'no strength'} — {group.key.norm_imprint || 'no imprint'}
+                {group.key.medicine_name || '(no name)'} — {group.key.spl_strength || 'no strength'} — {group.key.splimprint || 'no imprint'}
               </div>
               <button
                 onClick={() => setSelectedGroup(group)}
