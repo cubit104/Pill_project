@@ -1,9 +1,9 @@
 'use client'
-import { useState } from 'react'
-import { createClient } from '../lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
+import { useState } from 'react'
+import { createClient } from '../lib/supabase'
 export default function AdminLoginPage() {
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)

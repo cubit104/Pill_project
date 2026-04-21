@@ -268,7 +268,8 @@ def update_pill(
     if not database.db_engine:
         database.connect_to_database()
 
-    updates = {k: _sanitize(v) for k, v in body.model_dump(exclude={"idempotency_key", "updated_at"}).items() if v is not None}
+    raw = body.model_dump(exclude={"idempotency_key", "updated_at"})
+    updates = {k: _sanitize(v) for k, v in raw.items() if v is not None}
 
     # Editors cannot modify critical fields; they must use the draft workflow
     if admin["role"] == "editor":

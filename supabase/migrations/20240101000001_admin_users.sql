@@ -22,8 +22,4 @@ CREATE POLICY IF NOT EXISTS "admin_users_superadmin_all" ON public.admin_users
       WHERE au.id = auth.uid() AND au.role = 'superadmin' AND au.is_active = true
     )
   );
-
--- Seed superadmin (configure ADMIN_BOOTSTRAP_EMAIL env var in Supabase)
--- Run manually: INSERT INTO public.admin_users (id, email, role)
---   SELECT id, email, 'superadmin' FROM auth.users WHERE email = '<ADMIN_BOOTSTRAP_EMAIL>'
---   ON CONFLICT DO NOTHING;
+-- Superadmin seeding is handled by 20240101000005_seed_superadmin.sql
