@@ -1,4 +1,4 @@
-# PillSeek — Identify Any Medication
+# PillSeek — Identify Any Medication...
 
 > Formerly known as IDMyPills.
 
