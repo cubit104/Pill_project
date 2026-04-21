@@ -20,7 +20,7 @@ PUBLISHABLE_FIELDS = [
     "splsize", "spl_strength", "spl_ingredients", "spl_inactive_ing", "dosage_form",
     "route", "dea_schedule_name", "pharmclass_fda_epc", "ndc9", "ndc11", "rxcui",
     "rxcui_1", "status_rx_otc", "imprint_status", "slug", "meta_description",
-    "image_filename", "has_image",
+    "image_filename", "has_image", "image_alt_text", "tags",
 ]
 
 

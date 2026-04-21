@@ -70,10 +70,10 @@ export default function AdminDashboard() {
   }
 
   const cards = [
-    { label: 'Total Pills', value: stats?.total_pills ?? 0, color: 'bg-blue-50 text-blue-700 border-blue-200' },
-    { label: 'Unique Drugs', value: stats?.unique_drugs ?? 0, color: 'bg-green-50 text-green-700 border-green-200' },
-    { label: 'Missing Images', value: stats?.missing_images ?? 0, color: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
-    { label: 'Pending Drafts', value: stats?.pending_drafts ?? 0, color: 'bg-purple-50 text-purple-700 border-purple-200' },
+    { label: 'Total Pills', value: stats?.total_pills ?? 0, color: 'bg-blue-50 text-blue-700 border-blue-200', href: null },
+    { label: 'Unique Drugs', value: stats?.unique_drugs ?? 0, color: 'bg-green-50 text-green-700 border-green-200', href: null },
+    { label: 'Missing Images', value: stats?.missing_images ?? 0, color: 'bg-yellow-50 text-yellow-700 border-yellow-200', href: '/admin/pills/missing-images' },
+    { label: 'Pending Drafts', value: stats?.pending_drafts ?? 0, color: 'bg-purple-50 text-purple-700 border-purple-200', href: null },
   ]
 
   return (
@@ -81,12 +81,28 @@ export default function AdminDashboard() {
       <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {cards.map(({ label, value, color }) => (
-          <div key={label} className={`${color} border rounded-lg p-6`}>
-            <div className="text-3xl font-bold">{value.toLocaleString()}</div>
-            <div className="text-sm font-medium mt-1 opacity-80">{label}</div>
-          </div>
-        ))}
+        {cards.map(({ label, value, color, href }) => {
+          const content = (
+            <>
+              <div className="text-3xl font-bold">{value.toLocaleString()}</div>
+              <div className="text-sm font-medium mt-1 opacity-80">{label}</div>
+              {href && <div className="text-xs mt-2 opacity-60">Click to view →</div>}
+            </>
+          )
+          return href ? (
+            <Link
+              key={label}
+              href={href}
+              className={`${color} border rounded-lg p-6 hover:opacity-90 transition-opacity`}
+            >
+              {content}
+            </Link>
+          ) : (
+            <div key={label} className={`${color} border rounded-lg p-6`}>
+              {content}
+            </div>
+          )
+        })}
       </div>
 
       <div className="flex gap-3 flex-wrap">

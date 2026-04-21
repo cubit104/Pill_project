@@ -27,6 +27,8 @@ const FIELDS = [
   { key: 'status_rx_otc', label: 'Rx/OTC Status', section: 'Identifiers' },
   { key: 'slug', label: 'Slug', section: 'SEO' },
   { key: 'meta_description', label: 'Meta Description', section: 'SEO' },
+  { key: 'image_alt_text', label: 'Image Alt Text (SEO + accessibility)', section: 'SEO', placeholder: 'White oval pill imprinted MP 45' },
+  { key: 'tags', label: 'Tags / Keywords (comma-separated)', section: 'SEO', placeholder: 'blood pressure, hypertension, generic' },
 ]
 
 const SECTIONS = ['Basic Info', 'Clinical', 'Identifiers', 'SEO']
@@ -111,13 +113,14 @@ export default function NewPillPage() {
               <h2 className="font-semibold text-gray-900">{section}</h2>
             </div>
             <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              {sectionFields.map(({ key, label }) => (
+              {sectionFields.map(({ key, label, placeholder }) => (
                 <div key={key}>
                   <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
                   <input
                     type="text"
                     value={form[key] || ''}
                     onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                    placeholder={placeholder}
                     className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>

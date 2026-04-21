@@ -16,6 +16,7 @@ interface Pill {
   splshape_text: string
   image_filename: string
   has_image: string
+  image_url: string | null
   slug: string
   updated_at: string
   deleted_at: string | null
@@ -135,12 +136,20 @@ function PillsListInner() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Pills</h1>
-        <Link
-          href="/admin/pills/new"
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" /> Add New Pill
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/admin/pills/missing-images"
+            className="flex items-center gap-2 bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 text-sm font-medium transition-colors"
+          >
+            Missing Images Queue
+          </Link>
+          <Link
+            href="/admin/pills/new"
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" /> Add New Pill
+          </Link>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
@@ -183,15 +192,27 @@ function PillsListInner() {
       )}
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        {/* Row count — always visible */}
+        <div className="px-4 py-2 border-b border-gray-200 text-sm text-gray-600">
+          {loading ? (
+            <span>Loading…</span>
+          ) : (
+            <span>
+              Showing {total === 0 ? 0 : (page - 1) * 50 + 1}–{Math.min(page * 50, total)} of{' '}
+              {total.toLocaleString()} pills
+            </span>
+          )}
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-600 text-xs uppercase">
               <tr>
+                <th className="px-4 py-3 text-left">Image</th>
                 <th className="px-4 py-3 text-left">Drug Name</th>
                 <th className="px-4 py-3 text-left">Imprint</th>
                 <th className="px-4 py-3 text-left">Color</th>
                 <th className="px-4 py-3 text-left">Shape</th>
-                <th className="px-4 py-3 text-left">Image</th>
                 <th className="px-4 py-3 text-left">Updated</th>
                 <th className="px-4 py-3 text-left">Actions</th>
               </tr>
@@ -217,6 +238,21 @@ function PillsListInner() {
                   className={`hover:bg-gray-50 ${pill.deleted_at ? 'opacity-50' : ''}`}
                 >
                   <td className="px-4 py-3">
+                    {pill.image_url ? (
+                      <img
+                        src={pill.image_url}
+                        alt={pill.medicine_name || 'pill'}
+                        className="w-10 h-10 object-contain rounded bg-gray-50"
+                        width={40}
+                        height={40}
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-gray-400 text-xs">
+                        no image
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
                     <Link
                       href={`/admin/pills/${pill.id}`}
                       className="font-medium text-indigo-600 hover:underline"
@@ -230,17 +266,6 @@ function PillsListInner() {
                   <td className="px-4 py-3 text-gray-600">{pill.splimprint || '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{pill.splcolor_text || '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{pill.splshape_text || '—'}</td>
-                  <td className="px-4 py-3">
-                    {pill.has_image === 'TRUE' ? (
-                      <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full">
-                        ✓
-                      </span>
-                    ) : (
-                      <span className="bg-gray-100 text-gray-500 text-xs px-2 py-0.5 rounded-full">
-                        —
-                      </span>
-                    )}
-                  </td>
                   <td className="px-4 py-3 text-gray-400 text-xs">
                     {pill.updated_at ? new Date(pill.updated_at).toLocaleDateString() : '—'}
                   </td>
@@ -278,34 +303,33 @@ function PillsListInner() {
           </table>
         </div>
 
-        {pages > 1 && (
-          <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between text-sm text-gray-600">
-            <div>
-              Showing {pills.length} of {total} results
-            </div>
-            <div className="flex gap-2">
-              {page > 1 && (
-                <Link
-                  href={`/admin/pills?${new URLSearchParams({ ...Object.fromEntries(searchParams), page: String(page - 1) })}`}
-                  className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50"
-                >
-                  Previous
-                </Link>
-              )}
-              <span className="px-3 py-1">
+        <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between text-sm text-gray-600">
+          <div>
+            {total > 0 && (
+              <span>
                 Page {page} of {pages}
               </span>
-              {page < pages && (
-                <Link
-                  href={`/admin/pills?${new URLSearchParams({ ...Object.fromEntries(searchParams), page: String(page + 1) })}`}
-                  className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50"
-                >
-                  Next
-                </Link>
-              )}
-            </div>
+            )}
           </div>
-        )}
+          <div className="flex gap-2">
+            {page > 1 && (
+              <Link
+                href={`/admin/pills?${new URLSearchParams({ ...Object.fromEntries(searchParams), page: String(page - 1) })}`}
+                className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50"
+              >
+                Previous
+              </Link>
+            )}
+            {page < pages && (
+              <Link
+                href={`/admin/pills?${new URLSearchParams({ ...Object.fromEntries(searchParams), page: String(page + 1) })}`}
+                className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50"
+              >
+                Next
+              </Link>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )

@@ -13,6 +13,7 @@ import bleach
 
 import database
 from routes.admin.auth import get_admin_user, log_audit, CRITICAL_FIELDS
+from utils import IMAGE_BASE
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ EDITABLE_FIELDS = [
     "splsize", "spl_strength", "spl_ingredients", "spl_inactive_ing", "dosage_form",
     "route", "dea_schedule_name", "pharmclass_fda_epc", "ndc9", "ndc11", "rxcui",
     "rxcui_1", "status_rx_otc", "imprint_status", "slug", "meta_description",
-    "image_filename", "has_image",
+    "image_filename", "has_image", "image_alt_text", "tags",
 ]
 
 
@@ -59,6 +60,8 @@ class PillCreate(BaseModel):
     imprint_status: Optional[str] = None
     slug: Optional[str] = None
     meta_description: Optional[str] = None
+    image_alt_text: Optional[str] = None
+    tags: Optional[str] = None
     idempotency_key: Optional[str] = None
 
 
@@ -121,7 +124,9 @@ def list_pills(
                            image_filename, has_image, slug, updated_at, deleted_at,
                            spl_strength, status_rx_otc
                     FROM pillfinder {where}
-                    ORDER BY medicine_name NULLS LAST
+                    ORDER BY
+                      CASE WHEN medicine_name IS NULL OR TRIM(medicine_name) = '' THEN 1 ELSE 0 END,
+                      LOWER(medicine_name)
                     LIMIT :limit OFFSET :offset
                 """),
                 params,
@@ -129,14 +134,21 @@ def list_pills(
 
         pills = []
         for r in rows:
+            image_filename = r[5]
+            image_url: Optional[str] = None
+            if r[6] == 'TRUE' and image_filename:
+                first_filename = str(image_filename).split(",")[0].strip()
+                if first_filename:
+                    image_url = f"{IMAGE_BASE}/{first_filename}"
             pills.append({
                 "id": str(r[0]),
                 "medicine_name": r[1],
                 "splimprint": r[2],
                 "splcolor_text": r[3],
                 "splshape_text": r[4],
-                "image_filename": r[5],
+                "image_filename": image_filename,
                 "has_image": r[6],
+                "image_url": image_url,
                 "slug": r[7],
                 "updated_at": r[8].isoformat() if r[8] else None,
                 "deleted_at": r[9].isoformat() if r[9] else None,
