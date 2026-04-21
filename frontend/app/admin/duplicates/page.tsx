@@ -104,7 +104,7 @@ function MergeModal({
       <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">Review & Merge Duplicates</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} aria-label="Close modal" className="text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -329,6 +329,7 @@ export default function AdminDuplicatesPage() {
           <button
             onClick={() => setPage(p => Math.max(1, p - 1))}
             disabled={page <= 1}
+            aria-label="Previous page"
             className="p-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -337,6 +338,7 @@ export default function AdminDuplicatesPage() {
           <button
             onClick={() => setPage(p => Math.min(pages, p + 1))}
             disabled={page >= pages}
+            aria-label="Next page"
             className="p-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
           >
             <ChevronRight className="w-4 h-4" />

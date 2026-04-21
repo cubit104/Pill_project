@@ -42,6 +42,21 @@ _GROUP_SQL = """
     ORDER BY cnt DESC
 """
 
+# Variant without ORDER BY used for counting (avoids unnecessary sort work)
+_GROUP_COUNT_SQL = """
+    SELECT COUNT(*) as cnt FROM pillfinder
+    WHERE deleted_at IS NULL
+    GROUP BY
+      LOWER(TRIM(COALESCE(medicine_name,''))),
+      LOWER(TRIM(COALESCE(spl_strength,''))),
+      LOWER(TRIM(COALESCE(splimprint,''))),
+      LOWER(TRIM(COALESCE(splcolor_text,''))),
+      LOWER(TRIM(COALESCE(splshape_text,''))),
+      LOWER(TRIM(COALESCE(author,''))),
+      LOWER(TRIM(COALESCE(ndc11,'')))
+    HAVING COUNT(*) > 1
+"""
+
 
 class MergeRequest(BaseModel):
     keep_id: str
@@ -61,6 +76,22 @@ def _norm(value: Optional[str]) -> str:
     return (value or "").strip().lower()
 
 
+@router.get("/count")
+def count_duplicates(admin: dict = Depends(get_admin_user)):
+    """Return the total number of duplicate groups (lightweight endpoint for sidebar badge)."""
+    if not database.db_engine:
+        database.connect_to_database()
+    try:
+        with database.db_engine.connect() as conn:
+            total_groups = conn.execute(
+                text(f"SELECT COUNT(*) FROM ({_GROUP_COUNT_SQL}) sub")
+            ).scalar() or 0
+        return {"total_groups": total_groups}
+    except SQLAlchemyError as e:
+        logger.error(f"count_duplicates DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
 @router.get("")
 def list_duplicates(
     page: int = Query(1, ge=1),
@@ -75,9 +106,9 @@ def list_duplicates(
 
     try:
         with database.db_engine.connect() as conn:
-            # Total group count
+            # Total group count — use the unordered query to avoid unnecessary sort
             total_groups = conn.execute(
-                text(f"SELECT COUNT(*) FROM ({_GROUP_SQL}) sub")
+                text(f"SELECT COUNT(*) FROM ({_GROUP_COUNT_SQL}) sub")
             ).scalar() or 0
 
             # Paginated group keys
@@ -153,6 +184,13 @@ def merge_duplicates(
     if not body.discard_ids:
         raise HTTPException(status_code=400, detail="discard_ids must not be empty")
 
+    # Prevent keep_id from being accidentally included in discard_ids
+    discard_ids = list(dict.fromkeys(
+        did for did in body.discard_ids if did != body.keep_id
+    ))
+    if not discard_ids:
+        raise HTTPException(status_code=400, detail="discard_ids must not be empty or equal to keep_id")
+
     if not database.db_engine:
         database.connect_to_database()
 
@@ -179,7 +217,7 @@ def merge_duplicates(
                 raise HTTPException(status_code=404, detail="keep_id pill not found")
 
             discard_rows = []
-            for did in body.discard_ids:
+            for did in discard_ids:
                 row = conn.execute(
                     text("SELECT * FROM pillfinder WHERE id = :id AND deleted_at IS NULL LIMIT 1"),
                     {"id": did},
@@ -225,14 +263,14 @@ def merge_duplicates(
                     gap_fills,
                 )
 
-            # Soft-delete all discard pills
+            # Soft-delete all discard pills (use uuid[] cast to avoid type mismatch)
             conn.execute(
                 text("""
                     UPDATE pillfinder
                     SET deleted_at = now(), deleted_by = :admin_id
-                    WHERE id = ANY(:ids) AND deleted_at IS NULL
+                    WHERE id = ANY(CAST(:ids AS uuid[])) AND deleted_at IS NULL
                 """),
-                {"ids": list(body.discard_ids), "admin_id": str(admin["id"])},
+                {"ids": discard_ids, "admin_id": str(admin["id"])},
             )
             conn.commit()
 
@@ -245,7 +283,7 @@ def merge_duplicates(
                 entity_id=body.keep_id,
                 diff={
                     "kept_id": body.keep_id,
-                    "discard_ids": list(body.discard_ids),
+                    "discard_ids": discard_ids,
                     "copied_fields": copied_fields,
                 },
                 ip_address=request.client.host if request.client else None,

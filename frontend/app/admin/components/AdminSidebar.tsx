@@ -41,7 +41,7 @@ export default function AdminSidebar() {
           setIsSuperadmin(data.role === 'superadmin')
         }
 
-        const dupRes = await fetch('/api/admin/duplicates?per_page=1', {
+        const dupRes = await fetch('/api/admin/duplicates/count', {
           headers: { Authorization: `Bearer ${session.access_token}` },
         })
         if (dupRes.ok) {

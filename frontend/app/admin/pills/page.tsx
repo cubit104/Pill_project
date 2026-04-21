@@ -61,6 +61,7 @@ function PillsListInner() {
   const noName = searchParams.get('no_name') === 'true'
   const noImprint = searchParams.get('no_imprint') === 'true'
   const noNdc = searchParams.get('no_ndc') === 'true'
+  const sort = searchParams.get('sort') || ''
   const [searchInput, setSearchInput] = useState(q)
 
   const getSession = useCallback(async () => {
@@ -94,6 +95,7 @@ function PillsListInner() {
     if (noName) params.set('no_name', 'true')
     if (noImprint) params.set('no_imprint', 'true')
     if (noNdc) params.set('no_ndc', 'true')
+    if (sort) params.set('sort', sort)
     params.set('page', String(page))
     params.set('per_page', '50')
 
@@ -113,7 +115,7 @@ function PillsListInner() {
     } finally {
       setLoading(false)
     }
-  }, [q, deleted, noImage, noName, noImprint, noNdc, page, router, getSession])
+  }, [q, deleted, noImage, noName, noImprint, noNdc, sort, page, router, getSession])
 
   useEffect(() => {
     fetchPills()
@@ -133,8 +135,13 @@ function PillsListInner() {
   }
 
   const setChip = (chipParams: Record<string, string>) => {
-    const params = new URLSearchParams()
-    if (q) params.set('q', q)
+    // Start from current search params to preserve q, deleted, etc.
+    const params = new URLSearchParams(searchParams.toString())
+    // Clear all chip-specific filter keys before applying new chip
+    params.delete('no_image')
+    params.delete('no_name')
+    params.delete('no_imprint')
+    params.delete('no_ndc')
     Object.entries(chipParams).forEach(([k, v]) => params.set(k, v))
     params.set('page', '1')
     router.push(`/admin/pills?${params.toString()}`)
@@ -372,7 +379,7 @@ function PillsListInner() {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {/* Bulk action bar */}
         {selectedIds.size > 0 && (
-          <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-200 flex items-center gap-3 flex-wrap">
+          <div className="sticky top-0 z-10 px-4 py-2 bg-indigo-50 border-b border-indigo-200 flex items-center gap-3 flex-wrap shadow-sm">
             <span className="text-sm font-medium text-indigo-800">{selectedIds.size} selected</span>
             <button
               onClick={handleBulkTag}

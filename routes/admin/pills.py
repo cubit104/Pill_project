@@ -97,6 +97,7 @@ def list_pills(
     no_name: Optional[bool] = Query(None),
     no_imprint: Optional[bool] = Query(None),
     no_ndc: Optional[bool] = Query(None),
+    sort: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     admin: dict = Depends(get_admin_user),
@@ -138,6 +139,12 @@ def list_pills(
 
     where = "WHERE " + " AND ".join(filters) if filters else ""
 
+    # Sort order: recent = updated_at DESC; default = named pills first then alpha
+    if sort == "recent":
+        order_by = "updated_at DESC NULLS LAST"
+    else:
+        order_by = "CASE WHEN medicine_name IS NULL OR TRIM(medicine_name) = '' THEN 1 ELSE 0 END, LOWER(medicine_name)"
+
     try:
         with database.db_engine.connect() as conn:
             count_row = conn.execute(
@@ -149,9 +156,7 @@ def list_pills(
                            image_filename, has_image, slug, updated_at, deleted_at,
                            spl_strength, status_rx_otc
                     FROM pillfinder {where}
-                    ORDER BY
-                      CASE WHEN medicine_name IS NULL OR TRIM(medicine_name) = '' THEN 1 ELSE 0 END,
-                      LOWER(medicine_name)
+                    ORDER BY {order_by}
                     LIMIT :limit OFFSET :offset
                 """),
                 params,
@@ -207,28 +212,25 @@ def get_stats(admin: dict = Depends(get_admin_user)):
 
     try:
         with database.db_engine.connect() as conn:
-            total = conn.execute(
-                text("SELECT COUNT(*) FROM pillfinder WHERE deleted_at IS NULL")
-            ).scalar()
-            no_image = conn.execute(
-                text("SELECT COUNT(*) FROM pillfinder WHERE deleted_at IS NULL AND (has_image IS NULL OR has_image != 'TRUE')")
-            ).scalar()
-            no_name = conn.execute(
-                text("SELECT COUNT(*) FROM pillfinder WHERE deleted_at IS NULL AND (medicine_name IS NULL OR TRIM(medicine_name) = '')")
-            ).scalar()
-            no_imprint = conn.execute(
-                text("SELECT COUNT(*) FROM pillfinder WHERE deleted_at IS NULL AND (splimprint IS NULL OR TRIM(splimprint) = '')")
-            ).scalar()
-            no_ndc = conn.execute(
-                text("SELECT COUNT(*) FROM pillfinder WHERE deleted_at IS NULL AND (ndc11 IS NULL OR TRIM(ndc11) = '')")
-            ).scalar()
+            row = conn.execute(
+                text("""
+                    SELECT
+                      COUNT(*) as total,
+                      COUNT(*) FILTER (WHERE has_image IS NULL OR has_image != 'TRUE') as no_image,
+                      COUNT(*) FILTER (WHERE medicine_name IS NULL OR TRIM(medicine_name) = '') as no_name,
+                      COUNT(*) FILTER (WHERE splimprint IS NULL OR TRIM(splimprint) = '') as no_imprint,
+                      COUNT(*) FILTER (WHERE ndc11 IS NULL OR TRIM(ndc11) = '') as no_ndc
+                    FROM pillfinder
+                    WHERE deleted_at IS NULL
+                """)
+            ).fetchone()
 
         data = {
-            "total": total,
-            "no_image": no_image,
-            "no_name": no_name,
-            "no_imprint": no_imprint,
-            "no_ndc": no_ndc,
+            "total": row[0],
+            "no_image": row[1],
+            "no_name": row[2],
+            "no_imprint": row[3],
+            "no_ndc": row[4],
         }
         _stats_cache["data"] = data
         _stats_cache["expires"] = now + 60.0
@@ -348,6 +350,29 @@ def export_csv(
         "no_imprint": no_imprint, "no_ndc": no_ndc,
     }
 
+    # Get row count and write audit log BEFORE streaming starts so it is
+    # recorded even if the client disconnects mid-download.
+    try:
+        with database.db_engine.connect() as conn:
+            row_count = conn.execute(
+                text(f"SELECT COUNT(*) FROM pillfinder {where}"), params
+            ).scalar() or 0
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action="export_csv",
+                entity_type="pill",
+                entity_id="bulk",
+                diff={"filters": filter_details, "row_count": row_count},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+            conn.commit()
+    except SQLAlchemyError as e:
+        logger.error(f"export_csv setup error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
     def generate():
         buf = io.StringIO()
         writer = csv.writer(buf)
@@ -356,7 +381,6 @@ def export_csv(
         buf.truncate(0)
         buf.seek(0)
 
-        row_count = 0
         try:
             with database.db_engine.connect().execution_options(stream_results=True) as conn:
                 result = conn.execute(
@@ -389,29 +413,11 @@ def export_csv(
                         row[13].isoformat() if row[13] else "",
                         row[14].isoformat() if row[14] else "",
                     ])
-                    row_count += 1
                     yield buf.getvalue()
                     buf.truncate(0)
                     buf.seek(0)
         except SQLAlchemyError as e:
-            logger.error(f"export_csv DB error: {e}")
-
-        try:
-            with database.db_engine.connect() as conn:
-                log_audit(
-                    conn,
-                    actor_id=admin["id"],
-                    actor_email=admin["email"],
-                    action="export_csv",
-                    entity_type="pill",
-                    entity_id="bulk",
-                    diff={"filters": filter_details, "row_count": row_count},
-                    ip_address=request.client.host if request.client else None,
-                    user_agent=request.headers.get("user-agent"),
-                )
-                conn.commit()
-        except Exception as e:
-            logger.error(f"export_csv audit log error: {e}")
+            logger.error(f"export_csv stream error: {e}")
 
     filename = f"pills-export-{datetime.date.today().isoformat()}.csv"
     return StreamingResponse(
@@ -436,25 +442,33 @@ def bulk_tag(
     if not body.ids:
         return {"updated": 0}
 
+    tag = body.tag.strip()
+    if not tag:
+        raise HTTPException(status_code=400, detail="tag must not be empty")
+    if body.mode not in ("add", "replace"):
+        raise HTTPException(status_code=400, detail="mode must be 'add' or 'replace'")
+
     if not database.db_engine:
         database.connect_to_database()
-
-    tag = body.tag.strip()
 
     try:
         with database.db_engine.connect() as conn:
             if body.mode == "replace":
-                for pill_id in body.ids:
-                    conn.execute(
-                        text("UPDATE pillfinder SET tags = :tags, updated_at = now() WHERE id = :id"),
-                        {"tags": tag, "id": pill_id},
-                    )
+                result = conn.execute(
+                    text("""
+                        UPDATE pillfinder SET tags = :tags, updated_at = now()
+                        WHERE id = ANY(CAST(:ids AS uuid[])) AND deleted_at IS NULL
+                    """),
+                    {"tags": tag, "ids": list(body.ids)},
+                )
+                updated_count = result.rowcount
             else:
                 # "add" mode — deduplicate comma-separated tags
                 rows = conn.execute(
-                    text("SELECT id, tags FROM pillfinder WHERE id = ANY(:ids)"),
+                    text("SELECT id, tags FROM pillfinder WHERE id = ANY(CAST(:ids AS uuid[])) AND deleted_at IS NULL"),
                     {"ids": list(body.ids)},
                 ).fetchall()
+                updated_count = len(rows)
                 for row in rows:
                     pill_id, existing_tags = row[0], row[1]
                     current = [t.strip() for t in (existing_tags or "").split(",") if t.strip()]
@@ -480,7 +494,7 @@ def bulk_tag(
             )
             conn.commit()
 
-        return {"updated": len(body.ids)}
+        return {"updated": updated_count}
     except SQLAlchemyError as e:
         logger.error(f"bulk_tag DB error: {e}")
         raise HTTPException(status_code=500, detail="Database error")
@@ -506,14 +520,15 @@ def bulk_delete(
 
     try:
         with database.db_engine.connect() as conn:
-            conn.execute(
+            result = conn.execute(
                 text("""
                     UPDATE pillfinder
                     SET deleted_at = now(), deleted_by = :admin_id
-                    WHERE id = ANY(:ids) AND deleted_at IS NULL
+                    WHERE id = ANY(CAST(:ids AS uuid[])) AND deleted_at IS NULL
                 """),
                 {"ids": list(body.ids), "admin_id": str(admin["id"])},
             )
+            deleted_count = result.rowcount
             conn.commit()
 
             log_audit(
@@ -529,7 +544,7 @@ def bulk_delete(
             )
             conn.commit()
 
-        return {"deleted": len(body.ids)}
+        return {"deleted": deleted_count}
     except SQLAlchemyError as e:
         logger.error(f"bulk_delete DB error: {e}")
         raise HTTPException(status_code=500, detail="Database error")
