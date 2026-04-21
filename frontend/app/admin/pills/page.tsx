@@ -142,7 +142,7 @@ function PillsListInner() {
 
   const activeChip = noImage ? 'no_image' : noName ? 'no_name' : noImprint ? 'no_imprint' : noNdc ? 'no_ndc' : 'all'
 
-  const chips = [
+  const chips: { key: string; label: string; count: number | undefined; params: Record<string, string> }[] = [
     { key: 'all', label: 'All', count: stats?.total, params: {} },
     { key: 'no_image', label: 'No image', count: stats?.no_image, params: { no_image: 'true' } },
     { key: 'no_name', label: 'No name', count: stats?.no_name, params: { no_name: 'true' } },
