@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from typing import Optional
-from datetime import timezone, date
+from datetime import date
 import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request

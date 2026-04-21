@@ -715,15 +715,15 @@ def test_merge_gap_fills_correctly(client):
     import database as db_module
     db_module.db_engine = mock_engine
 
-    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+         patch("routes.admin.duplicates.log_audit", return_value=None):
         resp = client.post(
             "/api/admin/duplicates/merge",
             json={"keep_id": "keep-id", "discard_ids": ["discard-id"]},
             headers={"Authorization": "Bearer faketoken"},
         )
 
-    # Should succeed
-    assert resp.status_code in (200, 500), resp.text  # 500 ok if audit log fails in mock
+    assert resp.status_code == 200, resp.text
     executed_sqls = [str(call.args[0]) for call in mock_conn.execute.call_args_list if call.args]
     # Verify a soft-delete UPDATE was executed for discard pills
     assert any("deleted_at" in sql and "UPDATE" in sql for sql in executed_sqls), (

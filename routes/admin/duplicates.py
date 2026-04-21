@@ -160,9 +160,9 @@ def merge_duplicates(
     _KEY_COLS = ["medicine_name", "spl_strength", "splimprint", "splcolor_text",
                  "splshape_text", "author", "ndc11"]
 
-    # All fields eligible for gap-fill (non-key metadata)
+    # All fields eligible for gap-fill (non-key metadata only)
     _GAP_FILL_COLS = [
-        "brand_names", "splcolor_text", "splshape_text", "splsize", "spl_ingredients",
+        "brand_names", "splsize", "spl_ingredients",
         "spl_inactive_ing", "dosage_form", "route", "dea_schedule_name",
         "pharmclass_fda_epc", "ndc9", "rxcui", "rxcui_1", "status_rx_otc",
         "imprint_status", "slug", "meta_description", "image_filename", "has_image",
