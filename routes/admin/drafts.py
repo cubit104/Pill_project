@@ -1,0 +1,278 @@
+"""Admin draft management endpoints."""
+import json
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+
+import database
+from routes.admin.auth import get_admin_user, log_audit
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/admin", tags=["admin-drafts"])
+
+PUBLISHABLE_FIELDS = [
+    "medicine_name", "brand_names", "splimprint", "splcolor_text", "splshape_text",
+    "splsize", "spl_strength", "spl_ingredients", "spl_inactive_ing", "dosage_form",
+    "route", "dea_schedule_name", "pharmclass_fda_epc", "ndc9", "ndc11", "rxcui",
+    "rxcui_1", "status_rx_otc", "imprint_status", "slug", "meta_description",
+    "image_filename", "has_image",
+]
+
+
+class DraftCreate(BaseModel):
+    draft_data: dict
+    status: str = "draft"
+
+
+class ReviewAction(BaseModel):
+    review_notes: Optional[str] = None
+
+
+@router.post("/pills/{pill_id}/drafts", status_code=201)
+def create_draft(
+    request: Request,
+    pill_id: str,
+    body: DraftCreate,
+    admin: dict = Depends(get_admin_user),
+):
+    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    INSERT INTO pill_drafts (pill_id, draft_data, status, created_by)
+                    VALUES (:pill_id, :draft_data::jsonb, :status, :created_by)
+                    RETURNING id
+                """),
+                {
+                    "pill_id": pill_id,
+                    "draft_data": json.dumps(body.draft_data),
+                    "status": body.status,
+                    "created_by": str(admin["id"]),
+                },
+            )
+            draft_id = str(result.scalar())
+            conn.commit()
+
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action="create_draft",
+                entity_type="draft",
+                entity_id=draft_id,
+                metadata={"pill_id": pill_id, "status": body.status},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+            conn.commit()
+
+        return {"id": draft_id, "created": True}
+    except SQLAlchemyError as e:
+        logger.error(f"create_draft DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.get("/drafts")
+def list_drafts(
+    status: Optional[str] = Query(None),
+    admin: dict = Depends(get_admin_user),
+):
+    if not database.db_engine:
+        database.connect_to_database()
+
+    where = "WHERE 1=1"
+    params: dict = {}
+    if status:
+        where += " AND d.status = :status"
+        params["status"] = status
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = conn.execute(
+                text(f"""
+                    SELECT d.id, d.pill_id, d.status, d.created_at, d.updated_at,
+                           d.review_notes, p.medicine_name, d.created_by
+                    FROM pill_drafts d
+                    LEFT JOIN pillfinder p ON p.id = d.pill_id
+                    {where}
+                    ORDER BY d.created_at DESC
+                    LIMIT 100
+                """),
+                params,
+            ).fetchall()
+
+        return [
+            {
+                "id": str(r[0]),
+                "pill_id": str(r[1]) if r[1] else None,
+                "status": r[2],
+                "created_at": r[3].isoformat() if r[3] else None,
+                "updated_at": r[4].isoformat() if r[4] else None,
+                "review_notes": r[5],
+                "medicine_name": r[6],
+                "created_by": str(r[7]) if r[7] else None,
+            }
+            for r in rows
+        ]
+    except SQLAlchemyError as e:
+        logger.error(f"list_drafts DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.post("/drafts/{draft_id}/submit")
+def submit_draft(request: Request, draft_id: str, admin: dict = Depends(get_admin_user)):
+    return _transition_draft(request, draft_id, "pending_review", admin, "submit_draft")
+
+
+@router.post("/drafts/{draft_id}/approve")
+def approve_draft(
+    request: Request,
+    draft_id: str,
+    body: ReviewAction = ReviewAction(),
+    admin: dict = Depends(get_admin_user),
+):
+    if admin["role"] not in ("superadmin", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires reviewer role or higher")
+    return _transition_draft(request, draft_id, "approved", admin, "approve_draft", notes=body.review_notes)
+
+
+@router.post("/drafts/{draft_id}/reject")
+def reject_draft(
+    request: Request,
+    draft_id: str,
+    body: ReviewAction = ReviewAction(),
+    admin: dict = Depends(get_admin_user),
+):
+    if admin["role"] not in ("superadmin", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires reviewer role or higher")
+    return _transition_draft(request, draft_id, "rejected", admin, "reject_draft", notes=body.review_notes)
+
+
+@router.post("/drafts/{draft_id}/publish")
+def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_admin_user)):
+    if admin["role"] not in ("superadmin", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires reviewer role or higher")
+
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.connect() as conn:
+            draft = conn.execute(
+                text("SELECT id, pill_id, draft_data, status FROM pill_drafts WHERE id = :id LIMIT 1"),
+                {"id": draft_id},
+            ).fetchone()
+            if not draft:
+                raise HTTPException(status_code=404, detail="Draft not found")
+            if draft[3] not in ("approved", "pending_review"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Draft must be approved before publishing (current: {draft[3]})",
+                )
+
+            pill_id = str(draft[1])
+            draft_data = draft[2] if isinstance(draft[2], dict) else json.loads(draft[2])
+
+            # Apply draft_data to pillfinder
+            if draft_data:
+                set_parts = [
+                    f"{k} = :{k}"
+                    for k in draft_data.keys()
+                    if k in PUBLISHABLE_FIELDS
+                ]
+                if set_parts:
+                    set_parts.append("updated_at = now()")
+                    set_parts.append("updated_by = :updated_by_id")
+                    params = {k: v for k, v in draft_data.items() if k in PUBLISHABLE_FIELDS}
+                    params["updated_by_id"] = str(admin["id"])
+                    params["pill_id"] = pill_id
+                    conn.execute(
+                        text(f"UPDATE pillfinder SET {', '.join(set_parts)} WHERE id = :pill_id"),
+                        params,
+                    )
+
+            conn.execute(
+                text("""
+                    UPDATE pill_drafts
+                    SET status = 'published', published_at = now(), published_by = :published_by, updated_at = now()
+                    WHERE id = :id
+                """),
+                {"id": draft_id, "published_by": str(admin["id"])},
+            )
+            conn.commit()
+
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action="publish",
+                entity_type="draft",
+                entity_id=draft_id,
+                metadata={"pill_id": pill_id},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+            conn.commit()
+
+        return {"published": True}
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"publish_draft DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+def _transition_draft(
+    request: Request,
+    draft_id: str,
+    new_status: str,
+    admin: dict,
+    action_name: str,
+    notes: Optional[str] = None,
+):
+    if not database.db_engine:
+        database.connect_to_database()
+    try:
+        with database.db_engine.connect() as conn:
+            params: dict = {"id": draft_id, "status": new_status}
+            note_clause = ""
+            if notes is not None:
+                note_clause = ", review_notes = :notes"
+                params["notes"] = notes
+            result = conn.execute(
+                text(f"UPDATE pill_drafts SET status = :status, updated_at = now() {note_clause} WHERE id = :id RETURNING id"),
+                params,
+            )
+            if not result.fetchone():
+                raise HTTPException(status_code=404, detail="Draft not found")
+            conn.commit()
+
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action=action_name,
+                entity_type="draft",
+                entity_id=draft_id,
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+            conn.commit()
+
+        return {"updated": True, "status": new_status}
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"{action_name} DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")

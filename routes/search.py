@@ -51,12 +51,14 @@ def get_suggestions(
             sql = text("""
                 SELECT DISTINCT ndc9 AS code
                     FROM pillfinder
-                    WHERE ndc9 IS NOT NULL
+                    WHERE deleted_at IS NULL
+                    AND ndc9 IS NOT NULL
                     AND REPLACE(ndc9, '-', '') LIKE :like_q
                 UNION
                 SELECT DISTINCT ndc11 AS code
                     FROM pillfinder
-                    WHERE ndc11 IS NOT NULL
+                    WHERE deleted_at IS NULL
+                    AND ndc11 IS NOT NULL
                     AND REPLACE(ndc11, '-', '') LIKE :like_q
                 LIMIT :lim
             """)
@@ -73,7 +75,8 @@ def get_suggestions(
             sql = text("""
                 SELECT DISTINCT splimprint
                     FROM pillfinder
-                    WHERE splimprint IS NOT NULL
+                    WHERE deleted_at IS NULL
+                    AND splimprint IS NOT NULL
                     AND UPPER(
                         REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')
                     ) LIKE UPPER(:like_imp)
@@ -99,7 +102,8 @@ def get_suggestions(
             sql = text("""
                 SELECT DISTINCT medicine_name
                     FROM pillfinder
-                    WHERE LOWER(medicine_name) LIKE :like_q
+                    WHERE deleted_at IS NULL
+                    AND LOWER(medicine_name) LIKE :like_q
                     ORDER BY medicine_name
                     LIMIT :lim
             """)
@@ -144,7 +148,7 @@ def api_search(
                 slug,
                 spl_strength
             FROM pillfinder
-            WHERE 1=1
+            WHERE deleted_at IS NULL
         """
 
         params: dict = {}
@@ -189,7 +193,7 @@ def api_search(
                 SELECT COUNT(*) FROM (
                     SELECT DISTINCT medicine_name, splimprint
                     FROM pillfinder
-                    WHERE 1=1
+                    WHERE deleted_at IS NULL
                     {"".join(f' AND {cond}' for cond in where_conditions)}
                 ) AS count_query
             """
@@ -238,7 +242,8 @@ def api_search(
             for key, data in grouped.items():
                 image_q = text("""
                     SELECT image_filename FROM pillfinder
-                    WHERE medicine_name = :medicine_name
+                    WHERE deleted_at IS NULL
+                      AND medicine_name = :medicine_name
                       AND splimprint = :splimprint
                 """)
                 img_rows = conn.execute(image_q, {
