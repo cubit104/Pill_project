@@ -13,3 +13,5 @@ aiofiles==23.2.1
 psycopg2-binary==2.9.9
 aiohttp==3.8.6
 cryptography>=3.4.8
+bleach==6.1.0
+slowapi==0.1.9
