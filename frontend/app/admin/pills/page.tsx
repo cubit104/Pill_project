@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../lib/supabase'
-import { Search, Plus, Trash2, RotateCcw } from 'lucide-react'
+import { Search, Plus, Trash2, RotateCcw, Download } from 'lucide-react'
 import { Suspense } from 'react'
 
 interface Pill {
@@ -32,6 +32,14 @@ interface PillsResponse {
   pages: number
 }
 
+interface PillStats {
+  total: number
+  no_image: number
+  no_name: number
+  no_imprint: number
+  no_ndc: number
+}
+
 function PillsListInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -42,17 +50,39 @@ function PillsListInner() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [stats, setStats] = useState<PillStats | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkLoading, setBulkLoading] = useState(false)
 
   const page = Number(searchParams.get('page') || '1')
   const q = searchParams.get('q') || ''
   const deleted = searchParams.get('deleted') === 'true'
+  const noImage = searchParams.get('no_image') === 'true'
+  const noName = searchParams.get('no_name') === 'true'
+  const noImprint = searchParams.get('no_imprint') === 'true'
+  const noNdc = searchParams.get('no_ndc') === 'true'
+  const sort = searchParams.get('sort') || ''
   const [searchInput, setSearchInput] = useState(q)
 
-  const fetchPills = useCallback(async () => {
+  const getSession = useCallback(async () => {
     const supabase = createClient()
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
+    const { data: { session } } = await supabase.auth.getSession()
+    return session
+  }, [])
+
+  const fetchStats = useCallback(async () => {
+    const session = await getSession()
+    if (!session) return
+    try {
+      const res = await fetch('/api/admin/pills/stats', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (res.ok) setStats(await res.json())
+    } catch { /* silently fail */ }
+  }, [getSession])
+
+  const fetchPills = useCallback(async () => {
+    const session = await getSession()
     if (!session) {
       router.push('/admin/login')
       return
@@ -61,6 +91,11 @@ function PillsListInner() {
     const params = new URLSearchParams()
     if (q) params.set('q', q)
     if (deleted) params.set('deleted', 'true')
+    if (noImage) params.set('has_image', 'false')
+    if (noName) params.set('no_name', 'true')
+    if (noImprint) params.set('no_imprint', 'true')
+    if (noNdc) params.set('no_ndc', 'true')
+    if (sort) params.set('sort', sort)
     params.set('page', String(page))
     params.set('per_page', '50')
 
@@ -74,16 +109,21 @@ function PillsListInner() {
       setPills(data.pills)
       setTotal(data.total)
       setPages(data.pages)
+      setSelectedIds(new Set())
     } catch (e) {
       setError(String(e))
     } finally {
       setLoading(false)
     }
-  }, [q, deleted, page, router])
+  }, [q, deleted, noImage, noName, noImprint, noNdc, sort, page, router, getSession])
 
   useEffect(() => {
     fetchPills()
   }, [fetchPills])
+
+  useEffect(() => {
+    fetchStats()
+  }, [fetchStats])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -94,12 +134,32 @@ function PillsListInner() {
     router.push(`/admin/pills?${params.toString()}`)
   }
 
+  const setChip = (chipParams: Record<string, string>) => {
+    // Start from current search params to preserve q, deleted, etc.
+    const params = new URLSearchParams(searchParams.toString())
+    // Clear all chip-specific filter keys before applying new chip
+    params.delete('no_image')
+    params.delete('no_name')
+    params.delete('no_imprint')
+    params.delete('no_ndc')
+    Object.entries(chipParams).forEach(([k, v]) => params.set(k, v))
+    params.set('page', '1')
+    router.push(`/admin/pills?${params.toString()}`)
+  }
+
+  const activeChip = noImage ? 'no_image' : noName ? 'no_name' : noImprint ? 'no_imprint' : noNdc ? 'no_ndc' : 'all'
+
+  const chips: { key: string; label: string; count: number | undefined; params: Record<string, string> }[] = [
+    { key: 'all', label: 'All', count: stats?.total, params: {} },
+    { key: 'no_image', label: 'No image', count: stats?.no_image, params: { no_image: 'true' } },
+    { key: 'no_name', label: 'No name', count: stats?.no_name, params: { no_name: 'true' } },
+    { key: 'no_imprint', label: 'No imprint', count: stats?.no_imprint, params: { no_imprint: 'true' } },
+    { key: 'no_ndc', label: 'No NDC', count: stats?.no_ndc, params: { no_ndc: 'true' } },
+  ]
+
   const handleDelete = async (id: string) => {
     if (!confirm('Soft-delete this pill? It can be restored from Trash.')) return
-    const supabase = createClient()
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
+    const session = await getSession()
     if (!session) return
     setDeleting(id)
     try {
@@ -115,10 +175,7 @@ function PillsListInner() {
   }
 
   const handleRestore = async (id: string) => {
-    const supabase = createClient()
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
+    const session = await getSession()
     if (!session) return
     try {
       const res = await fetch(`/api/admin/pills/${id}/restore`, {
@@ -132,11 +189,119 @@ function PillsListInner() {
     }
   }
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === pills.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(pills.map(p => p.id)))
+    }
+  }
+
+  const handleBulkTag = async () => {
+    const tag = prompt('Enter tag to add to selected pills:')
+    if (!tag?.trim()) return
+    const session = await getSession()
+    if (!session) return
+    setBulkLoading(true)
+    try {
+      const res = await fetch('/api/admin/pills/bulk/tag', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ids: Array.from(selectedIds), tag: tag.trim(), mode: 'add' }),
+      })
+      if (res.ok) {
+        fetchPills()
+        fetchStats()
+      } else {
+        setError('Bulk tag failed')
+      }
+    } finally {
+      setBulkLoading(false)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Move ${selectedIds.size} pill(s) to trash? This can be undone from Trash.`)) return
+    const session = await getSession()
+    if (!session) return
+    setBulkLoading(true)
+    try {
+      const res = await fetch('/api/admin/pills/bulk/delete', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      })
+      if (res.ok) {
+        fetchPills()
+        fetchStats()
+      } else {
+        setError('Bulk delete failed')
+      }
+    } finally {
+      setBulkLoading(false)
+    }
+  }
+
+  const handleExportCsv = async () => {
+    const session = await getSession()
+    if (!session) return
+    const params = new URLSearchParams()
+    if (q) params.set('q', q)
+    if (deleted) params.set('deleted', 'true')
+    if (noImage) params.set('has_image', 'false')
+    if (noName) params.set('no_name', 'true')
+    if (noImprint) params.set('no_imprint', 'true')
+    if (noNdc) params.set('no_ndc', 'true')
+
+    try {
+      const res = await fetch(`/api/admin/pills/export.csv?${params}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (!res.ok) { setError('Export failed'); return }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const dateStr = new Date().toISOString().slice(0, 10)
+      a.download = `pills-export-${dateStr}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setError(String(e))
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Pills</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Pills</h1>
+          <Link href="/admin/pills?sort=recent" className="text-xs text-indigo-500 hover:underline">
+            Recently edited →
+          </Link>
+        </div>
         <div className="flex gap-2">
+          <button
+            onClick={handleExportCsv}
+            className="flex items-center gap-2 bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 text-sm font-medium transition-colors"
+          >
+            <Download className="w-4 h-4" /> Export CSV
+          </button>
           <Link
             href="/admin/pills/missing-images"
             className="flex items-center gap-2 bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 text-sm font-medium transition-colors"
@@ -150,6 +315,26 @@ function PillsListInner() {
             <Plus className="w-4 h-4" /> Add New Pill
           </Link>
         </div>
+      </div>
+
+      {/* Filter chips */}
+      <div className="flex gap-2 flex-wrap">
+        {chips.map(chip => (
+          <button
+            key={chip.key}
+            onClick={() => setChip(chip.params)}
+            className={`px-3 py-1 rounded-full text-sm font-medium border transition-colors ${
+              activeChip === chip.key
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:border-indigo-400'
+            }`}
+          >
+            {chip.label}
+            {chip.count !== undefined && (
+              <span className="ml-1 opacity-80">({chip.count.toLocaleString()})</span>
+            )}
+          </button>
+        ))}
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
@@ -192,7 +377,34 @@ function PillsListInner() {
       )}
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        {/* Row count — always visible */}
+        {/* Bulk action bar */}
+        {selectedIds.size > 0 && (
+          <div className="sticky top-0 z-10 px-4 py-2 bg-indigo-50 border-b border-indigo-200 flex items-center gap-3 flex-wrap shadow-sm">
+            <span className="text-sm font-medium text-indigo-800">{selectedIds.size} selected</span>
+            <button
+              onClick={handleBulkTag}
+              disabled={bulkLoading}
+              className="px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 disabled:opacity-50"
+            >
+              Add tag to selected
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              disabled={bulkLoading}
+              className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50"
+            >
+              Move to trash
+            </button>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="px-3 py-1 bg-white text-gray-600 text-xs rounded border border-gray-300 hover:bg-gray-50"
+            >
+              Clear selection
+            </button>
+          </div>
+        )}
+
+        {/* Row count */}
         <div className="px-4 py-2 border-b border-gray-200 text-sm text-gray-600">
           {loading ? (
             <span>Loading…</span>
@@ -208,6 +420,14 @@ function PillsListInner() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-600 text-xs uppercase">
               <tr>
+                <th className="px-3 py-3 text-left w-10">
+                  <input
+                    type="checkbox"
+                    checked={pills.length > 0 && selectedIds.size === pills.length}
+                    onChange={toggleSelectAll}
+                    className="rounded"
+                  />
+                </th>
                 <th className="px-4 py-3 text-left">Image</th>
                 <th className="px-4 py-3 text-left">Drug Name</th>
                 <th className="px-4 py-3 text-left">Imprint</th>
@@ -220,14 +440,14 @@ function PillsListInner() {
             <tbody className="divide-y divide-gray-100">
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
                     Loading…
                   </td>
                 </tr>
               )}
               {!loading && pills.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
                     No pills found
                   </td>
                 </tr>
@@ -235,8 +455,16 @@ function PillsListInner() {
               {pills.map((pill) => (
                 <tr
                   key={pill.id}
-                  className={`hover:bg-gray-50 ${pill.deleted_at ? 'opacity-50' : ''}`}
+                  className={`hover:bg-gray-50 ${pill.deleted_at ? 'opacity-50' : ''} ${selectedIds.has(pill.id) ? 'bg-indigo-50' : ''}`}
                 >
+                  <td className="px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(pill.id)}
+                      onChange={() => toggleSelect(pill.id)}
+                      className="rounded"
+                    />
+                  </td>
                   <td className="px-4 py-3">
                     {pill.image_url ? (
                       <img

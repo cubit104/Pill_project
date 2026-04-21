@@ -1,11 +1,14 @@
 """Admin pill management endpoints."""
+import csv
+import io
 import json
 import logging
-from typing import Optional
-from datetime import timezone
+import time
 import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -18,6 +21,9 @@ from utils import get_image_url
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/pills", tags=["admin-pills"])
+
+# In-memory cache for /stats
+_stats_cache: dict = {"data": None, "expires": 0.0}
 
 ALLOWED_TAGS: list = []  # strip all HTML
 
@@ -69,6 +75,16 @@ class PillUpdate(PillCreate):
     updated_at: Optional[str] = None  # for optimistic locking
 
 
+class BulkTagRequest(BaseModel):
+    ids: list[str]
+    tag: str
+    mode: str = "add"  # "add" | "replace"
+
+
+class BulkDeleteRequest(BaseModel):
+    ids: list[str]
+
+
 @router.get("")
 def list_pills(
     request: Request,
@@ -78,6 +94,10 @@ def list_pills(
     has_image: Optional[bool] = Query(None),
     deleted: bool = Query(False),
     drug_name: Optional[str] = Query(None),
+    no_name: Optional[bool] = Query(None),
+    no_imprint: Optional[bool] = Query(None),
+    no_ndc: Optional[bool] = Query(None),
+    sort: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     admin: dict = Depends(get_admin_user),
@@ -110,8 +130,20 @@ def list_pills(
     if drug_name:
         filters.append("LOWER(medicine_name) LIKE :drug_name")
         params["drug_name"] = f"%{drug_name.lower()}%"
+    if no_name:
+        filters.append("(medicine_name IS NULL OR TRIM(medicine_name) = '')")
+    if no_imprint:
+        filters.append("(splimprint IS NULL OR TRIM(splimprint) = '')")
+    if no_ndc:
+        filters.append("(ndc11 IS NULL OR TRIM(ndc11) = '')")
 
     where = "WHERE " + " AND ".join(filters) if filters else ""
+
+    # Sort order: recent = updated_at DESC; default = named pills first then alpha
+    if sort == "recent":
+        order_by = "updated_at DESC NULLS LAST"
+    else:
+        order_by = "CASE WHEN medicine_name IS NULL OR TRIM(medicine_name) = '' THEN 1 ELSE 0 END, LOWER(medicine_name)"
 
     try:
         with database.db_engine.connect() as conn:
@@ -124,9 +156,7 @@ def list_pills(
                            image_filename, has_image, slug, updated_at, deleted_at,
                            spl_strength, status_rx_otc
                     FROM pillfinder {where}
-                    ORDER BY
-                      CASE WHEN medicine_name IS NULL OR TRIM(medicine_name) = '' THEN 1 ELSE 0 END,
-                      LOWER(medicine_name)
+                    ORDER BY {order_by}
                     LIMIT :limit OFFSET :offset
                 """),
                 params,
@@ -167,6 +197,356 @@ def list_pills(
         }
     except SQLAlchemyError as e:
         logger.error(f"list_pills DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.get("/stats")
+def get_stats(admin: dict = Depends(get_admin_user)):
+    """Return count stats for filter chips, cached for 60 seconds."""
+    now = time.time()
+    if _stats_cache["data"] is not None and now < _stats_cache["expires"]:
+        return _stats_cache["data"]
+
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT
+                      COUNT(*) as total,
+                      COUNT(*) FILTER (WHERE has_image IS NULL OR has_image != 'TRUE') as no_image,
+                      COUNT(*) FILTER (WHERE medicine_name IS NULL OR TRIM(medicine_name) = '') as no_name,
+                      COUNT(*) FILTER (WHERE splimprint IS NULL OR TRIM(splimprint) = '') as no_imprint,
+                      COUNT(*) FILTER (WHERE ndc11 IS NULL OR TRIM(ndc11) = '') as no_ndc
+                    FROM pillfinder
+                    WHERE deleted_at IS NULL
+                """)
+            ).fetchone()
+
+        data = {
+            "total": row[0],
+            "no_image": row[1],
+            "no_name": row[2],
+            "no_imprint": row[3],
+            "no_ndc": row[4],
+        }
+        _stats_cache["data"] = data
+        _stats_cache["expires"] = now + 60.0
+        return data
+    except SQLAlchemyError as e:
+        logger.error(f"get_stats DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.get("/recent")
+def get_recent(
+    limit: int = Query(10, ge=1, le=50),
+    admin: dict = Depends(get_admin_user),
+):
+    """Return most recently updated non-deleted pills."""
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT id, medicine_name, splimprint, spl_strength, updated_at, slug,
+                           image_filename, has_image
+                    FROM pillfinder
+                    WHERE deleted_at IS NULL
+                    ORDER BY updated_at DESC
+                    LIMIT :limit
+                """),
+                {"limit": limit},
+            ).fetchall()
+
+        pills = []
+        for r in rows:
+            image_filename = r[6]
+            image_url: Optional[str] = None
+            if r[7] == 'TRUE' and image_filename:
+                url = get_image_url(image_filename)
+                if not url.endswith("placeholder.jpg"):
+                    image_url = url
+            pills.append({
+                "id": str(r[0]),
+                "medicine_name": r[1],
+                "splimprint": r[2],
+                "spl_strength": r[3],
+                "updated_at": r[4].isoformat() if r[4] else None,
+                "slug": r[5],
+                "image_url": image_url,
+            })
+        return pills
+    except SQLAlchemyError as e:
+        logger.error(f"get_recent DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.get("/export.csv")
+def export_csv(
+    request: Request,
+    q: Optional[str] = Query(None),
+    color: Optional[str] = Query(None),
+    shape: Optional[str] = Query(None),
+    has_image: Optional[bool] = Query(None),
+    deleted: bool = Query(False),
+    drug_name: Optional[str] = Query(None),
+    no_name: Optional[bool] = Query(None),
+    no_imprint: Optional[bool] = Query(None),
+    no_ndc: Optional[bool] = Query(None),
+    admin: dict = Depends(get_admin_user),
+):
+    """Streaming CSV export of pills matching the given filters."""
+    if not database.db_engine:
+        database.connect_to_database()
+
+    filters = []
+    params: dict = {}
+
+    if deleted:
+        filters.append("deleted_at IS NOT NULL")
+    else:
+        filters.append("deleted_at IS NULL")
+
+    if q:
+        filters.append("(LOWER(medicine_name) LIKE :q OR LOWER(splimprint) LIKE :q OR LOWER(ndc11) LIKE :q)")
+        params["q"] = f"%{q.lower()}%"
+    if color:
+        filters.append("LOWER(splcolor_text) LIKE :color")
+        params["color"] = f"%{color.lower()}%"
+    if shape:
+        filters.append("LOWER(splshape_text) LIKE :shape")
+        params["shape"] = f"%{shape.lower()}%"
+    if has_image is not None:
+        if has_image:
+            filters.append("has_image = 'TRUE'")
+        else:
+            filters.append("(has_image IS NULL OR has_image != 'TRUE')")
+    if drug_name:
+        filters.append("LOWER(medicine_name) LIKE :drug_name")
+        params["drug_name"] = f"%{drug_name.lower()}%"
+    if no_name:
+        filters.append("(medicine_name IS NULL OR TRIM(medicine_name) = '')")
+    if no_imprint:
+        filters.append("(splimprint IS NULL OR TRIM(splimprint) = '')")
+    if no_ndc:
+        filters.append("(ndc11 IS NULL OR TRIM(ndc11) = '')")
+
+    where = "WHERE " + " AND ".join(filters) if filters else ""
+
+    COLUMNS = [
+        "id", "medicine_name", "splimprint", "spl_strength", "splcolor_text",
+        "splshape_text", "ndc11", "ndc9", "author", "has_image", "image_filename",
+        "tags", "image_alt_text", "updated_at", "deleted_at",
+    ]
+
+    filter_details = {
+        "q": q, "color": color, "shape": shape, "has_image": has_image,
+        "deleted": deleted, "drug_name": drug_name, "no_name": no_name,
+        "no_imprint": no_imprint, "no_ndc": no_ndc,
+    }
+
+    # Get row count and write audit log BEFORE streaming starts so it is
+    # recorded even if the client disconnects mid-download.
+    try:
+        with database.db_engine.connect() as conn:
+            row_count = conn.execute(
+                text(f"SELECT COUNT(*) FROM pillfinder {where}"), params
+            ).scalar() or 0
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action="export_csv",
+                entity_type="pill",
+                entity_id="bulk",
+                diff={"filters": filter_details, "row_count": row_count},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+            conn.commit()
+    except SQLAlchemyError as e:
+        logger.error(f"export_csv setup error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+    def generate():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(COLUMNS)
+        yield buf.getvalue()
+        buf.truncate(0)
+        buf.seek(0)
+
+        try:
+            with database.db_engine.connect().execution_options(stream_results=True) as conn:
+                result = conn.execute(
+                    text(f"""
+                        SELECT id, medicine_name, splimprint, spl_strength, splcolor_text,
+                               splshape_text, ndc11, ndc9,
+                               COALESCE(author, '') as author,
+                               has_image, image_filename, tags, image_alt_text,
+                               updated_at, deleted_at
+                        FROM pillfinder {where}
+                        ORDER BY medicine_name
+                    """),
+                    params,
+                )
+                for row in result:
+                    writer.writerow([
+                        str(row[0]) if row[0] is not None else "",
+                        row[1] or "",
+                        row[2] or "",
+                        row[3] or "",
+                        row[4] or "",
+                        row[5] or "",
+                        row[6] or "",
+                        row[7] or "",
+                        row[8] or "",
+                        row[9] or "",
+                        row[10] or "",
+                        row[11] or "",
+                        row[12] or "",
+                        row[13].isoformat() if row[13] else "",
+                        row[14].isoformat() if row[14] else "",
+                    ])
+                    yield buf.getvalue()
+                    buf.truncate(0)
+                    buf.seek(0)
+        except SQLAlchemyError as e:
+            logger.error(f"export_csv stream error: {e}")
+
+    filename = f"pills-export-{datetime.date.today().isoformat()}.csv"
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/bulk/tag", status_code=200)
+def bulk_tag(
+    request: Request,
+    body: BulkTagRequest,
+    admin: dict = Depends(get_admin_user),
+):
+    """Bulk tag pills by id. mode='add' appends, mode='replace' overwrites."""
+    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+
+    if len(body.ids) > 500:
+        raise HTTPException(status_code=400, detail="Maximum 500 ids per request")
+    if not body.ids:
+        return {"updated": 0}
+
+    tag = body.tag.strip()
+    if not tag:
+        raise HTTPException(status_code=400, detail="tag must not be empty")
+    if body.mode not in ("add", "replace"):
+        raise HTTPException(status_code=400, detail="mode must be 'add' or 'replace'")
+
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.connect() as conn:
+            if body.mode == "replace":
+                result = conn.execute(
+                    text("""
+                        UPDATE pillfinder SET tags = :tags, updated_at = now()
+                        WHERE id = ANY(CAST(:ids AS uuid[])) AND deleted_at IS NULL
+                    """),
+                    {"tags": tag, "ids": list(body.ids)},
+                )
+                updated_count = result.rowcount
+            else:
+                # "add" mode — deduplicate comma-separated tags
+                rows = conn.execute(
+                    text("SELECT id, tags FROM pillfinder WHERE id = ANY(CAST(:ids AS uuid[])) AND deleted_at IS NULL"),
+                    {"ids": list(body.ids)},
+                ).fetchall()
+                updated_count = len(rows)
+                for row in rows:
+                    pill_id, existing_tags = row[0], row[1]
+                    current = [t.strip() for t in (existing_tags or "").split(",") if t.strip()]
+                    if tag not in current:
+                        current.append(tag)
+                    new_tags = ", ".join(current)
+                    conn.execute(
+                        text("UPDATE pillfinder SET tags = :tags, updated_at = now() WHERE id = :id"),
+                        {"tags": new_tags, "id": pill_id},
+                    )
+            conn.commit()
+
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action="bulk_tag",
+                entity_type="pill",
+                entity_id="bulk",
+                diff={"ids": list(body.ids), "tag": tag, "mode": body.mode},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+            conn.commit()
+
+        return {"updated": updated_count}
+    except SQLAlchemyError as e:
+        logger.error(f"bulk_tag DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.post("/bulk/delete", status_code=200)
+def bulk_delete(
+    request: Request,
+    body: BulkDeleteRequest,
+    admin: dict = Depends(get_admin_user),
+):
+    """Soft-delete multiple pills in a single transaction."""
+    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+
+    if len(body.ids) > 500:
+        raise HTTPException(status_code=400, detail="Maximum 500 ids per request")
+    if not body.ids:
+        return {"deleted": 0}
+
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    UPDATE pillfinder
+                    SET deleted_at = now(), deleted_by = :admin_id
+                    WHERE id = ANY(CAST(:ids AS uuid[])) AND deleted_at IS NULL
+                """),
+                {"ids": list(body.ids), "admin_id": str(admin["id"])},
+            )
+            deleted_count = result.rowcount
+            conn.commit()
+
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action="bulk_delete",
+                entity_type="pill",
+                entity_id="bulk",
+                diff={"ids": list(body.ids)},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+            conn.commit()
+
+        return {"deleted": deleted_count}
+    except SQLAlchemyError as e:
+        logger.error(f"bulk_delete DB error: {e}")
         raise HTTPException(status_code=500, detail="Database error")
 
 

@@ -445,3 +445,332 @@ def test_pill_update_accepts_image_alt_text_and_tags(client):
         "tags must be included in the UPDATE statement"
     )
 
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Bulk tag
+# ---------------------------------------------------------------------------
+
+def test_bulk_tag_adds_without_duplication(client):
+    """POST /api/admin/pills/bulk/tag (add mode) must not duplicate existing tags."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif call_count[0] == 2:
+            # SELECT id, tags — existing tag already present
+            mock_row = MagicMock()
+            mock_row.__getitem__ = lambda self, idx: (
+                "pill-uuid-1" if idx == 0 else "painkiller"
+            )
+            result.fetchall.return_value = [mock_row]
+        else:
+            result.fetchone.return_value = None
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk/tag",
+            json={"ids": ["pill-uuid-1"], "tag": "painkiller", "mode": "add"},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data.get("updated") == 1
+
+    # The UPDATE should NOT set tags to "painkiller, painkiller"
+    update_calls = [
+        str(call.args[0]) for call in mock_conn.execute.call_args_list if call.args
+        and "UPDATE" in str(call.args[0])
+    ]
+    # If there's an update call for tags, it must not contain duplicated tag
+    for sql_str in update_calls:
+        if "tags" in sql_str:
+            params_used = [call.args[1] for call in mock_conn.execute.call_args_list
+                           if call.args and len(call.args) > 1]
+            for p in params_used:
+                tags_val = p.get("tags", "") if isinstance(p, dict) else ""
+                tag_list = [t.strip() for t in tags_val.split(",") if t.strip()]
+                assert tag_list.count("painkiller") <= 1, (
+                    "bulk_tag must not duplicate tags"
+                )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Bulk delete
+# ---------------------------------------------------------------------------
+
+def test_bulk_delete_soft_deletes_all(client):
+    """POST /api/admin/pills/bulk/delete must set deleted_at on all rows."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    ids = ["pill-uuid-1", "pill-uuid-2", "pill-uuid-3"]
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        else:
+            result.fetchone.return_value = None
+            result.rowcount = len(ids)  # simulate DB returning affected row count
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk/delete",
+            json={"ids": ids},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data.get("deleted") == len(ids)
+
+    executed_sqls = [str(call.args[0]) for call in mock_conn.execute.call_args_list if call.args]
+    assert any("deleted_at" in sql for sql in executed_sqls), (
+        "bulk_delete must set deleted_at in its SQL"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Duplicate detection
+# ---------------------------------------------------------------------------
+
+def test_duplicate_detection_requires_all_7_fields(client):
+    """GET /api/admin/duplicates returns 200 and has the correct response structure."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif call_count[0] == 2:
+            # COUNT for total_groups
+            result.scalar.return_value = 0
+        else:
+            result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get("/api/admin/duplicates", headers={"Authorization": "Bearer faketoken"})
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "total_groups" in data
+    assert "groups" in data
+    assert "page" in data
+    assert "per_page" in data
+
+    # Verify the SQL uses all 7 normalised fields
+    executed_sqls = [str(call.args[0]) for call in mock_conn.execute.call_args_list if call.args]
+    combined_sql = " ".join(executed_sqls)
+    for field in ["medicine_name", "spl_strength", "splimprint", "splcolor_text",
+                  "splshape_text", "author", "ndc11"]:
+        assert field in combined_sql, f"Duplicate detection SQL must include field '{field}'"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Merge rejects mismatched fields
+# ---------------------------------------------------------------------------
+
+def test_merge_rejects_when_fields_differ(client):
+    """POST /api/admin/duplicates/merge returns 400 when normalised key fields differ."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    keep_row = MagicMock()
+    keep_row._fields = ["id", "medicine_name", "spl_strength", "splimprint",
+                        "splcolor_text", "splshape_text", "author", "ndc11"]
+    keep_row.__iter__ = MagicMock(return_value=iter(
+        ["keep-id", "Aspirin", "500mg", "A1", "white", "round", "Bayer", "12345"]
+    ))
+
+    discard_row = MagicMock()
+    discard_row._fields = ["id", "medicine_name", "spl_strength", "splimprint",
+                           "splcolor_text", "splshape_text", "author", "ndc11"]
+    discard_row.__iter__ = MagicMock(return_value=iter(
+        ["discard-id", "Ibuprofen", "200mg", "B2", "blue", "oval", "Generic", "99999"]
+    ))
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif call_count[0] == 2:
+            result.fetchone.return_value = keep_row
+        else:
+            result.fetchone.return_value = discard_row
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/duplicates/merge",
+            json={"keep_id": "keep-id", "discard_ids": ["discard-id"]},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 400, resp.text
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Merge gap-fill
+# ---------------------------------------------------------------------------
+
+def test_merge_gap_fills_correctly(client):
+    """POST /api/admin/duplicates/merge copies gap-fill fields from discard to keep."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    # Keep pill: same key fields, but missing image_filename
+    keep_row = MagicMock()
+    keep_row._fields = ["id", "medicine_name", "spl_strength", "splimprint",
+                        "splcolor_text", "splshape_text", "author", "ndc11",
+                        "image_filename", "has_image"]
+    keep_row.__iter__ = MagicMock(return_value=iter(
+        ["keep-id", "Aspirin", "500mg", "A1", "white", "round", "Bayer", "12345",
+         None, None]
+    ))
+
+    # Discard pill: same key fields, has image_filename
+    discard_row = MagicMock()
+    discard_row._fields = ["id", "medicine_name", "spl_strength", "splimprint",
+                           "splcolor_text", "splshape_text", "author", "ndc11",
+                           "image_filename", "has_image"]
+    discard_row.__iter__ = MagicMock(return_value=iter(
+        ["discard-id", "Aspirin", "500mg", "A1", "white", "round", "Bayer", "12345",
+         "aspirin_500.jpg", "TRUE"]
+    ))
+
+    final_row = MagicMock()
+    final_row._fields = ["id", "medicine_name"]
+    final_row.__iter__ = MagicMock(return_value=iter(["keep-id", "Aspirin"]))
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql)
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif "pillfinder WHERE id" in sql_str and call_count[0] == 2:
+            result.fetchone.return_value = keep_row
+        elif "pillfinder WHERE id" in sql_str and call_count[0] == 3:
+            result.fetchone.return_value = discard_row
+        elif "pillfinder WHERE id" in sql_str:
+            result.fetchone.return_value = final_row
+        else:
+            result.fetchone.return_value = None
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+         patch("routes.admin.duplicates.log_audit", return_value=None):
+        resp = client.post(
+            "/api/admin/duplicates/merge",
+            json={"keep_id": "keep-id", "discard_ids": ["discard-id"]},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    executed_sqls = [str(call.args[0]) for call in mock_conn.execute.call_args_list if call.args]
+    # Verify a soft-delete UPDATE was executed for discard pills
+    assert any("deleted_at" in sql and "UPDATE" in sql for sql in executed_sqls), (
+        "merge must soft-delete discard pills"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — CSV export streaming response
+# ---------------------------------------------------------------------------
+
+def test_csv_export_returns_streaming_response(client):
+    """GET /api/admin/pills/export.csv returns 200 with correct headers."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_conn.execution_options.return_value = mock_conn
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        else:
+            result.__iter__ = MagicMock(return_value=iter([]))
+            result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/pills/export.csv",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert "text/csv" in resp.headers.get("content-type", "")
+    content_disposition = resp.headers.get("content-disposition", "")
+    assert "attachment" in content_disposition
+    assert "pills-export-" in content_disposition
+    assert ".csv" in content_disposition

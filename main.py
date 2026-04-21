@@ -74,6 +74,7 @@ except Exception as e:
 from routes import search, details, filters, ndc, sitemap, health, similar  # noqa: E402
 from routes.admin import pills as admin_pills, drafts as admin_drafts, images as admin_images  # noqa: E402
 from routes.admin import audit as admin_audit, users as admin_users, stats as admin_stats  # noqa: E402
+from routes.admin import duplicates as admin_duplicates  # noqa: E402
 
 app.include_router(search.router)
 app.include_router(details.router)
@@ -88,6 +89,7 @@ app.include_router(admin_images.router)
 app.include_router(admin_audit.router)
 app.include_router(admin_users.router)
 app.include_router(admin_stats.router)
+app.include_router(admin_duplicates.router)
 
 
 def regenerate_slugs():
