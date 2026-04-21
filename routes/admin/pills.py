@@ -13,7 +13,7 @@ import bleach
 
 import database
 from routes.admin.auth import get_admin_user, log_audit, CRITICAL_FIELDS
-from utils import IMAGE_BASE
+from utils import get_image_url
 
 logger = logging.getLogger(__name__)
 
@@ -137,9 +137,11 @@ def list_pills(
             image_filename = r[5]
             image_url: Optional[str] = None
             if r[6] == 'TRUE' and image_filename:
-                first_filename = str(image_filename).split(",")[0].strip()
-                if first_filename:
-                    image_url = f"{IMAGE_BASE}/{first_filename}"
+                url = get_image_url(image_filename)
+                # get_image_url returns a placeholder URL when filename is empty;
+                # only use it when we have a real filename.
+                if not url.endswith("placeholder.jpg"):
+                    image_url = url
             pills.append({
                 "id": str(r[0]),
                 "medicine_name": r[1],
