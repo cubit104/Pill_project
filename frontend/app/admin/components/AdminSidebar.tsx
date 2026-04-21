@@ -37,7 +37,10 @@ export default function AdminSidebar() {
           const data = await res.json()
           setIsSuperadmin(data.role === 'superadmin')
         }
-      } catch {
+      } catch (err) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Failed to check admin role:', err)
+        }
         // silently fail — sidebar still renders without superadmin items
       }
     }

@@ -92,14 +92,16 @@ export default function EditPillPage() {
     } = await supabase.auth.getSession()
     if (!session) return
 
-    // Only send fields that differ from the saved pill and are non-empty
+    // Only send fields that have actually changed. Empty strings mean "user left it blank"
+    // which we treat as "no change" — to clear a field, the server-side approach is needed.
     const changedFields: Record<string, string | null> = {}
     FIELDS.forEach(({ key }) => {
-      const formVal = form[key]
+      const formVal = form[key]  // always a string ('' when unset) or null
       const pillVal = pill?.[key] ?? null
-      // Treat empty string as "no change" to avoid blanking out existing data
-      if (formVal !== '' && formVal !== pillVal) {
-        changedFields[key] = formVal ?? null
+      // Skip if empty (treat as no-op) or unchanged
+      if (formVal === '' || formVal === null) return
+      if (formVal !== pillVal) {
+        changedFields[key] = formVal
       }
     })
 

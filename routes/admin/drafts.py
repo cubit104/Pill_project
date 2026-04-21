@@ -238,6 +238,9 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
         raise HTTPException(status_code=500, detail="Database error")
 
 
+VALID_DRAFT_STATUSES = frozenset(("draft", "pending_review", "approved", "published", "rejected"))
+
+
 def _transition_draft(
     request: Request,
     draft_id: str,
@@ -247,6 +250,14 @@ def _transition_draft(
     notes: Optional[str] = None,
     allowed_from: Optional[tuple] = None,
 ):
+    # Validate that all status values are known (defence against programming errors)
+    if allowed_from:
+        unknown = set(allowed_from) - VALID_DRAFT_STATUSES
+        if unknown:
+            raise ValueError(f"Unknown draft status values in allowed_from: {unknown}")
+    if new_status not in VALID_DRAFT_STATUSES:
+        raise ValueError(f"Unknown target draft status: {new_status}")
+
     if not database.db_engine:
         database.connect_to_database()
     try:

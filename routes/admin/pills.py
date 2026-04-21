@@ -274,8 +274,10 @@ def update_pill(
         database.connect_to_database()
 
     raw = body.model_dump(exclude={"idempotency_key", "updated_at"})
-    # Treat empty strings same as None — don't overwrite DB data with blanks
-    updates = {k: _sanitize(v) for k, v in raw.items() if v is not None and v != ""}
+    # _sanitize() converts both None and "" to None; filter out None results so we only
+    # update fields that have actual values.
+    updates = {k: _sanitize(v) for k, v in raw.items() if v is not None}
+    updates = {k: v for k, v in updates.items() if v is not None}
 
     if not updates:
         return {"updated": False}
