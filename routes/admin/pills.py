@@ -4,9 +4,8 @@ import io
 import json
 import logging
 import time
-from typing import Optional
-from datetime import date
 import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -414,7 +413,7 @@ def export_csv(
         except Exception as e:
             logger.error(f"export_csv audit log error: {e}")
 
-    filename = f"pills-export-{date.today().isoformat()}.csv"
+    filename = f"pills-export-{datetime.date.today().isoformat()}.csv"
     return StreamingResponse(
         generate(),
         media_type="text/csv",
