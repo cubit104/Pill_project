@@ -1,3 +1,4 @@
+-- Idempotent: safe to re-run.
 -- Create admin_users table
 CREATE TABLE IF NOT EXISTS public.admin_users (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -26,11 +27,13 @@ $$;
 -- RLS: only superadmins can write; all admins can SELECT their own row
 ALTER TABLE public.admin_users ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "admin_users_select_own" ON public.admin_users
+DROP POLICY IF EXISTS "admin_users_select_own" ON public.admin_users;
+CREATE POLICY "admin_users_select_own" ON public.admin_users
   FOR SELECT USING (auth.uid() = id);
 
 -- Use the SECURITY DEFINER function to avoid recursive policy evaluation
-CREATE POLICY IF NOT EXISTS "admin_users_superadmin_all" ON public.admin_users
+DROP POLICY IF EXISTS "admin_users_superadmin_all" ON public.admin_users;
+CREATE POLICY "admin_users_superadmin_all" ON public.admin_users
   FOR ALL USING (public.is_superadmin());
 
 -- Superadmin seeding is handled by 20240101000005_seed_superadmin.sql

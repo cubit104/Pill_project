@@ -1,3 +1,4 @@
+-- Idempotent: safe to re-run.
 CREATE TABLE IF NOT EXISTS public.audit_log (
   id BIGSERIAL PRIMARY KEY,
   occurred_at TIMESTAMPTZ DEFAULT now(),
@@ -19,10 +20,12 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON public.audit_log(entity_type,
 ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
 
 -- Append-only: no UPDATE, no DELETE
-CREATE POLICY IF NOT EXISTS "audit_log_select_admin" ON public.audit_log
+DROP POLICY IF EXISTS "audit_log_select_admin" ON public.audit_log;
+CREATE POLICY "audit_log_select_admin" ON public.audit_log
   FOR SELECT USING (
     EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid() AND is_active = true)
   );
 
-CREATE POLICY IF NOT EXISTS "audit_log_insert_service" ON public.audit_log
+DROP POLICY IF EXISTS "audit_log_insert_service" ON public.audit_log;
+CREATE POLICY "audit_log_insert_service" ON public.audit_log
   FOR INSERT WITH CHECK (auth.role() = 'service_role');

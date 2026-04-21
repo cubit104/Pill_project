@@ -1,3 +1,4 @@
+-- Idempotent: safe to re-run.
 CREATE TABLE IF NOT EXISTS public.pill_drafts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   pill_id UUID REFERENCES public.pillfinder(id) ON DELETE CASCADE,
@@ -13,12 +14,14 @@ CREATE TABLE IF NOT EXISTS public.pill_drafts (
 
 ALTER TABLE public.pill_drafts ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "pill_drafts_admin_select" ON public.pill_drafts
+DROP POLICY IF EXISTS "pill_drafts_admin_select" ON public.pill_drafts;
+CREATE POLICY "pill_drafts_admin_select" ON public.pill_drafts
   FOR SELECT USING (
     EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid() AND is_active = true)
   );
 
-CREATE POLICY IF NOT EXISTS "pill_drafts_editor_insert" ON public.pill_drafts
+DROP POLICY IF EXISTS "pill_drafts_editor_insert" ON public.pill_drafts;
+CREATE POLICY "pill_drafts_editor_insert" ON public.pill_drafts
   FOR INSERT WITH CHECK (
     EXISTS (
       SELECT 1 FROM public.admin_users
@@ -26,7 +29,8 @@ CREATE POLICY IF NOT EXISTS "pill_drafts_editor_insert" ON public.pill_drafts
     )
   );
 
-CREATE POLICY IF NOT EXISTS "pill_drafts_editor_update" ON public.pill_drafts
+DROP POLICY IF EXISTS "pill_drafts_editor_update" ON public.pill_drafts;
+CREATE POLICY "pill_drafts_editor_update" ON public.pill_drafts
   FOR UPDATE USING (
     EXISTS (
       SELECT 1 FROM public.admin_users
