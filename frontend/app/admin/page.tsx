@@ -21,8 +21,18 @@ interface Stats {
   }>
 }
 
+interface RecentPill {
+  id: string
+  medicine_name: string | null
+  splimprint: string | null
+  spl_strength: string | null
+  updated_at: string | null
+  slug: string | null
+}
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
+  const [recentPills, setRecentPills] = useState<RecentPill[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const router = useRouter()
@@ -48,6 +58,14 @@ export default function AdminDashboard() {
         }
         const data = await res.json()
         setStats(data)
+
+        const recentRes = await fetch('/api/admin/pills/recent?limit=10', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+        if (recentRes.ok) {
+          const recentData = await recentRes.json()
+          setRecentPills(recentData.pills ?? recentData)
+        }
       } catch {
         setError('Failed to load dashboard stats')
       } finally {
@@ -151,6 +169,32 @@ export default function AdminDashboard() {
               </div>
               <div className="text-xs text-gray-400 shrink-0">
                 {entry.occurred_at ? new Date(entry.occurred_at).toLocaleString() : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900">Recently Edited</h2>
+          <Link href="/admin/pills?sort=recent" className="text-xs text-indigo-500 hover:underline">View all →</Link>
+        </div>
+        <div className="divide-y divide-gray-100">
+          {!recentPills?.length && (
+            <div className="p-4 text-gray-500 text-sm">No recent edits</div>
+          )}
+          {recentPills?.map((pill) => (
+            <div key={pill.id} className="p-3 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <Link href={`/admin/pills/${pill.id}`} className="font-medium text-sm text-indigo-600 hover:underline">
+                  {pill.medicine_name || '(no name)'}
+                </Link>
+                {pill.splimprint && <span className="ml-2 text-xs text-gray-500">{pill.splimprint}</span>}
+                {pill.spl_strength && <div className="text-xs text-gray-400">{pill.spl_strength}</div>}
+              </div>
+              <div className="text-xs text-gray-400 shrink-0">
+                {pill.updated_at ? new Date(pill.updated_at).toLocaleString() : ''}
               </div>
             </div>
           ))}

@@ -2,13 +2,14 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, Users, Settings, ImageOff } from 'lucide-react'
+import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, Users, Settings, ImageOff, Layers } from 'lucide-react'
 import { createClient } from '../lib/supabase'
 
 const baseNavItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/pills', label: 'Pills', icon: Pill },
   { href: '/admin/pills/missing-images', label: 'Missing Images Queue', icon: ImageOff },
+  { href: '/admin/duplicates', label: 'Duplicates', icon: Layers },
   { href: '/admin/drafts', label: 'Drafts', icon: FileEdit },
   { href: '/admin/trash', label: 'Trash', icon: Trash2 },
   { href: '/admin/audit', label: 'Audit Log', icon: ScrollText },
@@ -22,6 +23,7 @@ const superadminNavItems = [
 export default function AdminSidebar() {
   const pathname = usePathname()
   const [isSuperadmin, setIsSuperadmin] = useState(false)
+  const [dupCount, setDupCount] = useState<number | null>(null)
 
   useEffect(() => {
     const checkRole = async () => {
@@ -37,6 +39,14 @@ export default function AdminSidebar() {
         if (res.ok) {
           const data = await res.json()
           setIsSuperadmin(data.role === 'superadmin')
+        }
+
+        const dupRes = await fetch('/api/admin/duplicates?per_page=1', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+        if (dupRes.ok) {
+          const dupData = await dupRes.json()
+          if (dupData.total_groups != null) setDupCount(dupData.total_groups)
         }
       } catch (err) {
         if (process.env.NODE_ENV === 'development') {
@@ -71,7 +81,12 @@ export default function AdminSidebar() {
               }`}
             >
               <Icon className="w-4 h-4" />
-              {label}
+              <span className="flex-1">{label}</span>
+              {href === '/admin/duplicates' && dupCount != null && dupCount > 0 && (
+                <span className="bg-yellow-400 text-yellow-900 text-xs font-bold px-1.5 py-0.5 rounded-full">
+                  {dupCount}
+                </span>
+              )}
             </Link>
           )
         })}
