@@ -272,3 +272,176 @@ def test_get_me_returns_correct_fields(client):
     assert "email" in data
     assert "role" in data
     assert "id" in data
+
+
+# ---------------------------------------------------------------------------
+# Sort order — rows without a medicine_name should be sorted last
+# ---------------------------------------------------------------------------
+
+def test_list_pills_sort_order_puts_unnamed_last(client):
+    """GET /api/admin/pills should execute CASE-based ORDER BY so named pills come first."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            # Auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif call_count[0] == 2:
+            # COUNT(*) query
+            result.scalar.return_value = 0
+        else:
+            # SELECT pills
+            result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get("/api/admin/pills", headers={"Authorization": "Bearer faketoken"})
+
+    assert resp.status_code == 200, resp.text
+    assert mock_conn.execute.called, "Expected list_pills to execute a SQL query"
+
+    # Inspect all SQL calls and find the SELECT with ORDER BY
+    executed_sqls = [str(call.args[0]) for call in mock_conn.execute.call_args_list if call.args]
+    select_sqls = [s for s in executed_sqls if "ORDER BY" in s]
+    assert select_sqls, "Expected a SELECT with ORDER BY to be executed"
+    assert any(
+        "CASE WHEN medicine_name IS NULL OR TRIM(medicine_name) = '' THEN 1 ELSE 0 END" in s
+        for s in select_sqls
+    ), "list_pills must order by CASE expression to put unnamed pills last"
+    assert all(
+        "ORDER BY medicine_name NULLS LAST" not in s for s in select_sqls
+    ), "Old naive sort must be removed"
+
+
+# ---------------------------------------------------------------------------
+# New fields — image_alt_text and tags accepted in create/update payloads
+# ---------------------------------------------------------------------------
+
+def test_pill_create_accepts_image_alt_text_and_tags(client):
+    """POST /api/admin/pills should accept image_alt_text and tags fields."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif call_count[0] == 2:
+            # idempotency_key check — no existing row
+            result.fetchone.return_value = None
+        else:
+            # INSERT RETURNING id
+            result.scalar.return_value = "new-pill-uuid"
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills",
+            json={
+                "medicine_name": "TestDrug",
+                "image_alt_text": "White oval pill imprinted MP 45",
+                "tags": "painkiller, analgesic",
+            },
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data.get("created") is True
+
+    # Confirm that the INSERT included the new fields
+    insert_calls = [
+        str(call.args[0]) for call in mock_conn.execute.call_args_list if call.args
+    ]
+    assert any("image_alt_text" in sql for sql in insert_calls), (
+        "image_alt_text must be included in the INSERT statement"
+    )
+    assert any("tags" in sql for sql in insert_calls), (
+        "tags must be included in the INSERT statement"
+    )
+
+
+def test_pill_update_accepts_image_alt_text_and_tags(client):
+    """PUT /api/admin/pills/{id} should accept image_alt_text and tags fields."""
+    from datetime import datetime, timezone
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    db_ts = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    pill_row = MagicMock()
+    pill_row.__getitem__ = MagicMock(side_effect=lambda idx: db_ts if idx == 0 else None)
+
+    # Simulate a full row for before-snapshot
+    before_row = MagicMock()
+    before_row._fields = ["id", "medicine_name", "image_alt_text", "tags"]
+    before_row.__iter__ = MagicMock(return_value=iter(["pill-id", "OldName", None, None]))
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif call_count[0] == 2:
+            # updated_at check
+            result.fetchone.return_value = pill_row
+        elif call_count[0] == 3:
+            # before-snapshot SELECT *
+            result.fetchone.return_value = before_row
+        else:
+            result.fetchone.return_value = None
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.put(
+            "/api/admin/pills/some-pill-id",
+            json={
+                "image_alt_text": "White oval pill imprinted MP 45",
+                "tags": "painkiller, analgesic",
+                "updated_at": "2024-06-01T12:00:00+00:00",
+            },
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data.get("updated") is True
+
+    # Confirm that the UPDATE included the new fields
+    update_calls = [
+        str(call.args[0]) for call in mock_conn.execute.call_args_list if call.args
+    ]
+    assert any("image_alt_text" in sql for sql in update_calls), (
+        "image_alt_text must be included in the UPDATE statement"
+    )
+    assert any("tags" in sql for sql in update_calls), (
+        "tags must be included in the UPDATE statement"
+    )
+

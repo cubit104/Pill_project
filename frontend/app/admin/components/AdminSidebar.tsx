@@ -2,12 +2,13 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, Users, Settings } from 'lucide-react'
+import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, Users, Settings, ImageOff } from 'lucide-react'
 import { createClient } from '../lib/supabase'
 
 const baseNavItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/pills', label: 'Pills', icon: Pill },
+  { href: '/admin/pills/missing-images', label: 'Missing Images Queue', icon: ImageOff },
   { href: '/admin/drafts', label: 'Drafts', icon: FileEdit },
   { href: '/admin/trash', label: 'Trash', icon: Trash2 },
   { href: '/admin/audit', label: 'Audit Log', icon: ScrollText },
@@ -57,7 +58,8 @@ export default function AdminSidebar() {
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         {navItems.map(({ href, label, icon: Icon }) => {
           const isActive =
-            pathname === href || (href !== '/admin' && pathname.startsWith(href))
+            pathname === href ||
+            (href !== '/admin' && pathname.startsWith(href + '/'))
           return (
             <Link
               key={href}

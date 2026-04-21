@@ -207,7 +207,7 @@ export default function PillDetailClient({
                 >
                   <img
                     src={images[0]}
-                    alt={buildImageAlt(pill)}
+                    alt={pill.image_alt_text || buildImageAlt(pill)}
                     className="w-72 h-72 object-contain bg-slate-50"
                     width={288}
                     height={288}
