@@ -26,7 +26,7 @@ PUBLISHABLE_FIELDS = [
 
 class DraftCreate(BaseModel):
     draft_data: dict
-    status: str = "draft"
+    # Status on creation is always 'draft'; use the dedicated /submit endpoint to advance state.
 
 
 class ReviewAction(BaseModel):
@@ -51,13 +51,12 @@ def create_draft(
             result = conn.execute(
                 text("""
                     INSERT INTO pill_drafts (pill_id, draft_data, status, created_by)
-                    VALUES (:pill_id, :draft_data::jsonb, :status, :created_by)
+                    VALUES (:pill_id, :draft_data::jsonb, 'draft', :created_by)
                     RETURNING id
                 """),
                 {
                     "pill_id": pill_id,
                     "draft_data": json.dumps(body.draft_data),
-                    "status": body.status,
                     "created_by": str(admin["id"]),
                 },
             )
@@ -71,7 +70,7 @@ def create_draft(
                 action="create_draft",
                 entity_type="draft",
                 entity_id=draft_id,
-                metadata={"pill_id": pill_id, "status": body.status},
+                metadata={"pill_id": pill_id, "status": "draft"},
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
@@ -132,7 +131,10 @@ def list_drafts(
 
 @router.post("/drafts/{draft_id}/submit")
 def submit_draft(request: Request, draft_id: str, admin: dict = Depends(get_admin_user)):
-    return _transition_draft(request, draft_id, "pending_review", admin, "submit_draft")
+    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+    return _transition_draft(request, draft_id, "pending_review", admin, "submit_draft",
+                             allowed_from=("draft",))
 
 
 @router.post("/drafts/{draft_id}/approve")
@@ -144,7 +146,8 @@ def approve_draft(
 ):
     if admin["role"] not in ("superadmin", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires reviewer role or higher")
-    return _transition_draft(request, draft_id, "approved", admin, "approve_draft", notes=body.review_notes)
+    return _transition_draft(request, draft_id, "approved", admin, "approve_draft",
+                             notes=body.review_notes, allowed_from=("pending_review",))
 
 
 @router.post("/drafts/{draft_id}/reject")
@@ -156,7 +159,8 @@ def reject_draft(
 ):
     if admin["role"] not in ("superadmin", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires reviewer role or higher")
-    return _transition_draft(request, draft_id, "rejected", admin, "reject_draft", notes=body.review_notes)
+    return _transition_draft(request, draft_id, "rejected", admin, "reject_draft",
+                             notes=body.review_notes, allowed_from=("pending_review",))
 
 
 @router.post("/drafts/{draft_id}/publish")
@@ -175,10 +179,11 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
             ).fetchone()
             if not draft:
                 raise HTTPException(status_code=404, detail="Draft not found")
-            if draft[3] not in ("approved", "pending_review"):
+            if draft[3] != "approved":
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Draft must be approved before publishing (current: {draft[3]})",
+                    detail=f"Draft must be approved before publishing (current: {draft[3]}). "
+                           "Use /approve first.",
                 )
 
             pill_id = str(draft[1])
@@ -240,6 +245,7 @@ def _transition_draft(
     admin: dict,
     action_name: str,
     notes: Optional[str] = None,
+    allowed_from: Optional[tuple] = None,
 ):
     if not database.db_engine:
         database.connect_to_database()
@@ -250,12 +256,36 @@ def _transition_draft(
             if notes is not None:
                 note_clause = ", review_notes = :notes"
                 params["notes"] = notes
-            result = conn.execute(
-                text(f"UPDATE pill_drafts SET status = :status, updated_at = now() {note_clause} WHERE id = :id RETURNING id"),
-                params,
-            )
-            if not result.fetchone():
-                raise HTTPException(status_code=404, detail="Draft not found")
+
+            # Validate current status is in the allowed set (state machine enforcement)
+            if allowed_from:
+                placeholders = ", ".join(f":af{i}" for i in range(len(allowed_from)))
+                params.update({f"af{i}": s for i, s in enumerate(allowed_from)})
+                sql = (
+                    f"UPDATE pill_drafts SET status = :status, updated_at = now() {note_clause} "
+                    f"WHERE id = :id AND status IN ({placeholders}) RETURNING id, status"
+                )
+            else:
+                sql = (
+                    f"UPDATE pill_drafts SET status = :status, updated_at = now() {note_clause} "
+                    f"WHERE id = :id RETURNING id, status"
+                )
+
+            result = conn.execute(text(sql), params)
+            row = result.fetchone()
+            if not row:
+                # Check if the draft exists at all to give a better error
+                exists = conn.execute(
+                    text("SELECT status FROM pill_drafts WHERE id = :id LIMIT 1"),
+                    {"id": draft_id},
+                ).fetchone()
+                if not exists:
+                    raise HTTPException(status_code=404, detail="Draft not found")
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Invalid state transition: draft is currently '{exists[0]}'. "
+                           f"Allowed from: {list(allowed_from)}.",
+                )
             conn.commit()
 
             log_audit(

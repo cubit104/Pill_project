@@ -1,7 +1,7 @@
 'use client'
 
 export const dynamic = 'force-dynamic'
-import { useEffect, useState, Suspense } from 'react'
+import React, { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '../lib/supabase'
 
@@ -104,9 +104,8 @@ function AuditLogInner() {
               </tr>
             )}
             {entries.map((entry) => (
-              <>
+              <React.Fragment key={entry.id}>
                 <tr
-                  key={entry.id}
                   className="hover:bg-gray-50 cursor-pointer"
                   onClick={() => setExpanded(expanded === entry.id ? null : entry.id)}
                 >
@@ -132,7 +131,7 @@ function AuditLogInner() {
                   </td>
                 </tr>
                 {expanded === entry.id && (entry.diff || entry.metadata) && (
-                  <tr key={`${entry.id}-detail`}>
+                  <tr>
                     <td colSpan={5} className="px-4 pb-3 bg-gray-50">
                       <pre className="text-xs text-gray-600 overflow-auto max-h-48 bg-white border border-gray-200 rounded p-2">
                         {JSON.stringify(entry.diff || entry.metadata, null, 2)}
@@ -140,7 +139,7 @@ function AuditLogInner() {
                     </td>
                   </tr>
                 )}
-              </>
+              </React.Fragment>
             ))}
           </tbody>
         </table>

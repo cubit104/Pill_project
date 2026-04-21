@@ -70,7 +70,10 @@ async def upload_image(
     storage_path = f"{pill_id}/{filename}"
 
     content_type = file.content_type or "image/jpeg"
-    _supabase_upload(storage_path, content, content_type)
+    upload_ok = _supabase_upload(storage_path, content, content_type)
+    if not upload_ok and SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+        # Credentials are configured but upload failed — abort to avoid a broken image reference
+        raise HTTPException(status_code=502, detail="Image upload to storage failed. Please try again.")
 
     if not database.db_engine:
         database.connect_to_database()

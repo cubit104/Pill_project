@@ -32,6 +32,8 @@ EDITABLE_FIELDS = [
 def _sanitize(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
+    if value == "":
+        return None
     return bleach.clean(str(value), tags=ALLOWED_TAGS, strip=True)
 
 
@@ -221,11 +223,14 @@ def create_pill(
         with database.db_engine.connect() as conn:
             if body.idempotency_key:
                 existing = conn.execute(
-                    text("SELECT id FROM pillfinder WHERE meta_description = :key LIMIT 1"),
+                    text("SELECT id FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
                     {"key": body.idempotency_key},
                 ).fetchone()
                 if existing:
                     return {"id": str(existing[0]), "created": False}
+
+            if body.idempotency_key:
+                data["idempotency_key"] = body.idempotency_key
 
             cols = ", ".join(data.keys())
             vals = ", ".join(f":{k}" for k in data.keys())
@@ -269,7 +274,11 @@ def update_pill(
         database.connect_to_database()
 
     raw = body.model_dump(exclude={"idempotency_key", "updated_at"})
-    updates = {k: _sanitize(v) for k, v in raw.items() if v is not None}
+    # Treat empty strings same as None — don't overwrite DB data with blanks
+    updates = {k: _sanitize(v) for k, v in raw.items() if v is not None and v != ""}
+
+    if not updates:
+        return {"updated": False}
 
     # Editors cannot modify critical fields; they must use the draft workflow
     if admin["role"] == "editor":

@@ -92,6 +92,23 @@ export default function EditPillPage() {
     } = await supabase.auth.getSession()
     if (!session) return
 
+    // Only send fields that differ from the saved pill and are non-empty
+    const changedFields: Record<string, string | null> = {}
+    FIELDS.forEach(({ key }) => {
+      const formVal = form[key]
+      const pillVal = pill?.[key] ?? null
+      // Treat empty string as "no change" to avoid blanking out existing data
+      if (formVal !== '' && formVal !== pillVal) {
+        changedFields[key] = formVal ?? null
+      }
+    })
+
+    if (Object.keys(changedFields).length === 0) {
+      setSuccess('No changes to save')
+      setSaving(false)
+      return
+    }
+
     try {
       const res = await fetch(`/api/admin/pills/${pillId}`, {
         method: 'PUT',
@@ -99,7 +116,7 @@ export default function EditPillPage() {
           Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ ...form, updated_at: pill?.updated_at }),
+        body: JSON.stringify({ ...changedFields, updated_at: pill?.updated_at }),
       })
       if (res.status === 409) {
         const err = await res.json()

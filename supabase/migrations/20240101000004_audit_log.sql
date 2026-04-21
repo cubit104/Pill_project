@@ -25,5 +25,4 @@ CREATE POLICY IF NOT EXISTS "audit_log_select_admin" ON public.audit_log
   );
 
 CREATE POLICY IF NOT EXISTS "audit_log_insert_service" ON public.audit_log
-  FOR INSERT WITH CHECK (true);
--- Note: In production, restrict INSERT to service_role only via separate policy
+  FOR INSERT WITH CHECK (auth.role() = 'service_role');

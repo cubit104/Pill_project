@@ -1,19 +1,50 @@
 'use client'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, Users } from 'lucide-react'
+import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, Users, Settings } from 'lucide-react'
+import { createClient } from '../lib/supabase'
 
-const navItems = [
+const baseNavItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/pills', label: 'Pills', icon: Pill },
   { href: '/admin/drafts', label: 'Drafts', icon: FileEdit },
   { href: '/admin/trash', label: 'Trash', icon: Trash2 },
   { href: '/admin/audit', label: 'Audit Log', icon: ScrollText },
+]
+
+const superadminNavItems = [
   { href: '/admin/users', label: 'Users', icon: Users },
+  { href: '/admin/settings', label: 'Settings', icon: Settings },
 ]
 
 export default function AdminSidebar() {
   const pathname = usePathname()
+  const [isSuperadmin, setIsSuperadmin] = useState(false)
+
+  useEffect(() => {
+    const checkRole = async () => {
+      try {
+        const supabase = createClient()
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        if (!session) return
+        const res = await fetch('/api/admin/me', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setIsSuperadmin(data.role === 'superadmin')
+        }
+      } catch {
+        // silently fail — sidebar still renders without superadmin items
+      }
+    }
+    checkRole()
+  }, [])
+
+  const navItems = isSuperadmin ? [...baseNavItems, ...superadminNavItems] : baseNavItems
 
   return (
     <aside className="w-64 bg-gray-900 text-white flex flex-col h-full shrink-0">
