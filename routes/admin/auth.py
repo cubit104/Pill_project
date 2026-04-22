@@ -131,7 +131,7 @@ def log_audit(
                   (actor_id, actor_email, action, entity_type, entity_id, diff, metadata, ip_address, user_agent)
                 VALUES
                   (:actor_id, :actor_email, :action, :entity_type, :entity_id,
-                   :diff::jsonb, :metadata::jsonb, :ip::inet, :user_agent)
+                   CAST(:diff AS jsonb), CAST(:metadata AS jsonb), CAST(:ip AS inet), :user_agent)
             """),
             {
                 "actor_id": str(actor_id),
