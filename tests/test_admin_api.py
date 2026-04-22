@@ -790,22 +790,20 @@ def test_merge_end_to_end_keeps_pill_and_soft_deletes_discards(client):
     DISCARD_ID = "bbbbbbbb-0000-0000-0000-000000000002"
 
     # Both pills share identical 7-field keys
-    shared_fields = {
-        "_fields": ["id", "medicine_name", "spl_strength", "splimprint",
-                    "splcolor_text", "splshape_text", "author", "ndc11",
-                    "brand_names", "splsize", "slug", "image_filename",
-                    "has_image", "deleted_at"],
-    }
+    pill_fields = ["id", "medicine_name", "spl_strength", "splimprint",
+                   "splcolor_text", "splshape_text", "author", "ndc11",
+                   "brand_names", "splsize", "slug", "image_filename",
+                   "has_image", "deleted_at"]
 
     keep_row = MagicMock()
-    keep_row._fields = shared_fields["_fields"]
+    keep_row._fields = pill_fields
     keep_row.__iter__ = MagicMock(return_value=iter(
         [KEEP_ID, "Fluoxetine", "20mg", "PLIVA;648", "green", "capsule",
          "Bryant Ranch", "", None, None, "fluoxetine-20mg", "flu.jpg", "TRUE", None]
     ))
 
     discard_row = MagicMock()
-    discard_row._fields = shared_fields["_fields"]
+    discard_row._fields = pill_fields
     discard_row.__iter__ = MagicMock(return_value=iter(
         [DISCARD_ID, "Fluoxetine", "20mg", "PLIVA;648", "green", "capsule",
          "Bryant Ranch", "", None, None, "fluoxetine-20mg-2", "flu2.jpg", "TRUE", None]
@@ -865,7 +863,7 @@ def test_merge_end_to_end_keeps_pill_and_soft_deletes_discards(client):
 
     executed_sqls = [str(call.args[0]) for call in mock_conn.execute.call_args_list if call.args]
 
-    # Discard must be soft-deleted (deleted_at SET)
+    # Discard must be soft-deleted (deleted_at SET via UPDATE)
     assert any(
         "deleted_at" in sql and "UPDATE" in sql for sql in executed_sqls
     ), "merge must soft-delete discards via UPDATE … SET deleted_at"
@@ -880,8 +878,7 @@ def test_merge_end_to_end_keeps_pill_and_soft_deletes_discards(client):
     )
     assert discard_referenced, "discard pill ID must be passed to the soft-delete UPDATE"
 
-    # Kept pill must NOT have deleted_at set (returned row has deleted_at=None)
+    # Response must refer to the kept pill (not the discard)
     data = resp.json()
-    assert data.get("id") == KEEP_ID or data.get("medicine_name") == "Fluoxetine", (
-        "response must refer to the kept pill"
-    )
+    assert data.get("id") == KEEP_ID, "response id must be the keep_id"
+    assert data.get("medicine_name") == "Fluoxetine", "response must include kept pill's medicine_name"
