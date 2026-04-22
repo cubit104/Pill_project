@@ -353,7 +353,7 @@ def export_csv(
     # Get row count and write audit log BEFORE streaming starts so it is
     # recorded even if the client disconnects mid-download.
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             row_count = conn.execute(
                 text(f"SELECT COUNT(*) FROM pillfinder {where}"), params
             ).scalar() or 0
@@ -368,7 +368,6 @@ def export_csv(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
     except SQLAlchemyError as e:
         logger.error(f"export_csv setup error: {e}")
         raise HTTPException(status_code=500, detail="Database error")
@@ -452,7 +451,7 @@ def bulk_tag(
         database.connect_to_database()
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             if body.mode == "replace":
                 result = conn.execute(
                     text("""
@@ -479,7 +478,6 @@ def bulk_tag(
                         text("UPDATE pillfinder SET tags = :tags, updated_at = now() WHERE id = :id"),
                         {"tags": new_tags, "id": pill_id},
                     )
-            conn.commit()
 
             log_audit(
                 conn,
@@ -492,7 +490,6 @@ def bulk_tag(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"updated": updated_count}
     except SQLAlchemyError as e:
@@ -519,7 +516,7 @@ def bulk_delete(
         database.connect_to_database()
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             result = conn.execute(
                 text("""
                     UPDATE pillfinder
@@ -529,7 +526,6 @@ def bulk_delete(
                 {"ids": list(body.ids), "admin_id": str(admin["id"])},
             )
             deleted_count = result.rowcount
-            conn.commit()
 
             log_audit(
                 conn,
@@ -542,7 +538,6 @@ def bulk_delete(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"deleted": deleted_count}
     except SQLAlchemyError as e:
@@ -614,7 +609,7 @@ def create_pill(
     data = {k: _sanitize(v) for k, v in body.model_dump(exclude={"idempotency_key"}).items() if v is not None}
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             if body.idempotency_key:
                 existing = conn.execute(
                     text("SELECT id FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
@@ -633,7 +628,6 @@ def create_pill(
                 data,
             )
             new_id = result.scalar()
-            conn.commit()
 
             log_audit(
                 conn,
@@ -646,7 +640,6 @@ def create_pill(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"id": str(new_id), "created": True}
     except SQLAlchemyError as e:
@@ -686,7 +679,7 @@ def update_pill(
             )
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             # Optimistic locking check
             current = conn.execute(
                 text("SELECT updated_at FROM pillfinder WHERE id = :id AND deleted_at IS NULL LIMIT 1"),
@@ -723,7 +716,6 @@ def update_pill(
                 text(f"UPDATE pillfinder SET {set_clause} WHERE id = :id"),
                 updates,
             )
-            conn.commit()
 
             log_audit(
                 conn,
@@ -739,7 +731,6 @@ def update_pill(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"updated": True}
     except HTTPException:
@@ -762,7 +753,7 @@ def soft_delete_pill(
         database.connect_to_database()
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             result = conn.execute(
                 text("""
                     UPDATE pillfinder
@@ -774,7 +765,6 @@ def soft_delete_pill(
             )
             if not result.fetchone():
                 raise HTTPException(status_code=404, detail="Pill not found or already deleted")
-            conn.commit()
 
             log_audit(
                 conn,
@@ -786,7 +776,6 @@ def soft_delete_pill(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"deleted": True}
     except HTTPException:
@@ -809,7 +798,7 @@ def restore_pill(
         database.connect_to_database()
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             result = conn.execute(
                 text("""
                     UPDATE pillfinder
@@ -821,7 +810,6 @@ def restore_pill(
             )
             if not result.fetchone():
                 raise HTTPException(status_code=404, detail="Pill not found or not deleted")
-            conn.commit()
 
             log_audit(
                 conn,
@@ -833,7 +821,6 @@ def restore_pill(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"restored": True}
     except HTTPException:

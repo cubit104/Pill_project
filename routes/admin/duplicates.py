@@ -208,7 +208,7 @@ def merge_duplicates(
     ]
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             keep_row = conn.execute(
                 text("SELECT * FROM pillfinder WHERE id = :id AND deleted_at IS NULL LIMIT 1"),
                 {"id": body.keep_id},
@@ -272,7 +272,6 @@ def merge_duplicates(
                 """),
                 {"ids": discard_ids, "admin_id": str(admin["id"])},
             )
-            conn.commit()
 
             log_audit(
                 conn,
@@ -289,7 +288,6 @@ def merge_duplicates(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
             # Return updated kept pill
             updated_row = conn.execute(

@@ -47,7 +47,7 @@ def create_draft(
         database.connect_to_database()
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             result = conn.execute(
                 text("""
                     INSERT INTO pill_drafts (pill_id, draft_data, status, created_by)
@@ -61,7 +61,6 @@ def create_draft(
                 },
             )
             draft_id = str(result.scalar())
-            conn.commit()
 
             log_audit(
                 conn,
@@ -74,7 +73,6 @@ def create_draft(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"id": draft_id, "created": True}
     except SQLAlchemyError as e:
@@ -172,7 +170,7 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
         database.connect_to_database()
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             draft = conn.execute(
                 text("SELECT id, pill_id, draft_data, status FROM pill_drafts WHERE id = :id LIMIT 1"),
                 {"id": draft_id},
@@ -215,7 +213,6 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
                 """),
                 {"id": draft_id, "published_by": str(admin["id"])},
             )
-            conn.commit()
 
             log_audit(
                 conn,
@@ -228,7 +225,6 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"published": True}
     except HTTPException:
@@ -261,7 +257,7 @@ def _transition_draft(
     if not database.db_engine:
         database.connect_to_database()
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             params: dict = {"id": draft_id, "status": new_status}
             note_clause = ""
             if notes is not None:
@@ -297,7 +293,6 @@ def _transition_draft(
                     detail=f"Invalid state transition: draft is currently '{exists[0]}'. "
                            f"Allowed from: {list(allowed_from)}.",
                 )
-            conn.commit()
 
             log_audit(
                 conn,
@@ -309,7 +304,6 @@ def _transition_draft(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"updated": True, "status": new_status}
     except HTTPException:
