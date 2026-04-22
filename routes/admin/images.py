@@ -79,7 +79,7 @@ async def upload_image(
         database.connect_to_database()
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             existing = conn.execute(
                 text("SELECT image_filename FROM pillfinder WHERE id = :id LIMIT 1"),
                 {"id": pill_id},
@@ -97,7 +97,6 @@ async def upload_image(
                 ),
                 {"fn": new_filenames, "uid": str(admin["id"]), "id": pill_id},
             )
-            conn.commit()
 
             from utils import IMAGE_BASE
             image_url = f"{IMAGE_BASE}/{storage_path}"
@@ -113,7 +112,6 @@ async def upload_image(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"filename": filename, "url": image_url}
     except HTTPException:
@@ -157,7 +155,7 @@ def delete_image(
         database.connect_to_database()
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             existing = conn.execute(
                 text("SELECT image_filename FROM pillfinder WHERE id = :id LIMIT 1"),
                 {"id": pill_id},
@@ -176,7 +174,6 @@ def delete_image(
                 ),
                 {"fn": new_fn, "hi": has_image, "uid": str(admin["id"]), "id": pill_id},
             )
-            conn.commit()
 
             log_audit(
                 conn,
@@ -189,7 +186,6 @@ def delete_image(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"deleted": True}
     except HTTPException:

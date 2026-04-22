@@ -112,7 +112,7 @@ def invite_user(
         database.connect_to_database()
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             conn.execute(
                 text("""
                     INSERT INTO admin_users (id, email, role, full_name)
@@ -121,7 +121,6 @@ def invite_user(
                 """),
                 {"id": user_id, "email": body.email, "role": body.role, "full_name": body.full_name},
             )
-            conn.commit()
 
             log_audit(
                 conn,
@@ -134,7 +133,6 @@ def invite_user(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"id": user_id, "email": body.email, "role": body.role}
     except SQLAlchemyError as e:
@@ -166,12 +164,11 @@ def update_user(
     updates["id"] = user_id
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             conn.execute(
                 text(f"UPDATE admin_users SET {set_clause} WHERE id = :id"),
                 updates,
             )
-            conn.commit()
 
             log_audit(
                 conn,
@@ -184,7 +181,6 @@ def update_user(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"updated": True}
     except SQLAlchemyError as e:
@@ -205,12 +201,11 @@ def deactivate_user(
         database.connect_to_database()
 
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
             conn.execute(
                 text("UPDATE admin_users SET is_active = false WHERE id = :id"),
                 {"id": user_id},
             )
-            conn.commit()
 
             log_audit(
                 conn,
@@ -222,7 +217,6 @@ def deactivate_user(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
-            conn.commit()
 
         return {"deactivated": True}
     except SQLAlchemyError as e:
