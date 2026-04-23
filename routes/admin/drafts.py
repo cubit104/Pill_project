@@ -76,8 +76,11 @@ def create_draft(
 
         return {"id": draft_id, "created": True}
     except SQLAlchemyError as e:
-        logger.error(f"create_draft DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"create_draft DB error: {e}", exc_info=True)
+        # Surface the root DB error so frontend/devtools can display it.
+        # Safe to expose here because all admin endpoints are behind get_admin_user auth.
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.get("/drafts")
@@ -123,8 +126,9 @@ def list_drafts(
             for r in rows
         ]
     except SQLAlchemyError as e:
-        logger.error(f"list_drafts DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"list_drafts DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.post("/drafts/{draft_id}/submit")
@@ -230,8 +234,9 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
     except HTTPException:
         raise
     except SQLAlchemyError as e:
-        logger.error(f"publish_draft DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"publish_draft DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 VALID_DRAFT_STATUSES = frozenset(("draft", "pending_review", "approved", "published", "rejected"))
@@ -309,5 +314,6 @@ def _transition_draft(
     except HTTPException:
         raise
     except SQLAlchemyError as e:
-        logger.error(f"{action_name} DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"{action_name} DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
