@@ -51,7 +51,7 @@ def create_draft(
             result = conn.execute(
                 text("""
                     INSERT INTO pill_drafts (pill_id, draft_data, status, created_by)
-                    VALUES (:pill_id, :draft_data::jsonb, 'draft', :created_by)
+                    VALUES (:pill_id, CAST(:draft_data AS jsonb), 'draft', :created_by)
                     RETURNING id
                 """),
                 {
