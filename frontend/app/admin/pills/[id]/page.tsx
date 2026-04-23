@@ -45,6 +45,28 @@ interface CompletenessData {
   optional_empty: string[]
 }
 
+/**
+ * Extract a human-readable error message from a failed fetch response.
+ * Tries to parse JSON body and return `detail` (FastAPI convention).
+ * Falls back to text body or HTTP status if the body isn't JSON.
+ */
+async function safeErrorDetail(res: Response, fallback: string): Promise<string> {
+  try {
+    const ct = res.headers.get('content-type') || ''
+    if (ct.includes('application/json')) {
+      const body = await res.json()
+      if (body && typeof body.detail === 'string') return body.detail
+      if (body && body.detail) return JSON.stringify(body.detail)
+      return `${fallback} (HTTP ${res.status})`
+    }
+    const text = await res.text()
+    if (text) return `${fallback}: ${text.slice(0, 500)} (HTTP ${res.status})`
+  } catch {
+    /* ignore body parse errors */
+  }
+  return `${fallback} (HTTP ${res.status})`
+}
+
 function CompletenessBar({ completeness }: { completeness: CompletenessData | null }) {
   if (!completeness) return null
   const { score, missing_required, needs_na_confirmation } = completeness
@@ -145,8 +167,7 @@ function ImageGallery({
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.detail || 'Delete failed')
+        throw new Error(await safeErrorDetail(res, 'Delete failed'))
       }
       onRefresh()
     } catch (e) {
@@ -168,8 +189,7 @@ function ImageGallery({
         body: JSON.stringify({ image_filename: newOrder }),
       })
       if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.detail || 'Reorder failed')
+        throw new Error(await safeErrorDetail(res, 'Reorder failed'))
       }
       onRefresh()
     } catch (e) {
@@ -193,8 +213,7 @@ function ImageGallery({
         body: formData,
       })
       if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.detail || 'Upload failed')
+        throw new Error(await safeErrorDetail(res, 'Upload failed'))
       }
       onRefresh()
     } catch (e) {
@@ -341,7 +360,7 @@ export default function EditPillPage() {
       const res = await fetch(`/api/admin/pills/${pillId}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       })
-      if (!res.ok) throw new Error('Failed to fetch pill')
+      if (!res.ok) throw new Error(await safeErrorDetail(res, 'Failed to fetch pill'))
       const data = await res.json()
       setPill(data)
       const loadedDrafts = data.drafts || []
@@ -441,8 +460,8 @@ export default function EditPillPage() {
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...changedFields, updated_at: pill?.updated_at }),
       })
-      if (res.status === 409) { setError((await res.json()).detail); return }
-      if (!res.ok) throw new Error((await res.json()).detail || 'Save failed')
+      if (res.status === 409) { setError(await safeErrorDetail(res, 'Conflict')); return }
+      if (!res.ok) throw new Error(await safeErrorDetail(res, 'Save failed'))
       setSuccess('Changes saved')
       setSuccessDismissed(false)
       await loadPill(); await fetchCompleteness()
@@ -486,8 +505,8 @@ export default function EditPillPage() {
         }
         return
       }
-      if (res.status === 409) { setError((await res.json()).detail); setErrorDismissed(false); return }
-      if (!res.ok) throw new Error((await res.json()).detail || 'Publish failed')
+      if (res.status === 409) { setError(await safeErrorDetail(res, 'Conflict')); setErrorDismissed(false); return }
+      if (!res.ok) throw new Error(await safeErrorDetail(res, 'Publish failed'))
       setSuccess('Saved & published successfully')
       setSuccessDismissed(false)
       await loadPill(); await fetchCompleteness()
@@ -504,7 +523,9 @@ export default function EditPillPage() {
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ draft_data: form, status: 'draft' }),
       })
-      if (!res.ok) throw new Error('Draft creation failed')
+      if (!res.ok) {
+        throw new Error(await safeErrorDetail(res, 'Draft creation failed'))
+      }
       const data = await res.json()
       if (process.env.NODE_ENV !== 'production') {
         console.log('[handleSaveDraft] draft created:', data.id)
