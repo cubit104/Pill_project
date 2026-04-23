@@ -373,3 +373,45 @@ class TestUpdatePillImageFilename:
         assert "image_filename" in update_sql_combined, (
             "image_filename must appear in the UPDATE statement when explicitly sent"
         )
+
+
+# ---------------------------------------------------------------------------
+# split_image_filenames / clean_filename — Bug 1: slash must be preserved
+# ---------------------------------------------------------------------------
+
+class TestCleanFilenamePreservesSlash:
+    """Ensure clean_filename and split_image_filenames preserve the '/' in
+    admin-uploaded filenames stored as '{pill_id}/{filename}.jpg'."""
+
+    def test_clean_filename_preserves_slash(self):
+        """clean_filename must not strip the forward slash."""
+        from utils import clean_filename
+        result = clean_filename("8bdcca05-07f5-49d3-96ec-25321e4929a3/8bdcca05-1776924133.jpg")
+        assert "/" in result, (
+            "clean_filename must preserve '/' so that admin-uploaded image paths "
+            "(stored as pill_id/filename.jpg) resolve correctly"
+        )
+        assert result == "8bdcca05-07f5-49d3-96ec-25321e4929a3/8bdcca05-1776924133.jpg"
+
+    def test_split_image_filenames_preserves_slash(self):
+        """split_image_filenames must keep the pill_id prefix including its slash."""
+        from utils import split_image_filenames
+        raw = "636531171.jpg,8bdcca05-07f5-49d3-96ec-25321e4929a3/8bdcca05-1776924133.jpg"
+        result = split_image_filenames(raw)
+        assert len(result) == 2
+        assert result[0] == "636531171.jpg"
+        assert result[1] == "8bdcca05-07f5-49d3-96ec-25321e4929a3/8bdcca05-1776924133.jpg", (
+            "The slash in the pill_id prefix must be preserved by split_image_filenames"
+        )
+
+    def test_split_image_filenames_slash_url_correctness(self):
+        """The full image URL built from the result must contain the slash."""
+        from utils import split_image_filenames, IMAGE_BASE
+        raw = "8bdcca05-07f5-49d3-96ec-25321e4929a3/8bdcca05-1776924133.jpg"
+        parts = split_image_filenames(raw)
+        assert len(parts) == 1
+        url = f"{IMAGE_BASE}/{parts[0]}"
+        # URL must contain the slash between pill_id and filename
+        assert "/8bdcca05-07f5-49d3-96ec-25321e4929a3/" in url, (
+            f"Expected pill_id directory in URL, got: {url}"
+        )

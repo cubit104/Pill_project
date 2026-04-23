@@ -78,7 +78,7 @@ def clean_filename(filename: str) -> str:
     """Clean individual filename"""
     if pd.isna(filename) or not filename:
         return ""
-    return re.sub(r'[^\w.-]', '', str(filename).strip())
+    return re.sub(r'[^\w./-]', '', str(filename).strip())
 
 
 def get_clean_image_list(image_str: str) -> List[str]:
