@@ -930,7 +930,13 @@ def update_pill(
                 detail=f"Fields {critical_attempted} require reviewer role. Use draft workflow instead.",
             )
 
-    # On publish, merge update fields with current DB values and validate the merged result
+    # On publish, merge update fields with current DB values and validate the
+    # merged result. Validation is now ADVISORY: we still write the update to
+    # the DB even if required fields are missing, but we return the list of
+    # warnings in the response so the UI can surface them. This prevents the
+    # "click Save & publish, nothing happens, no error visible" failure mode
+    # that occurs when a row has pre-existing empty fields.
+    warnings: list = []
     if publish:
         try:
             with database.db_engine.connect() as conn:
@@ -949,11 +955,13 @@ def update_pill(
             root = getattr(e, "orig", None) or e
             raise HTTPException(status_code=500, detail=f"Database error: {root}")
         merged.update(updates)
-        errors = validate_pill(merged, strict=True)
-        if errors:
-            return JSONResponse(
-                status_code=422,
-                content={"detail": "Validation failed", "errors": errors},
+        warnings = validate_pill(merged, strict=True)
+        if warnings:
+            logger.info(
+                "update_pill %s publish with %d warning(s): %s",
+                pill_id,
+                len(warnings),
+                [w.get("field") for w in warnings],
             )
 
     try:
@@ -1005,12 +1013,13 @@ def update_pill(
                 diff={
                     "before": {k: before.get(k) for k in updates if k not in ("id", "updated_by_id")},
                     "after": {k: v for k, v in updates.items() if k not in ("id", "updated_by_id")},
+                    "warnings": warnings or None,
                 },
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
 
-        return {"updated": True}
+        return {"updated": True, "warnings": warnings}
     except HTTPException:
         raise
     except SQLAlchemyError as e:
