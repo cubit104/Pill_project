@@ -5,6 +5,7 @@ import json
 import logging
 import time
 import datetime
+from datetime import timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -16,6 +17,7 @@ import bleach
 
 import database
 from routes.admin.auth import get_admin_user, log_audit, CRITICAL_FIELDS
+from routes.admin.field_schema import validate_pill, compute_completeness
 from utils import get_image_url
 
 logger = logging.getLogger(__name__)
@@ -28,7 +30,7 @@ _stats_cache: dict = {"data": None, "expires": 0.0}
 ALLOWED_TAGS: list = []  # strip all HTML
 
 EDITABLE_FIELDS = [
-    "medicine_name", "brand_names", "splimprint", "splcolor_text", "splshape_text",
+    "medicine_name", "author", "brand_names", "splimprint", "splcolor_text", "splshape_text",
     "splsize", "spl_strength", "spl_ingredients", "spl_inactive_ing", "dosage_form",
     "route", "dea_schedule_name", "pharmclass_fda_epc", "ndc9", "ndc11", "rxcui",
     "rxcui_1", "status_rx_otc", "imprint_status", "slug", "meta_description",
@@ -46,6 +48,7 @@ def _sanitize(value: Optional[str]) -> Optional[str]:
 
 class PillCreate(BaseModel):
     medicine_name: Optional[str] = None
+    author: Optional[str] = None
     brand_names: Optional[str] = None
     splimprint: Optional[str] = None
     splcolor_text: Optional[str] = None
@@ -98,6 +101,7 @@ def list_pills(
     no_imprint: Optional[bool] = Query(None),
     no_ndc: Optional[bool] = Query(None),
     sort: Optional[str] = Query(None),
+    completeness: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     admin: dict = Depends(get_admin_user),
@@ -154,7 +158,11 @@ def list_pills(
                 text(f"""
                     SELECT id, medicine_name, splimprint, splcolor_text, splshape_text,
                            image_filename, has_image, slug, updated_at, deleted_at,
-                           spl_strength, status_rx_otc
+                           spl_strength, status_rx_otc,
+                           author, ndc9, ndc11, dosage_form, route, spl_ingredients,
+                           spl_inactive_ing, dea_schedule_name, brand_names, splsize,
+                           meta_description, pharmclass_fda_epc, rxcui, rxcui_1,
+                           imprint_status, image_alt_text, tags
                     FROM pillfinder {where}
                     ORDER BY {order_by}
                     LIMIT :limit OFFSET :offset
@@ -172,7 +180,8 @@ def list_pills(
                 # only use it when we have a real filename.
                 if not url.endswith("placeholder.jpg"):
                     image_url = url
-            pills.append({
+
+            pill_data = {
                 "id": str(r[0]),
                 "medicine_name": r[1],
                 "splimprint": r[2],
@@ -186,7 +195,35 @@ def list_pills(
                 "deleted_at": r[9].isoformat() if r[9] else None,
                 "spl_strength": r[10],
                 "status_rx_otc": r[11],
-            })
+                "author": r[12],
+                "ndc9": r[13],
+                "ndc11": r[14],
+                "dosage_form": r[15],
+                "route": r[16],
+                "spl_ingredients": r[17],
+                "spl_inactive_ing": r[18],
+                "dea_schedule_name": r[19],
+                "brand_names": r[20],
+                "splsize": r[21],
+                "meta_description": r[22],
+                "pharmclass_fda_epc": r[23],
+                "rxcui": r[24],
+                "rxcui_1": r[25],
+                "imprint_status": r[26],
+                "image_alt_text": r[27],
+                "tags": r[28],
+            }
+            comp = compute_completeness(pill_data)
+            pill_data["completeness_score"] = comp["score"]
+            pill_data["completeness_color"] = (
+                "red" if comp["missing_required"] else
+                ("yellow" if comp["needs_na_confirmation"] or comp["optional_empty"] else "green")
+            )
+            pills.append(pill_data)
+
+        # Filter by completeness color if requested
+        if completeness in ("red", "yellow", "green"):
+            pills = [p for p in pills if p.get("completeness_color") == completeness]
 
         return {
             "pills": pills,
@@ -283,6 +320,95 @@ def get_recent(
         return pills
     except SQLAlchemyError as e:
         logger.error(f"get_recent DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.get("/incomplete")
+def get_incomplete_pills(
+    tier: Optional[str] = Query(None),  # "required" | "required_or_na" | None (all)
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    admin: dict = Depends(get_admin_user),
+):
+    """Return paginated list of incomplete pills sorted by lowest completeness score."""
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT id, medicine_name, splimprint, splcolor_text, splshape_text,
+                           has_image, slug, author, ndc9, ndc11, dosage_form, route,
+                           spl_ingredients, spl_inactive_ing, dea_schedule_name,
+                           status_rx_otc, brand_names, splsize, meta_description,
+                           pharmclass_fda_epc, rxcui, rxcui_1, imprint_status,
+                           image_alt_text, tags, spl_strength
+                    FROM pillfinder
+                    WHERE deleted_at IS NULL
+                """),
+            ).fetchall()
+
+        results = []
+        for r in rows:
+            pill_data = {
+                "id": str(r[0]),
+                "medicine_name": r[1],
+                "splimprint": r[2],
+                "splcolor_text": r[3],
+                "splshape_text": r[4],
+                "has_image": r[5],
+                "slug": r[6],
+                "author": r[7],
+                "ndc9": r[8],
+                "ndc11": r[9],
+                "dosage_form": r[10],
+                "route": r[11],
+                "spl_ingredients": r[12],
+                "spl_inactive_ing": r[13],
+                "dea_schedule_name": r[14],
+                "status_rx_otc": r[15],
+                "brand_names": r[16],
+                "splsize": r[17],
+                "meta_description": r[18],
+                "pharmclass_fda_epc": r[19],
+                "rxcui": r[20],
+                "rxcui_1": r[21],
+                "imprint_status": r[22],
+                "image_alt_text": r[23],
+                "tags": r[24],
+                "spl_strength": r[25],
+            }
+            comp = compute_completeness(pill_data)
+
+            if tier == "required" and not comp["missing_required"]:
+                continue
+            if tier == "required_or_na" and not comp["needs_na_confirmation"]:
+                continue
+            if tier is None and comp["score"] == 100:
+                continue
+
+            pill_data["completeness_score"] = comp["score"]
+            pill_data["missing_required"] = comp["missing_required"]
+            pill_data["needs_na_confirmation"] = comp["needs_na_confirmation"]
+            results.append(pill_data)
+
+        # Sort by lowest score first
+        results.sort(key=lambda p: p["completeness_score"])
+
+        total = len(results)
+        offset = (page - 1) * per_page
+        paginated = results[offset: offset + per_page]
+
+        return {
+            "pills": paginated,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": max(1, -(-total // per_page)),
+        }
+    except SQLAlchemyError as e:
+        logger.error(f"get_incomplete_pills DB error: {e}")
         raise HTTPException(status_code=500, detail="Database error")
 
 
@@ -594,10 +720,37 @@ def get_pill(pill_id: str, admin: dict = Depends(get_admin_user)):
         raise HTTPException(status_code=500, detail="Database error")
 
 
+@router.get("/{pill_id}/completeness")
+def get_pill_completeness(pill_id: str, admin: dict = Depends(get_admin_user)):
+    """Return completeness metrics for a specific pill."""
+    if not database.db_engine:
+        database.connect_to_database()
+    try:
+        with database.db_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT * FROM pillfinder WHERE id = :id AND deleted_at IS NULL LIMIT 1"),
+                {"id": pill_id},
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            cols = row._fields if hasattr(row, "_fields") else row.keys()
+            pill = {k: v for k, v in zip(cols, row)}
+
+        result = compute_completeness(pill)
+        return result
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"get_pill_completeness DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
 @router.post("", status_code=201)
 def create_pill(
     request: Request,
     body: PillCreate,
+    publish: bool = Query(False),
     admin: dict = Depends(get_admin_user),
 ):
     if admin["role"] not in ("superadmin", "editor", "reviewer"):
@@ -607,6 +760,15 @@ def create_pill(
         database.connect_to_database()
 
     data = {k: _sanitize(v) for k, v in body.model_dump(exclude={"idempotency_key"}).items() if v is not None}
+
+    # Validate only when publishing (strict=True); drafts allow partial data
+    if publish:
+        errors = validate_pill(data, strict=True)
+        if errors:
+            raise HTTPException(
+                status_code=422,
+                detail={"detail": "Validation failed", "errors": errors},
+            )
 
     try:
         with database.db_engine.begin() as conn:
@@ -652,6 +814,7 @@ def update_pill(
     request: Request,
     pill_id: str,
     body: PillUpdate,
+    publish: bool = Query(False),
     admin: dict = Depends(get_admin_user),
 ):
     if admin["role"] not in ("superadmin", "editor", "reviewer"):
@@ -676,6 +839,31 @@ def update_pill(
             raise HTTPException(
                 status_code=403,
                 detail=f"Fields {critical_attempted} require reviewer role. Use draft workflow instead.",
+            )
+
+    # On publish, merge update fields with current DB values and validate the merged result
+    if publish:
+        try:
+            with database.db_engine.connect() as conn:
+                current_row = conn.execute(
+                    text("SELECT * FROM pillfinder WHERE id = :id AND deleted_at IS NULL LIMIT 1"),
+                    {"id": pill_id},
+                ).fetchone()
+                if not current_row:
+                    raise HTTPException(status_code=404, detail="Pill not found")
+                cols = current_row._fields if hasattr(current_row, "_fields") else current_row.keys()
+                merged = {k: v for k, v in zip(cols, current_row)}
+        except HTTPException:
+            raise
+        except SQLAlchemyError as e:
+            logger.error(f"update_pill publish-fetch DB error: {e}")
+            raise HTTPException(status_code=500, detail="Database error")
+        merged.update(updates)
+        errors = validate_pill(merged, strict=True)
+        if errors:
+            raise HTTPException(
+                status_code=422,
+                detail={"detail": "Validation failed", "errors": errors},
             )
 
     try:
