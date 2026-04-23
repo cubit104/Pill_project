@@ -217,7 +217,7 @@ function ImageGallery({
       <div className="p-4">
         {imgError && <div className="mb-3 text-red-600 text-xs">{imgError}</div>}
         {filenames.length === 0 ? (
-          <p className="text-sm text-gray-400">No images \u2014 upload one above.</p>
+          <p className="text-sm text-gray-400">No images — upload one above.</p>
         ) : (
           <div className="flex flex-wrap gap-4">
             {filenames.map((fn, idx) => {
@@ -280,7 +280,7 @@ function FieldInput({
       <label className="flex items-center gap-1 text-xs font-medium text-gray-600 mb-1">
         {field.label}
         {field.tier === 'required' && <span className="text-red-500 font-bold" title="Required">*</span>}
-        {field.tier === 'required_or_na' && !isNAValue && <span className="text-yellow-600 text-xs" title="Required or N/A">\u2020</span>}
+        {field.tier === 'required_or_na' && !isNAValue && <span className="text-yellow-600 text-xs" title="Required or N/A">†</span>}
       </label>
       <div className="flex gap-1">
         {field.inputType === 'textarea' ? (
@@ -437,7 +437,7 @@ export default function EditPillPage() {
       })
       if (res.status === 409) { setError((await res.json()).detail); return }
       if (!res.ok) throw new Error((await res.json()).detail || 'Save failed')
-      setSuccess('Draft saved successfully')
+      setSuccess('Changes saved')
       setSuccessDismissed(false)
       await loadPill(); await fetchCompleteness()
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
@@ -500,13 +500,13 @@ export default function EditPillPage() {
       })
       if (!res.ok) throw new Error('Draft creation failed')
       const data = await res.json()
-      setSuccess(`Draft created: ${data.id.slice(0, 8)}`)
+      setSuccess(`Workflow draft created: #${data.id.slice(0, 8)} — view all drafts at /admin/drafts`)
       setSuccessDismissed(false)
       await loadPill()
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
 
-  if (loading) return <div className="p-4 text-gray-500">Loading pill\u2026</div>
+  if (loading) return <div className="p-4 text-gray-500">Loading pill…</div>
 
   const showError = error && !errorDismissed
   const showSuccess = success && !successDismissed
@@ -559,14 +559,15 @@ export default function EditPillPage() {
       <div className="flex gap-3 flex-wrap">
         <button onClick={handleSave} disabled={saving}
           className="flex items-center gap-2 bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 disabled:opacity-50 text-sm font-medium transition-colors">
-          <Save className="w-4 h-4" />{saving ? 'Saving\u2026' : 'Save draft'}
+          <Save className="w-4 h-4" />{saving ? 'Saving…' : 'Save changes'}
         </button>
         <button onClick={handlePublish} disabled={saving}
           className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium transition-colors">
-          <Save className="w-4 h-4" />{saving ? 'Saving\u2026' : 'Save & publish'}
+          <Save className="w-4 h-4" />{saving ? 'Saving…' : 'Save & publish'}
         </button>
         <button onClick={handleSaveDraft} disabled={saving}
-          className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 disabled:opacity-50 text-sm font-medium transition-colors">
+          className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 disabled:opacity-50 text-sm font-medium transition-colors"
+          title="Creates a reviewable draft that goes through the approval workflow. Use 'Save changes' to save directly to the live record without creating a draft.">
           <FileEdit className="w-4 h-4" />Save as workflow draft
         </button>
         <button onClick={handleDiscard} disabled={saving}
@@ -594,7 +595,7 @@ export default function EditPillPage() {
               <h2 className="font-semibold text-gray-900">{title}</h2>
               <p className="text-xs text-gray-500 mt-0.5">
                 <span className="text-red-500 font-bold">*</span> required &nbsp;
-                <span className="text-yellow-600">\u2020</span> required or N/A
+                <span className="text-yellow-600">†</span> required or N/A
               </p>
             </div>
             <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">

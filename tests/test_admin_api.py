@@ -882,3 +882,192 @@ def test_merge_end_to_end_keeps_pill_and_soft_deletes_discards(client):
     data = resp.json()
     assert data.get("id") == KEEP_ID, "response id must be the keep_id"
     assert data.get("medicine_name") == "Fluoxetine", "response must include kept pill's medicine_name"
+
+
+# ---------------------------------------------------------------------------
+# Image upload — storage path round-trip (Bug A fix)
+# ---------------------------------------------------------------------------
+
+PILL_UUID = "8bdcca05-07f5-49d3-96ec-25321e4929a3"
+
+
+def test_upload_image_stores_full_storage_path(client):
+    """POST /api/admin/pills/:id/images must store pill_id/filename in DB, not bare filename."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    stored_fn = []
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql)
+        call_count[0] += 1
+        if call_count[0] == 1:
+            # Auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif "SELECT image_filename" in sql_str:
+            # Existing image_filename fetch
+            result.fetchone.return_value = (None,)
+        elif "UPDATE pillfinder" in sql_str:
+            # Capture the stored filename
+            if args and isinstance(args[0], dict):
+                stored_fn.append(args[0].get("fn", ""))
+            result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    import io
+    fake_image = io.BytesIO(b"fake-image-content")
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_ADMIN_ROW[0]}), \
+         patch("routes.admin.images._supabase_upload", return_value=True):
+        resp = client.post(
+            f"/api/admin/pills/{PILL_UUID}/images",
+            files={"file": ("test.jpg", fake_image, "image/jpeg")},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    # Response filename must include the pill_id prefix
+    assert "/" in data["filename"], (
+        f"upload response filename must be pill_id/bare_filename, got {data['filename']!r}"
+    )
+    assert data["filename"].startswith(f"{PILL_UUID}/"), (
+        f"response filename must start with pill_id, got {data['filename']!r}"
+    )
+
+    # URL must include the full storage path
+    assert PILL_UUID in data["url"], (
+        f"response URL must include pill_id, got {data['url']!r}"
+    )
+
+    # DB must have received the full storage path
+    assert any("/" in fn for fn in stored_fn), (
+        "DB UPDATE must store pill_id/bare_filename, not just bare_filename"
+    )
+
+
+def test_upload_image_appends_full_path_to_existing(client):
+    """Uploading when image_filename already exists appends pill_id/filename."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    stored_fn = []
+    existing_legacy = "NDC_12345678.jpg"  # legacy image at bucket root
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql)
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif "SELECT image_filename" in sql_str:
+            result.fetchone.return_value = (existing_legacy,)
+        elif "UPDATE pillfinder" in sql_str:
+            if args and isinstance(args[0], dict):
+                stored_fn.append(args[0].get("fn", ""))
+            result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    import io
+    fake_image = io.BytesIO(b"fake-image-content")
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_ADMIN_ROW[0]}), \
+         patch("routes.admin.images._supabase_upload", return_value=True):
+        resp = client.post(
+            f"/api/admin/pills/{PILL_UUID}/images",
+            files={"file": ("photo.png", fake_image, "image/png")},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+
+    # stored value must keep legacy AND add new full path
+    assert stored_fn, "DB UPDATE must have been called"
+    combined = stored_fn[-1]
+    parts = [p.strip() for p in combined.split(",")]
+    assert existing_legacy in parts, "legacy filename must be preserved"
+    new_parts = [p for p in parts if "/" in p]
+    assert new_parts, "new upload must appear as pill_id/filename in the DB"
+    assert new_parts[0].startswith(f"{PILL_UUID}/"), (
+        f"new part must start with {PILL_UUID}/, got {new_parts[0]!r}"
+    )
+
+
+def test_delete_image_uses_filename_as_storage_key(client):
+    """DELETE /api/admin/pills/:id/images/:fn uses filename (full path) as Supabase sourceKey."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    # Simulate DB storing the full path
+    stored_path = f"{PILL_UUID}/8bdcca05-1776920313.jpg"
+    call_count = [0]
+    updated_fn = []
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql)
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif "SELECT image_filename" in sql_str:
+            result.fetchone.return_value = (stored_path,)
+        elif "UPDATE pillfinder" in sql_str:
+            if args and isinstance(args[0], dict):
+                updated_fn.append(args[0].get("fn", ""))
+            result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    captured_move_requests = []
+
+    def fake_httpx_post(url, **kwargs):
+        captured_move_requests.append(kwargs.get("json", {}))
+        resp = MagicMock()
+        resp.status_code = 200
+        return resp
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_ADMIN_ROW[0]}), \
+         patch("httpx.post", side_effect=fake_httpx_post):
+        resp = client.delete(
+            f"/api/admin/pills/{PILL_UUID}/images/{PILL_UUID}%2F8bdcca05-1776920313.jpg",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] is True
+
+    # The filename must have been cleared from the DB
+    assert updated_fn, "DB UPDATE should have been called"
+    assert updated_fn[-1] == "", "DB should now have empty image_filename"
+
+    # Supabase move must use full path as sourceKey (not pill_id/pill_id/bare)
+    if captured_move_requests:
+        move_req = captured_move_requests[0]
+        assert move_req.get("sourceKey") == stored_path, (
+            f"sourceKey must be the full stored path {stored_path!r}, "
+            f"got {move_req.get('sourceKey')!r}"
+        )
+        assert move_req.get("destinationKey") == f"deleted/{stored_path}", (
+            f"destinationKey must be deleted/{stored_path}"
+        )
