@@ -6,7 +6,7 @@ import logging
 import time
 import datetime
 from datetime import timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -878,7 +878,7 @@ def update_pill(
     # Use exclude_unset=True so that absent keys (not sent by client) are never
     # touched, while explicitly-sent null values are treated as "set to NULL".
     raw = body.model_dump(exclude_unset=True, exclude={"idempotency_key", "updated_at"})
-    updates: dict = {}
+    updates: Dict[str, Any] = {}
     for k, v in raw.items():
         if v is None:
             # Explicitly sent as null → clear the column

@@ -12,7 +12,7 @@ GET /api/pill-image/{filename}
 
 import logging
 import time
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from fastapi import APIRouter
 from fastapi.responses import RedirectResponse, JSONResponse
@@ -29,7 +29,7 @@ router = APIRouter(tags=["pill-images"])
 # ---------------------------------------------------------------------------
 # In-memory resolution cache:  filename -> (resolved_url, expires_at)
 # ---------------------------------------------------------------------------
-_url_cache: dict[str, Tuple[Optional[str], float]] = {}
+_url_cache: Dict[str, Tuple[Optional[str], float]] = {}
 _CACHE_TTL = 60.0  # seconds
 
 
