@@ -88,7 +88,7 @@ async def upload_image(
                 raise HTTPException(status_code=404, detail="Pill not found")
 
             old_filenames = existing[0] or ""
-            new_filenames = (old_filenames + "," + filename).strip(",") if old_filenames else filename
+            new_filenames = (old_filenames + "," + storage_path).strip(",") if old_filenames else storage_path
 
             conn.execute(
                 text(
@@ -113,7 +113,7 @@ async def upload_image(
                 user_agent=request.headers.get("user-agent"),
             )
 
-        return {"filename": filename, "url": image_url}
+        return {"filename": storage_path, "url": image_url}
     except HTTPException:
         raise
     except SQLAlchemyError as e:
@@ -121,7 +121,7 @@ async def upload_image(
         raise HTTPException(status_code=500, detail="Database error")
 
 
-@router.delete("/{pill_id}/images/{filename}")
+@router.delete("/{pill_id}/images/{filename:path}")
 def delete_image(
     request: Request,
     pill_id: str,
@@ -131,7 +131,9 @@ def delete_image(
     if admin["role"] not in ("superadmin", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
-    # Move to deleted/ prefix in Supabase Storage
+    # Move to deleted/ prefix in Supabase Storage.
+    # `filename` may be the full storage path (new format: pill_id/bare_filename)
+    # or a bare filename (legacy format). Use it directly as the source key.
     if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
         try:
             import httpx
@@ -143,8 +145,8 @@ def delete_image(
                 },
                 json={
                     "bucketId": STORAGE_BUCKET,
-                    "sourceKey": f"{pill_id}/{filename}",
-                    "destinationKey": f"deleted/{pill_id}/{filename}",
+                    "sourceKey": filename,
+                    "destinationKey": f"deleted/{filename}",
                 },
                 timeout=10,
             )
