@@ -6,7 +6,7 @@ import logging
 import time
 import datetime
 from datetime import timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -69,6 +69,7 @@ class PillCreate(BaseModel):
     imprint_status: Optional[str] = None
     slug: Optional[str] = None
     meta_description: Optional[str] = None
+    image_filename: Optional[str] = None
     image_alt_text: Optional[str] = None
     tags: Optional[str] = None
     idempotency_key: Optional[str] = None
@@ -745,6 +746,23 @@ def get_pill(pill_id: str, admin: dict = Depends(get_admin_user)):
                 for d in drafts
             ]
 
+            # Add resolved image URLs so the gallery can render without
+            # guessing paths.  New-style uploads are stored under
+            # {pill_id}/{filename} in Supabase Storage; legacy images live at
+            # {filename} (root level).  We detect new-style uploads by the
+            # naming convention used by the upload endpoint:
+            # filename = f"{pill_id[:8]}-{timestamp}{ext}"
+            from utils import IMAGE_BASE as _IMAGE_BASE
+            raw_fn = pill.get("image_filename") or ""
+            pill_prefix = str(pill_id)[:8] + "-"
+            resolved_urls = []
+            for fn in [f.strip() for f in raw_fn.split(",") if f.strip()]:
+                if fn.startswith(pill_prefix):
+                    resolved_urls.append(f"{_IMAGE_BASE}/{pill_id}/{fn}")
+                else:
+                    resolved_urls.append(f"{_IMAGE_BASE}/{fn}")
+            pill["resolved_image_urls"] = resolved_urls
+
         return pill
     except HTTPException:
         raise
@@ -793,6 +811,13 @@ def create_pill(
         database.connect_to_database()
 
     data = {k: _sanitize(v) for k, v in body.model_dump(exclude={"idempotency_key"}).items() if v is not None}
+
+    # Derive has_image from image_filename so the two columns stay in sync
+    if "image_filename" in data:
+        data["has_image"] = "TRUE" if data["image_filename"] else "FALSE"
+    elif "image_filename" not in data:
+        # image_filename not provided — don't touch has_image either
+        pass
 
     # Validate only when publishing (strict=True); drafts allow partial data
     if publish:
@@ -856,11 +881,23 @@ def update_pill(
     if not database.db_engine:
         database.connect_to_database()
 
-    raw = body.model_dump(exclude={"idempotency_key", "updated_at"})
-    # _sanitize() converts both None and "" to None; filter out None results so we only
-    # update fields that have actual values.
-    updates = {k: _sanitize(v) for k, v in raw.items() if v is not None}
-    updates = {k: v for k, v in updates.items() if v is not None}
+    # Use exclude_unset=True so that absent keys (not sent by client) are never
+    # touched, while explicitly-sent null values are treated as "set to NULL".
+    raw = body.model_dump(exclude_unset=True, exclude={"idempotency_key", "updated_at"})
+    updates: Dict[str, Any] = {}
+    for k, v in raw.items():
+        if v is None:
+            # Explicitly sent as null → clear the column
+            updates[k] = None
+        else:
+            sanitized = _sanitize(v)
+            updates[k] = sanitized  # _sanitize converts "" to None, clearing the column
+
+    # Derive has_image server-side from image_filename so the two stay in sync.
+    # We do this after sanitize so we see the final value (None means "cleared").
+    if "image_filename" in updates:
+        fn_val = updates["image_filename"]
+        updates["has_image"] = "TRUE" if fn_val else "FALSE"
 
     if not updates:
         return {"updated": False}
