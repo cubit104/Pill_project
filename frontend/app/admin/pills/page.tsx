@@ -39,7 +39,7 @@ function highlightMatch(text: string | null, query: string): React.ReactNode {
   )
 }
 
-function Completenessbadge({ score, color }: { score?: number; color?: string }) {
+function CompletenessBadge({ score, color }: { score?: number; color?: string }) {
   if (score == null) return null
   const emoji = color === 'green' ? '\uD83D\uDFE2' : color === 'yellow' ? '\uD83D\uDFE1' : '\uD83D\uDD34'
   return (
@@ -541,7 +541,7 @@ function PillsListInner() {
                   <td className="px-4 py-3 text-gray-600">{pill.splcolor_text || '\u2014'}</td>
                   <td className="px-4 py-3 text-gray-600">{pill.splshape_text || '\u2014'}</td>
                   <td className="px-4 py-3">
-                    <Completenessbadge score={pill.completeness_score} color={pill.completeness_color} />
+                    <CompletenessBadge score={pill.completeness_score} color={pill.completeness_color} />
                   </td>
                   <td className="px-4 py-3 text-gray-400 text-xs">
                     {pill.updated_at ? new Date(pill.updated_at).toLocaleDateString() : '\u2014'}

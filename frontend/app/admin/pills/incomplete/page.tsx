@@ -84,7 +84,7 @@ function IncompletePillsInner() {
   const tabs = [
     { key: '', label: 'All incomplete' },
     { key: 'required', label: 'Missing required only' },
-    { key: 'required_or_na', label: 'Missing Tier\u20112 only' },
+    { key: 'required_or_na', label: 'Missing Tier 2 only' },
   ]
 
   const fieldLabel = (key: string) => FIELD_SCHEMA_BY_KEY[key]?.label ?? key

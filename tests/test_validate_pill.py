@@ -64,7 +64,7 @@ class TestValidatePillTier1:
         errors = validate_pill(data, strict=True)
         assert any(e["field"] == "medicine_name" for e in errors)
 
-    def test_empty_tier1_rejected_in_draft_mode(self):
+    def test_empty_tier1_allowed_in_draft_mode(self):
         """Tier 1 is NOT enforced in draft mode — allows saving partial data."""
         data = _full_pill()
         data["medicine_name"] = None
