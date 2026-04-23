@@ -726,16 +726,16 @@ def get_pill(pill_id: str, admin: dict = Depends(get_admin_user)):
                 else:
                     pill[k] = v
 
-            # Include pending drafts
+            # Include pending drafts (no LIMIT so draft_count is exact)
             drafts = conn.execute(
                 text("""
                     SELECT id, status, created_at, updated_at, review_notes
                     FROM pill_drafts WHERE pill_id = :id AND status != 'published'
-                    ORDER BY created_at DESC LIMIT 5
+                    ORDER BY created_at DESC
                 """),
                 {"id": pill_id},
             ).fetchall()
-            pill["drafts"] = [
+            draft_list = [
                 {
                     "id": str(d[0]),
                     "status": d[1],
@@ -745,6 +745,15 @@ def get_pill(pill_id: str, admin: dict = Depends(get_admin_user)):
                 }
                 for d in drafts
             ]
+            pill["drafts"] = draft_list
+            pill["draft_count"] = len(draft_list)
+            pill["has_pending_draft"] = len(draft_list) > 0
+            if draft_list:
+                logger.info(
+                    "get_pill %s: found %d pending draft(s)",
+                    pill_id,
+                    len(draft_list),
+                )
 
             # Add resolved image URLs so the gallery can render without
             # guessing paths.  New-style uploads are stored under

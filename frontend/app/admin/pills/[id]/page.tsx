@@ -322,6 +322,7 @@ export default function EditPillPage() {
   const [successDismissed, setSuccessDismissed] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<Array<{ id: string; status: string; created_at: string }>>([])
+  const [draftCount, setDraftCount] = useState(0)
   const [completeness, setCompleteness] = useState<CompletenessData | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [resolvedImageUrls, setResolvedImageUrls] = useState<string[]>([])
@@ -343,7 +344,12 @@ export default function EditPillPage() {
       if (!res.ok) throw new Error('Failed to fetch pill')
       const data = await res.json()
       setPill(data)
-      setDrafts(data.drafts || [])
+      const loadedDrafts = data.drafts || []
+      setDrafts(loadedDrafts)
+      setDraftCount(typeof data.draft_count === 'number' ? data.draft_count : loadedDrafts.length)
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[loadPill] pill=${pillId} drafts=${loadedDrafts.length} draft_count=${data.draft_count}`)
+      }
       setResolvedImageUrls(data.resolved_image_urls || [])
       const formData: PillData = {}
       FIELD_SCHEMA.forEach(({ key }) => { formData[key] = data[key] ?? '' })
@@ -500,6 +506,9 @@ export default function EditPillPage() {
       })
       if (!res.ok) throw new Error('Draft creation failed')
       const data = await res.json()
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[handleSaveDraft] draft created:', data.id)
+      }
       setSuccess(`Workflow draft created: #${data.id.slice(0, 8)} — view all drafts at /admin/drafts`)
       setSuccessDismissed(false)
       await loadPill()
@@ -521,6 +530,18 @@ export default function EditPillPage() {
       </div>
 
       <CompletenessBar completeness={completeness} />
+
+      {/* Prominent blue banner — visible whenever pending drafts exist */}
+      {draftCount > 0 && (
+        <div className="bg-blue-50 border border-blue-300 rounded-md px-4 py-3 text-sm text-blue-800 flex items-center justify-between gap-2">
+          <span>
+            📝 This pill has <strong>{draftCount}</strong> pending workflow draft{draftCount !== 1 ? 's' : ''}.
+          </span>
+          <Link href={`/admin/drafts?pill_id=${pillId}`} className="text-blue-700 font-medium underline hover:text-blue-900 whitespace-nowrap">
+            View drafts →
+          </Link>
+        </div>
+      )}
 
       {/* Pre-flight Tier-1 warning banner — visible before the user tries to publish */}
       <PreflightBanner completeness={completeness} />
@@ -611,15 +632,18 @@ export default function EditPillPage() {
         )
       })}
 
-      {drafts.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 rounded-t-lg">
-            <h2 className="font-semibold text-gray-900">Pending Drafts</h2>
+      {draftCount > 0 && (
+        <div className="bg-white rounded-lg shadow border-2 border-blue-200" id="pending-drafts">
+          <div className="px-4 py-3 border-b border-blue-200 bg-blue-50 rounded-t-lg flex items-center justify-between">
+            <h2 className="font-bold text-blue-900">📝 Pending Drafts ({draftCount})</h2>
+            <Link href={`/admin/drafts?pill_id=${pillId}`} className="text-blue-700 text-sm font-medium underline hover:text-blue-900">
+              View all →
+            </Link>
           </div>
           <div className="divide-y divide-gray-100">
             {drafts.map((draft) => (
               <div key={draft.id} className="px-4 py-3 flex items-center justify-between text-sm">
-                <span className="text-gray-600">#{draft.id.slice(0, 8)}</span>
+                <span className="text-gray-700 font-medium">#{draft.id.slice(0, 8)}</span>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                   draft.status === 'pending_review' ? 'bg-yellow-100 text-yellow-700'
                   : draft.status === 'approved' ? 'bg-green-100 text-green-700'
