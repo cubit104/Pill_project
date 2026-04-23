@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
-import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star } from 'lucide-react'
+import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw } from 'lucide-react'
 import {
   FIELD_SCHEMA,
   FIELD_SCHEMA_BY_KEY,
@@ -77,13 +77,53 @@ function CompletenessBar({ completeness }: { completeness: CompletenessData | nu
   )
 }
 
+/** Pre-flight warning banner: shown when Tier-1 required fields are empty. */
+function PreflightBanner({
+  completeness,
+}: {
+  completeness: CompletenessData | null
+}) {
+  if (!completeness || completeness.missing_required.length === 0) return null
+  return (
+    <div className="bg-yellow-50 border border-yellow-300 rounded-md px-4 py-3 text-sm text-yellow-800">
+      <strong>⚠ Required fields missing — cannot publish yet:</strong>
+      <ul className="mt-1 list-disc list-inside space-y-0.5">
+        {completeness.missing_required.map((key) => {
+          const label = FIELD_SCHEMA_BY_KEY[key]?.label ?? key
+          return (
+            <li key={key}>
+              {label}{' '}
+              <button
+                type="button"
+                className="text-yellow-700 underline hover:text-yellow-900 font-medium"
+                onClick={() => {
+                  const el = document.getElementById(`field-${key}`)
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    const input = el.querySelector<HTMLInputElement | HTMLTextAreaElement>('input,textarea')
+                    input?.focus()
+                  }
+                }}
+              >
+                Jump to field
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 function ImageGallery({
   imageFilename,
+  resolvedImageUrls,
   pillId,
   token,
   onRefresh,
 }: {
   imageFilename: string | null
+  resolvedImageUrls: string[]
   pillId: string
   token: string
   onRefresh: () => void
@@ -180,35 +220,40 @@ function ImageGallery({
           <p className="text-sm text-gray-400">No images \u2014 upload one above.</p>
         ) : (
           <div className="flex flex-wrap gap-4">
-            {filenames.map((fn, idx) => (
-              <div key={fn} className="relative border border-gray-200 rounded-lg overflow-hidden w-36">
-                <img
-                  src={`/api/pill-image/${encodeURIComponent(fn)}`}
-                  alt={fn}
-                  className="w-36 h-24 object-contain bg-gray-50"
-                  onError={(e) => { ;(e.currentTarget as HTMLImageElement).style.display = 'none' }}
-                />
-                <div className="p-1.5 bg-white">
-                  <p className="text-xs text-gray-500 truncate" title={fn}>{fn}</p>
-                  <div className="flex items-center gap-1 mt-1">
-                    {idx === 0 ? (
-                      <span className="text-xs text-yellow-600 font-medium flex items-center gap-0.5">
-                        <Star className="w-3 h-3" /> Primary
-                      </span>
-                    ) : (
-                      <button onClick={() => handleSetPrimary(fn)} disabled={settingPrimary === fn}
-                        className="text-xs text-indigo-600 hover:underline disabled:opacity-50">
-                        Set primary
+            {filenames.map((fn, idx) => {
+              // Use resolved URL from backend when available; fall back to the
+              // redirect route as a safety net for images not yet in state.
+              const imgSrc = resolvedImageUrls[idx] ?? `/api/pill-image/${encodeURIComponent(fn)}`
+              return (
+                <div key={fn} className="relative border border-gray-200 rounded-lg overflow-hidden w-36">
+                  <img
+                    src={imgSrc}
+                    alt={fn}
+                    className="w-36 h-24 object-contain bg-gray-50"
+                    onError={(e) => { ;(e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                  />
+                  <div className="p-1.5 bg-white">
+                    <p className="text-xs text-gray-500 truncate" title={fn}>{fn}</p>
+                    <div className="flex items-center gap-1 mt-1">
+                      {idx === 0 ? (
+                        <span className="text-xs text-yellow-600 font-medium flex items-center gap-0.5">
+                          <Star className="w-3 h-3" /> Primary
+                        </span>
+                      ) : (
+                        <button onClick={() => handleSetPrimary(fn)} disabled={settingPrimary === fn}
+                          className="text-xs text-indigo-600 hover:underline disabled:opacity-50">
+                          Set primary
+                        </button>
+                      )}
+                      <button onClick={() => handleDelete(fn)} disabled={deleting === fn}
+                        className="ml-auto text-red-600 hover:text-red-800 disabled:opacity-50">
+                        <Trash2 className="w-3 h-3" />
                       </button>
-                    )}
-                    <button onClick={() => handleDelete(fn)} disabled={deleting === fn}
-                      className="ml-auto text-red-600 hover:text-red-800 disabled:opacity-50">
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
@@ -223,6 +268,7 @@ function FieldInput({
 }) {
   if (field.conditional === 'has_image' && !hasImage) return null
   const isNAValue = isNA(value)
+  const isEmpty = !isNAValue && (value === '' || value === null)
   const borderClass = error
     ? 'border-red-400 focus:ring-red-400'
     : isNAValue ? 'border-gray-200 bg-gray-50'
@@ -254,6 +300,9 @@ function FieldInput({
         )}
       </div>
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      {!error && field.tier === 'required' && isEmpty && (
+        <p className="mt-1 text-xs text-red-400">⚠ Required to publish</p>
+      )}
     </div>
   )
 }
@@ -268,11 +317,14 @@ export default function EditPillPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [errorDismissed, setErrorDismissed] = useState(false)
   const [success, setSuccess] = useState('')
+  const [successDismissed, setSuccessDismissed] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<Array<{ id: string; status: string; created_at: string }>>([])
   const [completeness, setCompleteness] = useState<CompletenessData | null>(null)
   const [token, setToken] = useState<string | null>(null)
+  const [resolvedImageUrls, setResolvedImageUrls] = useState<string[]>([])
 
   const getSession = useCallback(async () => {
     const supabase = createClient()
@@ -292,6 +344,7 @@ export default function EditPillPage() {
       const data = await res.json()
       setPill(data)
       setDrafts(data.drafts || [])
+      setResolvedImageUrls(data.resolved_image_urls || [])
       const formData: PillData = {}
       FIELD_SCHEMA.forEach(({ key }) => { formData[key] = data[key] ?? '' })
       formData['has_image'] = data['has_image'] ?? ''
@@ -314,28 +367,68 @@ export default function EditPillPage() {
     } catch { /* silently fail */ }
   }, [pillId, getSession])
 
+  // Refresh both pill data and completeness after image changes
+  const handleImageRefresh = useCallback(async () => {
+    await loadPill()
+    await fetchCompleteness()
+  }, [loadPill, fetchCompleteness])
+
   useEffect(() => { loadPill() }, [loadPill])
   useEffect(() => { fetchCompleteness() }, [fetchCompleteness])
 
   const hasImage = (form['has_image'] ?? '').toUpperCase() === 'TRUE'
 
+  /**
+   * Return only fields that changed compared to the loaded pill.
+   * - If a field was non-empty in `pill` and is now empty in `form`, send `null`
+   *   so the backend clears the column.
+   * - Absent fields (unchanged) are excluded so the backend's exclude_unset
+   *   logic leaves them untouched.
+   */
   const getChangedFields = () => {
     const changed: Record<string, string | null> = {}
     FIELD_SCHEMA.forEach(({ key }) => {
-      const formVal = form[key]
-      const pillVal = pill?.[key] ?? null
-      if (formVal === '' || formVal === null) return
-      if (formVal !== pillVal) changed[key] = formVal
+      const formVal = form[key] ?? ''
+      const pillVal = pill?.[key] ?? ''
+      // No change at all — skip
+      if (formVal === pillVal) return
+      // Field was cleared (now empty but was not before) → send null to clear DB column
+      if (formVal === '' || formVal === null) {
+        if (pillVal !== '' && pillVal !== null) {
+          changed[key] = null
+        }
+        // If pillVal was also empty, there's nothing to change
+        return
+      }
+      changed[key] = formVal
     })
     return changed
   }
 
+  const handleDiscard = () => {
+    if (!pill) return
+    const formData: PillData = {}
+    FIELD_SCHEMA.forEach(({ key }) => { formData[key] = pill[key] ?? '' })
+    formData['has_image'] = pill['has_image'] ?? ''
+    setForm(formData)
+    setFieldErrors({})
+    setError('')
+    setErrorDismissed(false)
+    setSuccess('Form reset to last saved state.')
+    setSuccessDismissed(false)
+  }
+
   const handleSave = async () => {
-    setSaving(true); setError(''); setSuccess(''); setFieldErrors({})
+    setSaving(true); setError(''); setErrorDismissed(false); setSuccess(''); setSuccessDismissed(false); setFieldErrors({})
     const session = await getSession()
     if (!session) return
     const changedFields = getChangedFields()
-    if (Object.keys(changedFields).length === 0) { setSuccess('No changes to save'); setSaving(false); return }
+    if (Object.keys(changedFields).length === 0) {
+      setSuccess('No text fields changed. If you just uploaded an image it was saved automatically \u2014 no further action needed.')
+      setSuccessDismissed(false)
+      setSaving(false)
+      return
+    }
     try {
       const res = await fetch(`/api/admin/pills/${pillId}`, {
         method: 'PUT',
@@ -345,12 +438,13 @@ export default function EditPillPage() {
       if (res.status === 409) { setError((await res.json()).detail); return }
       if (!res.ok) throw new Error((await res.json()).detail || 'Save failed')
       setSuccess('Draft saved successfully')
+      setSuccessDismissed(false)
       await loadPill(); await fetchCompleteness()
-    } catch (e) { setError(String(e)) } finally { setSaving(false) }
+    } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
 
   const handlePublish = async () => {
-    setSaving(true); setError(''); setSuccess(''); setFieldErrors({})
+    setSaving(true); setError(''); setErrorDismissed(false); setSuccess(''); setSuccessDismissed(false); setFieldErrors({})
     const session = await getSession()
     if (!session) return
     const changedFields = getChangedFields()
@@ -371,20 +465,31 @@ export default function EditPillPage() {
           for (const e of detail.errors) errMap[e.field] = e.message
           setFieldErrors(errMap)
           setError(`Validation failed: ${detail.errors.map((e: ValidationError) => e.message).join(', ')}`)
+          setErrorDismissed(false)
+          // Auto-focus the first invalid input (not just scroll)
           const firstKey = detail.errors[0]?.field
-          if (firstKey) document.getElementById(`field-${firstKey}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          if (firstKey) {
+            const container = document.getElementById(`field-${firstKey}`)
+            if (container) {
+              container.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              const input = container.querySelector<HTMLInputElement | HTMLTextAreaElement>('input,textarea')
+              // Use setTimeout to let the scroll finish before focusing
+              setTimeout(() => input?.focus(), 300)
+            }
+          }
         }
         return
       }
-      if (res.status === 409) { setError((await res.json()).detail); return }
+      if (res.status === 409) { setError((await res.json()).detail); setErrorDismissed(false); return }
       if (!res.ok) throw new Error((await res.json()).detail || 'Publish failed')
       setSuccess('Saved & published successfully')
+      setSuccessDismissed(false)
       await loadPill(); await fetchCompleteness()
-    } catch (e) { setError(String(e)) } finally { setSaving(false) }
+    } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
 
   const handleSaveDraft = async () => {
-    setSaving(true); setError('')
+    setSaving(true); setError(''); setErrorDismissed(false)
     const session = await getSession()
     if (!session) return
     try {
@@ -396,11 +501,15 @@ export default function EditPillPage() {
       if (!res.ok) throw new Error('Draft creation failed')
       const data = await res.json()
       setSuccess(`Draft created: ${data.id.slice(0, 8)}`)
+      setSuccessDismissed(false)
       await loadPill()
-    } catch (e) { setError(String(e)) } finally { setSaving(false) }
+    } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
 
   if (loading) return <div className="p-4 text-gray-500">Loading pill\u2026</div>
+
+  const showError = error && !errorDismissed
+  const showSuccess = success && !successDismissed
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -413,19 +522,39 @@ export default function EditPillPage() {
 
       <CompletenessBar completeness={completeness} />
 
-      {error && (
+      {/* Pre-flight Tier-1 warning banner — visible before the user tries to publish */}
+      <PreflightBanner completeness={completeness} />
+
+      {/* Sticky error banner — stays until user dismisses or re-saves */}
+      {showError && (
         <div className="bg-red-50 text-red-700 px-4 py-3 rounded-md text-sm border border-red-200">
-          <strong>Error:</strong> {error}
-          {Object.keys(fieldErrors).length > 0 && (
-            <ul className="mt-2 list-disc list-inside space-y-1">
-              {Object.entries(fieldErrors).map(([key, msg]) => (
-                <li key={key}>{FIELD_SCHEMA_BY_KEY[key]?.label ?? key}: {msg}</li>
-              ))}
-            </ul>
-          )}
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1">
+              <strong>Error:</strong> {error}
+              {Object.keys(fieldErrors).length > 0 && (
+                <ul className="mt-2 list-disc list-inside space-y-1">
+                  {Object.entries(fieldErrors).map(([key, msg]) => (
+                    <li key={key}>{FIELD_SCHEMA_BY_KEY[key]?.label ?? key}: {msg}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <button onClick={() => setErrorDismissed(true)} className="shrink-0 text-red-500 hover:text-red-700" aria-label="Dismiss error">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
-      {success && <div className="bg-green-50 text-green-700 px-4 py-2 rounded-md text-sm border border-green-200">{success}</div>}
+
+      {/* Success banner — stays until dismissed */}
+      {showSuccess && (
+        <div className="bg-green-50 text-green-700 px-4 py-2 rounded-md text-sm border border-green-200 flex items-center justify-between gap-2">
+          <span>{success}</span>
+          <button onClick={() => setSuccessDismissed(true)} className="shrink-0 text-green-600 hover:text-green-800" aria-label="Dismiss message">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       <div className="flex gap-3 flex-wrap">
         <button onClick={handleSave} disabled={saving}
@@ -440,10 +569,21 @@ export default function EditPillPage() {
           className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 disabled:opacity-50 text-sm font-medium transition-colors">
           <FileEdit className="w-4 h-4" />Save as workflow draft
         </button>
+        <button onClick={handleDiscard} disabled={saving}
+          className="flex items-center gap-2 bg-white border border-gray-300 text-gray-500 px-4 py-2 rounded-md hover:bg-gray-50 disabled:opacity-50 text-sm font-medium transition-colors"
+          title="Discard unsaved changes and reset form to last saved state">
+          <RotateCcw className="w-4 h-4" />Discard changes
+        </button>
       </div>
 
       {token && (
-        <ImageGallery imageFilename={pill?.image_filename ?? null} pillId={pillId} token={token} onRefresh={loadPill} />
+        <ImageGallery
+          imageFilename={pill?.image_filename ?? null}
+          resolvedImageUrls={resolvedImageUrls}
+          pillId={pillId}
+          token={token}
+          onRefresh={handleImageRefresh}
+        />
       )}
 
       {SECTION_GROUPS.map(({ section, title, keys }) => {

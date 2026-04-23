@@ -69,6 +69,8 @@ class PillCreate(BaseModel):
     imprint_status: Optional[str] = None
     slug: Optional[str] = None
     meta_description: Optional[str] = None
+    image_filename: Optional[str] = None
+    has_image: Optional[str] = None
     image_alt_text: Optional[str] = None
     tags: Optional[str] = None
     idempotency_key: Optional[str] = None
@@ -745,6 +747,23 @@ def get_pill(pill_id: str, admin: dict = Depends(get_admin_user)):
                 for d in drafts
             ]
 
+            # Add resolved image URLs so the gallery can render without
+            # guessing paths.  New-style uploads are stored under
+            # {pill_id}/{filename} in Supabase Storage; legacy images live at
+            # {filename} (root level).  We detect new-style uploads by the
+            # naming convention used by the upload endpoint:
+            # filename = f"{pill_id[:8]}-{timestamp}{ext}"
+            from utils import IMAGE_BASE as _IMAGE_BASE
+            raw_fn = pill.get("image_filename") or ""
+            pill_prefix = str(pill_id)[:8] + "-"
+            resolved_urls = []
+            for fn in [f.strip() for f in raw_fn.split(",") if f.strip()]:
+                if fn.startswith(pill_prefix):
+                    resolved_urls.append(f"{_IMAGE_BASE}/{pill_id}/{fn}")
+                else:
+                    resolved_urls.append(f"{_IMAGE_BASE}/{fn}")
+            pill["resolved_image_urls"] = resolved_urls
+
         return pill
     except HTTPException:
         raise
@@ -856,11 +875,17 @@ def update_pill(
     if not database.db_engine:
         database.connect_to_database()
 
-    raw = body.model_dump(exclude={"idempotency_key", "updated_at"})
-    # _sanitize() converts both None and "" to None; filter out None results so we only
-    # update fields that have actual values.
-    updates = {k: _sanitize(v) for k, v in raw.items() if v is not None}
-    updates = {k: v for k, v in updates.items() if v is not None}
+    # Use exclude_unset=True so that absent keys (not sent by client) are never
+    # touched, while explicitly-sent null values are treated as "set to NULL".
+    raw = body.model_dump(exclude_unset=True, exclude={"idempotency_key", "updated_at"})
+    updates: dict = {}
+    for k, v in raw.items():
+        if v is None:
+            # Explicitly sent as null → clear the column
+            updates[k] = None
+        else:
+            sanitized = _sanitize(v)
+            updates[k] = sanitized  # _sanitize converts "" to None, clearing the column
 
     if not updates:
         return {"updated": False}
