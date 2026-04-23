@@ -93,7 +93,7 @@ Added `deleted_at`, `deleted_by`, `updated_at`, `updated_by` columns for soft-de
 
 ## Field Schema & Completeness
 
-### 25-column editable schema (single source of truth)
+### 24-column editable schema (single source of truth)
 
 Defined in `routes/admin/field_schema.py` (Python) and `frontend/app/admin/lib/fieldSchema.ts` (TypeScript).
 

@@ -1,12 +1,11 @@
 'use client'
 
 export const dynamic = 'force-dynamic'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../lib/supabase'
 import { Search, Plus, Trash2, RotateCcw, Download } from 'lucide-react'
-import { Suspense } from 'react'
 
 interface Pill {
   id: string
@@ -27,7 +26,8 @@ interface Pill {
 }
 
 function highlightMatch(text: string | null, query: string): React.ReactNode {
-  if (!text || !query) return text || '\u2014'
+  if (!text) return null
+  if (!query) return text
   const idx = text.toLowerCase().indexOf(query.toLowerCase())
   if (idx === -1) return text
   return (
@@ -531,13 +531,13 @@ function PillsListInner() {
                       href={`/admin/pills/${pill.id}`}
                       className="font-medium text-indigo-600 hover:underline"
                     >
-                      {highlightMatch(pill.medicine_name, q) || '(no name)'}
+                      {highlightMatch(pill.medicine_name, q) ?? '(no name)'}
                     </Link>
                     {pill.spl_strength && (
                       <div className="text-xs text-gray-400">{pill.spl_strength}</div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{highlightMatch(pill.splimprint, q) || '\u2014'}</td>
+                  <td className="px-4 py-3 text-gray-600">{highlightMatch(pill.splimprint, q) ?? '\u2014'}</td>
                   <td className="px-4 py-3 text-gray-600">{pill.splcolor_text || '\u2014'}</td>
                   <td className="px-4 py-3 text-gray-600">{pill.splshape_text || '\u2014'}</td>
                   <td className="px-4 py-3">

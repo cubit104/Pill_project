@@ -66,7 +66,7 @@ def validate_pill(data: dict, strict: bool = False) -> list:
     Args:
         data: dict of pill field values
         strict: if True, enforce Tier 1 + Tier 2 completeness (publish mode);
-                if False, only enforce Tier 1 (draft-save mode allows partial data).
+                if False, skip all completeness validation (draft-save mode allows partial data).
 
     Returns:
         List of error dicts: [{"field": str, "message": str}, ...]
@@ -141,7 +141,8 @@ def compute_completeness(data: dict) -> dict:
         total -= conditional_skipped
 
     filled = total - len(missing_required) - len(needs_na) - len(optional_empty)
-    score = round(filled / total * 100) if total > 0 else 0
+    # Use JS-compatible rounding (away from zero for .5) to keep backend/frontend aligned
+    score = int(filled / total * 100 + 0.5) if total > 0 else 0
 
     return {
         "score": score,

@@ -1,13 +1,12 @@
 'use client'
 
 export const dynamic = 'force-dynamic'
-import { useEffect, useState, useCallback } from 'react'
+import { Suspense, useEffect, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
 import { ArrowLeft } from 'lucide-react'
 import { FIELD_SCHEMA_BY_KEY } from '../../lib/fieldSchema'
-import { Suspense } from 'react'
 
 interface IncompletePill {
   id: string

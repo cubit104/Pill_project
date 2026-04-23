@@ -9,9 +9,7 @@ import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star } from 'lucide-react'
 import {
   FIELD_SCHEMA,
   FIELD_SCHEMA_BY_KEY,
-  isEmpty,
   isNA,
-  computeCompleteness,
   type FieldSchemaEntry,
 } from '../../lib/fieldSchema'
 

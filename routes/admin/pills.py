@@ -9,7 +9,7 @@ from datetime import timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -151,24 +151,48 @@ def list_pills(
 
     try:
         with database.db_engine.connect() as conn:
-            count_row = conn.execute(
-                text(f"SELECT COUNT(*) FROM pillfinder {where}"), params
-            ).scalar()
-            rows = conn.execute(
-                text(f"""
-                    SELECT id, medicine_name, splimprint, splcolor_text, splshape_text,
-                           image_filename, has_image, slug, updated_at, deleted_at,
-                           spl_strength, status_rx_otc,
-                           author, ndc9, ndc11, dosage_form, route, spl_ingredients,
-                           spl_inactive_ing, dea_schedule_name, brand_names, splsize,
-                           meta_description, pharmclass_fda_epc, rxcui, rxcui_1,
-                           imprint_status, image_alt_text, tags
-                    FROM pillfinder {where}
-                    ORDER BY {order_by}
-                    LIMIT :limit OFFSET :offset
-                """),
-                params,
-            ).fetchall()
+            # When a completeness color filter is requested we must compute scores for all
+            # matching rows in Python (there's no DB column for completeness).  To keep
+            # pagination totals correct we skip the SQL LIMIT/OFFSET and handle paging
+            # ourselves after filtering.  For normal requests we use efficient SQL paging.
+            if completeness in ("red", "yellow", "green"):
+                # Fetch all matching rows so we can filter by completeness in Python
+                all_rows = conn.execute(
+                    text(f"""
+                        SELECT id, medicine_name, splimprint, splcolor_text, splshape_text,
+                               image_filename, has_image, slug, updated_at, deleted_at,
+                               spl_strength, status_rx_otc,
+                               author, ndc9, ndc11, dosage_form, route, spl_ingredients,
+                               spl_inactive_ing, dea_schedule_name, brand_names, splsize,
+                               meta_description, pharmclass_fda_epc, rxcui, rxcui_1,
+                               imprint_status, image_alt_text, tags
+                        FROM pillfinder {where}
+                        ORDER BY {order_by}
+                    """),
+                    {k: v for k, v in params.items() if k not in ("limit", "offset")},
+                ).fetchall()
+                rows = all_rows
+                use_sql_paging = False
+            else:
+                count_row = conn.execute(
+                    text(f"SELECT COUNT(*) FROM pillfinder {where}"), params
+                ).scalar()
+                rows = conn.execute(
+                    text(f"""
+                        SELECT id, medicine_name, splimprint, splcolor_text, splshape_text,
+                               image_filename, has_image, slug, updated_at, deleted_at,
+                               spl_strength, status_rx_otc,
+                               author, ndc9, ndc11, dosage_form, route, spl_ingredients,
+                               spl_inactive_ing, dea_schedule_name, brand_names, splsize,
+                               meta_description, pharmclass_fda_epc, rxcui, rxcui_1,
+                               imprint_status, image_alt_text, tags
+                        FROM pillfinder {where}
+                        ORDER BY {order_by}
+                        LIMIT :limit OFFSET :offset
+                    """),
+                    params,
+                ).fetchall()
+                use_sql_paging = True
 
         pills = []
         for r in rows:
@@ -221,9 +245,12 @@ def list_pills(
             )
             pills.append(pill_data)
 
-        # Filter by completeness color if requested
-        if completeness in ("red", "yellow", "green"):
+        if not use_sql_paging:
+            # Filter by completeness color, then paginate in Python so total/pages are accurate
             pills = [p for p in pills if p.get("completeness_color") == completeness]
+            count_row = len(pills)
+            offset = (page - 1) * per_page
+            pills = pills[offset: offset + per_page]
 
         return {
             "pills": pills,
@@ -331,6 +358,12 @@ def get_incomplete_pills(
     admin: dict = Depends(get_admin_user),
 ):
     """Return paginated list of incomplete pills sorted by lowest completeness score."""
+    allowed_tiers = {"required", "required_or_na"}
+    if tier is not None and tier not in allowed_tiers:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid tier. Expected one of: required, required_or_na.",
+        )
     if not database.db_engine:
         database.connect_to_database()
 
@@ -765,9 +798,9 @@ def create_pill(
     if publish:
         errors = validate_pill(data, strict=True)
         if errors:
-            raise HTTPException(
+            return JSONResponse(
                 status_code=422,
-                detail={"detail": "Validation failed", "errors": errors},
+                content={"detail": "Validation failed", "errors": errors},
             )
 
     try:
@@ -861,9 +894,9 @@ def update_pill(
         merged.update(updates)
         errors = validate_pill(merged, strict=True)
         if errors:
-            raise HTTPException(
+            return JSONResponse(
                 status_code=422,
-                detail={"detail": "Validation failed", "errors": errors},
+                content={"detail": "Validation failed", "errors": errors},
             )
 
     try:

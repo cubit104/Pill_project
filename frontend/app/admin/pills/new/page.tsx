@@ -7,7 +7,6 @@ import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
 import { ArrowLeft, Save } from 'lucide-react'
 import {
-  FIELD_SCHEMA,
   FIELD_SCHEMA_BY_KEY,
   isNA,
   type FieldSchemaEntry,
@@ -40,10 +39,13 @@ type PillForm = Record<string, string>
 interface ValidationError { field: string; message: string }
 
 function FieldInput({
-  field, value, onChange, error,
+  field, value, onChange, error, hasImage,
 }: {
-  field: FieldSchemaEntry; value: string; onChange: (val: string) => void; error?: string
+  field: FieldSchemaEntry; value: string; onChange: (val: string) => void; error?: string; hasImage?: boolean
 }) {
+  // Hide conditional fields when their condition is not met
+  if (field.conditional === 'has_image' && !hasImage) return null
+
   const isNAValue = isNA(value)
   const borderClass = error
     ? 'border-red-400 focus:ring-red-400'
@@ -170,6 +172,7 @@ export default function NewPillPage() {
                 <div key={field.key} id={`field-${field.key}`}
                   className={fieldErrors[field.key] ? 'ring-2 ring-red-400 rounded-md p-1' : ''}>
                   <FieldInput field={field} value={form[field.key] ?? ''} onChange={(val) => setForm({ ...form, [field.key]: val })}
+                    hasImage={false}
                     error={fieldErrors[field.key]} />
                 </div>
               ))}
