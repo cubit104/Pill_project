@@ -1071,3 +1071,75 @@ def test_delete_image_uses_filename_as_storage_key(client):
         assert move_req.get("destinationKey") == f"deleted/{stored_path}", (
             f"destinationKey must be deleted/{stored_path}"
         )
+
+
+# ---------------------------------------------------------------------------
+# resolved_image_urls — GET /api/admin/pills/{id}
+# ---------------------------------------------------------------------------
+
+def test_get_pill_resolved_image_urls_no_double_prefix(client):
+    """GET /api/admin/pills/{id} must not prepend pill_id twice for new-format filenames.
+
+    New-format filenames are stored as "{pill_id}/{bare_filename}" in the DB.
+    Legacy filenames are stored as bare "{filename}" (at bucket root).
+
+    resolved_image_urls must be IMAGE_BASE/{stored_filename} in both cases —
+    never IMAGE_BASE/{pill_id}/{stored_filename} for new-format entries.
+    """
+    from utils import IMAGE_BASE
+
+    pill_id = PILL_UUID
+    legacy_fn = "NDC_legacy.jpg"
+    new_fn = f"{pill_id}/8bdcca05-1776974595.jpg"
+    combined_fn = f"{legacy_fn},{new_fn}"
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            # Auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif call_count[0] == 2:
+            # SELECT * FROM pillfinder — return a minimal fake row
+            fake_row = MagicMock()
+            fake_row._fields = ("id", "image_filename", "has_image")
+            fake_row.__iter__ = lambda s: iter((pill_id, combined_fn, "TRUE"))
+            result.fetchone.return_value = fake_row
+        else:
+            # Drafts query — return empty list
+            result.fetchall.return_value = []
+            result.fetchone.return_value = None
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_ADMIN_ROW[0]}):
+        resp = client.get(
+            f"/api/admin/pills/{pill_id}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    urls = data.get("resolved_image_urls", [])
+    assert len(urls) == 2, f"expected 2 resolved URLs, got {urls}"
+
+    # Legacy filename — should be IMAGE_BASE/legacy_fn
+    assert urls[0] == f"{IMAGE_BASE}/{legacy_fn}", (
+        f"legacy image URL wrong: {urls[0]!r}"
+    )
+
+    # New-format filename — should be IMAGE_BASE/{pill_id}/bare_name (NOT double-prefixed)
+    assert urls[1] == f"{IMAGE_BASE}/{new_fn}", (
+        f"new-format image URL wrong (double prefix?): {urls[1]!r}"
+    )
+    assert urls[1].count(pill_id) == 1, (
+        f"pill_id must appear exactly once in the URL, got {urls[1]!r}"
+    )

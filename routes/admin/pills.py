@@ -763,20 +763,18 @@ def get_pill(pill_id: str, admin: dict = Depends(get_admin_user)):
                 )
 
             # Add resolved image URLs so the gallery can render without
-            # guessing paths.  New-style uploads are stored under
-            # {pill_id}/{filename} in Supabase Storage; legacy images live at
-            # {filename} (root level).  We detect new-style uploads by the
-            # naming convention used by the upload endpoint:
-            # filename = f"{pill_id[:8]}-{timestamp}{ext}"
+            # guessing paths.  Two formats coexist in image_filename:
+            #   Legacy:  bare filename e.g. "foo.jpg"         → {IMAGE_BASE}/foo.jpg
+            #   New:     path with subfolder e.g. "{pill_id}/foo.jpg" → {IMAGE_BASE}/{pill_id}/foo.jpg
+            # In both cases the stored value is already the correct path
+            # relative to IMAGE_BASE, so we just prepend the base.
             from utils import IMAGE_BASE as _IMAGE_BASE
             raw_fn = pill.get("image_filename") or ""
-            pill_prefix = str(pill_id)[:8] + "-"
-            resolved_urls = []
-            for fn in [f.strip() for f in raw_fn.split(",") if f.strip()]:
-                if fn.startswith(pill_prefix):
-                    resolved_urls.append(f"{_IMAGE_BASE}/{pill_id}/{fn}")
-                else:
-                    resolved_urls.append(f"{_IMAGE_BASE}/{fn}")
+            resolved_urls = [
+                f"{_IMAGE_BASE}/{fn}"
+                for fn in (f.strip() for f in raw_fn.split(","))
+                if fn
+            ]
             pill["resolved_image_urls"] = resolved_urls
 
         return pill
