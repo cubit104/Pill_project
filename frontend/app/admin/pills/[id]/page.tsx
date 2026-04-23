@@ -322,7 +322,7 @@ export default function EditPillPage() {
   const [successDismissed, setSuccessDismissed] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<Array<{ id: string; status: string; created_at: string }>>([])
-  const [completeness, setCompleteness] = useState<CompletenessData | null>(null)
+  const [draftCount, setDraftCount] = useState(0)  const [completeness, setCompleteness] = useState<CompletenessData | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [resolvedImageUrls, setResolvedImageUrls] = useState<string[]>([])
 
@@ -345,7 +345,10 @@ export default function EditPillPage() {
       setPill(data)
       const loadedDrafts = data.drafts || []
       setDrafts(loadedDrafts)
-      console.log(`[loadPill] pill=${pillId} drafts=${loadedDrafts.length}`, loadedDrafts)
+      setDraftCount(typeof data.draft_count === 'number' ? data.draft_count : loadedDrafts.length)
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[loadPill] pill=${pillId} drafts=${loadedDrafts.length} draft_count=${data.draft_count}`)
+      }
       setResolvedImageUrls(data.resolved_image_urls || [])
       const formData: PillData = {}
       FIELD_SCHEMA.forEach(({ key }) => { formData[key] = data[key] ?? '' })
@@ -502,11 +505,12 @@ export default function EditPillPage() {
       })
       if (!res.ok) throw new Error('Draft creation failed')
       const data = await res.json()
-      console.log('[handleSaveDraft] draft created:', data)
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[handleSaveDraft] draft created:', data.id)
+      }
       setSuccess(`Workflow draft created: #${data.id.slice(0, 8)} — view all drafts at /admin/drafts`)
       setSuccessDismissed(false)
       await loadPill()
-      console.log('[handleSaveDraft] loadPill complete, drafts state updated')
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
 
@@ -527,10 +531,10 @@ export default function EditPillPage() {
       <CompletenessBar completeness={completeness} />
 
       {/* Prominent blue banner — visible whenever pending drafts exist */}
-      {drafts.length > 0 && (
+      {draftCount > 0 && (
         <div className="bg-blue-50 border border-blue-300 rounded-md px-4 py-3 text-sm text-blue-800 flex items-center justify-between gap-2">
           <span>
-            📝 This pill has <strong>{drafts.length}</strong> pending workflow draft{drafts.length !== 1 ? 's' : ''}.
+            📝 This pill has <strong>{draftCount}</strong> pending workflow draft{draftCount !== 1 ? 's' : ''}.
           </span>
           <Link href={`/admin/drafts?pill_id=${pillId}`} className="text-blue-700 font-medium underline hover:text-blue-900 whitespace-nowrap">
             View drafts →
@@ -627,10 +631,10 @@ export default function EditPillPage() {
         )
       })}
 
-      {drafts.length > 0 && (
+      {draftCount > 0 && (
         <div className="bg-white rounded-lg shadow border-2 border-blue-200" id="pending-drafts">
           <div className="px-4 py-3 border-b border-blue-200 bg-blue-50 rounded-t-lg flex items-center justify-between">
-            <h2 className="font-bold text-blue-900">📝 Pending Drafts ({drafts.length})</h2>
+            <h2 className="font-bold text-blue-900">📝 Pending Drafts ({draftCount})</h2>
             <Link href={`/admin/drafts?pill_id=${pillId}`} className="text-blue-700 text-sm font-medium underline hover:text-blue-900">
               View all →
             </Link>

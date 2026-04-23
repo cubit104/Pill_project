@@ -415,3 +415,20 @@ class TestCleanFilenamePreservesSlash:
         assert "/8bdcca05-07f5-49d3-96ec-25321e4929a3/" in url, (
             f"Expected pill_id directory in URL, got: {url}"
         )
+
+    def test_clean_filename_rejects_path_traversal(self):
+        """clean_filename must reject filenames containing '..' directory traversal."""
+        from utils import clean_filename
+        assert clean_filename("../etc/passwd") == "", (
+            "clean_filename must return '' for path traversal attempts"
+        )
+        assert clean_filename("foo/../../etc/passwd") == "", (
+            "clean_filename must return '' for multi-level traversal"
+        )
+
+    def test_clean_filename_rejects_absolute_path(self):
+        """clean_filename must reject filenames starting with '/'."""
+        from utils import clean_filename
+        assert clean_filename("/absolute/path.jpg") == "", (
+            "clean_filename must return '' for absolute paths starting with '/'"
+        )
