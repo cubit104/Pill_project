@@ -111,13 +111,27 @@ class TestPillImageRedirect:
         import routes.pill_images as pi_module
         pi_module._url_cache.clear()
 
+        unknown_file = "completely-unknown-file-xyz.jpg"
+
         # We need to mock _head_ok so the fallback legacy URL also returns False
         with patch("routes.pill_images._head_ok", return_value=False):
             resp = client.get(
-                "/api/pill-image/completely-unknown-file-xyz.jpg",
+                f"/api/pill-image/{unknown_file}",
                 follow_redirects=False,
             )
         assert resp.status_code == 404
+
+        # Second request for the same unknown filename: the negative cache should serve 404
+        # without hitting the DB again (call_count must not increase).
+        calls_before_second = call_count[0]
+        resp2 = client.get(
+            f"/api/pill-image/{unknown_file}",
+            follow_redirects=False,
+        )
+        assert resp2.status_code == 404
+        assert call_count[0] == calls_before_second, (
+            "DB must not be queried again for a negatively-cached filename"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -248,14 +262,67 @@ class TestUpdatePillImageFilename:
         assert "image_filename" in dumped
         assert dumped["image_filename"] == "a.jpg,b.jpg"
 
-    def test_has_image_accepted_by_pydantic(self):
-        """PillUpdate must accept has_image without dropping it (Pydantic validation)."""
+    def test_has_image_not_in_pydantic_model(self):
+        """PillUpdate must NOT accept has_image directly — it's derived server-side."""
         from routes.admin.pills import PillUpdate
 
-        body = PillUpdate(has_image="TRUE")
+        # Pydantic v2 with model_config extra='ignore' means extra fields are dropped.
+        # PillUpdate no longer declares has_image, so it should not appear in the dump.
+        body = PillUpdate.model_validate({"has_image": "TRUE"})
         dumped = body.model_dump(exclude_unset=True)
-        assert "has_image" in dumped
-        assert dumped["has_image"] == "TRUE"
+        assert "has_image" not in dumped, (
+            "has_image must not be settable via PillUpdate; it is derived from image_filename"
+        )
+
+    def test_has_image_derived_from_image_filename_on_update(self, client):
+        """PUT with image_filename must also update has_image server-side."""
+        from datetime import datetime, timezone
+
+        mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+        db_ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        updated_at_row = MagicMock()
+        updated_at_row.__getitem__ = MagicMock(return_value=db_ts)
+
+        executed_sqls = []
+        executed_params = []
+        call_count = [0]
+
+        def side_effect(sql, params=None, *args, **kwargs):
+            sql_str = str(sql)
+            executed_sqls.append(sql_str)
+            executed_params.append(params or {})
+            result = MagicMock()
+            call_count[0] += 1
+            if call_count[0] == 1:
+                result.fetchone.return_value = FAKE_ADMIN_ROW
+            elif "updated_at" in sql_str and "pillfinder" in sql_str:
+                result.fetchone.return_value = updated_at_row
+            else:
+                result.fetchone.return_value = MagicMock()
+                result.fetchall.return_value = []
+            return result
+
+        mock_conn.execute.side_effect = side_effect
+
+        import database as db_module
+        db_module.db_engine = mock_engine
+
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+            resp = client.put(
+                "/api/admin/pills/some-pill-id",
+                json={"image_filename": "a.jpg,b.jpg"},
+                headers={"Authorization": "Bearer faketoken"},
+            )
+
+        assert resp.status_code != 500
+
+        # has_image must be derived and appear in the UPDATE SQL alongside image_filename
+        update_sqls = [s for s in executed_sqls if "UPDATE pillfinder SET" in s]
+        update_sql_combined = " ".join(update_sqls)
+        assert "has_image" in update_sql_combined, (
+            "has_image must appear in the UPDATE statement when image_filename is sent (server-derived)"
+        )
 
     def test_image_filename_persisted_via_put(self, client):
         """PUT /api/admin/pills/:id with image_filename must include it in the SQL UPDATE."""

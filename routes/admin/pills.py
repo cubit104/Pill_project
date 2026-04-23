@@ -70,7 +70,6 @@ class PillCreate(BaseModel):
     slug: Optional[str] = None
     meta_description: Optional[str] = None
     image_filename: Optional[str] = None
-    has_image: Optional[str] = None
     image_alt_text: Optional[str] = None
     tags: Optional[str] = None
     idempotency_key: Optional[str] = None
@@ -813,6 +812,13 @@ def create_pill(
 
     data = {k: _sanitize(v) for k, v in body.model_dump(exclude={"idempotency_key"}).items() if v is not None}
 
+    # Derive has_image from image_filename so the two columns stay in sync
+    if "image_filename" in data:
+        data["has_image"] = "TRUE" if data["image_filename"] else "FALSE"
+    elif "image_filename" not in data:
+        # image_filename not provided — don't touch has_image either
+        pass
+
     # Validate only when publishing (strict=True); drafts allow partial data
     if publish:
         errors = validate_pill(data, strict=True)
@@ -886,6 +892,12 @@ def update_pill(
         else:
             sanitized = _sanitize(v)
             updates[k] = sanitized  # _sanitize converts "" to None, clearing the column
+
+    # Derive has_image server-side from image_filename so the two stay in sync.
+    # We do this after sanitize so we see the final value (None means "cleared").
+    if "image_filename" in updates:
+        fn_val = updates["image_filename"]
+        updates["has_image"] = "TRUE" if fn_val else "FALSE"
 
     if not updates:
         return {"updated": False}

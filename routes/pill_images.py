@@ -6,12 +6,14 @@ GET /api/pill-image/{filename}
     - Tries the new-upload URL layout ({IMAGE_BASE}/{pill_id}/{filename}) first.
     - Falls back to the legacy URL layout ({IMAGE_BASE}/{filename}).
     - 302-redirects to the first URL that returns HTTP 200 on a HEAD check.
-    - In-memory TTL cache (60 s) avoids repeated HEAD requests for the same filename.
+    - Bounded LRU + TTL cache (max 512 entries, 60 s TTL) avoids repeated HEAD
+      requests for the same filename without becoming a DoS vector.
     - Returns 404 with Cache-Control: no-cache when both candidates fail.
 """
 
 import logging
 import time
+from collections import OrderedDict
 from typing import Dict, Optional, Tuple
 
 from fastapi import APIRouter
@@ -27,21 +29,41 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["pill-images"])
 
 # ---------------------------------------------------------------------------
-# In-memory resolution cache:  filename -> (resolved_url, expires_at)
+# Bounded LRU + TTL cache.
+# Values are either a resolved URL string (redirect target) or None (not found).
+# We use a sentinel object to distinguish "cached not-found" from "cache miss".
 # ---------------------------------------------------------------------------
-_url_cache: Dict[str, Tuple[Optional[str], float]] = {}
-_CACHE_TTL = 60.0  # seconds
+_NOT_FOUND = object()  # sentinel: cached "image not found"
+_CACHE_TTL = 60.0      # seconds
+_CACHE_MAX = 512       # maximum number of entries (LRU eviction)
+
+# OrderedDict used as an LRU store: {filename: (value, expires_at)}
+# value is either a URL string or _NOT_FOUND sentinel.
+_url_cache: OrderedDict = OrderedDict()
 
 
-def _cached_url(filename: str) -> Optional[str]:
+def _cache_get(filename: str) -> object:
+    """Return cached value, or None on cache miss (entry absent or expired)."""
     entry = _url_cache.get(filename)
-    if entry and time.monotonic() < entry[1]:
-        return entry[0]
-    return None  # cache miss or expired
+    if entry is None:
+        return None  # cache miss
+    value, expires_at = entry
+    if time.monotonic() > expires_at:
+        del _url_cache[filename]
+        return None  # expired
+    # Move to end (most recently used)
+    _url_cache.move_to_end(filename)
+    return value
 
 
-def _cache_url(filename: str, url: Optional[str]) -> None:
-    _url_cache[filename] = (url, time.monotonic() + _CACHE_TTL)
+def _cache_put(filename: str, value: object) -> None:
+    """Store value in the cache, evicting the LRU entry if at capacity."""
+    if filename in _url_cache:
+        _url_cache.move_to_end(filename)
+    _url_cache[filename] = (value, time.monotonic() + _CACHE_TTL)
+    # Evict oldest entry when over capacity
+    while len(_url_cache) > _CACHE_MAX:
+        _url_cache.popitem(last=False)
 
 
 def _head_ok(url: str) -> bool:
@@ -80,16 +102,17 @@ def _resolve_url(pill_id: str, filename: str) -> Optional[str]:
 @router.get("/api/pill-image/{filename:path}")
 def get_pill_image(filename: str):
     """Redirect to the public Supabase Storage URL for a pill image."""
-    # Check the in-memory cache first
-    cached = _cached_url(filename)
-    if cached is not None:
-        return RedirectResponse(url=cached, status_code=302)
-    if cached == "":  # explicit "not found" cached
+    # Check the bounded LRU cache first
+    cached = _cache_get(filename)
+    if cached is _NOT_FOUND:
         return JSONResponse(
             status_code=404,
             content={"detail": "Image not found"},
             headers={"Cache-Control": "no-cache"},
         )
+    if cached is not None:
+        # cached is a resolved URL string
+        return RedirectResponse(url=cached, status_code=302)
 
     if not database.db_engine:
         database.connect_to_database()
@@ -100,10 +123,11 @@ def get_pill_image(filename: str):
             row = conn.execute(
                 text(
                     "SELECT id FROM pillfinder "
-                    "WHERE image_filename LIKE :pat AND deleted_at IS NULL "
+                    "WHERE :filename = ANY(regexp_split_to_array(image_filename, '\\s*,\\s*')) "
+                    "AND deleted_at IS NULL "
                     "LIMIT 1"
                 ),
-                {"pat": f"%{filename}%"},
+                {"filename": filename},
             ).fetchone()
             if row:
                 pill_id = str(row[0])
@@ -121,11 +145,11 @@ def get_pill_image(filename: str):
             resolved = legacy_url
 
     if resolved:
-        _cache_url(filename, resolved)
+        _cache_put(filename, resolved)
         return RedirectResponse(url=resolved, status_code=302)
 
     # Cache the "not found" result to avoid repeated DB + HEAD hits
-    _url_cache[filename] = ("", time.monotonic() + _CACHE_TTL)
+    _cache_put(filename, _NOT_FOUND)
     return JSONResponse(
         status_code=404,
         content={"detail": "Image not found"},
