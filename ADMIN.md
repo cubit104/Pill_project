@@ -91,6 +91,68 @@ Added `deleted_at`, `deleted_by`, `updated_at`, `updated_by` columns for soft-de
 
 ---
 
+## Field Schema & Completeness
+
+### 24-column editable schema (single source of truth)
+
+Defined in `routes/admin/field_schema.py` (Python) and `frontend/app/admin/lib/fieldSchema.ts` (TypeScript).
+
+| # | Column | Label | Tier |
+|---|--------|-------|------|
+| 1 | `medicine_name` | Drug Name | **Required** |
+| 2 | `author` | Manufacturer | **Required** |
+| 3 | `spl_strength` | Strength | **Required** |
+| 4 | `splimprint` | Imprint | **Required** |
+| 5 | `splcolor_text` | Color | **Required** |
+| 6 | `splshape_text` | Shape | **Required** |
+| 7 | `slug` | Slug | **Required** |
+| 8 | `ndc9` | NDC-9 | Required or N/A |
+| 9 | `ndc11` | NDC-11 | Required or N/A |
+| 10 | `dosage_form` | Dosage Form | Required or N/A |
+| 11 | `route` | Route | Required or N/A |
+| 12 | `spl_ingredients` | Active Ingredients | Required or N/A |
+| 13 | `spl_inactive_ing` | Inactive Ingredients | Required or N/A |
+| 14 | `dea_schedule_name` | DEA Schedule | Required or N/A |
+| 15 | `status_rx_otc` | Rx/OTC Status | Required or N/A |
+| 16 | `image_alt_text` | Image Alt Text | Required or N/A *(only when `has_image = 'TRUE'`)* |
+| 17 | `brand_names` | Brand Names | Optional |
+| 18 | `splsize` | Size | Optional |
+| 19 | `meta_description` | Meta Description | Optional |
+| 20 | `pharmclass_fda_epc` | FDA Pharma Class | Optional |
+| 21 | `rxcui` | RxCUI | Optional |
+| 22 | `rxcui_1` | RxCUI Alt | Optional |
+| 23 | `imprint_status` | Imprint Status | Optional |
+| 24 | `tags` | Tags | Optional |
+
+**Not user-editable via form:** `image_filename` (via upload/delete), `has_image` (derived), `id`, `updated_at`, `updated_by`, `deleted_at`, `deleted_by`, `idempotency_key`.
+
+### Tier definitions
+
+- **Tier 1 — Required**: Must have a value to publish. Publishing blocked with HTTP 422 if empty.
+- **Tier 2 — Required or N/A**: Must have a value **or** be explicitly set to the string `'N/A'` (case-insensitive) to publish. The UI shows an `[N/A]` button next to each Tier-2 field.
+- **Tier 3 — Optional**: Empty is fine for publishing.
+
+### N/A convention
+
+Store the literal string `'N/A'` in the database column when an editor confirms a Tier-2 field doesn't apply (e.g. DEA schedule for OTC drugs). This avoids a schema migration. Completeness logic treats `'N/A'` as **complete** but distinguishable from an empty value.
+
+### Completeness bar (pill edit page)
+
+A progress bar at the top of `/admin/pills/[id]` shows:
+- **Score** 0–100% (fraction of applicable fields that are filled)
+- **Red** warning: count of Tier-1 fields missing
+- **Yellow** warning: count of Tier-2 fields needing N/A confirmation
+- **Green**: all required fields complete
+
+### Completeness badges (pills list)
+
+Each row in `/admin/pills` shows a small badge:
+- 🟢 `100%` — fully complete
+- 🟡 `N%` — only Tier-2/3 gaps
+- 🔴 `N%` — one or more Tier-1 fields missing
+
+---
+
 ## API Endpoints
 
 All endpoints require a valid Supabase JWT passed as `Authorization: Bearer <token>`.
@@ -99,10 +161,12 @@ All endpoints require a valid Supabase JWT passed as `Authorization: Bearer <tok
 |--------|------|------|-------------|
 | GET | `/api/admin/me` | any | Current admin info |
 | GET | `/api/admin/stats` | any | Dashboard KPIs |
-| GET | `/api/admin/pills` | any | Paginated pill list |
+| GET | `/api/admin/pills` | any | Paginated pill list (supports `?completeness=red\|yellow\|green`) |
 | GET | `/api/admin/pills/:id` | any | Single pill + drafts |
-| POST | `/api/admin/pills` | editor+ | Create pill |
-| PUT | `/api/admin/pills/:id` | editor+ | Update pill (reviewer+ for critical fields) |
+| GET | `/api/admin/pills/:id/completeness` | any | Completeness metrics for a pill |
+| GET | `/api/admin/pills/incomplete` | any | Paginated list of incomplete pills, sorted worst-first |
+| POST | `/api/admin/pills` | editor+ | Create pill (add `?publish=true` for strict validation) |
+| PUT | `/api/admin/pills/:id` | editor+ | Update pill — add `?publish=true` for strict Tier 1+2 validation (reviewer+ for critical fields) |
 | DELETE | `/api/admin/pills/:id` | editor+ | Soft delete |
 | POST | `/api/admin/pills/:id/restore` | editor+ | Restore deleted |
 | POST | `/api/admin/pills/:id/drafts` | editor+ | Create draft |
@@ -118,6 +182,38 @@ All endpoints require a valid Supabase JWT passed as `Authorization: Bearer <tok
 | POST | `/api/admin/users` | superadmin | Invite admin |
 | PUT | `/api/admin/users/:id` | superadmin | Update role |
 | DELETE | `/api/admin/users/:id` | superadmin | Deactivate |
+
+### `?publish=true` flag
+
+When appended to `POST /api/admin/pills` or `PUT /api/admin/pills/:id`, the server runs strict validation (Tier 1 + Tier 2). On failure it returns:
+
+```json
+HTTP 422
+{
+  "detail": "Validation failed",
+  "errors": [
+    { "field": "medicine_name", "message": "Drug Name is required" }
+  ]
+}
+```
+
+### `GET /api/admin/pills/:id/completeness`
+
+Returns:
+```json
+{
+  "score": 72,
+  "missing_required": ["author", "slug"],
+  "needs_na_confirmation": ["ndc9", "dea_schedule_name"],
+  "optional_empty": ["brand_names", "splsize"]
+}
+```
+
+### `GET /api/admin/pills/incomplete`
+
+Query params: `?tier=required|required_or_na&page=1&per_page=20`
+
+Returns pills sorted by lowest completeness score first, with `missing_required` and `needs_na_confirmation` lists per row.
 
 ---
 

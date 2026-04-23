@@ -147,6 +147,18 @@ export default function AdminDashboard() {
             </span>
           )}
         </Link>
+        <Link
+          href="/admin/duplicates"
+          className="bg-yellow-600 text-white px-4 py-2 rounded-md hover:bg-yellow-700 text-sm font-medium transition-colors"
+        >
+          Duplicates
+        </Link>
+        <Link
+          href="/admin/pills/incomplete"
+          className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 text-sm font-medium transition-colors"
+        >
+          Incomplete Pills
+        </Link>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">

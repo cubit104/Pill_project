@@ -1,12 +1,11 @@
 'use client'
 
 export const dynamic = 'force-dynamic'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../lib/supabase'
 import { Search, Plus, Trash2, RotateCcw, Download } from 'lucide-react'
-import { Suspense } from 'react'
 
 interface Pill {
   id: string
@@ -22,6 +21,32 @@ interface Pill {
   deleted_at: string | null
   spl_strength: string
   status_rx_otc: string
+  completeness_score?: number
+  completeness_color?: 'red' | 'yellow' | 'green'
+}
+
+function highlightMatch(text: string | null, query: string): React.ReactNode {
+  if (!text) return null
+  if (!query) return text
+  const idx = text.toLowerCase().indexOf(query.toLowerCase())
+  if (idx === -1) return text
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="bg-yellow-200 text-yellow-900 rounded px-0.5">{text.slice(idx, idx + query.length)}</mark>
+      {text.slice(idx + query.length)}
+    </>
+  )
+}
+
+function CompletenessBadge({ score, color }: { score?: number; color?: string }) {
+  if (score == null) return null
+  const emoji = color === 'green' ? '\uD83D\uDFE2' : color === 'yellow' ? '\uD83D\uDFE1' : '\uD83D\uDD34'
+  return (
+    <span className="text-xs font-medium" title={`Completeness: ${score}%`}>
+      {emoji} {score}%
+    </span>
+  )
 }
 
 interface PillsResponse {
@@ -48,11 +73,13 @@ function PillsListInner() {
   const [total, setTotal] = useState(0)
   const [pages, setPages] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [searching, setSearching] = useState(false)
   const [error, setError] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
   const [stats, setStats] = useState<PillStats | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkLoading, setBulkLoading] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const page = Number(searchParams.get('page') || '1')
   const q = searchParams.get('q') || ''
@@ -132,6 +159,20 @@ function PillsListInner() {
     else params.delete('q')
     params.set('page', '1')
     router.push(`/admin/pills?${params.toString()}`)
+  }
+
+  const handleSearchInput = (val: string) => {
+    setSearchInput(val)
+    setSearching(true)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      const params = new URLSearchParams(searchParams.toString())
+      if (val) params.set('q', val)
+      else params.delete('q')
+      params.set('page', '1')
+      router.push(`/admin/pills?${params.toString()}`)
+      setSearching(false)
+    }, 250)
   }
 
   const setChip = (chipParams: Record<string, string>) => {
@@ -344,10 +385,13 @@ function PillsListInner() {
             <input
               type="text"
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search name, imprint, NDC…"
+              onChange={(e) => handleSearchInput(e.target.value)}
+              placeholder="Search by drug name, imprint, or NDC\u2026"
               className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
+            {searching && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-indigo-500 animate-pulse">Searching\u2026</span>
+            )}
           </div>
           <button
             type="submit"
@@ -370,6 +414,7 @@ function PillsListInner() {
             Show deleted
           </label>
         </form>
+        <p className="mt-1 text-xs text-gray-400">Searches: drug name, imprint, NDC</p>
       </div>
 
       {error && (
@@ -433,6 +478,7 @@ function PillsListInner() {
                 <th className="px-4 py-3 text-left">Imprint</th>
                 <th className="px-4 py-3 text-left">Color</th>
                 <th className="px-4 py-3 text-left">Shape</th>
+                <th className="px-4 py-3 text-left">Complete</th>
                 <th className="px-4 py-3 text-left">Updated</th>
                 <th className="px-4 py-3 text-left">Actions</th>
               </tr>
@@ -440,14 +486,14 @@ function PillsListInner() {
             <tbody className="divide-y divide-gray-100">
               {loading && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
                     Loading…
                   </td>
                 </tr>
               )}
               {!loading && pills.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
                     No pills found
                   </td>
                 </tr>
@@ -485,17 +531,20 @@ function PillsListInner() {
                       href={`/admin/pills/${pill.id}`}
                       className="font-medium text-indigo-600 hover:underline"
                     >
-                      {pill.medicine_name || '(no name)'}
+                      {highlightMatch(pill.medicine_name, q) ?? '(no name)'}
                     </Link>
                     {pill.spl_strength && (
                       <div className="text-xs text-gray-400">{pill.spl_strength}</div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{pill.splimprint || '—'}</td>
-                  <td className="px-4 py-3 text-gray-600">{pill.splcolor_text || '—'}</td>
-                  <td className="px-4 py-3 text-gray-600">{pill.splshape_text || '—'}</td>
+                  <td className="px-4 py-3 text-gray-600">{highlightMatch(pill.splimprint, q) ?? '\u2014'}</td>
+                  <td className="px-4 py-3 text-gray-600">{pill.splcolor_text || '\u2014'}</td>
+                  <td className="px-4 py-3 text-gray-600">{pill.splshape_text || '\u2014'}</td>
+                  <td className="px-4 py-3">
+                    <CompletenessBadge score={pill.completeness_score} color={pill.completeness_color} />
+                  </td>
                   <td className="px-4 py-3 text-gray-400 text-xs">
-                    {pill.updated_at ? new Date(pill.updated_at).toLocaleDateString() : '—'}
+                    {pill.updated_at ? new Date(pill.updated_at).toLocaleDateString() : '\u2014'}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex gap-3">
