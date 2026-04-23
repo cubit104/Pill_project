@@ -322,7 +322,8 @@ export default function EditPillPage() {
   const [successDismissed, setSuccessDismissed] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<Array<{ id: string; status: string; created_at: string }>>([])
-  const [draftCount, setDraftCount] = useState(0)  const [completeness, setCompleteness] = useState<CompletenessData | null>(null)
+  const [draftCount, setDraftCount] = useState(0)
+  const [completeness, setCompleteness] = useState<CompletenessData | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [resolvedImageUrls, setResolvedImageUrls] = useState<string[]>([])
 
