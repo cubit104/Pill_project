@@ -261,8 +261,9 @@ def list_pills(
             "pages": max(1, -(-count_row // per_page)),
         }
     except SQLAlchemyError as e:
-        logger.error(f"list_pills DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"list_pills DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.get("/stats")
@@ -301,8 +302,9 @@ def get_stats(admin: dict = Depends(get_admin_user)):
         _stats_cache["expires"] = now + 60.0
         return data
     except SQLAlchemyError as e:
-        logger.error(f"get_stats DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"get_stats DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.get("/recent")
@@ -347,8 +349,9 @@ def get_recent(
             })
         return pills
     except SQLAlchemyError as e:
-        logger.error(f"get_recent DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"get_recent DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.get("/incomplete")
@@ -442,8 +445,9 @@ def get_incomplete_pills(
             "pages": max(1, -(-total // per_page)),
         }
     except SQLAlchemyError as e:
-        logger.error(f"get_incomplete_pills DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"get_incomplete_pills DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.get("/export.csv")
@@ -529,8 +533,9 @@ def export_csv(
                 user_agent=request.headers.get("user-agent"),
             )
     except SQLAlchemyError as e:
-        logger.error(f"export_csv setup error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"export_csv setup error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
     def generate():
         buf = io.StringIO()
@@ -576,7 +581,7 @@ def export_csv(
                     buf.truncate(0)
                     buf.seek(0)
         except SQLAlchemyError as e:
-            logger.error(f"export_csv stream error: {e}")
+            logger.error(f"export_csv stream error: {e}", exc_info=True)
 
     filename = f"pills-export-{datetime.date.today().isoformat()}.csv"
     return StreamingResponse(
@@ -653,8 +658,9 @@ def bulk_tag(
 
         return {"updated": updated_count}
     except SQLAlchemyError as e:
-        logger.error(f"bulk_tag DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"bulk_tag DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.post("/bulk/delete", status_code=200)
@@ -701,8 +707,9 @@ def bulk_delete(
 
         return {"deleted": deleted_count}
     except SQLAlchemyError as e:
-        logger.error(f"bulk_delete DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"bulk_delete DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.get("/{pill_id}")
@@ -776,8 +783,9 @@ def get_pill(pill_id: str, admin: dict = Depends(get_admin_user)):
     except HTTPException:
         raise
     except SQLAlchemyError as e:
-        logger.error(f"get_pill DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"get_pill DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.get("/{pill_id}/completeness")
@@ -802,8 +810,9 @@ def get_pill_completeness(pill_id: str, admin: dict = Depends(get_admin_user)):
     except HTTPException:
         raise
     except SQLAlchemyError as e:
-        logger.error(f"get_pill_completeness DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"get_pill_completeness DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.post("", status_code=201)
@@ -872,8 +881,9 @@ def create_pill(
 
         return {"id": str(new_id), "created": True}
     except SQLAlchemyError as e:
-        logger.error(f"create_pill DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"create_pill DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.put("/{pill_id}")
@@ -935,8 +945,9 @@ def update_pill(
         except HTTPException:
             raise
         except SQLAlchemyError as e:
-            logger.error(f"update_pill publish-fetch DB error: {e}")
-            raise HTTPException(status_code=500, detail="Database error")
+            logger.error(f"update_pill publish-fetch DB error: {e}", exc_info=True)
+            root = getattr(e, "orig", None) or e
+            raise HTTPException(status_code=500, detail=f"Database error: {root}")
         merged.update(updates)
         errors = validate_pill(merged, strict=True)
         if errors:
@@ -1003,8 +1014,9 @@ def update_pill(
     except HTTPException:
         raise
     except SQLAlchemyError as e:
-        logger.error(f"update_pill DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"update_pill DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.delete("/{pill_id}")
@@ -1048,8 +1060,9 @@ def soft_delete_pill(
     except HTTPException:
         raise
     except SQLAlchemyError as e:
-        logger.error(f"soft_delete_pill DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"soft_delete_pill DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
 @router.post("/{pill_id}/restore")
@@ -1093,5 +1106,6 @@ def restore_pill(
     except HTTPException:
         raise
     except SQLAlchemyError as e:
-        logger.error(f"restore_pill DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        logger.error(f"restore_pill DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
