@@ -23,10 +23,10 @@ from routes.admin.auth import require_superuser
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(prefix="/api/admin/backfill/ndc", tags=["admin-backfill"])
 
 
-@router.get("/api/admin/backfill/ndc/preview")
+@router.get("/preview")
 def preview_ndc_backfill(
     limit: int = Query(10, ge=1, le=100, description="Rows to preview"),
     offset: int = Query(0, ge=0, description="Row offset"),
@@ -54,7 +54,7 @@ def preview_ndc_backfill(
     return summary
 
 
-@router.post("/api/admin/backfill/ndc/run")
+@router.post("/run")
 def run_ndc_backfill(
     limit: int = Query(50, ge=1, le=500, description="Rows to process"),
     offset: int = Query(0, ge=0, description="Row offset"),

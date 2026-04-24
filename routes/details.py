@@ -195,8 +195,16 @@ def get_pill_details(
                     {"pill_id": str(pill_info.get("id"))},
                 )
                 pill_ndcs_rows = ndcs_result.fetchall()
-            except Exception as _e:
-                logger.debug("pill_ndcs lookup failed for pill %s: %s", pill_info.get("id"), _e)
+            except SQLAlchemyError as _e:
+                err_msg = str(_e).lower()
+                if "pill_ndcs" in err_msg and (
+                    "does not exist" in err_msg or "no such table" in err_msg
+                ):
+                    logger.debug("pill_ndcs table not yet created: %s", _e)
+                else:
+                    logger.warning(
+                        "pill_ndcs lookup failed for pill %s: %s", pill_info.get("id"), _e
+                    )
 
         image_data = process_image_filenames(filenames)
         pill_info.update(image_data)
@@ -269,8 +277,14 @@ def get_pill_by_slug(slug: str):
                     for r in ndcs_result.fetchall()
                     if not r[2]  # is_primary == False
                 ]
-            except Exception as _e:
-                logger.debug("pill_ndcs lookup failed for %s: %s", slug, _e)
+            except SQLAlchemyError as _e:
+                err_msg = str(_e).lower()
+                if "pill_ndcs" in err_msg and (
+                    "does not exist" in err_msg or "no such table" in err_msg
+                ):
+                    logger.debug("pill_ndcs table not yet created: %s", _e)
+                else:
+                    logger.warning("pill_ndcs lookup failed for %s: %s", slug, _e)
 
             mapped = {
                 "drug_name": pill_info.get("medicine_name"),

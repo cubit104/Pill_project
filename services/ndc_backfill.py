@@ -52,24 +52,40 @@ ROW_SELECT_SQL = """
 # ---------------------------------------------------------------------------
 
 
-def _fetch(url: str, params: Optional[Dict] = None, timeout: int = 30) -> Optional[Dict]:
-    """GET *url* with one retry on 5xx / timeout.  Returns parsed JSON or None."""
-    for attempt in range(2):
-        try:
-            resp = httpx.get(url, params=params, timeout=timeout)
-            if resp.status_code == 200:
-                return resp.json()
-            if resp.status_code >= 500 and attempt == 0:
-                time.sleep(1)
-                continue
-            logger.debug("HTTP %s from %s", resp.status_code, url)
-            return None
-        except (httpx.TimeoutException, httpx.ConnectError, httpx.RequestError) as exc:
-            if attempt == 0:
-                time.sleep(1)
-                continue
-            logger.warning("HTTP error fetching %s: %s", url, exc)
-            return None
+def _fetch(
+    url: str,
+    params: Optional[Dict] = None,
+    timeout: int = 30,
+    client: Optional["httpx.Client"] = None,
+) -> Optional[Dict]:
+    """GET *url* with one retry on 5xx / timeout.  Returns parsed JSON or None.
+
+    If *client* is supplied it is reused (connection pooling); otherwise a
+    temporary client is created per call (tests / standalone use).
+    """
+    _close = client is None
+    if _close:
+        client = httpx.Client(timeout=timeout)
+    try:
+        for attempt in range(2):
+            try:
+                resp = client.get(url, params=params)
+                if resp.status_code == 200:
+                    return resp.json()
+                if resp.status_code >= 500 and attempt == 0:
+                    time.sleep(1)
+                    continue
+                logger.debug("HTTP %s from %s", resp.status_code, url)
+                return None
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.RequestError) as exc:
+                if attempt == 0:
+                    time.sleep(1)
+                    continue
+                logger.warning("HTTP error fetching %s: %s", url, exc)
+                return None
+    finally:
+        if _close:
+            client.close()
     return None
 
 
@@ -78,9 +94,9 @@ def _fetch(url: str, params: Optional[Dict] = None, timeout: int = 30) -> Option
 # ---------------------------------------------------------------------------
 
 
-def fetch_dailymed_by_rxcui(rxcui: str) -> List[Dict]:
+def fetch_dailymed_by_rxcui(rxcui: str, client: Optional["httpx.Client"] = None) -> List[Dict]:
     """Query DailyMed for SPL sets by RxCUI, then pull NDC lists per set."""
-    data = _fetch(DAILYMED_SPL_URL, params={"rxcui": rxcui, "pagesize": 25})
+    data = _fetch(DAILYMED_SPL_URL, params={"rxcui": rxcui, "pagesize": 25}, client=client)
     if not data or "data" not in data:
         return []
 
@@ -89,7 +105,7 @@ def fetch_dailymed_by_rxcui(rxcui: str) -> List[Dict]:
         setid = spl.get("setid")
         if not setid:
             continue
-        ndc_data = _fetch(DAILYMED_NDC_URL.format(setid=setid))
+        ndc_data = _fetch(DAILYMED_NDC_URL.format(setid=setid), client=client)
         if not ndc_data or "data" not in ndc_data:
             continue
         for entry in ndc_data.get("data", []):
@@ -106,11 +122,11 @@ def fetch_dailymed_by_rxcui(rxcui: str) -> List[Dict]:
     return candidates
 
 
-def fetch_openfda_by_name(name: str) -> List[Dict]:
+def fetch_openfda_by_name(name: str, client: Optional["httpx.Client"] = None) -> List[Dict]:
     """Query openFDA drug/ndc endpoint by generic_name."""
     safe_name = name.replace('"', '\\"')
     params = {"search": f'generic_name:"{safe_name}"', "limit": 25}
-    data = _fetch(OPENFDA_NDC_URL, params=params)
+    data = _fetch(OPENFDA_NDC_URL, params=params, client=client)
     if not data or "results" not in data:
         return []
 
@@ -169,10 +185,19 @@ def _product_key(ndc11: str) -> str:
     return digits[:9]
 
 
+def _package_code(ndc11: str) -> str:
+    """Last 2 digits of digit-stripped NDC — the package segment."""
+    return ndc11.replace("-", "")[9:]
+
+
 def _decide(candidates: List[Dict]) -> Tuple[str, Optional[Dict], List[Dict]]:
     """Return (outcome, primary_candidate, extra_candidates).
 
     outcome is one of: 'updated', 'multiple_matches', 'no_match'
+
+    When a single product is matched, the primary is the package with the
+    **smallest** package code (deterministic across API orderings), and the
+    rest are extras.
     """
     if not candidates:
         return ("no_match", None, [])
@@ -186,8 +211,8 @@ def _decide(candidates: List[Dict]) -> Tuple[str, Optional[Dict], List[Dict]]:
     if len(products) > 1:
         return ("multiple_matches", None, [])
 
-    # Single product — pick first as primary (they're already ordered by DailyMed / openFDA)
-    all_pkg = list(candidates)
+    # Single product — sort by package code (smallest first) for determinism
+    all_pkg = sorted(candidates, key=lambda c: _package_code(c["ndc11"]))
     primary = all_pkg[0]
     extras = all_pkg[1:]
     return ("updated", primary, extras)
@@ -202,6 +227,7 @@ def process_pill_row(
     row: Dict,
     match_mode: str = "auto",
     sleep_ms: int = 250,
+    client: Optional["httpx.Client"] = None,
 ) -> Dict:
     """Process one pill row; return outcome dict (never raises)."""
     pill_id = str(row["id"])
@@ -229,11 +255,11 @@ def process_pill_row(
         use_name = match_mode in ("name", "auto")
 
         if use_rxcui:
-            raw_candidates = fetch_dailymed_by_rxcui(str(rxcui))
+            raw_candidates = fetch_dailymed_by_rxcui(str(rxcui), client=client)
             time.sleep(sleep_ms / 1000)
 
         if not raw_candidates and use_name and name:
-            raw_candidates = fetch_openfda_by_name(name)
+            raw_candidates = fetch_openfda_by_name(name, client=client)
             time.sleep(sleep_ms / 1000)
 
         candidates = _normalise_candidates(raw_candidates)
@@ -349,7 +375,19 @@ def _write_pill_update(
 
 
 def _write_skipped(conn, pill_id: str, reason: str, candidates: List[Dict]) -> None:
-    """Insert a row into ndc_backfill_skipped."""
+    """Upsert a row into ndc_backfill_skipped (idempotent: delete then insert)."""
+    params = {
+        "pill_id": pill_id,
+        "reason": reason,
+        "candidates": json.dumps(candidates),
+    }
+    # Remove any prior record so re-runs don't accumulate stale duplicates
+    conn.execute(
+        text(
+            "DELETE FROM ndc_backfill_skipped WHERE pill_id = :pill_id AND reason = :reason"
+        ),
+        params,
+    )
     conn.execute(
         text(
             """
@@ -357,11 +395,7 @@ def _write_skipped(conn, pill_id: str, reason: str, candidates: List[Dict]) -> N
             VALUES (:pill_id, :reason, CAST(:candidates AS jsonb))
             """
         ),
-        {
-            "pill_id": pill_id,
-            "reason": reason,
-            "candidates": json.dumps(candidates),
-        },
+        params,
     )
 
 
@@ -408,81 +442,94 @@ def run_backfill(
         for r in rows
     ]
 
-    for row in pill_rows:
-        summary["processed"] += 1
-        result = process_pill_row(row, match_mode=match_mode, sleep_ms=sleep_ms)
-        outcome = result["outcome"]
+    # Use a single HTTP client for the entire run (connection pooling / keep-alive)
+    with httpx.Client(timeout=30) as http_client:
+        for row in pill_rows:
+            summary["processed"] += 1
+            result = process_pill_row(
+                row, match_mode=match_mode, sleep_ms=sleep_ms, client=http_client
+            )
+            outcome = result["outcome"]
 
-        row_summary: Dict[str, Any] = {
-            "pill_id": result["pill_id"],
-            "medicine_name": result.get("medicine_name"),
-            "outcome": outcome,
-            "chosen_ndc11": result.get("chosen_ndc11"),
-            "extras_count": result.get("extras_count", 0),
-        }
+            row_summary: Dict[str, Any] = {
+                "pill_id": result["pill_id"],
+                "medicine_name": result.get("medicine_name"),
+                "outcome": outcome,
+                "chosen_ndc11": result.get("chosen_ndc11"),
+                "extras_count": result.get("extras_count", 0),
+            }
 
-        if outcome == "updated":
-            if not dry_run:
-                try:
-                    with database.db_engine.begin() as conn:
-                        _write_pill_update(
-                            conn,
-                            result["pill_id"],
-                            result["primary_candidate"],
-                            result.get("extra_candidates") or [],
-                        )
+            if outcome == "updated":
+                if not dry_run:
+                    try:
+                        with database.db_engine.begin() as conn:
+                            _write_pill_update(
+                                conn,
+                                result["pill_id"],
+                                result["primary_candidate"],
+                                result.get("extra_candidates") or [],
+                            )
+                        summary["updated"] += 1
+                    except Exception as exc:
+                        logger.error("DB write error for pill %s: %s", result["pill_id"], exc)
+                        summary["errors"] += 1
+                        row_summary["outcome"] = "db_error"
+                else:
                     summary["updated"] += 1
-                except Exception as exc:
-                    logger.error("DB write error for pill %s: %s", result["pill_id"], exc)
-                    summary["errors"] += 1
-                    row_summary["outcome"] = "db_error"
-            else:
-                summary["updated"] += 1
 
-        elif outcome == "multiple_matches":
-            if not dry_run:
-                try:
-                    with database.db_engine.begin() as conn:
-                        _write_skipped(
-                            conn,
-                            result["pill_id"],
-                            "multiple_matches",
-                            result.get("candidates") or [],
+            elif outcome == "multiple_matches":
+                if not dry_run:
+                    try:
+                        with database.db_engine.begin() as conn:
+                            _write_skipped(
+                                conn,
+                                result["pill_id"],
+                                "multiple_matches",
+                                result.get("candidates") or [],
+                            )
+                        summary["skipped_multi"] += 1
+                    except Exception as exc:
+                        logger.error(
+                            "DB write error for skipped pill %s: %s", result["pill_id"], exc
                         )
-                except Exception as exc:
-                    logger.error(
-                        "DB write error for skipped pill %s: %s", result["pill_id"], exc
-                    )
-            summary["skipped_multi"] += 1
+                        summary["errors"] += 1
+                        row_summary["outcome"] = "db_error"
+                else:
+                    summary["skipped_multi"] += 1
 
-        elif outcome == "no_match":
-            if not dry_run:
-                try:
-                    with database.db_engine.begin() as conn:
-                        _write_skipped(conn, result["pill_id"], "no_match", [])
-                except Exception as exc:
-                    logger.error(
-                        "DB write error for no-match pill %s: %s", result["pill_id"], exc
-                    )
-            summary["skipped_none"] += 1
-
-        elif outcome == "api_error":
-            if not dry_run:
-                try:
-                    with database.db_engine.begin() as conn:
-                        _write_skipped(
-                            conn,
-                            result["pill_id"],
-                            "api_error",
-                            [{"error": result.get("error")}],
+            elif outcome == "no_match":
+                if not dry_run:
+                    try:
+                        with database.db_engine.begin() as conn:
+                            _write_skipped(conn, result["pill_id"], "no_match", [])
+                        summary["skipped_none"] += 1
+                    except Exception as exc:
+                        logger.error(
+                            "DB write error for no-match pill %s: %s", result["pill_id"], exc
                         )
-                except Exception as exc:
-                    logger.error(
-                        "DB write error for api_error pill %s: %s", result["pill_id"], exc
-                    )
-            summary["errors"] += 1
+                        summary["errors"] += 1
+                        row_summary["outcome"] = "db_error"
+                else:
+                    summary["skipped_none"] += 1
 
-        summary["rows"].append(row_summary)
-        logger.info("Pill %s → %s", result["pill_id"], outcome)
+            elif outcome == "api_error":
+                if not dry_run:
+                    try:
+                        with database.db_engine.begin() as conn:
+                            _write_skipped(
+                                conn,
+                                result["pill_id"],
+                                "api_error",
+                                [{"error": result.get("error")}],
+                            )
+                    except Exception as exc:
+                        logger.error(
+                            "DB write error for api_error pill %s: %s", result["pill_id"], exc
+                        )
+                        row_summary["outcome"] = "api_error_db_error"
+                summary["errors"] += 1
+
+            summary["rows"].append(row_summary)
+            logger.info("Pill %s → %s", result["pill_id"], outcome)
 
     return summary
