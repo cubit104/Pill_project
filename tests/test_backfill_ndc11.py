@@ -38,7 +38,15 @@ DAILYMED_SPL_RESPONSE = {
     "data": [{"setid": "setid-001", "title": "Metformin HCl Tablets"}]
 }
 
+# Legacy constant kept for reference; tests now use DAILYMED_PACKAGING_RESPONSE
 DAILYMED_NDC_RESPONSE = {
+    "data": [
+        {"ndc": "57664-0484-18", "package_description": "BOTTLE of 180 TABLETS"},
+        {"ndc": "57664-0484-88", "package_description": "BOTTLE of 500 TABLETS"},
+    ]
+}
+
+DAILYMED_PACKAGING_RESPONSE = {
     "data": [
         {"ndc": "57664-0484-18", "package_description": "BOTTLE of 180 TABLETS"},
         {"ndc": "57664-0484-88", "package_description": "BOTTLE of 500 TABLETS"},
@@ -69,8 +77,8 @@ class TestProcessPillRow:
         row = _make_pill()
         with patch("services.ndc_backfill._fetch") as mock_fetch:
             mock_fetch.side_effect = [
-                DAILYMED_SPL_RESPONSE,   # spls.json?rxcui=...
-                DAILYMED_NDC_RESPONSE,   # spls/{setid}/ndcs.json
+                DAILYMED_SPL_RESPONSE,       # spls.json?rxcui=...
+                DAILYMED_PACKAGING_RESPONSE, # spls/{setid}/packaging.json
             ]
             from services.ndc_backfill import process_pill_row
             result = process_pill_row(row, sleep_ms=0)
@@ -106,7 +114,6 @@ class TestProcessPillRow:
 
         assert result["outcome"] == "multiple_matches"
         assert result["chosen_ndc11"] is None
-
     def test_api_error_returns_api_error(self):
         """Exception during HTTP call → outcome='api_error'."""
         row = _make_pill()
@@ -163,7 +170,7 @@ class TestRunBackfill:
         engine, conn = _make_mock_db(rows)
 
         with patch("services.ndc_backfill._fetch") as mock_fetch:
-            mock_fetch.side_effect = [DAILYMED_SPL_RESPONSE, DAILYMED_NDC_RESPONSE]
+            mock_fetch.side_effect = [DAILYMED_SPL_RESPONSE, DAILYMED_PACKAGING_RESPONSE]
             from services.ndc_backfill import run_backfill
             summary = run_backfill(limit=1, dry_run=True, sleep_ms=0)
 
@@ -179,7 +186,7 @@ class TestRunBackfill:
         engine, conn = _make_mock_db(rows)
 
         with patch("services.ndc_backfill._fetch") as mock_fetch:
-            mock_fetch.side_effect = [DAILYMED_SPL_RESPONSE, DAILYMED_NDC_RESPONSE]
+            mock_fetch.side_effect = [DAILYMED_SPL_RESPONSE, DAILYMED_PACKAGING_RESPONSE]
             from services.ndc_backfill import run_backfill
             summary = run_backfill(limit=1, dry_run=False, sleep_ms=0)
 
@@ -269,17 +276,71 @@ class TestRunBackfill:
 
 
 # ---------------------------------------------------------------------------
-# fetch_dailymed_by_rxcui — string vs dict entry shapes
+# fetch_dailymed_by_rxcui — packaging.json endpoint tests
 # ---------------------------------------------------------------------------
 
 class TestFetchDailymedByRxcui:
-    def test_string_entries_returns_candidates(self):
-        """DailyMed ndcs.json returning plain strings → 2 candidates, no exception."""
-        spl_response = {"data": [{"setid": "setid-str-001", "title": "Drug A"}]}
-        ndc_response = {"data": ["0093-0150-01", "0093-0150-02"]}
+    def test_packaging_dict_ndc_key(self):
+        """Packaging returns list of dicts with 'ndc' key → candidates returned."""
+        spl_response = {"data": [{"setid": "setid-pkg-001", "title": "Drug A"}]}
+        pkg_response = {
+            "data": [
+                {"ndc": "57664-0484-18", "package_description": "BOTTLE of 180 TABLETS"},
+                {"ndc": "57664-0484-88", "package_description": "BOTTLE of 500 TABLETS"},
+            ]
+        }
 
         with patch("services.ndc_backfill._fetch") as mock_fetch:
-            mock_fetch.side_effect = [spl_response, ndc_response]
+            mock_fetch.side_effect = [spl_response, pkg_response]
+            from services.ndc_backfill import fetch_dailymed_by_rxcui, DAILYMED_PACKAGING_URL
+            candidates = fetch_dailymed_by_rxcui("12345")
+
+        assert len(candidates) == 2
+        assert candidates[0]["ndc"] == "57664-0484-18"
+        assert candidates[0]["package_description"] == "BOTTLE of 180 TABLETS"
+        assert candidates[0]["source"] == "dailymed"
+        assert candidates[0]["setid"] == "setid-pkg-001"
+        # Verify the second call used the packaging URL
+        second_call_url = mock_fetch.call_args_list[1][0][0]
+        assert second_call_url == DAILYMED_PACKAGING_URL.format(setid="setid-pkg-001")
+
+    def test_packaging_dict_package_ndc_key(self):
+        """Packaging returns dicts with 'package_ndc' instead of 'ndc' → still handled."""
+        spl_response = {"data": [{"setid": "setid-pkg-002", "title": "Drug B"}]}
+        pkg_response = {
+            "data": [
+                {"package_ndc": "00093-0150-01", "package_description": "30 TABLET in 1 BOTTLE"},
+            ]
+        }
+
+        with patch("services.ndc_backfill._fetch") as mock_fetch:
+            mock_fetch.side_effect = [spl_response, pkg_response]
+            from services.ndc_backfill import fetch_dailymed_by_rxcui
+            candidates = fetch_dailymed_by_rxcui("99999")
+
+        assert len(candidates) == 1
+        assert candidates[0]["ndc"] == "00093-0150-01"
+        assert candidates[0]["package_description"] == "30 TABLET in 1 BOTTLE"
+
+    def test_packaging_empty_list_returns_empty(self):
+        """Packaging endpoint returns empty data list → fetch returns []."""
+        spl_response = {"data": [{"setid": "setid-pkg-003"}]}
+        pkg_response = {"data": []}
+
+        with patch("services.ndc_backfill._fetch") as mock_fetch:
+            mock_fetch.side_effect = [spl_response, pkg_response]
+            from services.ndc_backfill import fetch_dailymed_by_rxcui
+            candidates = fetch_dailymed_by_rxcui("11111")
+
+        assert candidates == []
+
+    def test_string_entries_returns_candidates(self):
+        """Packaging returning plain strings (defensive) → 2 candidates, no exception."""
+        spl_response = {"data": [{"setid": "setid-str-001", "title": "Drug A"}]}
+        pkg_response = {"data": ["0093-0150-01", "0093-0150-02"]}
+
+        with patch("services.ndc_backfill._fetch") as mock_fetch:
+            mock_fetch.side_effect = [spl_response, pkg_response]
             from services.ndc_backfill import fetch_dailymed_by_rxcui
             candidates = fetch_dailymed_by_rxcui("12345")
 
@@ -291,9 +352,9 @@ class TestFetchDailymedByRxcui:
             assert c["setid"] == "setid-str-001"
 
     def test_mixed_string_and_dict_entries(self):
-        """DailyMed ndcs.json returning mixed strings and dicts → all handled."""
+        """Packaging returning mixed strings and dicts → all handled."""
         spl_response = {"data": [{"setid": "setid-mix-001", "title": "Drug B"}]}
-        ndc_response = {
+        pkg_response = {
             "data": [
                 "0093-0150-01",
                 {"ndc": "0093-0150-02", "package_description": "BOTTLE of 60"},
@@ -301,7 +362,7 @@ class TestFetchDailymedByRxcui:
         }
 
         with patch("services.ndc_backfill._fetch") as mock_fetch:
-            mock_fetch.side_effect = [spl_response, ndc_response]
+            mock_fetch.side_effect = [spl_response, pkg_response]
             from services.ndc_backfill import fetch_dailymed_by_rxcui
             candidates = fetch_dailymed_by_rxcui("12345")
 
@@ -323,10 +384,10 @@ class TestFetchDailymedByRxcui:
     def test_string_entries_no_exception(self):
         """Ensure no AttributeError is raised when entries are plain strings."""
         spl_response = {"data": [{"setid": "setid-noerr-001"}]}
-        ndc_response = {"data": ["0093-0150-01", "0093-0150-02"]}
+        pkg_response = {"data": ["0093-0150-01", "0093-0150-02"]}
 
         with patch("services.ndc_backfill._fetch") as mock_fetch:
-            mock_fetch.side_effect = [spl_response, ndc_response]
+            mock_fetch.side_effect = [spl_response, pkg_response]
             from services.ndc_backfill import fetch_dailymed_by_rxcui
             # Should not raise
             candidates = fetch_dailymed_by_rxcui("99999")
