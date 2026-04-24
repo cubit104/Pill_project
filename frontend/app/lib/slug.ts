@@ -12,3 +12,25 @@ export function classSlugify(className: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'unknown'
 }
+
+/**
+ * Convert a drug name to a Google-friendly URL slug.
+ * Lowercases, strips diacritics, replaces any non-[a-z0-9] run with a single '-',
+ * and trims leading/trailing dashes.
+ *
+ * Examples:
+ *   "Mircette (28) Dp 331 Imprint Round Green 0.15mg Tablet"
+ *   → "mircette-28-dp-331-imprint-round-green-0-15mg-tablet"
+ *
+ *   "{15 (estradiol/norgestimate/15 (estradiol"
+ *   → "15-estradiol-norgestimate-15-estradiol"
+ */
+export function slugifyDrugName(name: string): string {
+  if (!name) return ''
+  return name
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '') // strip diacritics
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}

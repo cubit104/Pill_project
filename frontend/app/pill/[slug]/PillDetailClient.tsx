@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill } from '../../types'
 import type { Reviewer } from '../../lib/reviewers'
-import { classSlugify } from '../../lib/slug'
+import { classSlugify, slugifyDrugName } from '../../lib/slug'
 
 function PillIconLarge() {
   return (
@@ -152,7 +152,7 @@ export default function PillDetailClient({
                 <li aria-hidden="true" className="select-none">›</li>
                 <li>
                   <Link
-                    href={`/drug/${encodeURIComponent(pill.drug_name.toLowerCase())}`}
+                    href={`/drug/${slugifyDrugName(pill.drug_name)}`}
                     className="hover:text-sky-700 transition-colors"
                   >
                     {pill.drug_name}
@@ -544,7 +544,7 @@ export default function PillDetailClient({
           <div className="flex flex-wrap gap-2">
             {pill.drug_name && pill.drug_name !== 'Unknown' && (
               <Link
-                href={`/drug/${encodeURIComponent(pill.drug_name.toLowerCase())}`}
+                href={`/drug/${slugifyDrugName(pill.drug_name)}`}
                 className="text-sm bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 hover:border-sky-300 transition-colors"
               >
                 More {pill.drug_name} pills →

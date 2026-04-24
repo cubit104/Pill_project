@@ -35,15 +35,21 @@ export async function generateMetadata(
   { params }: { params: Promise<{ name: string }> }
 ): Promise<Metadata> {
   const { name } = await params
-  const displayName = toTitleCase(decodeURIComponent(name))
+  // Next.js auto-decodes percent-escapes in path params.
+  // New slug URLs arrive as-is (e.g. "mircette-28"); old percent-encoded URLs
+  // arrive already decoded (e.g. "mircette (28)").
+  // In both cases we convert dashes → spaces for a human-readable display name.
+  const queryTerm = name.replace(/-+/g, ' ').replace(/\s+/g, ' ').trim()
+  const displayName = toTitleCase(queryTerm)
   const title = `${displayName} Pills — Identify ${displayName} by Imprint, Color & Shape`
   const description = `Look up ${displayName} pills by imprint code, color, and shape. Find all ${displayName} medications in our FDA-powered pill identifier.`.slice(0, 155)
 
   return {
     title,
     description,
-    alternates: { canonical: `/drug/${encodeURIComponent(name)}` },
-    openGraph: { title, description, url: `${SITE_URL}/drug/${encodeURIComponent(name)}` },
+    // `name` is already a URL-safe slug (or plain decoded text) — no re-encoding needed.
+    alternates: { canonical: `/drug/${name}` },
+    openGraph: { title, description, url: `${SITE_URL}/drug/${name}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
@@ -52,20 +58,31 @@ export default async function DrugHubPage(
   { params }: { params: Promise<{ name: string }> }
 ) {
   const { name } = await params
-  const displayName = toTitleCase(decodeURIComponent(name))
-  const pills = await fetchPillsByDrug(decodeURIComponent(name))
+
+  // `name` from params is whatever's in the URL path segment.
+  // New URLs: dash-slug (e.g. "mircette-28") — no percent-encoding.
+  // Old URLs: percent-encoded free text — Next.js auto-decodes path params,
+  //           so by the time we see them they're already plain UTF-8 with
+  //           the original spaces/punctuation (e.g. "mircette (28)").
+  //
+  // Strategy: replace dashes with spaces, normalise internal whitespace,
+  // and pass the result to fetchPillsByDrug, which does case-insensitive
+  // prefix/contains matching against medicine_name.
+  const queryTerm = name.replace(/-+/g, ' ').replace(/\s+/g, ' ').trim()
+  const displayName = toTitleCase(queryTerm)
+  const pills = await fetchPillsByDrug(queryTerm)
 
   if (!displayName) notFound()
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: displayName, url: `/drug/${encodeURIComponent(name)}` },
+    { name: displayName, url: `/drug/${name}` },
   ])
 
   const hubJson = hubPageSchema({
     name: `${displayName} Pill Identification`,
     description: `Browse all ${displayName} pills and identify them by imprint, color, and shape using FDA NDC data.`,
-    url: `/drug/${encodeURIComponent(name)}`,
+    url: `/drug/${name}`,
     dateModified: new Date().toISOString(),
   })
 
