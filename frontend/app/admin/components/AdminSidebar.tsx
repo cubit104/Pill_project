@@ -68,7 +68,19 @@ export default function AdminSidebar() {
   return (
     <aside className="w-64 bg-gray-900 text-white flex flex-col h-full shrink-0">
       <div className="p-4 border-b border-gray-700">
-        <h1 className="text-xl font-bold text-white">💊 PillSeek Admin</h1>
+        <div className="flex items-center gap-2">
+          <img
+            src="/logo-mark.svg"
+            alt=""
+            width={32}
+            height={32}
+            className="h-8 w-8 object-contain"
+          />
+          <h1 className="text-xl font-bold">
+            <span className="text-white">Pill</span><span className="text-emerald-400">Seek</span>
+            <span className="ml-1 font-normal text-slate-400">Admin</span>
+          </h1>
+        </div>
         {role && (
           <div className="mt-1">
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
