@@ -180,3 +180,85 @@ Append-only audit trail. No UPDATE/DELETE allowed (enforced via RLS).
 ## Migrations
 
 SQL migrations are in `supabase/migrations/`. The `profiles` table and its trigger were created manually in Supabase by the site owner and do not have a migration file in this repo.
+
+---
+
+## NDC Backfill
+
+The `pillfinder` table has `ndc11` and `ndc9` columns.  Rows imported via the
+XML pipeline may be missing these values.  The backfill job looks each missing
+row up in **DailyMed** (primary, matched by RxCUI) and **openFDA** (fallback,
+matched by `generic_name`), normalises the returned NDC to canonical 11-digit
+HIPAA format, and writes the result back.
+
+Extra package NDCs per drug are stored in the `pill_ndcs` sibling table so
+they are never lost.  Ambiguous multi-product matches go into
+`ndc_backfill_skipped` for manual review.
+
+### Running the backfill
+
+**Always dry-run first:**
+
+```bash
+python -m scripts.backfill_ndc11 --dry-run --limit 10
+```
+
+Each row prints a JSON line:
+```json
+{"pill_id": "...", "medicine_name": "Metformin", "outcome": "updated", "chosen_ndc11": "57664-0484-18", "extras_count": 1}
+```
+
+**Live run on a handful of rows:**
+
+```bash
+python -m scripts.backfill_ndc11 --limit 50
+```
+
+**Resume from where you left off:**
+
+```bash
+python -m scripts.backfill_ndc11 --limit 200 --offset 50
+```
+
+**All flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dry-run` | false | Log only, no DB writes |
+| `--limit N` | 10 | Process at most N rows |
+| `--offset N` | 0 | Skip first N rows (for resuming) |
+| `--match rxcui\|name\|auto` | auto | Match strategy |
+| `--sleep-ms N` | 250 | Delay between API calls (ms) |
+
+### After the run
+
+Check `ndc_backfill_skipped` for anything that needs manual attention:
+
+```sql
+SELECT reason, COUNT(*) FROM ndc_backfill_skipped GROUP BY reason;
+```
+
+Rows with `reason='multiple_matches'` include a `candidates` JSONB column with
+all the candidates found — inspect them and update `pillfinder` + `pill_ndcs`
+manually.
+
+### Admin API (superuser only)
+
+You can also trigger the backfill from the admin UI or via API:
+
+```
+GET  /api/admin/backfill/ndc/preview?limit=10   # dry-run, returns per-row JSON
+POST /api/admin/backfill/ndc/run?limit=50        # live run, returns summary counts
+```
+
+Both endpoints require a superuser JWT (`Authorization: Bearer <token>`).
+
+### Scale-up strategy
+
+1. Run `--dry-run --limit 10` and inspect the JSON output.
+2. Run `--limit 50` (no dry-run) and verify a few rows in Supabase.
+3. Check `ndc_backfill_skipped` — resolve any `multiple_matches` manually.
+4. Scale up: `--limit 500 --offset 0`, then `--limit 500 --offset 500`, etc.
+5. Once comfortable, schedule via cron or GitHub Actions without the FastAPI
+   app needing to be up (the script connects to the DB directly via `DATABASE_URL`).
+
