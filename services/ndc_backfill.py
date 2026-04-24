@@ -109,12 +109,19 @@ def fetch_dailymed_by_rxcui(rxcui: str, client: Optional["httpx.Client"] = None)
         if not ndc_data or "data" not in ndc_data:
             continue
         for entry in ndc_data.get("data", []):
-            ndc_raw = entry.get("ndc") or entry.get("ndc_code") or ""
+            if isinstance(entry, str):
+                ndc_raw = entry
+                package_description = ""
+            elif isinstance(entry, dict):
+                ndc_raw = entry.get("ndc") or entry.get("ndc_code") or ""
+                package_description = entry.get("package_description") or ""
+            else:
+                continue
             if ndc_raw:
                 candidates.append(
                     {
                         "ndc": ndc_raw,
-                        "package_description": entry.get("package_description") or "",
+                        "package_description": package_description,
                         "source": "dailymed",
                         "setid": setid,
                     }
@@ -458,6 +465,8 @@ def run_backfill(
                 "chosen_ndc11": result.get("chosen_ndc11"),
                 "extras_count": result.get("extras_count", 0),
             }
+            if result.get("error"):
+                row_summary["error"] = result["error"][:500]
 
             if outcome == "updated":
                 if not dry_run:
@@ -474,6 +483,7 @@ def run_backfill(
                         logger.error("DB write error for pill %s: %s", result["pill_id"], exc)
                         summary["errors"] += 1
                         row_summary["outcome"] = "db_error"
+                        row_summary["error"] = str(exc)[:500]
                 else:
                     summary["updated"] += 1
 
@@ -494,6 +504,7 @@ def run_backfill(
                         )
                         summary["errors"] += 1
                         row_summary["outcome"] = "db_error"
+                        row_summary["error"] = str(exc)[:500]
                 else:
                     summary["skipped_multi"] += 1
 
@@ -509,6 +520,7 @@ def run_backfill(
                         )
                         summary["errors"] += 1
                         row_summary["outcome"] = "db_error"
+                        row_summary["error"] = str(exc)[:500]
                 else:
                     summary["skipped_none"] += 1
 
