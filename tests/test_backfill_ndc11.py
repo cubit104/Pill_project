@@ -263,7 +263,7 @@ class TestRunBackfill:
             from services.ndc_backfill import run_backfill
             summary = run_backfill(limit=1, dry_run=True, sleep_ms=0)
 
-        assert summary["skipped_multi"] == 0
+        assert "skipped_multi" not in summary
         assert summary["updated"] == 1
 
     def test_no_match_increments_skipped_none(self):

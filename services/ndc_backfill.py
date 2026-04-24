@@ -214,11 +214,6 @@ def _product_key(ndc11: str) -> str:
     return digits[:9]
 
 
-def _package_code(ndc11: str) -> str:
-    """Last 2 digits of digit-stripped NDC — the package segment."""
-    return ndc11.replace("-", "")[9:]
-
-
 def _is_dispensable(c: Dict) -> bool:
     """Return True for candidates that look like real consumer packages.
 
@@ -503,7 +498,7 @@ def run_backfill(
     """Run the NDC backfill for up to *limit* rows.
 
     Returns a summary dict with keys:
-        processed, updated, skipped_multi, skipped_none, errors, dry_run, rows
+        processed, updated, skipped_none, errors, dry_run, rows
     """
     if not database.db_engine:
         if not database.connect_to_database():
@@ -512,7 +507,6 @@ def run_backfill(
     summary: Dict[str, Any] = {
         "processed": 0,
         "updated": 0,
-        "skipped_multi": 0,
         "skipped_none": 0,
         "errors": 0,
         "dry_run": dry_run,
@@ -570,27 +564,6 @@ def run_backfill(
                         row_summary["error"] = str(exc)[:500]
                 else:
                     summary["updated"] += 1
-
-            elif outcome == "multiple_matches":
-                if not dry_run:
-                    try:
-                        with database.db_engine.begin() as conn:
-                            _write_skipped(
-                                conn,
-                                result["pill_id"],
-                                "multiple_matches",
-                                result.get("candidates") or [],
-                            )
-                        summary["skipped_multi"] += 1
-                    except Exception as exc:
-                        logger.error(
-                            "DB write error for skipped pill %s: %s", result["pill_id"], exc
-                        )
-                        summary["errors"] += 1
-                        row_summary["outcome"] = "db_error"
-                        row_summary["error"] = str(exc)[:500]
-                else:
-                    summary["skipped_multi"] += 1
 
             elif outcome == "no_match":
                 if not dry_run:
