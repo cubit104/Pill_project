@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import PillCard from '../../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../../lib/structured-data'
+import { slugifyDrugName } from '../../../lib/slug'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -17,9 +18,9 @@ function toTitleCase(str: string): string {
     .join(' ')
 }
 
-async function fetchPillsByDrug(name: string): Promise<PillResult[]> {
+async function searchDrug(term: string): Promise<PillResult[]> {
   try {
-    const params = new URLSearchParams({ q: name, type: 'drug', per_page: '48' })
+    const params = new URLSearchParams({ q: term, type: 'drug', per_page: '48' })
     const res = await fetch(`${API_BASE}/api/search?${params}`, {
       next: { revalidate: 3600 },
     })
@@ -31,19 +32,34 @@ async function fetchPillsByDrug(name: string): Promise<PillResult[]> {
   }
 }
 
+/**
+ * Try the route param as-is first (handles legitimately hyphenated names like "co-trimoxazole").
+ * If no results, fall back to replacing hyphens with spaces (handles slug-style URLs like
+ * "mircette-28-dp-331" → "mircette 28 dp 331").
+ */
+async function fetchPillsByDrug(name: string): Promise<PillResult[]> {
+  const results = await searchDrug(name)
+  if (results.length > 0) return results
+  const deSlugged = name.replace(/-/g, ' ')
+  if (deSlugged === name) return results
+  return searchDrug(deSlugged)
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ name: string }> }
 ): Promise<Metadata> {
   const { name } = await params
-  const displayName = toTitleCase(decodeURIComponent(name))
+  // Produce a canonical slug even if `name` came from a legacy percent-decoded URL
+  const canonicalSlug = slugifyDrugName(name) || encodeURIComponent(name)
+  const displayName = toTitleCase(name.replace(/-/g, ' '))
   const title = `${displayName} Pills — Identify ${displayName} by Imprint, Color & Shape`
   const description = `Look up ${displayName} pills by imprint code, color, and shape. Find all ${displayName} medications in our FDA-powered pill identifier.`.slice(0, 155)
 
   return {
     title,
     description,
-    alternates: { canonical: `/drug/${encodeURIComponent(name)}` },
-    openGraph: { title, description, url: `${SITE_URL}/drug/${encodeURIComponent(name)}` },
+    alternates: { canonical: `/drug/${canonicalSlug}` },
+    openGraph: { title, description, url: `${SITE_URL}/drug/${canonicalSlug}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
@@ -52,20 +68,22 @@ export default async function DrugHubPage(
   { params }: { params: Promise<{ name: string }> }
 ) {
   const { name } = await params
-  const displayName = toTitleCase(decodeURIComponent(name))
-  const pills = await fetchPillsByDrug(decodeURIComponent(name))
+  // Produce a canonical slug even if `name` came from a legacy percent-decoded URL
+  const canonicalSlug = slugifyDrugName(name) || encodeURIComponent(name)
+  const displayName = toTitleCase(name.replace(/-/g, ' '))
+  const pills = await fetchPillsByDrug(name)
 
   if (!displayName) notFound()
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: displayName, url: `/drug/${encodeURIComponent(name)}` },
+    { name: displayName, url: `/drug/${canonicalSlug}` },
   ])
 
   const hubJson = hubPageSchema({
     name: `${displayName} Pill Identification`,
     description: `Browse all ${displayName} pills and identify them by imprint, color, and shape using FDA NDC data.`,
-    url: `/drug/${encodeURIComponent(name)}`,
+    url: `/drug/${canonicalSlug}`,
     dateModified: new Date().toISOString(),
   })
 
