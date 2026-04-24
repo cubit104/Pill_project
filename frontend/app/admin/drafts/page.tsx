@@ -34,6 +34,7 @@ function DraftsListInner() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actioning, setActioning] = useState<string | null>(null)
+  const [role, setRole] = useState<string | null>(null)
 
   const fetchDrafts = useCallback(async () => {
     const supabase = createClient()
@@ -47,12 +48,20 @@ function DraftsListInner() {
 
     setLoading(true)
     try {
-      const url = `/api/admin/drafts${statusFilter ? `?status=${statusFilter}` : ''}`
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
-      if (!res.ok) throw new Error('Failed to fetch drafts')
-      setDrafts(await res.json())
+      const [draftsRes, meRes] = await Promise.all([
+        fetch(`/api/admin/drafts${statusFilter ? `?status=${statusFilter}` : ''}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }),
+        fetch('/api/admin/me', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }),
+      ])
+      if (!draftsRes.ok) throw new Error('Failed to fetch drafts')
+      setDrafts(await draftsRes.json())
+      if (meRes.ok) {
+        const meData = await meRes.json()
+        setRole(meData.role)
+      }
     } catch (e) {
       setError(String(e))
     } finally {
@@ -181,7 +190,7 @@ function DraftsListInner() {
                         <Send className="w-3 h-3" /> Submit
                       </button>
                     )}
-                    {draft.status === 'pending_review' && (
+                    {draft.status === 'pending_review' && (role === 'superuser' || role === 'superadmin' || role === 'editor') && (
                       <>
                         <button
                           onClick={() => action(draft.id, 'approve')}
@@ -199,7 +208,7 @@ function DraftsListInner() {
                         </button>
                       </>
                     )}
-                    {draft.status === 'approved' && (
+                    {draft.status === 'approved' && (role === 'superuser' || role === 'superadmin' || role === 'editor') && (
                       <button
                         onClick={() => action(draft.id, 'publish')}
                         disabled={actioning === draft.id}

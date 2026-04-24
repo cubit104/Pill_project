@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
-from routes.admin.auth import get_admin_user
+from routes.admin.auth import get_admin_user, require_role
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def get_audit_log(
     action: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    admin: dict = Depends(get_admin_user),
+    admin: dict = Depends(require_role("superuser", "editor")),
 ):
     if not database.db_engine:
         database.connect_to_database()
