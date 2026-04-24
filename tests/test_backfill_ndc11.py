@@ -90,8 +90,8 @@ class TestProcessPillRow:
         assert result["outcome"] == "updated"
         assert result["chosen_ndc11"] is not None
 
-    def test_multiple_products_returns_multiple_matches(self):
-        """Two different products in response → outcome='multiple_matches'."""
+    def test_multiple_products_picks_best_candidate(self):
+        """Two different products in response → outcome='updated', best candidate chosen."""
         row = _make_pill()
         multi_ndc_response = {
             "data": [
@@ -104,8 +104,9 @@ class TestProcessPillRow:
             from services.ndc_backfill import process_pill_row
             result = process_pill_row(row, sleep_ms=0)
 
-        assert result["outcome"] == "multiple_matches"
-        assert result["chosen_ndc11"] is None
+        assert result["outcome"] == "updated"
+        assert result["chosen_ndc11"] is not None
+        assert result["multi_product_count"] == 2
     def test_api_error_returns_api_error(self):
         """Exception during HTTP call → outcome='api_error'."""
         row = _make_pill()
@@ -246,7 +247,7 @@ class TestRunBackfill:
         engine.begin.assert_called()
         assert summary["updated"] == 1
 
-    def test_multiple_matches_increments_skipped_multi(self):
+    def test_multiple_products_now_picks_one(self):
         pill_id = "dddddddd-0000-0000-0000-000000000001"
         rows = [self._pill_row(pill_id, "Metformin", "", "6809", None, None)]
         engine, conn = _make_mock_db(rows)
@@ -262,8 +263,8 @@ class TestRunBackfill:
             from services.ndc_backfill import run_backfill
             summary = run_backfill(limit=1, dry_run=True, sleep_ms=0)
 
-        assert summary["skipped_multi"] == 1
-        assert summary["updated"] == 0
+        assert "skipped_multi" not in summary
+        assert summary["updated"] == 1
 
     def test_no_match_increments_skipped_none(self):
         pill_id = "eeeeeeee-0000-0000-0000-000000000001"
@@ -447,3 +448,235 @@ class TestFetchDailymedByRxcui:
 
         assert isinstance(candidates, list)
         assert len(candidates) == 2
+
+
+# ---------------------------------------------------------------------------
+# _decide / scoring / filtering tests (Tests A-E)
+# ---------------------------------------------------------------------------
+
+class TestDecideFunction:
+    """Unit tests for the _decide, _is_dispensable, and _score_candidate helpers."""
+
+    def _make_candidate(
+        self,
+        ndc11: str,
+        source: str = "openfda",
+        package_description: str = "100 TABLET in 1 BOTTLE",
+        marketing_category: str = "NDA",
+        finished: bool = True,
+    ) -> dict:
+        from ndc_normalize import ndc11_to_ndc9
+        return {
+            "ndc": ndc11,
+            "ndc11": ndc11,
+            "ndc9": ndc11_to_ndc9(ndc11),
+            "package_description": package_description,
+            "source": source,
+            "marketing_category": marketing_category,
+            "finished": finished,
+        }
+
+    def test_a_bulk_ingredient_filtered(self):
+        """Test A: bulk-ingredient candidate is excluded; normal candidate is chosen."""
+        from services.ndc_backfill import _decide
+
+        bulk = self._make_candidate(
+            "10357-0209-02",
+            marketing_category="BULK INGREDIENT",
+            package_description="115 kg in 1 DRUM",
+        )
+        normal = self._make_candidate(
+            "57664-0484-18",
+            marketing_category="NDA",
+            package_description="100 TABLET in 1 BOTTLE",
+        )
+        outcome, primary, extras, mpc = _decide([bulk, normal])
+
+        assert outcome == "updated"
+        assert primary["ndc11"] == "57664-0484-18"
+        # The bulk candidate must not appear as primary
+        assert primary.get("marketing_category") != "BULK INGREDIENT"
+
+    def test_b_multi_product_picks_one(self):
+        """Test B: 3 candidates across 3 labelers, all dispensable → outcome='updated'."""
+        from services.ndc_backfill import _decide
+
+        c1 = self._make_candidate("00093-0150-01", package_description="30 TABLET in 1 BOTTLE")
+        c2 = self._make_candidate("57664-0484-18", package_description="100 TABLET in 1 BOTTLE")
+        c3 = self._make_candidate("12345-6789-01", package_description="60 TABLET in 1 BOTTLE")
+
+        outcome, primary, extras, mpc = _decide([c1, c2, c3])
+
+        assert outcome == "updated"
+        assert primary is not None
+        assert primary["ndc11"] in {"00093-0150-01", "57664-0484-18", "12345-6789-01"}
+        assert mpc == 3
+
+    def test_c_all_bulk_returns_no_match(self):
+        """Test C: only bulk-ingredient candidates → outcome='no_match'."""
+        from services.ndc_backfill import _decide
+
+        bulk1 = self._make_candidate("10357-0209-02", marketing_category="BULK INGREDIENT")
+        bulk2 = self._make_candidate("99999-0001-01", marketing_category="BULK INGREDIENT")
+
+        outcome, primary, extras, mpc = _decide([bulk1, bulk2])
+
+        assert outcome == "no_match"
+        assert primary is None
+
+    def test_d_deterministic_tiebreaker(self):
+        """Test D: same candidate list in different order → same primary chosen."""
+        import random
+        from services.ndc_backfill import _decide
+
+        candidates = [
+            self._make_candidate("00093-0150-01", package_description="30 TABLET in 1 BOTTLE"),
+            self._make_candidate("57664-0484-18", package_description="100 TABLET in 1 BOTTLE"),
+            self._make_candidate("12345-6789-01", package_description="60 TABLET in 1 BOTTLE"),
+            self._make_candidate("00456-0123-05", package_description=""),
+        ]
+
+        _, primary_original, _, _ = _decide(list(candidates))
+
+        for _ in range(5):
+            shuffled = list(candidates)
+            random.shuffle(shuffled)
+            _, primary_shuffled, _, _ = _decide(shuffled)
+            assert primary_shuffled["ndc11"] == primary_original["ndc11"]
+
+    def test_e_single_product_unchanged(self):
+        """Test E: single product with multiple packages → existing behaviour preserved."""
+        from services.ndc_backfill import _decide
+
+        c1 = self._make_candidate("57664-0484-18", package_description="BOTTLE of 180 TABLETS")
+        c2 = self._make_candidate("57664-0484-88", package_description="BOTTLE of 500 TABLETS")
+
+        outcome, primary, extras, mpc = _decide([c1, c2])
+
+        assert outcome == "updated"
+        assert primary is not None
+        assert mpc == 1  # same labeler+product → 1 product key
+        assert len(extras) == 1
+
+    def test_empty_candidates_returns_no_match(self):
+        """Empty candidate list → no_match."""
+        from services.ndc_backfill import _decide
+
+        outcome, primary, extras, mpc = _decide([])
+
+        assert outcome == "no_match"
+        assert primary is None
+        assert mpc == 0
+
+    def test_is_dispensable_bulk_rejected(self):
+        """_is_dispensable rejects BULK INGREDIENT entries."""
+        from services.ndc_backfill import _is_dispensable
+
+        bulk = {"source": "openfda", "marketing_category": "BULK INGREDIENT"}
+        assert _is_dispensable(bulk) is False
+
+    def test_is_dispensable_normal_accepted(self):
+        """_is_dispensable accepts normal openfda and dailymed entries."""
+        from services.ndc_backfill import _is_dispensable
+
+        assert _is_dispensable({"source": "openfda", "marketing_category": "NDA"}) is True
+        assert _is_dispensable({"source": "dailymed", "marketing_category": ""}) is True
+        assert _is_dispensable({"source": "openfda", "marketing_category": ""}) is True
+
+    def test_openfda_marketing_category_captured(self):
+        """fetch_openfda_by_name includes marketing_category and finished in candidates."""
+        openfda_response = {
+            "results": [
+                {
+                    "product_ndc": "57664-0484",
+                    "dosage_form": "TABLET",
+                    "marketing_category": "ANDA",
+                    "finished": True,
+                    "active_ingredients": [{"name": "METFORMIN", "strength": "500 mg/1"}],
+                    "packaging": [
+                        {"package_ndc": "57664-0484-18", "description": "BOTTLE of 180 TABLETS"},
+                    ],
+                }
+            ]
+        }
+
+        with patch("services.ndc_backfill._fetch", return_value=openfda_response):
+            from services.ndc_backfill import fetch_openfda_by_name
+            candidates = fetch_openfda_by_name("Metformin")
+
+        assert len(candidates) == 1
+        assert candidates[0]["marketing_category"] == "ANDA"
+        assert candidates[0]["finished"] is True
+
+    def test_multi_product_count_in_process_pill_row(self):
+        """process_pill_row exposes multi_product_count when multiple products found."""
+        row = _make_pill(rxcui=None, name="Naproxen")
+
+        openfda_multi = {
+            "results": [
+                {
+                    "product_ndc": "57664-0484",
+                    "dosage_form": "TABLET",
+                    "marketing_category": "ANDA",
+                    "finished": True,
+                    "active_ingredients": [],
+                    "packaging": [
+                        {"package_ndc": "57664-0484-18", "description": "BOTTLE of 180 TABLETS"},
+                    ],
+                },
+                {
+                    "product_ndc": "12345-6789",
+                    "dosage_form": "TABLET",
+                    "marketing_category": "ANDA",
+                    "finished": True,
+                    "active_ingredients": [],
+                    "packaging": [
+                        {"package_ndc": "12345-6789-01", "description": "BOTTLE of 60 TABLETS"},
+                    ],
+                },
+            ]
+        }
+
+        with patch("services.ndc_backfill._fetch", return_value=openfda_multi):
+            from services.ndc_backfill import process_pill_row
+            result = process_pill_row(row, sleep_ms=0)
+
+        assert result["outcome"] == "updated"
+        assert result["chosen_ndc11"] is not None
+        assert result["multi_product_count"] == 2
+
+    def test_row_summary_includes_multi_product_count(self):
+        """run_backfill row_summary includes multi_product_count field."""
+        pill_id = "abababab-0000-0000-0000-000000000001"
+        rows = [(pill_id, "Naproxen", "", None, None, None)]
+        _make_mock_db(rows)
+
+        openfda_multi = {
+            "results": [
+                {
+                    "product_ndc": "57664-0484",
+                    "dosage_form": "TABLET",
+                    "marketing_category": "ANDA",
+                    "finished": True,
+                    "active_ingredients": [],
+                    "packaging": [{"package_ndc": "57664-0484-18", "description": "BOTTLE of 180"}],
+                },
+                {
+                    "product_ndc": "12345-6789",
+                    "dosage_form": "TABLET",
+                    "marketing_category": "ANDA",
+                    "finished": True,
+                    "active_ingredients": [],
+                    "packaging": [{"package_ndc": "12345-6789-01", "description": "BOTTLE of 60"}],
+                },
+            ]
+        }
+
+        with patch("services.ndc_backfill._fetch", return_value=openfda_multi):
+            from services.ndc_backfill import run_backfill
+            summary = run_backfill(limit=1, dry_run=True, sleep_ms=0)
+
+        assert summary["updated"] == 1
+        row = summary["rows"][0]
+        assert "multi_product_count" in row
+        assert row["multi_product_count"] == 2
