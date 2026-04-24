@@ -17,6 +17,12 @@ function toTitleCase(str: string): string {
     .join(' ')
 }
 
+/** Convert a URL path segment (slug or decoded free-text) to a search query term.
+ * Replaces dashes with spaces so both "mircette-28" and "mircette (28)" resolve correctly. */
+function toQueryTerm(name: string): string {
+  return name.replace(/-+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
 async function fetchPillsByDrug(name: string): Promise<PillResult[]> {
   try {
     const params = new URLSearchParams({ q: name, type: 'drug', per_page: '48' })
@@ -39,7 +45,7 @@ export async function generateMetadata(
   // New slug URLs arrive as-is (e.g. "mircette-28"); old percent-encoded URLs
   // arrive already decoded (e.g. "mircette (28)").
   // In both cases we convert dashes → spaces for a human-readable display name.
-  const queryTerm = name.replace(/-+/g, ' ').replace(/\s+/g, ' ').trim()
+  const queryTerm = toQueryTerm(name)
   const displayName = toTitleCase(queryTerm)
   const title = `${displayName} Pills — Identify ${displayName} by Imprint, Color & Shape`
   const description = `Look up ${displayName} pills by imprint code, color, and shape. Find all ${displayName} medications in our FDA-powered pill identifier.`.slice(0, 155)
@@ -68,7 +74,7 @@ export default async function DrugHubPage(
   // Strategy: replace dashes with spaces, normalise internal whitespace,
   // and pass the result to fetchPillsByDrug, which does case-insensitive
   // prefix/contains matching against medicine_name.
-  const queryTerm = name.replace(/-+/g, ' ').replace(/\s+/g, ' ').trim()
+  const queryTerm = toQueryTerm(name)
   const displayName = toTitleCase(queryTerm)
   const pills = await fetchPillsByDrug(queryTerm)
 

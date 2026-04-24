@@ -218,14 +218,13 @@ export default async function PillDetailPage(
   ])
   if (!pill) notFound()
 
+  const drugSlug = pill.drug_name && pill.drug_name !== 'Unknown'
+    ? slugifyDrugName(pill.drug_name)
+    : ''
+
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    ...(pill.drug_name && pill.drug_name !== 'Unknown'
-      ? (() => {
-          const drugSlug = slugifyDrugName(pill.drug_name)
-          return drugSlug ? [{ name: pill.drug_name, url: `/drug/${drugSlug}` }] : []
-        })()
-      : []),
+    ...(drugSlug ? [{ name: pill.drug_name!, url: `/drug/${drugSlug}` }] : []),
     { name: pill.drug_name ?? slug, url: `/pill/${encodeURIComponent(slug)}` },
   ])
 
