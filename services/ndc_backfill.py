@@ -6,10 +6,9 @@ Flow per row
 2. Fall back to openFDA (by generic_name) if DailyMed returns nothing
 3. Normalise every candidate NDC to canonical 11-digit 5-4-2 (HIPAA)
 4. Decide outcome:
-   - zero candidates       → reason='no_match'
-   - exactly one product   → primary = smallest-package NDC, extras stored
-   - multiple products     → reason='multiple_matches'
-   - exception during API  → reason='api_error'
+   - zero dispensable candidates → reason='no_match'
+   - one or more dispensable     → pick best-scored candidate → reason='updated'
+   - exception during API        → reason='api_error'
 5. Write to DB in a single transaction (or just log when dry_run=True)
 """
 
@@ -160,6 +159,8 @@ def fetch_openfda_by_name(name: str, client: Optional["httpx.Client"] = None) ->
         dosage_form = result.get("dosage_form") or ""
         active_ings = result.get("active_ingredients") or []
         strength = active_ings[0].get("strength", "") if active_ings else ""
+        marketing_category = result.get("marketing_category") or ""
+        finished = bool(result.get("finished"))
 
         pkgs = result.get("packaging") or []
         if pkgs:
@@ -173,6 +174,8 @@ def fetch_openfda_by_name(name: str, client: Optional["httpx.Client"] = None) ->
                             "source": "openfda",
                             "dosage_form": dosage_form,
                             "strength": strength,
+                            "marketing_category": marketing_category,
+                            "finished": finished,
                         }
                     )
         elif product_ndc:
@@ -183,6 +186,8 @@ def fetch_openfda_by_name(name: str, client: Optional["httpx.Client"] = None) ->
                     "source": "openfda",
                     "dosage_form": dosage_form,
                     "strength": strength,
+                    "marketing_category": marketing_category,
+                    "finished": finished,
                 }
             )
     return candidates
@@ -214,32 +219,72 @@ def _package_code(ndc11: str) -> str:
     return ndc11.replace("-", "")[9:]
 
 
-def _decide(candidates: List[Dict]) -> Tuple[str, Optional[Dict], List[Dict]]:
-    """Return (outcome, primary_candidate, extra_candidates).
+def _is_dispensable(c: Dict) -> bool:
+    """Return True for candidates that look like real consumer packages.
 
-    outcome is one of: 'updated', 'multiple_matches', 'no_match'
+    Rejects obvious bulk-ingredient rows (e.g. "115 kg in 1 DRUM") which
+    must never be chosen as the primary NDC for a pill.
+    """
+    if c.get("source") == "openfda":
+        cat = (c.get("marketing_category") or "").upper()
+        if "BULK INGREDIENT" in cat:
+            return False
+    return True
 
-    When a single product is matched, the primary is the package with the
-    **smallest** package code (deterministic across API orderings), and the
-    rest are extras.
+
+def _lex_rank(ndc11: str) -> int:
+    """Convert digit-only NDC to int for deterministic ascending sort."""
+    digits = ndc11.replace("-", "")
+    return int(digits) if digits else 0
+
+
+def _score_candidate(c: Dict) -> tuple:
+    """Return a sort key for *c* — higher tuple = better candidate.
+
+    Criteria (descending priority):
+    1. has a non-empty package_description (packaged product, not product-level)
+    2. finished=true (real marketed product)
+    3. source is openfda (DailyMed /packaging often returns sparse entries)
+    4. stable tiebreaker: ascending NDC (negated so sorted(..., reverse=True) works)
+    """
+    has_pkg_desc = 1 if (c.get("package_description") or "").strip() else 0
+    finished_rank = 1 if c.get("finished") else 0
+    source_rank = 1 if c.get("source") == "openfda" else 0
+    ndc = c.get("ndc11") or ""
+    return (has_pkg_desc, finished_rank, source_rank, -_lex_rank(ndc))
+
+
+def _decide(candidates: List[Dict]) -> Tuple[str, Optional[Dict], List[Dict], int]:
+    """Return (outcome, primary_candidate, extra_candidates, multi_product_count).
+
+    outcome is one of: 'updated', 'no_match'
+
+    Bulk-ingredient candidates are filtered out first.  When dispensable
+    candidates span multiple labeler+product keys (generics), the highest-
+    scored candidate is picked deterministically rather than giving up.
+    multi_product_count reflects how many distinct products were seen among
+    dispensable candidates — useful as a human-review signal.
     """
     if not candidates:
-        return ("no_match", None, [])
+        return ("no_match", None, [], 0)
 
-    # Group by product (labeler+product = first 9 digits)
+    dispensable = [c for c in candidates if _is_dispensable(c)]
+    if not dispensable:
+        return ("no_match", None, [], 0)
+
+    # Count distinct products among dispensable candidates
     products: Dict[str, List[Dict]] = {}
-    for c in candidates:
-        key = _product_key(c["ndc11"])
-        products.setdefault(key, []).append(c)
+    for c in dispensable:
+        products.setdefault(_product_key(c["ndc11"]), []).append(c)
 
-    if len(products) > 1:
-        return ("multiple_matches", None, [])
+    multi_product_count = len(products)
 
-    # Single product — sort by package code (smallest first) for determinism
-    all_pkg = sorted(candidates, key=lambda c: _package_code(c["ndc11"]))
-    primary = all_pkg[0]
-    extras = all_pkg[1:]
-    return ("updated", primary, extras)
+    # Pick the best-scoring candidate across all products
+    ranked = sorted(dispensable, key=_score_candidate, reverse=True)
+    primary = ranked[0]
+    extras = ranked[1:]
+
+    return ("updated", primary, extras, multi_product_count)
 
 
 # ---------------------------------------------------------------------------
@@ -308,8 +353,9 @@ def process_pill_row(
             "openfda_normalized": openfda_norm_count,
         }
 
-        outcome, primary, extras = _decide(candidates)
+        outcome, primary, extras, multi_product_count = _decide(candidates)
         result["outcome"] = outcome
+        result["multi_product_count"] = multi_product_count
 
         if outcome == "updated" and primary:
             result["chosen_ndc11"] = primary["ndc11"]
@@ -500,6 +546,7 @@ def run_backfill(
                 "outcome": outcome,
                 "chosen_ndc11": result.get("chosen_ndc11"),
                 "extras_count": result.get("extras_count", 0),
+                "multi_product_count": result.get("multi_product_count", 0),
                 "source_counts": result.get("source_counts"),
             }
             if result.get("error"):
