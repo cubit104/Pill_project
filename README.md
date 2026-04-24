@@ -201,6 +201,34 @@ npm run dev    # development server at http://localhost:3000
 npm run build  # production static export to frontend/out/
 ```
 
+## Vercel Deployment (Two-Project Setup)
+
+The frontend is split across two Vercel projects that build from the same repository:
+
+| Project | Domain | Branch | `NEXT_PUBLIC_ENABLE_ADMIN` |
+|---|---|---|---|
+| `pill-project` | `pillseek.com` | `main` | unset / `false` |
+| `pill-project-admin` | `admin.pillseek.com` | `develop` | `true` |
+
+Both projects share the same Supabase database and Render backend (`API_BASE_URL`).
+
+**How the split works:**
+
+- `middleware.ts` checks `NEXT_PUBLIC_ENABLE_ADMIN` at request time.  When it is not `"true"`, any request to `/admin` or `/admin/*` is rewritten to a 404 page.  This means `pillseek.com/admin` is unreachable while `admin.pillseek.com/admin` works normally.
+- The admin layout exports `robots: { index: false, follow: false }` so search engines never index `admin.pillseek.com`.
+- `robots.ts` disallows `/admin/` for all crawlers on both domains.
+
+**Environment variables per project:**
+
+| Variable | `pill-project` | `pill-project-admin` |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ set | ✅ set (same value) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ set | ✅ set (same value) |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ set | ✅ set (same value) |
+| `API_BASE_URL` | ✅ set | ✅ set (same value) |
+| `NEXT_PUBLIC_SITE_URL` | `https://pillseek.com` | `https://admin.pillseek.com` |
+| `NEXT_PUBLIC_ENABLE_ADMIN` | *(unset)* | `true` |
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
