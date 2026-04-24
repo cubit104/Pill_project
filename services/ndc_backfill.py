@@ -273,21 +273,40 @@ def process_pill_row(
     }
 
     try:
-        raw_candidates: List[Dict] = []
-
         use_rxcui = match_mode in ("rxcui", "auto") and bool(rxcui)
         use_name = match_mode in ("name", "auto")
 
+        dailymed_raw_count = 0
+        openfda_raw_count = 0
+        dailymed_norm_count = 0
+        openfda_norm_count = 0
+
+        candidates: List[Dict] = []
+
         if use_rxcui:
-            raw_candidates = fetch_dailymed_by_rxcui(str(rxcui), client=client)
+            dm_raw = fetch_dailymed_by_rxcui(str(rxcui), client=client)
+            dailymed_raw_count = len(dm_raw)
             time.sleep(sleep_ms / 1000)
+            dm_norm = _normalise_candidates(dm_raw)
+            dailymed_norm_count = len(dm_norm)
+            candidates = dm_norm
 
-        if not raw_candidates and use_name and name:
-            raw_candidates = fetch_openfda_by_name(name, client=client)
+        # Fall back to openFDA if DailyMed yielded nothing USABLE (after normalization)
+        if not candidates and use_name and name:
+            of_raw = fetch_openfda_by_name(name, client=client)
+            openfda_raw_count = len(of_raw)
             time.sleep(sleep_ms / 1000)
+            of_norm = _normalise_candidates(of_raw)
+            openfda_norm_count = len(of_norm)
+            candidates = of_norm
 
-        candidates = _normalise_candidates(raw_candidates)
         result["candidates"] = candidates
+        result["source_counts"] = {
+            "dailymed_raw": dailymed_raw_count,
+            "dailymed_normalized": dailymed_norm_count,
+            "openfda_raw": openfda_raw_count,
+            "openfda_normalized": openfda_norm_count,
+        }
 
         outcome, primary, extras = _decide(candidates)
         result["outcome"] = outcome
@@ -481,6 +500,7 @@ def run_backfill(
                 "outcome": outcome,
                 "chosen_ndc11": result.get("chosen_ndc11"),
                 "extras_count": result.get("extras_count", 0),
+                "source_counts": result.get("source_counts"),
             }
             if result.get("error"):
                 row_summary["error"] = result["error"][:500]
