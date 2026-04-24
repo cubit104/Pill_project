@@ -17,6 +17,15 @@ function toTitleCase(str: string): string {
     .join(' ')
 }
 
+/**
+ * Convert a URL segment (slug or legacy percent-decoded name) to a search term.
+ * Slug: "mircette-28-dp-331" → "mircette 28 dp 331"
+ * Legacy: "mircette (28) dp 331" → unchanged (Next.js already decoded it)
+ */
+function nameToSearchTerm(name: string): string {
+  return name.replace(/-/g, ' ')
+}
+
 async function fetchPillsByDrug(name: string): Promise<PillResult[]> {
   try {
     const params = new URLSearchParams({ q: name, type: 'drug', per_page: '48' })
@@ -35,15 +44,15 @@ export async function generateMetadata(
   { params }: { params: Promise<{ name: string }> }
 ): Promise<Metadata> {
   const { name } = await params
-  const displayName = toTitleCase(decodeURIComponent(name))
+  const displayName = toTitleCase(nameToSearchTerm(name))
   const title = `${displayName} Pills — Identify ${displayName} by Imprint, Color & Shape`
   const description = `Look up ${displayName} pills by imprint code, color, and shape. Find all ${displayName} medications in our FDA-powered pill identifier.`.slice(0, 155)
 
   return {
     title,
     description,
-    alternates: { canonical: `/drug/${encodeURIComponent(name)}` },
-    openGraph: { title, description, url: `${SITE_URL}/drug/${encodeURIComponent(name)}` },
+    alternates: { canonical: `/drug/${name}` },
+    openGraph: { title, description, url: `${SITE_URL}/drug/${name}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
@@ -52,20 +61,20 @@ export default async function DrugHubPage(
   { params }: { params: Promise<{ name: string }> }
 ) {
   const { name } = await params
-  const displayName = toTitleCase(decodeURIComponent(name))
-  const pills = await fetchPillsByDrug(decodeURIComponent(name))
+  const displayName = toTitleCase(nameToSearchTerm(name))
+  const pills = await fetchPillsByDrug(nameToSearchTerm(name))
 
   if (!displayName) notFound()
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: displayName, url: `/drug/${encodeURIComponent(name)}` },
+    { name: displayName, url: `/drug/${name}` },
   ])
 
   const hubJson = hubPageSchema({
     name: `${displayName} Pill Identification`,
     description: `Browse all ${displayName} pills and identify them by imprint, color, and shape using FDA NDC data.`,
-    url: `/drug/${encodeURIComponent(name)}`,
+    url: `/drug/${name}`,
     dateModified: new Date().toISOString(),
   })
 
