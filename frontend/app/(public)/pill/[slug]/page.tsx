@@ -221,7 +221,10 @@ export default async function PillDetailPage(
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
     ...(pill.drug_name && pill.drug_name !== 'Unknown'
-      ? [{ name: pill.drug_name, url: `/drug/${slugifyDrugName(pill.drug_name)}` }]
+      ? (() => {
+          const drugSlug = slugifyDrugName(pill.drug_name)
+          return drugSlug ? [{ name: pill.drug_name, url: `/drug/${drugSlug}` }] : []
+        })()
       : []),
     { name: pill.drug_name ?? slug, url: `/pill/${encodeURIComponent(slug)}` },
   ])

@@ -147,19 +147,22 @@ export default function PillDetailClient({
                 Home
               </Link>
             </li>
-            {pill.drug_name && pill.drug_name !== 'Unknown' && (
-              <>
-                <li aria-hidden="true" className="select-none">›</li>
-                <li>
-                  <Link
-                    href={`/drug/${slugifyDrugName(pill.drug_name)}`}
-                    className="hover:text-sky-700 transition-colors"
-                  >
-                    {pill.drug_name}
-                  </Link>
-                </li>
-              </>
-            )}
+            {pill.drug_name && pill.drug_name !== 'Unknown' && (() => {
+              const drugSlug = slugifyDrugName(pill.drug_name)
+              return drugSlug ? (
+                <>
+                  <li aria-hidden="true" className="select-none">›</li>
+                  <li>
+                    <Link
+                      href={`/drug/${drugSlug}`}
+                      className="hover:text-sky-700 transition-colors"
+                    >
+                      {pill.drug_name}
+                    </Link>
+                  </li>
+                </>
+              ) : null
+            })()}
             <li aria-hidden="true" className="select-none">›</li>
             <li aria-current="page" className="text-slate-700 font-medium truncate max-w-xs">
               {pill.drug_name}
@@ -542,14 +545,17 @@ export default function PillDetailClient({
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-base font-semibold text-slate-800 mb-4">Browse Related Pills</h2>
           <div className="flex flex-wrap gap-2">
-            {pill.drug_name && pill.drug_name !== 'Unknown' && (
-              <Link
-                href={`/drug/${slugifyDrugName(pill.drug_name)}`}
-                className="text-sm bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 hover:border-sky-300 transition-colors"
-              >
-                More {pill.drug_name} pills →
-              </Link>
-            )}
+            {pill.drug_name && pill.drug_name !== 'Unknown' && (() => {
+              const drugSlug = slugifyDrugName(pill.drug_name)
+              return drugSlug ? (
+                <Link
+                  href={`/drug/${drugSlug}`}
+                  className="text-sm bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 hover:border-sky-300 transition-colors"
+                >
+                  More {pill.drug_name} pills →
+                </Link>
+              ) : null
+            })()}
             {pill.color && (
               <Link
                 href={`/color/${encodeURIComponent(pill.color.toLowerCase())}`}
