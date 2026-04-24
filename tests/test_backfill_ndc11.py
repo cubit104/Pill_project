@@ -235,3 +235,101 @@ class TestRunBackfill:
         from services.ndc_backfill import run_backfill
         summary = run_backfill(limit=10, dry_run=True, sleep_ms=0)
         assert summary["processed"] == 0
+
+    def test_api_error_row_includes_error_field(self):
+        """api_error outcome → row in summary includes 'error' field."""
+        pill_id = "11111111-0000-0000-0000-000000000001"
+        rows = [self._pill_row(pill_id, "Metformin", "", "6809", None, None)]
+        _make_mock_db(rows)
+
+        with patch("services.ndc_backfill._fetch", side_effect=Exception("timeout")):
+            from services.ndc_backfill import run_backfill
+            summary = run_backfill(limit=1, dry_run=True, sleep_ms=0)
+
+        assert summary["errors"] == 1
+        row = summary["rows"][0]
+        assert row["outcome"] == "api_error"
+        assert "error" in row
+        assert "timeout" in row["error"]
+
+    def test_api_error_error_field_truncated_to_500(self):
+        """api_error error message is truncated to 500 chars."""
+        pill_id = "22222222-0000-0000-0000-000000000001"
+        rows = [self._pill_row(pill_id, "Metformin", "", "6809", None, None)]
+        _make_mock_db(rows)
+
+        long_error = "x" * 600
+        with patch("services.ndc_backfill._fetch", side_effect=Exception(long_error)):
+            from services.ndc_backfill import run_backfill
+            summary = run_backfill(limit=1, dry_run=True, sleep_ms=0)
+
+        row = summary["rows"][0]
+        assert "error" in row
+        assert len(row["error"]) <= 500
+
+
+# ---------------------------------------------------------------------------
+# fetch_dailymed_by_rxcui — string vs dict entry shapes
+# ---------------------------------------------------------------------------
+
+class TestFetchDailymedByRxcui:
+    def test_string_entries_returns_candidates(self):
+        """DailyMed ndcs.json returning plain strings → 2 candidates, no exception."""
+        spl_response = {"data": [{"setid": "setid-str-001", "title": "Drug A"}]}
+        ndc_response = {"data": ["0093-0150-01", "0093-0150-02"]}
+
+        with patch("services.ndc_backfill._fetch") as mock_fetch:
+            mock_fetch.side_effect = [spl_response, ndc_response]
+            from services.ndc_backfill import fetch_dailymed_by_rxcui
+            candidates = fetch_dailymed_by_rxcui("12345")
+
+        assert len(candidates) == 2
+        for c in candidates:
+            assert c["ndc"] in ("0093-0150-01", "0093-0150-02")
+            assert c["package_description"] == ""
+            assert c["source"] == "dailymed"
+            assert c["setid"] == "setid-str-001"
+
+    def test_mixed_string_and_dict_entries(self):
+        """DailyMed ndcs.json returning mixed strings and dicts → all handled."""
+        spl_response = {"data": [{"setid": "setid-mix-001", "title": "Drug B"}]}
+        ndc_response = {
+            "data": [
+                "0093-0150-01",
+                {"ndc": "0093-0150-02", "package_description": "BOTTLE of 60"},
+            ]
+        }
+
+        with patch("services.ndc_backfill._fetch") as mock_fetch:
+            mock_fetch.side_effect = [spl_response, ndc_response]
+            from services.ndc_backfill import fetch_dailymed_by_rxcui
+            candidates = fetch_dailymed_by_rxcui("12345")
+
+        assert len(candidates) == 2
+        ndcs = {c["ndc"] for c in candidates}
+        assert "0093-0150-01" in ndcs
+        assert "0093-0150-02" in ndcs
+
+        str_candidate = next(c for c in candidates if c["ndc"] == "0093-0150-01")
+        assert str_candidate["package_description"] == ""
+
+        dict_candidate = next(c for c in candidates if c["ndc"] == "0093-0150-02")
+        assert dict_candidate["package_description"] == "BOTTLE of 60"
+
+        for c in candidates:
+            assert c["source"] == "dailymed"
+            assert c["setid"] == "setid-mix-001"
+
+    def test_string_entries_no_exception(self):
+        """Ensure no AttributeError is raised when entries are plain strings."""
+        spl_response = {"data": [{"setid": "setid-noerr-001"}]}
+        ndc_response = {"data": ["0093-0150-01", "0093-0150-02"]}
+
+        with patch("services.ndc_backfill._fetch") as mock_fetch:
+            mock_fetch.side_effect = [spl_response, ndc_response]
+            from services.ndc_backfill import fetch_dailymed_by_rxcui
+            # Should not raise
+            candidates = fetch_dailymed_by_rxcui("99999")
+
+        assert isinstance(candidates, list)
+        assert len(candidates) == 2
