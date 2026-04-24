@@ -180,8 +180,31 @@ def get_pill_details(
             else:
                 filenames = _aggregate_image_filenames(conn, raw_medicine_name, raw_splimprint, raw_image_filename)
 
+            # Fetch additional NDCs from pill_ndcs sibling table
+            pill_ndcs_rows = []
+            try:
+                ndcs_result = conn.execute(
+                    text(
+                        """
+                        SELECT ndc11, package_description, is_primary
+                        FROM pill_ndcs
+                        WHERE pill_id = :pill_id
+                        ORDER BY is_primary DESC, ndc11
+                        """
+                    ),
+                    {"pill_id": str(pill_info.get("id"))},
+                )
+                pill_ndcs_rows = ndcs_result.fetchall()
+            except Exception as _e:
+                logger.debug("pill_ndcs lookup failed (table may not exist yet): %s", _e)
+
         image_data = process_image_filenames(filenames)
         pill_info.update(image_data)
+        pill_info["additional_ndcs"] = [
+            {"ndc11": r[0], "package_description": r[1]}
+            for r in pill_ndcs_rows
+            if not r[2]  # is_primary == False
+        ]
 
         logger.info(f"Details for {pill_info.get('medicine_name')}: {len(pill_info['image_urls'])} images")
         return pill_info
@@ -227,6 +250,28 @@ def get_pill_by_slug(slug: str):
 
             logger.info(f"Slug {slug}: medicine_name={raw_medicine_name!r}, splimprint={raw_splimprint!r}, found {len(image_urls)} images, own_filename={raw_image_filename!r}")
 
+            # Fetch additional NDCs from pill_ndcs sibling table
+            additional_ndcs = []
+            try:
+                ndcs_result = conn.execute(
+                    text(
+                        """
+                        SELECT ndc11, package_description, is_primary
+                        FROM pill_ndcs
+                        WHERE pill_id = :pill_id
+                        ORDER BY is_primary DESC, ndc11
+                        """
+                    ),
+                    {"pill_id": str(pill_info.get("id"))},
+                )
+                additional_ndcs = [
+                    {"ndc11": r[0], "package_description": r[1]}
+                    for r in ndcs_result.fetchall()
+                    if not r[2]  # is_primary == False
+                ]
+            except Exception as _e:
+                logger.debug("pill_ndcs lookup failed (table may not exist yet): %s", _e)
+
             mapped = {
                 "drug_name": pill_info.get("medicine_name"),
                 "imprint": pill_info.get("splimprint"),
@@ -260,6 +305,7 @@ def get_pill_by_slug(slug: str):
                     or pill_info.get("last_updated")
                     or pill_info.get("ingested_at")
                 ),
+                "additional_ndcs": additional_ndcs,
             }
 
         return mapped
