@@ -40,7 +40,7 @@ def create_draft(
     body: DraftCreate,
     admin: dict = Depends(get_admin_user),
 ):
-    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
     if not database.db_engine:
@@ -133,7 +133,7 @@ def list_drafts(
 
 @router.post("/drafts/{draft_id}/submit")
 def submit_draft(request: Request, draft_id: str, admin: dict = Depends(get_admin_user)):
-    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
     return _transition_draft(request, draft_id, "pending_review", admin, "submit_draft",
                              allowed_from=("draft",))
@@ -146,7 +146,7 @@ def approve_draft(
     body: ReviewAction = ReviewAction(),
     admin: dict = Depends(get_admin_user),
 ):
-    if admin["role"] not in ("superadmin", "reviewer"):
+    if admin["role"] not in ("superuser", "editor"):
         raise HTTPException(status_code=403, detail="Requires reviewer role or higher")
     return _transition_draft(request, draft_id, "approved", admin, "approve_draft",
                              notes=body.review_notes, allowed_from=("pending_review",))
@@ -159,7 +159,7 @@ def reject_draft(
     body: ReviewAction = ReviewAction(),
     admin: dict = Depends(get_admin_user),
 ):
-    if admin["role"] not in ("superadmin", "reviewer"):
+    if admin["role"] not in ("superuser", "editor"):
         raise HTTPException(status_code=403, detail="Requires reviewer role or higher")
     return _transition_draft(request, draft_id, "rejected", admin, "reject_draft",
                              notes=body.review_notes, allowed_from=("pending_review",))
@@ -167,7 +167,7 @@ def reject_draft(
 
 @router.post("/drafts/{draft_id}/publish")
 def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_admin_user)):
-    if admin["role"] not in ("superadmin", "reviewer"):
+    if admin["role"] not in ("superuser", "editor"):
         raise HTTPException(status_code=403, detail="Requires reviewer role or higher")
 
     if not database.db_engine:

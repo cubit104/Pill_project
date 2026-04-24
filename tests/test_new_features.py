@@ -16,6 +16,29 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-key")
 
 FAKE_ADMIN_ROW = ("00000000-0000-0000-0000-000000000001", "admin@test.com", "superadmin", "Admin", True)
 FAKE_USER_PAYLOAD = {"id": "00000000-0000-0000-0000-000000000001", "email": "admin@test.com"}
+FAKE_ADMIN_PROFILE = ("superuser",)
+
+
+def _with_profiles_auth(inner_side_effect, profile_row=None):
+    """Wrap a legacy call_count-style side_effect to handle profiles auth first."""
+    if profile_row is None:
+        profile_row = FAKE_ADMIN_PROFILE
+
+    intercepted = [False]
+
+    def wrapper(sql, *args, **kwargs):
+        sql_str = str(sql).lower()
+        if "profiles" in sql_str and "user_role" in sql_str and not intercepted[0]:
+            intercepted[0] = True
+            inner_side_effect(sql, *args, **kwargs)
+            result = MagicMock()
+            result.fetchone.return_value = profile_row
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            return result
+        return inner_side_effect(sql, *args, **kwargs)
+
+    return wrapper
 
 KNOWN_PILL_ID = "8bdcca05-07f5-49d3-96ec-25321e4929a3"
 KNOWN_FILENAME = "8bdcca05-1776920313.jpg"  # new-style: starts with pill_id[:8]-
@@ -73,7 +96,7 @@ class TestPillImageRedirect:
             result.fetchone.return_value = pill_row
             return result
 
-        mock_conn.execute.side_effect = side_effect
+        mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
         import database as db_module
         db_module.db_engine = mock_engine
@@ -103,7 +126,7 @@ class TestPillImageRedirect:
             result.fetchone.return_value = None  # not found
             return result
 
-        mock_conn.execute.side_effect = side_effect
+        mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
         import database as db_module
         db_module.db_engine = mock_engine
@@ -172,7 +195,7 @@ class TestUpdatePillNullClearing:
                 result.fetchall.return_value = []
             return result
 
-        mock_conn.execute.side_effect = side_effect
+        mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
         import database as db_module
         db_module.db_engine = mock_engine
@@ -224,7 +247,7 @@ class TestUpdatePillNullClearing:
                 result.fetchall.return_value = []
             return result
 
-        mock_conn.execute.side_effect = side_effect
+        mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
         import database as db_module
         db_module.db_engine = mock_engine
@@ -303,7 +326,7 @@ class TestUpdatePillImageFilename:
                 result.fetchall.return_value = []
             return result
 
-        mock_conn.execute.side_effect = side_effect
+        mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
         import database as db_module
         db_module.db_engine = mock_engine
@@ -353,7 +376,7 @@ class TestUpdatePillImageFilename:
                 result.fetchall.return_value = []
             return result
 
-        mock_conn.execute.side_effect = side_effect
+        mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
         import database as db_module
         db_module.db_engine = mock_engine

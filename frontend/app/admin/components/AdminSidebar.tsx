@@ -15,55 +15,71 @@ const baseNavItems = [
   { href: '/admin/audit', label: 'Audit Log', icon: ScrollText },
 ]
 
-const superadminNavItems = [
-  { href: '/admin/users', label: 'Users', icon: Users },
+const superuserNavItems = [
   { href: '/admin/settings', label: 'Settings', icon: Settings },
 ]
 
 export default function AdminSidebar() {
   const pathname = usePathname()
-  const [isSuperadmin, setIsSuperadmin] = useState(false)
+  const [role, setRole] = useState<string | null>(null)
   const [dupCount, setDupCount] = useState<number | null>(null)
 
   useEffect(() => {
-    const checkRole = async () => {
+    const init = async () => {
       try {
         const supabase = createClient()
         const {
           data: { session },
         } = await supabase.auth.getSession()
         if (!session) return
-        const res = await fetch('/api/admin/me', {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        })
-        if (res.ok) {
-          const data = await res.json()
-          setIsSuperadmin(data.role === 'superadmin')
-        }
+        const token = session.access_token
 
-        const dupRes = await fetch('/api/admin/duplicates/count', {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        })
+        const [meRes, dupRes] = await Promise.all([
+          fetch('/api/admin/me', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/admin/duplicates/count', { headers: { Authorization: `Bearer ${token}` } }),
+        ])
+
+        if (meRes.ok) {
+          const data = await meRes.json()
+          setRole(data.role)
+        }
         if (dupRes.ok) {
           const dupData = await dupRes.json()
           if (dupData.total_groups != null) setDupCount(dupData.total_groups)
         }
       } catch (err) {
         if (process.env.NODE_ENV === 'development') {
-          console.error('Failed to check admin role:', err)
+          console.error('Failed to init sidebar:', err)
         }
-        // silently fail — sidebar still renders without superadmin items
       }
     }
-    checkRole()
+    init()
   }, [])
 
-  const navItems = isSuperadmin ? [...baseNavItems, ...superadminNavItems] : baseNavItems
+  const isSuperuser = role === 'superuser' || role === 'superadmin'
+  const canViewAudit = role === 'superuser' || role === 'superadmin' || role === 'editor'
+
+  // Build nav items: conditionally show audit log and settings
+  const navItems = [
+    ...baseNavItems.filter(item => item.href !== '/admin/audit' || canViewAudit),
+    ...(isSuperuser ? superuserNavItems : []),
+  ]
 
   return (
     <aside className="w-64 bg-gray-900 text-white flex flex-col h-full shrink-0">
       <div className="p-4 border-b border-gray-700">
         <h1 className="text-xl font-bold text-white">💊 PillSeek Admin</h1>
+        {role && (
+          <div className="mt-1">
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+              isSuperuser ? 'bg-red-900 text-red-200' :
+              role === 'editor' ? 'bg-blue-900 text-blue-200' :
+              'bg-purple-900 text-purple-200'
+            }`}>
+              {role}
+            </span>
+          </div>
+        )}
       </div>
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         {navItems.map(({ href, label, icon: Icon }) => {
@@ -92,7 +108,7 @@ export default function AdminSidebar() {
         })}
       </nav>
       <div className="p-4 border-t border-gray-700 text-xs text-gray-500">
-        PillSeek Admin v1.0
+        PillSeek Admin v2.0
       </div>
     </aside>
   )

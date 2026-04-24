@@ -178,7 +178,7 @@ def merge_duplicates(
     admin: dict = Depends(get_admin_user),
 ):
     """Merge duplicate pills: gap-fill kept pill from discards, soft-delete discards."""
-    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
     if not body.discard_ids:

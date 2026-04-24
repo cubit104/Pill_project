@@ -53,7 +53,7 @@ async def upload_image(
     file: UploadFile = File(...),
     admin: dict = Depends(get_admin_user),
 ):
-    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -128,7 +128,7 @@ def delete_image(
     filename: str,
     admin: dict = Depends(get_admin_user),
 ):
-    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
     # Move to deleted/ prefix in Supabase Storage.

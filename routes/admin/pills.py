@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import bleach
 
 import database
-from routes.admin.auth import get_admin_user, log_audit, CRITICAL_FIELDS
+from routes.admin.auth import get_admin_user, log_audit, require_superuser, CRITICAL_FIELDS
 from routes.admin.field_schema import validate_pill, compute_completeness
 from utils import get_image_url
 
@@ -598,7 +598,7 @@ def bulk_tag(
     admin: dict = Depends(get_admin_user),
 ):
     """Bulk tag pills by id. mode='add' appends, mode='replace' overwrites."""
-    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
     if len(body.ids) > 500:
@@ -670,7 +670,7 @@ def bulk_delete(
     admin: dict = Depends(get_admin_user),
 ):
     """Soft-delete multiple pills in a single transaction."""
-    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
     if len(body.ids) > 500:
@@ -820,7 +820,7 @@ def create_pill(
     publish: bool = Query(False),
     admin: dict = Depends(get_admin_user),
 ):
-    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
     if not database.db_engine:
@@ -892,7 +892,7 @@ def update_pill(
     publish: bool = Query(False),
     admin: dict = Depends(get_admin_user),
 ):
-    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
     if not database.db_engine:
@@ -1032,7 +1032,7 @@ def soft_delete_pill(
     pill_id: str,
     admin: dict = Depends(get_admin_user),
 ):
-    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
     if not database.db_engine:
@@ -1078,7 +1078,7 @@ def restore_pill(
     pill_id: str,
     admin: dict = Depends(get_admin_user),
 ):
-    if admin["role"] not in ("superadmin", "editor", "reviewer"):
+    if admin["role"] not in ("superuser", "editor"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
     if not database.db_engine:
@@ -1114,5 +1114,44 @@ def restore_pill(
         raise
     except SQLAlchemyError as e:
         logger.error(f"restore_pill DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
+@router.delete("/{pill_id}/hard")
+def hard_delete_pill(
+    request: Request,
+    pill_id: str,
+    admin: dict = Depends(require_superuser),
+):
+    """Permanently delete a pill from the database (superuser only)."""
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.begin() as conn:
+            result = conn.execute(
+                text("DELETE FROM pillfinder WHERE id = :id RETURNING id"),
+                {"id": pill_id},
+            )
+            if not result.fetchone():
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action="hard_delete",
+                entity_type="pill",
+                entity_id=pill_id,
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+
+        return {"hard_deleted": True}
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"hard_delete_pill DB error: {e}", exc_info=True)
         root = getattr(e, "orig", None) or e
         raise HTTPException(status_code=500, detail=f"Database error: {root}")

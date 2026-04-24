@@ -24,23 +24,76 @@ FAKE_ADMIN_ROW = ("00000000-0000-0000-0000-000000000001", "admin@test.com", "sup
 FAKE_EDITOR_ROW = ("00000000-0000-0000-0000-000000000002", "editor@test.com", "editor", "Editor", True)
 FAKE_READONLY_ROW = ("00000000-0000-0000-0000-000000000003", "readonly@test.com", "readonly", "RO", True)
 
+# Profiles-table rows: (user_role,)
+FAKE_ADMIN_PROFILE = ("superuser",)
+FAKE_EDITOR_PROFILE = ("editor",)
+FAKE_REVIEWER_PROFILE = ("reviewer",)
 
-def _make_mock_engine(admin_row=FAKE_ADMIN_ROW):
-    """Return a mock SQLAlchemy engine that returns the given admin row for auth lookups."""
+
+def _make_mock_engine(admin_row=FAKE_ADMIN_ROW, profile_row=None):
+    """Return a mock SQLAlchemy engine that returns the given rows for auth lookups.
+
+    ``profile_row`` is returned for ``profiles`` table queries (new auth).
+    ``admin_row``   is returned for ``admin_users`` table queries (legacy fallback).
+    When ``profile_row`` is None, the engine auto-selects based on ``admin_row``'s role.
+    """
+    if profile_row is None and admin_row is not None:
+        # Derive profile row from admin_row role (index 2)
+        raw_role = admin_row[2] if len(admin_row) > 2 else "reviewer"
+        if raw_role == "superadmin":
+            raw_role = "superuser"
+        profile_row = (raw_role,) if raw_role in ("superuser", "editor", "reviewer") else None
+
     mock_engine = MagicMock()
     mock_conn = MagicMock()
     mock_conn.__enter__ = MagicMock(return_value=mock_conn)
     mock_conn.__exit__ = MagicMock(return_value=False)
 
-    mock_result = MagicMock()
-    mock_result.fetchone.return_value = admin_row
-    mock_result.fetchall.return_value = []
-    mock_result.scalar.return_value = 0
-    mock_conn.execute.return_value = mock_result
+    def _smart_execute(sql, *args, **kwargs):
+        """Return profile or admin_users row based on the SQL text."""
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        if "profiles" in sql_str and "user_role" in sql_str:
+            result.fetchone.return_value = profile_row
+        else:
+            result.fetchone.return_value = admin_row
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
 
+    mock_conn.execute.side_effect = _smart_execute
     mock_engine.connect.return_value = mock_conn
     mock_engine.begin.return_value = mock_conn
     return mock_engine, mock_conn
+
+
+def _with_profiles_auth(inner_side_effect, profile_row=None):
+    """Wrap a legacy call_count-style side_effect to handle profiles auth first.
+
+    Old tests expected call_count==1 to be the admin_users auth lookup.  Now
+    the first DB call is the profiles table lookup (intercepted here), but we
+    still consume one slot in the inner side_effect so that existing tests keep
+    their call_count==1 → auth, call_count==2 → business-data pattern intact.
+    """
+    if profile_row is None:
+        profile_row = FAKE_ADMIN_PROFILE
+
+    intercepted = [False]
+
+    def wrapper(sql, *args, **kwargs):
+        sql_str = str(sql).lower()
+        if "profiles" in sql_str and "user_role" in sql_str and not intercepted[0]:
+            intercepted[0] = True
+            # Consume one call_count slot so remaining call indices stay the same
+            inner_side_effect(sql, *args, **kwargs)
+            result = MagicMock()
+            result.fetchone.return_value = profile_row
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            return result
+        return inner_side_effect(sql, *args, **kwargs)
+
+    return wrapper
 
 
 @pytest.fixture(scope="module")
@@ -127,12 +180,11 @@ def test_editor_cannot_update_critical_fields(client):
     from datetime import datetime, timezone
     existing_row = MagicMock()
     existing_row.__getitem__ = lambda self, idx: datetime(2024, 1, 1, tzinfo=timezone.utc) if idx == 0 else None
-    mock_conn.execute.return_value.fetchone.return_value = existing_row
 
     import database as db_module
     db_module.db_engine = mock_engine
 
-    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR_ROW[0]}):
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR_ROW[0], "email": FAKE_EDITOR_ROW[1]}):
         resp = client.put(
             "/api/admin/pills/some-pill-id",
             json={"spl_strength": "500mg", "spl_ingredients": "Ibuprofen"},
@@ -165,20 +217,27 @@ def test_soft_delete_calls_correct_sql(client):
     """DELETE /api/admin/pills/{id} should execute an UPDATE with deleted_at."""
     mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
 
-    call_count = [0]
+    # Track calls to verify deleted_at appears in the SQL
+    executed_sqls: list = []
 
     def side_effect(sql, *args, **kwargs):
         result = MagicMock()
-        call_count[0] += 1
-        if call_count[0] == 1:
-            # First call: admin_users auth lookup
-            result.fetchone.return_value = FAKE_ADMIN_ROW
-        else:
-            # Subsequent calls: the DELETE UPDATE RETURNING id
+        sql_str = str(sql).lower()
+        executed_sqls.append(sql_str)
+        # Profiles auth lookup
+        if "profiles" in sql_str and "user_role" in sql_str:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        # DELETE soft-delete UPDATE RETURNING
+        elif "deleted_at" in sql_str:
             result.fetchone.return_value = ("some-pill-id",)
+        # Audit log insert and anything else
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     import database as db_module
     db_module.db_engine = mock_engine
@@ -192,9 +251,7 @@ def test_soft_delete_calls_correct_sql(client):
     assert resp.status_code == 200
     assert resp.json()["deleted"] is True
     # Confirm that execute was called with a query containing 'deleted_at'
-    calls = mock_conn.execute.call_args_list
-    sql_texts = [str(call.args[0]) for call in calls if call.args]
-    assert any("deleted_at" in sql for sql in sql_texts), (
+    assert any("deleted_at" in sql for sql in executed_sqls), (
         "DELETE endpoint must set deleted_at on the row"
     )
 
@@ -208,27 +265,24 @@ def test_update_pill_returns_409_on_stale_timestamp(client):
     from datetime import datetime, timezone
     mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
 
-    auth_result = MagicMock()
-    auth_result.fetchone.return_value = FAKE_ADMIN_ROW
-
     db_ts = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
     pill_row = MagicMock()
     pill_row.__getitem__ = MagicMock(side_effect=lambda idx: db_ts if idx == 0 else None)
 
-    call_count = [0]
-
     def side_effect(sql, *args, **kwargs):
         result = MagicMock()
-        if call_count[0] == 0:
-            # First call is admin_users lookup
-            result.fetchone.return_value = FAKE_ADMIN_ROW
-        else:
-            # Second call is updated_at check on pillfinder
+        sql_str = str(sql).lower()
+        if "profiles" in sql_str and "user_role" in sql_str:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "updated_at" in sql_str or "pillfinder" in sql_str:
             result.fetchone.return_value = pill_row
-        call_count[0] += 1
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     import database as db_module
     db_module.db_engine = mock_engine
@@ -273,6 +327,7 @@ def test_get_me_returns_correct_fields(client):
     assert "email" in data
     assert "role" in data
     assert "id" in data
+    assert data["role"] in ("superuser", "superadmin", "editor", "reviewer")
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +356,7 @@ def test_list_pills_sort_order_puts_unnamed_last(client):
             result.fetchall.return_value = []
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     mock_engine = MagicMock()
     mock_engine.connect.return_value = mock_conn
@@ -351,7 +406,7 @@ def test_pill_create_accepts_image_alt_text_and_tags(client):
             result.scalar.return_value = "new-pill-uuid"
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     import database as db_module
     db_module.db_engine = mock_engine
@@ -415,7 +470,7 @@ def test_pill_update_accepts_image_alt_text_and_tags(client):
             result.fetchone.return_value = None
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     import database as db_module
     db_module.db_engine = mock_engine
@@ -474,7 +529,7 @@ def test_bulk_tag_adds_without_duplication(client):
             result.fetchone.return_value = None
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     import database as db_module
     db_module.db_engine = mock_engine
@@ -529,7 +584,7 @@ def test_bulk_delete_soft_deletes_all(client):
             result.rowcount = len(ids)  # simulate DB returning affected row count
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     import database as db_module
     db_module.db_engine = mock_engine
@@ -575,7 +630,7 @@ def test_duplicate_detection_requires_all_7_fields(client):
             result.fetchall.return_value = []
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     mock_engine = MagicMock()
     mock_engine.connect.return_value = mock_conn
@@ -638,7 +693,7 @@ def test_merge_rejects_when_fields_differ(client):
             result.fetchone.return_value = discard_row
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     mock_engine = MagicMock()
     mock_engine.connect.return_value = mock_conn
@@ -709,7 +764,7 @@ def test_merge_gap_fills_correctly(client):
             result.fetchone.return_value = None
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     mock_engine = MagicMock()
     mock_engine.connect.return_value = mock_conn
@@ -757,7 +812,7 @@ def test_csv_export_returns_streaming_response(client):
             result.fetchall.return_value = []
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     mock_engine = MagicMock()
     mock_engine.connect.return_value = mock_conn
@@ -842,7 +897,7 @@ def test_merge_end_to_end_keeps_pill_and_soft_deletes_discards(client):
     mock_conn = MagicMock()
     mock_conn.__enter__ = MagicMock(return_value=mock_conn)
     mock_conn.__exit__ = MagicMock(return_value=False)
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     mock_engine = MagicMock()
     mock_engine.connect.return_value = mock_conn
@@ -917,7 +972,7 @@ def test_upload_image_stores_full_storage_path(client):
             result.fetchone.return_value = None
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     import database as db_module
     db_module.db_engine = mock_engine
@@ -979,7 +1034,7 @@ def test_upload_image_appends_full_path_to_existing(client):
             result.fetchone.return_value = None
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     import database as db_module
     db_module.db_engine = mock_engine
@@ -1034,7 +1089,7 @@ def test_delete_image_uses_filename_as_storage_key(client):
             result.fetchone.return_value = None
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     import database as db_module
     db_module.db_engine = mock_engine
@@ -1115,7 +1170,7 @@ def test_get_pill_resolved_image_urls_no_double_prefix(client):
             result.fetchone.return_value = None
         return result
 
-    mock_conn.execute.side_effect = side_effect
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
 
     import database as db_module
     db_module.db_engine = mock_engine

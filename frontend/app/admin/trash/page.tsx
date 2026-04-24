@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../lib/supabase'
-import { RotateCcw } from 'lucide-react'
+import { RotateCcw, Trash2 } from 'lucide-react'
 
 interface Pill {
   id: string
@@ -20,24 +20,31 @@ export default function AdminTrashPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [restoring, setRestoring] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  const [role, setRole] = useState<string | null>(null)
 
-  const fetchDeleted = async () => {
+  const getToken = async () => {
     const supabase = createClient()
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-    if (!session) {
-      router.push('/admin/login')
-      return
-    }
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token ?? null
+  }
+
+  const fetchData = async () => {
+    const token = await getToken()
+    if (!token) { router.push('/admin/login'); return }
 
     setLoading(true)
     try {
-      const res = await fetch('/api/admin/pills?deleted=true&per_page=100', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
-      if (!res.ok) throw new Error('Failed to fetch deleted pills')
-      const data = await res.json()
+      const [roleRes, pillsRes] = await Promise.all([
+        fetch('/api/admin/me', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/admin/pills?deleted=true&per_page=100', { headers: { Authorization: `Bearer ${token}` } }),
+      ])
+      if (roleRes.ok) {
+        const data = await roleRes.json()
+        setRole(data.role)
+      }
+      if (!pillsRes.ok) throw new Error('Failed to fetch deleted pills')
+      const data = await pillsRes.json()
       setPills(data.pills)
     } catch (e) {
       setError(String(e))
@@ -47,24 +54,20 @@ export default function AdminTrashPage() {
   }
 
   useEffect(() => {
-    fetchDeleted()
+    fetchData()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleRestore = async (id: string) => {
-    const supabase = createClient()
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-    if (!session) return
-
+    const token = await getToken()
+    if (!token) return
     setRestoring(id)
     try {
       const res = await fetch(`/api/admin/pills/${id}/restore`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
       })
-      if (res.ok) fetchDeleted()
+      if (res.ok) fetchData()
       else setError('Restore failed')
     } catch (e) {
       setError(String(e))
@@ -73,10 +76,38 @@ export default function AdminTrashPage() {
     }
   }
 
+  const handleHardDelete = async (id: string, name: string) => {
+    if (!confirm(`Permanently delete "${name}"? This CANNOT be undone.`)) return
+    const token = await getToken()
+    if (!token) return
+    setDeleting(id)
+    try {
+      const res = await fetch(`/api/admin/pills/${id}/hard`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) fetchData()
+      else {
+        const err = await res.json()
+        setError(err.detail || 'Hard delete failed')
+      }
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  const canRestore = role === 'superuser' || role === 'superadmin' || role === 'editor'
+  const canHardDelete = role === 'superuser' || role === 'superadmin'
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold text-gray-900">Trash</h1>
-      <p className="text-gray-500 text-sm">Soft-deleted pills. Restore them to make them visible again.</p>
+      <p className="text-gray-500 text-sm">
+        Soft-deleted pills. Restore them to make them visible again.
+        {canHardDelete && ' Superusers can also permanently delete.'}
+      </p>
 
       {error && (
         <div className="bg-red-50 text-red-700 px-4 py-2 rounded-md text-sm">{error}</div>
@@ -120,13 +151,26 @@ export default function AdminTrashPage() {
                   {pill.deleted_at ? new Date(pill.deleted_at).toLocaleString() : '—'}
                 </td>
                 <td className="px-4 py-3">
-                  <button
-                    onClick={() => handleRestore(pill.id)}
-                    disabled={restoring === pill.id}
-                    className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800 disabled:opacity-50"
-                  >
-                    <RotateCcw className="w-3 h-3" /> Restore
-                  </button>
+                  <div className="flex items-center gap-3">
+                    {canRestore && (
+                      <button
+                        onClick={() => handleRestore(pill.id)}
+                        disabled={restoring === pill.id}
+                        className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800 disabled:opacity-50"
+                      >
+                        <RotateCcw className="w-3 h-3" /> Restore
+                      </button>
+                    )}
+                    {canHardDelete && (
+                      <button
+                        onClick={() => handleHardDelete(pill.id, pill.medicine_name)}
+                        disabled={deleting === pill.id}
+                        className="flex items-center gap-1 text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                      >
+                        <Trash2 className="w-3 h-3" /> Delete forever
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
