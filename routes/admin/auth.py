@@ -145,14 +145,18 @@ def get_admin_user(
     }
 
 
+def _expand_roles(roles: tuple) -> set:
+    """Expand a role tuple to include legacy aliases (e.g. 'superadmin' for 'superuser')."""
+    expanded = set(roles)
+    if "superuser" in expanded:
+        expanded.update(_SUPERUSER_ALIASES)
+    return expanded
+
+
 def require_role(*roles: str):
     """Returns a FastAPI dependency that requires one of the given roles."""
     def _dep(admin: dict = Depends(get_admin_user)) -> dict:
-        # Accept both 'superuser' and 'superadmin' when 'superuser' is in roles list
-        effective_roles = set(roles)
-        if "superuser" in effective_roles:
-            effective_roles.add("superadmin")
-        if admin.get("role") not in effective_roles:
+        if admin.get("role") not in _expand_roles(roles):
             raise HTTPException(
                 status_code=403,
                 detail=f"Requires role: {', '.join(roles)}. Your role: {admin.get('role')}",
@@ -163,7 +167,7 @@ def require_role(*roles: str):
 
 def require_superuser(admin: dict = Depends(get_admin_user)) -> dict:
     """Dependency: requires superuser (or legacy superadmin) role."""
-    if admin.get("role") not in _SUPERUSER_ALIASES:
+    if admin.get("role") not in _expand_roles(("superuser",)):
         raise HTTPException(
             status_code=403,
             detail=f"Requires superuser role. Your role: {admin.get('role')}",

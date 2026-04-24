@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin-users"])
 
 
+_BAN_FOREVER = "876600h"  # ~100 years — effectively permanent for Supabase ban_duration
+
+
 def _auth_headers() -> dict:
     key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     return {"Authorization": f"Bearer {key}", "apikey": key}
@@ -236,7 +239,7 @@ def update_user(
 
     if body.disabled is not None:
         try:
-            ban_payload = {"ban_duration": "876600h" if body.disabled else "none"}
+            ban_payload = {"ban_duration": _BAN_FOREVER if body.disabled else "none"}
             resp = _sb_put(f"/auth/v1/admin/users/{user_id}", ban_payload)
             if resp.status_code not in (200, 201):
                 raise HTTPException(status_code=502, detail="Failed to update user status in Supabase")
@@ -302,12 +305,7 @@ def reset_password(
         raise HTTPException(status_code=502, detail="Supabase API error")
 
     try:
-        reset_resp = httpx.post(
-            f"{_supabase_url()}/auth/v1/recover",
-            headers={"apikey": os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""), "Content-Type": "application/json"},
-            json={"email": email},
-            timeout=10,
-        )
+        reset_resp = _sb_post("/auth/v1/recover", {"email": email})
         if reset_resp.status_code not in (200, 201):
             raise HTTPException(status_code=502, detail="Failed to send password reset email")
     except HTTPException:

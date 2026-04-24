@@ -29,7 +29,9 @@ const ROLE_COLORS: Record<string, string> = {
 
 function generatePassword(length = 16): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*'
-  return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+  const arr = new Uint32Array(length)
+  crypto.getRandomValues(arr)
+  return Array.from(arr, (n) => chars[n % chars.length]).join('')
 }
 
 export default function AdminSettingsUsersPage() {
