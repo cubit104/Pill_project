@@ -196,7 +196,7 @@ def get_pill_details(
                 )
                 pill_ndcs_rows = ndcs_result.fetchall()
             except Exception as _e:
-                logger.debug("pill_ndcs lookup failed (table may not exist yet): %s", _e)
+                logger.debug("pill_ndcs lookup failed for pill %s: %s", pill_info.get("id"), _e)
 
         image_data = process_image_filenames(filenames)
         pill_info.update(image_data)
@@ -270,7 +270,7 @@ def get_pill_by_slug(slug: str):
                     if not r[2]  # is_primary == False
                 ]
             except Exception as _e:
-                logger.debug("pill_ndcs lookup failed (table may not exist yet): %s", _e)
+                logger.debug("pill_ndcs lookup failed for %s: %s", slug, _e)
 
             mapped = {
                 "drug_name": pill_info.get("medicine_name"),

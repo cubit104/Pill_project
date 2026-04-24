@@ -85,7 +85,7 @@ def fetch_dailymed_by_rxcui(rxcui: str) -> List[Dict]:
         return []
 
     candidates: List[Dict] = []
-    for spl in data.get("data", []):
+    for spl in data["data"]:
         setid = spl.get("setid")
         if not setid:
             continue
@@ -115,7 +115,7 @@ def fetch_openfda_by_name(name: str) -> List[Dict]:
         return []
 
     candidates: List[Dict] = []
-    for result in data.get("results", []):
+    for result in data["results"]:
         product_ndc = result.get("product_ndc") or ""
         dosage_form = result.get("dosage_form") or ""
         active_ings = result.get("active_ingredients") or []
@@ -164,7 +164,7 @@ def _normalise_candidates(raw: List[Dict]) -> List[Dict]:
 
 
 def _product_key(ndc11: str) -> str:
-    """First 10 chars of digit-stripped NDC — labeler (5) + product (4)."""
+    """First 9 digits of digit-stripped NDC — labeler (5) + product (4)."""
     digits = ndc11.replace("-", "")
     return digits[:9]
 
