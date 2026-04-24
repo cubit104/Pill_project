@@ -93,8 +93,20 @@ export default function AdminLoginPage() {
 
   return (
     <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
-      <div className="text-center mb-6">
-        <h1 className="text-2xl font-bold">💊 PillSeek Admin</h1>
+      <div className="flex flex-col items-center mb-6">
+        <div className="flex items-center gap-2">
+          <img
+            src="/logo-mark.svg"
+            alt=""
+            width={40}
+            height={40}
+            className="h-10 w-10 object-contain"
+          />
+          <h1 className="text-2xl font-bold">
+            <span className="text-slate-900">Pill</span><span className="text-emerald-700">Seek</span>
+            <span className="ml-1 font-normal text-slate-600">Admin</span>
+          </h1>
+        </div>
         <p className="text-gray-600 mt-1">Sign in to continue</p>
       </div>
 
