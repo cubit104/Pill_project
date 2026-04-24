@@ -14,6 +14,11 @@ export default function AdminLoginPage() {
   const [sent, setSent] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showForgot, setShowForgot] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotSent, setForgotSent] = useState(false)
+  const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotError, setForgotError] = useState('')
 
   const supabase = createClient()
 
@@ -53,61 +58,74 @@ export default function AdminLoginPage() {
     setLoading(false)
   }
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setForgotLoading(true)
+    setForgotError('')
+    const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+      redirectTo: `${window.location.origin}/admin/reset-password`,
+    })
+    if (error) {
+      setForgotError(error.message)
+    } else {
+      setForgotSent(true)
+    }
+    setForgotLoading(false)
+  }
+
   if (sent) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full text-center">
-          <div className="text-4xl mb-4">📧</div>
-          <h2 className="text-2xl font-bold mb-2">Check your email</h2>
-          <p className="text-gray-600">
-            We sent a magic link to <strong>{email}</strong>. Click it to sign in.
-          </p>
-          <button
-            onClick={() => { setSent(false); setEmail('') }}
-            className="mt-4 text-sm text-indigo-600 hover:underline"
-          >
-            ← Back to login
-          </button>
-        </div>
+      <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full text-center">
+        <div className="text-4xl mb-4">📧</div>
+        <h2 className="text-2xl font-bold mb-2">Check your email</h2>
+        <p className="text-gray-600">
+          We sent a magic link to <strong>{email}</strong>. Click it to sign in.
+        </p>
+        <button
+          onClick={() => { setSent(false); setEmail('') }}
+          className="mt-4 text-sm text-indigo-600 hover:underline"
+        >
+          ← Back to login
+        </button>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold">�� PillSeek Admin</h1>
-          <p className="text-gray-600 mt-1">Sign in to continue</p>
-        </div>
+    <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
+      <div className="text-center mb-6">
+        <h1 className="text-2xl font-bold">💊 PillSeek Admin</h1>
+        <p className="text-gray-600 mt-1">Sign in to continue</p>
+      </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-gray-200 mb-6">
-          <button
-            type="button"
-            onClick={() => { setTab('password'); setError('') }}
-            className={`flex-1 py-2 text-sm font-medium transition-colors ${
-              tab === 'password'
-                ? 'text-indigo-600 border-b-2 border-indigo-600'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Password
-          </button>
-          <button
-            type="button"
-            onClick={() => { setTab('magic'); setError('') }}
-            className={`flex-1 py-2 text-sm font-medium transition-colors ${
-              tab === 'magic'
-                ? 'text-indigo-600 border-b-2 border-indigo-600'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Magic Link
-          </button>
-        </div>
+      {/* Tabs */}
+      <div className="flex border-b border-gray-200 mb-6">
+        <button
+          type="button"
+          onClick={() => { setTab('password'); setError(''); setShowForgot(false) }}
+          className={`flex-1 py-2 text-sm font-medium transition-colors ${
+            tab === 'password'
+              ? 'text-indigo-600 border-b-2 border-indigo-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Password
+        </button>
+        <button
+          type="button"
+          onClick={() => { setTab('magic'); setError(''); setShowForgot(false) }}
+          className={`flex-1 py-2 text-sm font-medium transition-colors ${
+            tab === 'magic'
+              ? 'text-indigo-600 border-b-2 border-indigo-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Magic Link
+        </button>
+      </div>
 
-        {tab === 'password' ? (
+      {tab === 'password' ? (
+        <div className="space-y-4">
           <form onSubmit={handlePasswordLogin} className="space-y-4">
             <div>
               <label htmlFor="email-pw" className="block text-sm font-medium text-gray-700 mb-1">
@@ -150,37 +168,85 @@ export default function AdminLoginPage() {
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
-        ) : (
-          <form onSubmit={handleMagicLink} className="space-y-4">
-            <div>
-              <label htmlFor="email-ml" className="block text-sm font-medium text-gray-700 mb-1">
-                Email address
-              </label>
-              <input
-                id="email-ml"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
 
-            {error && (
-              <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error}</div>
+          {/* Forgot password */}
+          <div className="pt-2">
+            {!showForgot ? (
+              <button
+                type="button"
+                onClick={() => { setShowForgot(true); setForgotSent(false); setForgotError('') }}
+                className="text-sm text-indigo-600 hover:underline"
+              >
+                Forgot password?
+              </button>
+            ) : forgotSent ? (
+              <div className="bg-green-50 text-green-700 text-sm px-3 py-2 rounded-md">
+                Check your email for a reset link.
+              </div>
+            ) : (
+              <form onSubmit={handleForgotPassword} className="space-y-2">
+                <p className="text-sm text-gray-600 font-medium">Reset your password</p>
+                <input
+                  type="email"
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                {forgotError && (
+                  <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{forgotError}</div>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={forgotLoading}
+                    className="flex-1 bg-indigo-600 text-white py-2 px-3 rounded-md text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
+                  >
+                    {forgotLoading ? 'Sending…' : 'Send reset link'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowForgot(false)}
+                    className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
             )}
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={handleMagicLink} className="space-y-4">
+          <div>
+            <label htmlFor="email-ml" className="block text-sm font-medium text-gray-700 mb-1">
+              Email address
+            </label>
+            <input
+              id="email-ml"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              required
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
-            >
-              {loading ? 'Sending…' : 'Send magic link'}
-            </button>
-          </form>
-        )}
-      </div>
+          {error && (
+            <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error}</div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
+          >
+            {loading ? 'Sending…' : 'Send magic link'}
+          </button>
+        </form>
+      )}
     </div>
   )
 }
