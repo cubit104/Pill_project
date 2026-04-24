@@ -106,7 +106,7 @@ def get_admin_user(
     try:
         with database.db_engine.connect() as conn:
             row = conn.execute(
-                text("SELECT user_role FROM profiles WHERE id = :id LIMIT 1"),
+                text("SELECT role FROM profiles WHERE id = :id LIMIT 1"),
                 {"id": user_id},
             ).fetchone()
             if row:
