@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../lib/supabase'
 
@@ -11,7 +11,9 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
+  // Stable client ref — avoids re-creating on every render and re-subscribing the auth listener
+  const supabaseRef = useRef(createClient())
+  const supabase = supabaseRef.current
 
   useEffect(() => {
     // Listen for PASSWORD_RECOVERY event as a defensive measure
@@ -45,11 +47,19 @@ export default function ResetPasswordPage() {
       setError(updateError.message)
     } else {
       setSuccess(true)
-      setTimeout(() => {
-        router.push('/admin')
-      }, 1500)
     }
   }
+
+  useEffect(() => {
+    if (!success) return
+    // Check whether the recovery flow left the user in an active session.
+    // Redirect to dashboard if they have one, or back to login if not.
+    const redirectTimer = setTimeout(async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      router.push(session ? '/admin' : '/admin/login')
+    }, 1500)
+    return () => clearTimeout(redirectTimer)
+  }, [success, supabase, router])
 
   if (success) {
     return (
