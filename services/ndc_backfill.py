@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 DAILYMED_SPL_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls.json"
 DAILYMED_NDC_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{setid}/ndcs.json"
+DAILYMED_PACKAGING_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{setid}/packaging.json"
 OPENFDA_NDC_URL = "https://api.fda.gov/drug/ndc.json"
 
 SYSTEM_ACTOR_EMAIL = "system:backfill_ndc11"
@@ -95,7 +96,7 @@ def _fetch(
 
 
 def fetch_dailymed_by_rxcui(rxcui: str, client: Optional["httpx.Client"] = None) -> List[Dict]:
-    """Query DailyMed for SPL sets by RxCUI, then pull NDC lists per set."""
+    """Query DailyMed for SPL sets by RxCUI, then pull package-level NDCs per set."""
     data = _fetch(DAILYMED_SPL_URL, params={"rxcui": rxcui, "pagesize": 25}, client=client)
     if not data or "data" not in data:
         return []
@@ -105,23 +106,39 @@ def fetch_dailymed_by_rxcui(rxcui: str, client: Optional["httpx.Client"] = None)
         setid = spl.get("setid")
         if not setid:
             continue
-        ndc_data = _fetch(DAILYMED_NDC_URL.format(setid=setid), client=client)
-        if not ndc_data or "data" not in ndc_data:
+        pkg_data = _fetch(DAILYMED_PACKAGING_URL.format(setid=setid), client=client)
+        if logger.isEnabledFor(logging.DEBUG) and pkg_data:
+            entries = pkg_data.get("data", [])
+            first_keys = list(entries[0].keys()) if entries and isinstance(entries[0], dict) else None
+            logger.debug(
+                "DailyMed packaging response for setid=%s: top_keys=%s, entries=%d, first_entry_keys=%s",
+                setid, list(pkg_data.keys()), len(entries), first_keys,
+            )
+        if not pkg_data or "data" not in pkg_data:
             continue
-        for entry in ndc_data.get("data", []):
+        for entry in pkg_data.get("data", []):
             if isinstance(entry, str):
                 ndc_raw = entry
-                package_description = ""
+                pkg_desc = ""
             elif isinstance(entry, dict):
-                ndc_raw = entry.get("ndc") or entry.get("ndc_code") or ""
-                package_description = entry.get("package_description") or ""
+                ndc_raw = (
+                    entry.get("ndc")
+                    or entry.get("package_ndc")
+                    or entry.get("ndc_code")
+                    or ""
+                )
+                pkg_desc = (
+                    entry.get("package_description")
+                    or entry.get("description")
+                    or ""
+                )
             else:
                 continue
             if ndc_raw:
                 candidates.append(
                     {
                         "ndc": ndc_raw,
-                        "package_description": package_description,
+                        "package_description": pkg_desc,
                         "source": "dailymed",
                         "setid": setid,
                     }
