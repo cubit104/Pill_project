@@ -126,6 +126,67 @@ class TestProcessPillRow:
         assert result["outcome"] == "no_match"
         assert result["chosen_ndc11"] is None
 
+    def test_dailymed_nonnormalizing_falls_back_to_openfda(self):
+        """DailyMed returns candidates that don't normalize; openFDA rescues."""
+        row = _make_pill(name="Aspirin")
+        with (
+            patch("services.ndc_backfill.fetch_dailymed_by_rxcui", return_value=[
+                {"ndc": "0781-1506", "package_description": "product level only", "source": "dailymed", "setid": "setid-asp-001"},
+            ]) as mock_dm,
+            patch("services.ndc_backfill.fetch_openfda_by_name", return_value=[
+                {"ndc": "21130-957-12", "package_description": "100 TABLET in 1 BOTTLE", "source": "openfda"},
+            ]) as mock_of,
+        ):
+            from services.ndc_backfill import process_pill_row
+            result = process_pill_row(row, sleep_ms=0)
+
+        assert result["outcome"] == "updated"
+        assert result["chosen_ndc11"] == "21130-0957-12"
+        sc = result["source_counts"]
+        assert sc["dailymed_raw"] == 1
+        assert sc["dailymed_normalized"] == 0
+        assert sc["openfda_raw"] == 1
+        assert sc["openfda_normalized"] == 1
+        mock_of.assert_called_once()
+
+    def test_dailymed_valid_candidates_openfda_not_called(self):
+        """DailyMed returns a valid normalized candidate → openFDA is NOT called."""
+        row = _make_pill(name="Metformin")
+        with (
+            patch("services.ndc_backfill.fetch_dailymed_by_rxcui", return_value=[
+                {"ndc": "57664-0484-18", "package_description": "BOTTLE of 180 TABLETS", "source": "dailymed", "setid": "setid-met-001"},
+            ]) as mock_dm,
+            patch("services.ndc_backfill.fetch_openfda_by_name", side_effect=AssertionError("openFDA must not be called")) as mock_of,
+        ):
+            from services.ndc_backfill import process_pill_row
+            result = process_pill_row(row, sleep_ms=0)
+
+        assert result["outcome"] == "updated"
+        assert result["chosen_ndc11"] is not None
+        sc = result["source_counts"]
+        assert sc["dailymed_normalized"] == 1
+        assert sc["openfda_raw"] == 0
+        assert sc["openfda_normalized"] == 0
+        mock_of.assert_not_called()
+
+    def test_both_sources_empty_all_counts_zero(self):
+        """Both DailyMed and openFDA return empty → no_match, all source_counts=0."""
+        row = _make_pill(name="UnknownDrug")
+        with (
+            patch("services.ndc_backfill.fetch_dailymed_by_rxcui", return_value=[]) as mock_dm,
+            patch("services.ndc_backfill.fetch_openfda_by_name", return_value=[]) as mock_of,
+        ):
+            from services.ndc_backfill import process_pill_row
+            result = process_pill_row(row, sleep_ms=0)
+
+        assert result["outcome"] == "no_match"
+        assert result["chosen_ndc11"] is None
+        sc = result["source_counts"]
+        assert sc["dailymed_raw"] == 0
+        assert sc["dailymed_normalized"] == 0
+        assert sc["openfda_raw"] == 0
+        assert sc["openfda_normalized"] == 0
+
 
 # ---------------------------------------------------------------------------
 # run_backfill integration tests (DB mocked)
