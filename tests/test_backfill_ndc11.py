@@ -38,14 +38,6 @@ DAILYMED_SPL_RESPONSE = {
     "data": [{"setid": "setid-001", "title": "Metformin HCl Tablets"}]
 }
 
-# Legacy constant kept for reference; tests now use DAILYMED_PACKAGING_RESPONSE
-DAILYMED_NDC_RESPONSE = {
-    "data": [
-        {"ndc": "57664-0484-18", "package_description": "BOTTLE of 180 TABLETS"},
-        {"ndc": "57664-0484-88", "package_description": "BOTTLE of 500 TABLETS"},
-    ]
-}
-
 DAILYMED_PACKAGING_RESPONSE = {
     "data": [
         {"ndc": "57664-0484-18", "package_description": "BOTTLE of 180 TABLETS"},

@@ -107,7 +107,13 @@ def fetch_dailymed_by_rxcui(rxcui: str, client: Optional["httpx.Client"] = None)
         if not setid:
             continue
         pkg_data = _fetch(DAILYMED_PACKAGING_URL.format(setid=setid), client=client)
-        logger.debug("DailyMed packaging response for setid=%s: %r", setid, pkg_data)
+        if logger.isEnabledFor(logging.DEBUG) and pkg_data:
+            entries = pkg_data.get("data", [])
+            first_keys = list(entries[0].keys()) if entries and isinstance(entries[0], dict) else None
+            logger.debug(
+                "DailyMed packaging response for setid=%s: top_keys=%s, entries=%d, first_entry_keys=%s",
+                setid, list(pkg_data.keys()), len(entries), first_keys,
+            )
         if not pkg_data or "data" not in pkg_data:
             continue
         for entry in pkg_data.get("data", []):
