@@ -1198,3 +1198,148 @@ def test_get_pill_resolved_image_urls_no_double_prefix(client):
     assert urls[1].count(pill_id) == 1, (
         f"pill_id must appear exactly once in the URL, got {urls[1]!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# has_image filter — reads image_filename not has_image column
+# ---------------------------------------------------------------------------
+
+def test_list_pills_has_image_true_filters_by_image_filename(client):
+    """/api/admin/pills?has_image=true must filter by image_filename IS NOT NULL, not by has_image='TRUE'."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif call_count[0] == 2:
+            result.scalar.return_value = 0
+        else:
+            result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/pills?has_image=true",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+
+    executed_sqls = [str(call.args[0]) for call in mock_conn.execute.call_args_list if call.args]
+    combined = " ".join(executed_sqls)
+    assert "image_filename IS NOT NULL" in combined, (
+        "has_image=true filter must use image_filename IS NOT NULL, not has_image='TRUE'"
+    )
+    assert "has_image = 'TRUE'" not in combined, (
+        "has_image=true filter must not use the has_image column"
+    )
+
+
+def test_list_pills_has_image_false_filters_by_image_filename(client):
+    """/api/admin/pills?has_image=false must filter by image_filename IS NULL/empty, not by has_image."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        elif call_count[0] == 2:
+            result.scalar.return_value = 0
+        else:
+            result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/pills?has_image=false",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+
+    executed_sqls = [str(call.args[0]) for call in mock_conn.execute.call_args_list if call.args]
+    combined = " ".join(executed_sqls)
+    assert "image_filename IS NULL" in combined, (
+        "has_image=false filter must use image_filename IS NULL, not has_image column"
+    )
+    assert "has_image IS NULL OR has_image != 'TRUE'" not in combined, (
+        "has_image=false filter must not reference the has_image column"
+    )
+
+
+def test_stats_no_image_count_uses_image_filename(client):
+    """/api/admin/pills/stats no_image count must be derived from image_filename, not has_image."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_ROW
+        else:
+            # Stats row: (total, no_image, no_name, no_imprint, no_ndc)
+            result.fetchone.return_value = (100, 5, 2, 10, 3)
+        return result
+
+    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    # Clear in-memory stats cache so the endpoint executes a real DB query
+    import routes.admin.pills as pills_module
+    pills_module._stats_cache["data"] = None
+    pills_module._stats_cache["expires"] = 0.0
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/pills/stats",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "no_image" in data
+
+    executed_sqls = [str(call.args[0]) for call in mock_conn.execute.call_args_list if call.args]
+    combined = " ".join(executed_sqls)
+    assert "image_filename IS NULL OR TRIM(image_filename) = ''" in combined, (
+        "stats no_image count must filter on image_filename, not has_image column"
+    )
+    assert "has_image IS NULL OR has_image != 'TRUE'" not in combined, (
+        "stats must not use the has_image column for no_image count"
+    )

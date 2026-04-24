@@ -129,9 +129,9 @@ def list_pills(
         params["shape"] = f"%{shape.lower()}%"
     if has_image is not None:
         if has_image:
-            filters.append("has_image = 'TRUE'")
+            filters.append("(image_filename IS NOT NULL AND TRIM(image_filename) != '')")
         else:
-            filters.append("(has_image IS NULL OR has_image != 'TRUE')")
+            filters.append("(image_filename IS NULL OR TRIM(image_filename) = '')")
     if drug_name:
         filters.append("LOWER(medicine_name) LIKE :drug_name")
         params["drug_name"] = f"%{drug_name.lower()}%"
@@ -199,7 +199,7 @@ def list_pills(
         for r in rows:
             image_filename = r[5]
             image_url: Optional[str] = None
-            if r[6] == 'TRUE' and image_filename:
+            if image_filename and image_filename.strip():
                 url = get_image_url(image_filename)
                 # get_image_url returns a placeholder URL when filename is empty;
                 # only use it when we have a real filename.
@@ -282,7 +282,7 @@ def get_stats(admin: dict = Depends(get_admin_user)):
                 text("""
                     SELECT
                       COUNT(*) as total,
-                      COUNT(*) FILTER (WHERE has_image IS NULL OR has_image != 'TRUE') as no_image,
+                      COUNT(*) FILTER (WHERE image_filename IS NULL OR TRIM(image_filename) = '') as no_image,
                       COUNT(*) FILTER (WHERE medicine_name IS NULL OR TRIM(medicine_name) = '') as no_name,
                       COUNT(*) FILTER (WHERE splimprint IS NULL OR TRIM(splimprint) = '') as no_imprint,
                       COUNT(*) FILTER (WHERE ndc11 IS NULL OR TRIM(ndc11) = '') as no_ndc
@@ -334,7 +334,7 @@ def get_recent(
         for r in rows:
             image_filename = r[6]
             image_url: Optional[str] = None
-            if r[7] == 'TRUE' and image_filename:
+            if image_filename and image_filename.strip():
                 url = get_image_url(image_filename)
                 if not url.endswith("placeholder.jpg"):
                     image_url = url
@@ -487,9 +487,9 @@ def export_csv(
         params["shape"] = f"%{shape.lower()}%"
     if has_image is not None:
         if has_image:
-            filters.append("has_image = 'TRUE'")
+            filters.append("(image_filename IS NOT NULL AND TRIM(image_filename) != '')")
         else:
-            filters.append("(has_image IS NULL OR has_image != 'TRUE')")
+            filters.append("(image_filename IS NULL OR TRIM(image_filename) = '')")
     if drug_name:
         filters.append("LOWER(medicine_name) LIKE :drug_name")
         params["drug_name"] = f"%{drug_name.lower()}%"
