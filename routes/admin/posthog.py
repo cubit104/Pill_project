@@ -110,55 +110,56 @@ def posthog_overview(
         return cached
 
     days = _days_for_range(range_)
-    date_from = f"-{days}d"
 
     try:
-        # ── Pageviews timeseries ──────────────────────────────────────────────
+        # ── Pageviews timeseries (HogQL grouped by day) ───────────────────────
         ts_payload = {
             "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {"kind": "EventsNode", "event": "$pageview", "name": "Pageviews"},
-                ],
-                "dateRange": {"date_from": date_from},
-                "interval": "day",
+                "kind": "HogQLQuery",
+                "query": f"""
+                    SELECT
+                        toStartOfDay(timestamp) AS day,
+                        count() AS pageviews
+                    FROM events
+                    WHERE event = '$pageview'
+                        AND timestamp >= now() - INTERVAL {days} DAY
+                    GROUP BY day
+                    ORDER BY day ASC
+                """,
             }
         }
         ts_result = _ph_query(api_key, project_id, host, ts_payload)
         timeseries = []
-        if ts_result.get("results") and len(ts_result["results"]) > 0:
-            series = ts_result["results"][0]
-            labels = series.get("labels", [])
-            data = series.get("data", [])
-            timeseries = [{"date": labels[i], "pageviews": int(data[i])} for i in range(len(labels))]
+        for row in (ts_result.get("results") or []):
+            # row[0] is an ISO datetime string like "2024-01-15T00:00:00"
+            day_str = str(row[0])[:10] if row[0] else ""
+            timeseries.append({"date": day_str, "pageviews": int(row[1])})
 
-        # ── Summary stats ─────────────────────────────────────────────────────
+        # ── Summary stats (HogQL aggregation) ────────────────────────────────
         stats_payload = {
             "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {"kind": "EventsNode", "event": "$pageview", "name": "Pageviews"},
-                    {"kind": "EventsNode", "event": "$pageview", "name": "Sessions", "math": "unique_session"},
-                    {"kind": "EventsNode", "event": "$pageview", "name": "Users", "math": "dau"},
-                ],
-                "dateRange": {"date_from": date_from},
-                "interval": "day",
+                "kind": "HogQLQuery",
+                "query": f"""
+                    SELECT
+                        count() AS pageviews,
+                        count(DISTINCT properties.$session_id) AS sessions,
+                        count(DISTINCT person_id) AS users
+                    FROM events
+                    WHERE event = '$pageview'
+                        AND timestamp >= now() - INTERVAL {days} DAY
+                """,
             }
         }
         stats_result = _ph_query(api_key, project_id, host, stats_payload)
         total_pageviews = 0
         total_sessions = 0
         total_users = 0
-        if stats_result.get("results"):
-            for series in stats_result["results"]:
-                name = series.get("label", "")
-                total = sum(series.get("data", []))
-                if "Pageviews" in name and "Session" not in name and "User" not in name:
-                    total_pageviews = int(total)
-                elif "Sessions" in name:
-                    total_sessions = int(total)
-                elif "Users" in name:
-                    total_users = int(total)
+        rows = stats_result.get("results") or []
+        if rows:
+            row = rows[0]
+            total_pageviews = int(row[0]) if row[0] is not None else 0
+            total_sessions = int(row[1]) if row[1] is not None else 0
+            total_users = int(row[2]) if row[2] is not None else 0
 
         # ── Top Pages ─────────────────────────────────────────────────────────
         top_pages_payload = {
