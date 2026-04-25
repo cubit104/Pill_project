@@ -85,10 +85,25 @@ function OverviewTab({ range, onRangeChange }: { range: RangeOption; onRangeChan
         </div>
       ) : ga4?.configured === false ? (
         <NotConfiguredCard service="GA4" message={ga4.message} />
+      ) : sc?.configured === false ? (
+        <div className="space-y-4">
+          <NotConfiguredCard service="Search Console" message={sc.message} />
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <StatCard label={`Total Users (${range})`} value={ga4?.summary?.users ?? null} icon={<Users className="w-4 h-4" />} delay={0} />
+            <StatCard label={`Pageviews (${range})`} value={ga4?.summary?.pageviews ?? null} icon={<Eye className="w-4 h-4" />} delay={0.05} />
+            <StatCard
+              label="Critical SEO Issues"
+              value={healthData?.critical_count ?? null}
+              icon={<AlertTriangle className="w-4 h-4" />}
+              colorClass="from-white to-red-50"
+              delay={0.1}
+            />
+          </div>
+        </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          <StatCard label="Total Users (28d)" value={ga4?.summary?.users ?? null} icon={<Users className="w-4 h-4" />} delay={0} />
-          <StatCard label="Pageviews (28d)" value={ga4?.summary?.pageviews ?? null} icon={<Eye className="w-4 h-4" />} delay={0.05} />
+          <StatCard label={`Total Users (${range})`} value={ga4?.summary?.users ?? null} icon={<Users className="w-4 h-4" />} delay={0} />
+          <StatCard label={`Pageviews (${range})`} value={ga4?.summary?.pageviews ?? null} icon={<Eye className="w-4 h-4" />} delay={0.05} />
           <StatCard
             label="Avg. Google Position"
             value={sc?.summary?.position ?? null}
@@ -97,13 +112,13 @@ function OverviewTab({ range, onRangeChange }: { range: RangeOption; onRangeChan
             delay={0.1}
           />
           <StatCard
-            label="Clicks from Google (28d)"
+            label={`Clicks from Google (${range})`}
             value={sc?.summary?.clicks ?? null}
             icon={<MousePointerClick className="w-4 h-4" />}
             delay={0.15}
           />
           <StatCard
-            label="Pages with SEO Issues"
+            label="Critical SEO Issues"
             value={healthData?.critical_count ?? null}
             icon={<AlertTriangle className="w-4 h-4" />}
             colorClass="from-white to-red-50"

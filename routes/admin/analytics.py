@@ -72,7 +72,7 @@ def _get_search_console_credentials():
 
 @router.get("/ga4/overview")
 def ga4_overview(
-    range: str = Query("28d", regex="^(7d|28d|90d)$"),
+    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     property_id, creds_dict = _get_ga4_credentials()
@@ -249,7 +249,7 @@ def ga4_overview(
 
 @router.get("/search-console/overview")
 def search_console_overview(
-    range: str = Query("28d", regex="^(7d|28d|90d)$"),
+    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     site_url, creds_dict = _get_search_console_credentials()
@@ -549,7 +549,7 @@ def page_health(admin: dict = Depends(get_admin_user)):
                     "url": page_url,
                     "issue_type": "garbage_drug_name",
                     "severity": "critical",
-                    "message": f"Drug name looks like raw ingredient data: "{(medicine_name or '')[:80]}"",
+                    "message": f'Drug name looks like raw ingredient data: "{(medicine_name or "")[:80]}"',
                     "field": "medicine_name",
                     "current_value": medicine_name,
                 }

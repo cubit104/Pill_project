@@ -68,7 +68,7 @@ export default function PageHealthList({ issues, totalPages }: Props) {
   const columns = useMemo<ColumnDef<Issue>[]>(() => [
     {
       id: 'severity',
-      accessorFn: row => ({ critical: 0, warning: 1, info: 2 }[row.severity] ?? 3),
+      accessorFn: row => ({ critical: 2, warning: 1, info: 0 }[row.severity] ?? -1),
       header: 'Severity',
       cell: ({ row }) => {
         const s = row.original.severity
