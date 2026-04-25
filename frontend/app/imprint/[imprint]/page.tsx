@@ -54,8 +54,9 @@ export default async function ImprintHubPage(
   { params }: { params: Promise<{ imprint: string }> }
 ) {
   const { imprint } = await params
-  const displayImprint = unslugify(imprint).toUpperCase()
-  const pills = await fetchPillsByImprint(unslugify(imprint))
+  const searchTerm = unslugify(imprint)
+  const displayImprint = searchTerm.toUpperCase()
+  const pills = await fetchPillsByImprint(searchTerm)
 
   if (!displayImprint) notFound()
 
@@ -113,7 +114,7 @@ export default async function ImprintHubPage(
               The imprint may have a different format in our database. Try searching manually.
             </p>
             <Link
-              href={`/search?q=${encodeURIComponent(unslugify(imprint))}&type=imprint`}
+              href={`/search?q=${encodeURIComponent(searchTerm)}&type=imprint`}
               className="inline-block bg-sky-600 hover:bg-sky-700 text-white font-medium px-5 py-2 rounded-lg transition-colors text-sm"
             >
               Search for {displayImprint} →
