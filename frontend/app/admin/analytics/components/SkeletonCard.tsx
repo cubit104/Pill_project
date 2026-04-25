@@ -21,7 +21,7 @@ export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number; cols?: nu
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex gap-3">
           {Array.from({ length: cols }).map((_, j) => (
-            <div key={j} className={`h-4 flex-1 bg-gray-${i % 2 === 0 ? '100' : '50'} rounded`} />
+            <div key={j} className={`h-4 flex-1 rounded ${i % 2 === 0 ? 'bg-gray-100' : 'bg-gray-50'}`} />
           ))}
         </div>
       ))}

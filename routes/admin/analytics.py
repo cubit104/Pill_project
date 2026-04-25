@@ -467,7 +467,7 @@ def run_pagespeed(
 _GARBAGE_PATTERNS = [
     re.compile(r"inert\s+ingredients", re.IGNORECASE),
     re.compile(r"active\s+ingredients", re.IGNORECASE),
-    re.compile(r"^\d+\s+\w", re.IGNORECASE),  # starts with digit then word
+    re.compile(r"^\d+\s+\w+", re.IGNORECASE),  # starts with digit then word(s)
     re.compile(r";.*\d+", re.IGNORECASE),       # semicolons followed by counts
 ]
 _GARBAGE_LONG = 80  # names longer than this are likely garbage

@@ -274,19 +274,12 @@ function SeoTab({ range, onRangeChange }: { range: RangeOption; onRangeChange: (
 // Performance Tab
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PRESET_URLS = [
-  '/',
-  '/pill/[slug]',
-  '/drug/[name]',
-  '/color/[color]',
-]
-
 function PerformanceTab() {
-  const siteUrl = typeof window !== 'undefined'
-    ? (process.env.NEXT_PUBLIC_SITE_URL || window.location.origin)
-    : 'https://pillseek.com'
+  const defaultUrl =
+    (typeof window !== 'undefined' && (process.env.NEXT_PUBLIC_SITE_URL || window.location.origin)) ||
+    'https://pillseek.com'
 
-  const [url, setUrl] = useState('https://pillseek.com')
+  const [url, setUrl] = useState(defaultUrl)
   const [strategy, setStrategy] = useState<'mobile' | 'desktop'>('mobile')
   const [results, setResults] = useState<any[]>([])
   const { result, loading, error, run } = usePageSpeed()
