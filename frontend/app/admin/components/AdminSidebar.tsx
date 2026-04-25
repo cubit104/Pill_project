@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, Users, Settings, ImageOff, Layers } from 'lucide-react'
+import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, Users, Settings, ImageOff, Layers, BarChart2 } from 'lucide-react'
 import { createClient } from '../lib/supabase'
 
 const baseNavItems = [
@@ -13,6 +13,7 @@ const baseNavItems = [
   { href: '/admin/drafts', label: 'Drafts', icon: FileEdit },
   { href: '/admin/trash', label: 'Trash', icon: Trash2 },
   { href: '/admin/audit', label: 'Audit Log', icon: ScrollText },
+  { href: '/admin/analytics', label: 'Analytics & SEO', icon: BarChart2 },
 ]
 
 const superuserNavItems = [
