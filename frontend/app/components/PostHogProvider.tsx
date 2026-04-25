@@ -18,7 +18,7 @@ function PostHogPageview() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   useEffect(() => {
-    if (!pathname) return
+    if (!pathname || !process.env.NEXT_PUBLIC_POSTHOG_KEY) return
     let url = window.origin + pathname
     const qs = searchParams?.toString()
     if (qs) url += `?${qs}`
