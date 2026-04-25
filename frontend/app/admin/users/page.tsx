@@ -16,13 +16,13 @@ interface AdminUser {
   last_login_at: string | null
 }
 
-const ROLES = ['superadmin', 'editor', 'reviewer', 'readonly']
+const ROLES = ['superuser', 'editor', 'reviewer']
 
 const ROLE_COLORS: Record<string, string> = {
-  superadmin: 'bg-red-100 text-red-700',
+  superuser: 'bg-red-100 text-red-700',
+  superadmin: 'bg-red-100 text-red-700', // legacy alias, normalised to superuser by backend
   editor: 'bg-blue-100 text-blue-700',
   reviewer: 'bg-purple-100 text-purple-700',
-  readonly: 'bg-gray-100 text-gray-600',
 }
 
 export default function AdminUsersPage() {
@@ -58,7 +58,7 @@ export default function AdminUsersPage() {
       ])
       if (meRes.ok) setMe(await meRes.json())
       if (usersRes.ok) setUsers(await usersRes.json())
-      else if (usersRes.status === 403) setError('Requires superadmin role')
+      else if (usersRes.status === 403) setError('Requires superuser role')
     } catch (e) {
       setError(String(e))
     } finally {
@@ -125,7 +125,7 @@ export default function AdminUsersPage() {
     }
   }
 
-  const isSuperAdmin = me?.role === 'superadmin'
+  const isSuperAdmin = me?.role === 'superuser' || me?.role === 'superadmin'
 
   return (
     <div className="space-y-6">

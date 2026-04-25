@@ -32,7 +32,11 @@ def _not_configured() -> dict:
 
 
 def _get_posthog_config():
-    """Return (project_api_key, project_id, host) or (None, None, None)."""
+    """Return (project_api_key, project_id, host) or (None, None, None).
+
+    Prefers POSTHOG_PROJECT_API_KEY (the recommended env var); falls back to
+    POSTHOG_PERSONAL_API_KEY for backward compatibility with older deployments.
+    """
     key = os.getenv("POSTHOG_PROJECT_API_KEY") or os.getenv("POSTHOG_PERSONAL_API_KEY")
     project_id = os.getenv("POSTHOG_PROJECT_ID", "396739")
     host = os.getenv("POSTHOG_HOST", "https://us.posthog.com").rstrip("/")
