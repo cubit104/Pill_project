@@ -281,3 +281,140 @@ class TestPageHealth:
         data = self._get(client, []).json()
         assert data["total_issues"] == 0
         assert data["total_pages_checked"] == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PostHog Overview — response shape and no-events edge case
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _make_ph_query_side_effect(ts_rows, stats_rows, extra_rows=None):
+    """Return a side_effect function for patching routes.admin.posthog._ph_query.
+
+    Dispatches based on the 'kind' and 'query' content of the payload:
+    - timeseries query  → ts_rows
+    - stats query       → stats_rows
+    - everything else   → extra_rows (default: empty results)
+    """
+    default_rows = extra_rows if extra_rows is not None else []
+
+    def _side_effect(api_key, project_id, host, payload):
+        q = payload.get("query", {})
+        sql = q.get("query", "")
+        if "toStartOfDay" in sql:
+            return {"results": ts_rows}
+        if "count(DISTINCT properties.$session_id)" in sql:
+            return {"results": stats_rows}
+        # Top pages / events / referrers / countries / devices
+        return {"results": default_rows}
+
+    return _side_effect
+
+
+class TestPostHogOverview:
+    """Tests for GET /api/admin/analytics/posthog/overview."""
+
+    _PATH = "/api/admin/analytics/posthog/overview"
+
+    def _get(self, client, range_param, ph_query_side_effect):
+        import database as db_module
+        import routes.admin.posthog as ph_module
+
+        db_module.db_engine = _make_auth_engine()
+        # Each test uses a unique range label to avoid hitting the module-level cache.
+        env = {"POSTHOG_PERSONAL_API_KEY": "phx_fake_key"}
+        # Clear any cached entry that might exist from a previous run.
+        with ph_module._CACHE_LOCK:
+            ph_module._CACHE.clear()
+
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch("routes.admin.posthog._ph_query", side_effect=ph_query_side_effect), \
+             patch.dict(os.environ, env, clear=False):
+            return client.get(f"{self._PATH}?range={range_param}", headers=AUTH_HEADERS)
+
+    # ── Not-configured ────────────────────────────────────────────────────────
+
+    def test_not_configured_returns_200(self, client):
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch.dict(os.environ, {"POSTHOG_PERSONAL_API_KEY": ""}, clear=False):
+            resp = client.get(self._PATH, headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+
+    def test_not_configured_flag(self, client):
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch.dict(os.environ, {"POSTHOG_PERSONAL_API_KEY": ""}, clear=False):
+            data = client.get(self._PATH, headers=AUTH_HEADERS).json()
+        assert data["configured"] is False
+
+    # ── Happy path — real data ────────────────────────────────────────────────
+
+    def test_happy_path_summary_values(self, client):
+        side_effect = _make_ph_query_side_effect(
+            ts_rows=[["2025-01-10T00:00:00", 5], ["2025-01-11T00:00:00", 3]],
+            stats_rows=[[10, 4, 3]],
+        )
+        data = self._get(client, "7d", side_effect).json()
+        assert data["summary"]["pageviews"] == 10
+        assert data["summary"]["sessions"] == 4
+        assert data["summary"]["users"] == 3
+
+    def test_happy_path_timeseries_length(self, client):
+        """Timeseries must always contain exactly `days` entries (day-filled scaffold)."""
+        side_effect = _make_ph_query_side_effect(
+            ts_rows=[["2025-01-10T00:00:00", 5]],
+            stats_rows=[[5, 2, 2]],
+        )
+        data = self._get(client, "7d", side_effect).json()
+        assert len(data["timeseries"]) == 7
+
+    def test_happy_path_timeseries_shape(self, client):
+        side_effect = _make_ph_query_side_effect(
+            ts_rows=[["2025-01-10T00:00:00", 5]],
+            stats_rows=[[5, 2, 2]],
+        )
+        data = self._get(client, "7d", side_effect).json()
+        for point in data["timeseries"]:
+            assert "date" in point
+            assert "pageviews" in point
+            assert isinstance(point["pageviews"], int)
+
+    def test_happy_path_configured_true(self, client):
+        side_effect = _make_ph_query_side_effect(ts_rows=[], stats_rows=[[0, 0, 0]])
+        data = self._get(client, "7d", side_effect).json()
+        assert data["configured"] is True
+
+    def test_happy_path_required_keys(self, client):
+        side_effect = _make_ph_query_side_effect(ts_rows=[], stats_rows=[[0, 0, 0]])
+        data = self._get(client, "7d", side_effect).json()
+        for key in ("summary", "timeseries", "top_pages", "top_events", "top_referrers", "countries", "devices"):
+            assert key in data, f"Missing key: {key}"
+
+    # ── No-events edge case ───────────────────────────────────────────────────
+
+    def test_no_events_summary_zeros(self, client):
+        """When PostHog returns no rows, summary counts must all be 0."""
+        side_effect = _make_ph_query_side_effect(ts_rows=[], stats_rows=[])
+        data = self._get(client, "7d", side_effect).json()
+        assert data["summary"]["pageviews"] == 0
+        assert data["summary"]["sessions"] == 0
+        assert data["summary"]["users"] == 0
+
+    def test_no_events_timeseries_filled_with_zeros(self, client):
+        """When there are no events, the timeseries must still have `days` zero entries."""
+        side_effect = _make_ph_query_side_effect(ts_rows=[], stats_rows=[])
+        data = self._get(client, "7d", side_effect).json()
+        assert len(data["timeseries"]) == 7
+        assert all(p["pageviews"] == 0 for p in data["timeseries"])
+
+    def test_no_events_timeseries_28d_length(self, client):
+        side_effect = _make_ph_query_side_effect(ts_rows=[], stats_rows=[])
+        data = self._get(client, "28d", side_effect).json()
+        assert len(data["timeseries"]) == 28
+
+    def test_no_events_timeseries_90d_length(self, client):
+        side_effect = _make_ph_query_side_effect(ts_rows=[], stats_rows=[])
+        data = self._get(client, "90d", side_effect).json()
+        assert len(data["timeseries"]) == 90
