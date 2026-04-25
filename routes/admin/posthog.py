@@ -292,11 +292,48 @@ def posthog_overview(
 # Funnel Endpoint
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Single source of truth for the core user-journey funnel steps.
+# Each entry maps directly to a FunnelsQuery series node.
 DEFAULT_FUNNEL_STEPS = [
-    {"event": "$pageview", "url": "/", "name": "Landing (Home)"},
-    {"event": "$pageview", "url": "/search", "name": "Engagement (Search or Pill)"},
-    {"event": "$pageview", "url": "/drug/", "name": "Deep Engagement (Drug Page)"},
+    {
+        "name": "Landing (Home)",
+        "property_key": "$pathname",
+        "operator": "exact",
+        "value": "/",
+    },
+    {
+        "name": "Engagement (Search or Pill)",
+        "property_key": "$pathname",
+        "operator": "regex",
+        "value": "^(/search|/pill/)",
+    },
+    {
+        "name": "Deep Engagement (Drug Page)",
+        "property_key": "$pathname",
+        "operator": "icontains",
+        "value": "/drug/",
+    },
 ]
+
+
+def _build_funnel_series(steps: list) -> list:
+    """Convert DEFAULT_FUNNEL_STEPS into FunnelsQuery series nodes."""
+    return [
+        {
+            "kind": "EventsNode",
+            "event": "$pageview",
+            "name": step["name"],
+            "properties": [
+                {
+                    "key": step["property_key"],
+                    "operator": step["operator"],
+                    "value": step["value"],
+                    "type": "event",
+                }
+            ],
+        }
+        for step in steps
+    ]
 
 
 @router.get("/funnel")
@@ -321,47 +358,7 @@ def posthog_funnel(
         funnel_payload = {
             "query": {
                 "kind": "FunnelsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                        "name": "Landing (Home)",
-                        "properties": [
-                            {
-                                "key": "$pathname",
-                                "operator": "exact",
-                                "value": "/",
-                                "type": "event",
-                            }
-                        ],
-                    },
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                        "name": "Engagement (Search or Pill)",
-                        "properties": [
-                            {
-                                "key": "$pathname",
-                                "operator": "regex",
-                                "value": "^(/search|/pill/)",
-                                "type": "event",
-                            }
-                        ],
-                    },
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                        "name": "Deep Engagement (Drug Page)",
-                        "properties": [
-                            {
-                                "key": "$pathname",
-                                "operator": "icontains",
-                                "value": "/drug/",
-                                "type": "event",
-                            }
-                        ],
-                    },
-                ],
+                "series": _build_funnel_series(DEFAULT_FUNNEL_STEPS),
                 "dateRange": {"date_from": date_from},
                 "funnelsFilter": {
                     "funnelWindowInterval": 14,
@@ -449,9 +446,12 @@ def posthog_replays(
 # Retention Endpoint
 # ─────────────────────────────────────────────────────────────────────────────
 
+_MAX_RETENTION_WEEKS = 52
+
+
 @router.get("/retention")
 def posthog_retention(
-    range: str = Query("12w"),
+    range: str = Query("12w", pattern=r"^\d+w$"),
     admin: dict = Depends(get_admin_user),
 ):
     """Weekly retention cohort grid."""
@@ -459,15 +459,22 @@ def posthog_retention(
     if not api_key:
         return _not_configured()
 
-    cache_key = f"ph_retention_{range}"
+    # Cap weeks to prevent unbounded queries/cache growth
+    try:
+        weeks = int(range.rstrip("w"))
+    except ValueError:
+        weeks = 12
+    weeks = min(weeks, _MAX_RETENTION_WEEKS)
+    safe_range = f"{weeks}w"
+
+    cache_key = f"ph_retention_{safe_range}"
     cached = _cache_get(cache_key)
     if cached:
         return cached
 
-    try:
-        weeks = int(range.rstrip("w")) if range.endswith("w") else 12
-        date_from = f"-{weeks}w"
+    date_from = f"-{weeks}w"
 
+    try:
         retention_payload = {
             "query": {
                 "kind": "RetentionQuery",
@@ -500,7 +507,7 @@ def posthog_retention(
                 ],
             })
 
-        out = {"configured": True, "range": range, "cohorts": cohorts}
+        out = {"configured": True, "range": safe_range, "cohorts": cohorts}
         _cache_set(cache_key, out)
         return out
 

@@ -21,7 +21,6 @@ import {
   ExternalLink,
   FlaskConical,
   Video,
-  ArrowRight,
   Timer,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -34,9 +33,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
-  Cell,
 } from 'recharts'
 
 import StatCard from './components/StatCard'
