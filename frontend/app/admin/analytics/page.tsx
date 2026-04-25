@@ -544,10 +544,10 @@ function VercelTab() {
             </p>
             <ul className="space-y-1 list-disc list-inside">
               <li>Largest Contentful Paint (LCP)</li>
-              <li>First Input Delay (FID)</li>
               <li>Cumulative Layout Shift (CLS)</li>
-              <li>First Contentful Paint (FCP)</li>
               <li>Interaction to Next Paint (INP)</li>
+              <li>First Contentful Paint (FCP)</li>
+              <li>Time to First Byte (TTFB)</li>
             </ul>
           </div>
         </div>

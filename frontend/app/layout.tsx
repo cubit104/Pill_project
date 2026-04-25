@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
-import { Analytics } from '@vercel/analytics/react'
-import { SpeedInsights } from '@vercel/speed-insights/next'
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
@@ -62,8 +60,6 @@ export default function RootLayout({
       </head>
       <body className="bg-slate-50 text-slate-900 antialiased min-h-screen flex flex-col font-sans">
         {children}
-        <Analytics />
-        <SpeedInsights />
       </body>
     </html>
   )
