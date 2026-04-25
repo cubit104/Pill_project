@@ -70,6 +70,22 @@ export function usePageHealth() {
   return useFetch<any>('/api/admin/analytics/page-health')
 }
 
+export function usePostHogOverview(range: RangeOption) {
+  return useFetch<any>(`/api/admin/analytics/posthog/overview?range=${range}`)
+}
+
+export function usePostHogFunnel(range: RangeOption) {
+  return useFetch<any>(`/api/admin/analytics/posthog/funnel?range=${range}`)
+}
+
+export function usePostHogReplays(limit = 10) {
+  return useFetch<any>(`/api/admin/analytics/posthog/replays?limit=${limit}`)
+}
+
+export function usePostHogRetention(range = '12w') {
+  return useFetch<any>(`/api/admin/analytics/posthog/retention?range=${range}`)
+}
+
 export function usePageSpeed() {
   const [result, setResult] = useState<any | null>(null)
   const [loading, setLoading] = useState(false)
