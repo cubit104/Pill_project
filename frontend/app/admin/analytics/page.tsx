@@ -745,7 +745,7 @@ function PostHogReplaysCard() {
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-medium text-gray-800 truncate">{replay.start_url || '(unknown)'}</p>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    {startDate} · <Timer className="w-3 h-3 inline" /> {durationStr}
+                    {startDate} · <Timer className="w-3 h-3 inline" aria-hidden="true" /> {durationStr}
                     {replay.click_count > 0 && ` · ${replay.click_count} clicks`}
                   </p>
                 </div>

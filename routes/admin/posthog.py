@@ -1,8 +1,8 @@
 """Admin analytics endpoints — PostHog product analytics, funnels, replays, retention."""
 import logging
 import os
+import threading
 import time
-from functools import lru_cache
 from typing import Optional
 
 import requests
@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/admin/analytics/posthog", tags=["admin-analytics
 
 RANGE_DAYS = {"7d": 7, "28d": 28, "90d": 90}
 _CACHE: dict = {}
+_CACHE_LOCK = threading.Lock()
 CACHE_TTL = 300  # 5 minutes
 
 
@@ -41,14 +42,16 @@ def _get_posthog_config():
 
 
 def _cache_get(cache_key: str):
-    entry = _CACHE.get(cache_key)
+    with _CACHE_LOCK:
+        entry = _CACHE.get(cache_key)
     if entry and (time.time() - entry["ts"] < CACHE_TTL):
         return entry["data"]
     return None
 
 
 def _cache_set(cache_key: str, data):
-    _CACHE[cache_key] = {"ts": time.time(), "data": data}
+    with _CACHE_LOCK:
+        _CACHE[cache_key] = {"ts": time.time(), "data": data}
 
 
 def _ph_query(api_key: str, project_id: str, host: str, payload: dict) -> dict:
@@ -282,7 +285,7 @@ def posthog_overview(
 
     except Exception as exc:
         logger.error("PostHog overview error: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": "Failed to fetch PostHog overview data. Check server logs for details."}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -391,7 +394,7 @@ def posthog_funnel(
 
     except Exception as exc:
         logger.error("PostHog funnel error: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": "Failed to fetch PostHog funnel data. Check server logs for details."}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -439,7 +442,7 @@ def posthog_replays(
 
     except Exception as exc:
         logger.error("PostHog replays error: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": "Failed to fetch PostHog replays. Check server logs for details."}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -482,18 +485,18 @@ def posthog_retention(
 
         cohorts = []
         for row in result.get("result", []):
+            values_list = row.get("values", [])
+            cohort_size = values_list[0].get("count", 0) if values_list else 0
             cohorts.append({
                 "date": row.get("date"),
-                "cohort_size": row.get("values", [{}])[0].get("count", 0) if row.get("values") else 0,
+                "cohort_size": cohort_size,
                 "values": [
                     {
                         "period": v.get("label", f"Week {i}"),
                         "count": v.get("count", 0),
-                        "percentage": round(
-                            v.get("count", 0) / row["values"][0]["count"] * 100, 1
-                        ) if row.get("values") and row["values"][0].get("count") else 0,
+                        "percentage": round(v.get("count", 0) / cohort_size * 100, 1) if cohort_size > 0 else 0,
                     }
-                    for i, v in enumerate(row.get("values", []))
+                    for i, v in enumerate(values_list)
                 ],
             })
 
@@ -503,4 +506,4 @@ def posthog_retention(
 
     except Exception as exc:
         logger.error("PostHog retention error: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": "Failed to fetch PostHog retention data. Check server logs for details."}
