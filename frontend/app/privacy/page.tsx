@@ -15,7 +15,7 @@ export default function PrivacyPage() {
     { name: 'Privacy Policy', url: '/privacy' },
   ])
 
-  const lastUpdated = 'April 2025'
+  const lastUpdated = 'April 25, 2025'
 
   return (
     <>
@@ -65,6 +65,14 @@ export default function PrivacyPage() {
                 drug names, etc.) to return results. We do not store these queries linked to any
                 personal identifier.</span>
               </li>
+              <li className="flex gap-2">
+                <span className="text-sky-600 shrink-0">•</span>
+                <span><strong>Analytics:</strong> We use PostHog and Vercel Analytics to measure
+                aggregate page views, traffic sources, and performance. PostHog stores a randomly
+                generated anonymous identifier in your browser to count unique visitors. We do not
+                enable session replay, do not collect search queries linked to that identifier, and
+                do not sell or share this data.</span>
+              </li>
             </ul>
           </section>
 
@@ -80,10 +88,16 @@ export default function PrivacyPage() {
 
           <section className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-800 mb-3">4. Cookies</h2>
-            <p className="text-slate-700 text-sm leading-relaxed">
+            <p className="text-slate-700 text-sm leading-relaxed mb-3">
               PillSeek uses only essential session cookies required for the Service to function.
-              We do not use tracking cookies, advertising cookies, or third-party analytics cookies
-              that identify you personally.
+              We do not use advertising cookies or third-party cookies that identify you personally.
+            </p>
+            <p className="text-slate-700 text-sm leading-relaxed">
+              <strong>Analytics:</strong> We use PostHog and Vercel Analytics to measure aggregate
+              page views, traffic sources, and performance. PostHog stores a randomly generated
+              anonymous identifier in your browser to count unique visitors. We do not enable
+              session replay, do not collect search queries linked to that identifier, and do not
+              sell or share this data.
             </p>
           </section>
 
