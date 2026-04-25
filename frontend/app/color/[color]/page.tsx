@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import PillCard from '../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../lib/structured-data'
+import { slugify, unslugify } from '../../lib/slugify'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -36,15 +37,15 @@ export async function generateMetadata(
   { params }: { params: Promise<{ color: string }> }
 ): Promise<Metadata> {
   const { color } = await params
-  const displayColor = toTitleCase(decodeURIComponent(color))
+  const displayColor = toTitleCase(unslugify(color))
   const title = `${displayColor} Pills — Identify ${displayColor} Medications`
   const description = `Browse and identify ${displayColor.toLowerCase()} pills by imprint, shape, and drug name. Free pill identifier powered by FDA data.`.slice(0, 155)
 
   return {
     title,
     description,
-    alternates: { canonical: `/color/${encodeURIComponent(color)}` },
-    openGraph: { title, description, url: `${SITE_URL}/color/${encodeURIComponent(color)}` },
+    alternates: { canonical: `/color/${color}` },
+    openGraph: { title, description, url: `${SITE_URL}/color/${color}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
@@ -53,20 +54,20 @@ export default async function ColorHubPage(
   { params }: { params: Promise<{ color: string }> }
 ) {
   const { color } = await params
-  const displayColor = toTitleCase(decodeURIComponent(color))
-  const pills = await fetchPillsByColor(decodeURIComponent(color))
+  const displayColor = toTitleCase(unslugify(color))
+  const pills = await fetchPillsByColor(unslugify(color))
 
   if (!displayColor) notFound()
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: `${displayColor} Pills`, url: `/color/${encodeURIComponent(color)}` },
+    { name: `${displayColor} Pills`, url: `/color/${color}` },
   ])
 
   const hubJson = hubPageSchema({
     name: `${displayColor} Pills`,
     description: `Browse ${displayColor.toLowerCase()} pills identified by imprint, shape, and drug name using FDA data.`,
-    url: `/color/${encodeURIComponent(color)}`,
+    url: `/color/${color}`,
     dateModified: new Date().toISOString(),
   })
 
@@ -111,7 +112,7 @@ export default async function ColorHubPage(
             {relatedColors.map((c) => (
               <Link
                 key={c}
-                href={`/color/${encodeURIComponent(c)}`}
+                href={`/color/${slugify(c)}`}
                 className="text-sm bg-slate-100 text-slate-600 px-3 py-1.5 rounded-full border border-slate-200 hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 transition-colors"
               >
                 {toTitleCase(c)} Pills
@@ -156,7 +157,7 @@ export default async function ColorHubPage(
             {['round', 'oval', 'capsule', 'rectangle', 'square', 'triangle'].map((shape) => (
               <Link
                 key={shape}
-                href={`/shape/${encodeURIComponent(shape)}`}
+                href={`/shape/${slugify(shape)}`}
                 className="text-sm bg-white text-sky-700 px-3 py-1.5 rounded-full border border-sky-200 hover:bg-sky-100 transition-colors"
               >
                 {toTitleCase(shape)}

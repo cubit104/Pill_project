@@ -10,6 +10,7 @@ import {
   safeJsonLd,
 } from '../../lib/structured-data'
 import { DEFAULT_REVIEWER } from '../../lib/reviewers'
+import { slugify } from '../../lib/slugify'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -220,7 +221,7 @@ export default async function PillDetailPage(
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
     ...(pill.drug_name && pill.drug_name !== 'Unknown'
-      ? [{ name: pill.drug_name, url: `/drug/${encodeURIComponent(pill.drug_name.toLowerCase())}` }]
+      ? [{ name: pill.drug_name, url: `/drug/${slugify(pill.drug_name)}` }]
       : []),
     { name: pill.drug_name ?? slug, url: `/pill/${encodeURIComponent(slug)}` },
   ])

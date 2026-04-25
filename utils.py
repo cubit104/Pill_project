@@ -1,5 +1,6 @@
 import os
 import re
+import unicodedata
 import logging
 from functools import lru_cache
 from typing import List, Dict, Any
@@ -138,6 +139,16 @@ def get_unique_key(item: Dict) -> tuple:
         str(item.get("splshape_text", "")).lower().strip(),
         str(item.get("rxcui", "")).strip()
     )
+
+
+def slugify(value: str) -> str:
+    """Convert a string to a URL-safe slug (lowercase, hyphens only, no special chars)."""
+    if not value:
+        return ""
+    value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    value = value.lower()
+    value = re.sub(r"[^a-z0-9]+", "-", value)
+    return value.strip("-")
 
 
 def generate_slug(medicine_name: str, spl_strength: str) -> str:

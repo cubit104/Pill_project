@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import PillCard from '../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../lib/structured-data'
+import { unslugify } from '../../lib/slugify'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -35,15 +36,15 @@ export async function generateMetadata(
   { params }: { params: Promise<{ name: string }> }
 ): Promise<Metadata> {
   const { name } = await params
-  const displayName = toTitleCase(decodeURIComponent(name))
+  const displayName = toTitleCase(unslugify(name))
   const title = `${displayName} Pills — Identify ${displayName} by Imprint, Color & Shape`
   const description = `Look up ${displayName} pills by imprint code, color, and shape. Find all ${displayName} medications in our FDA-powered pill identifier.`.slice(0, 155)
 
   return {
     title,
     description,
-    alternates: { canonical: `/drug/${encodeURIComponent(name)}` },
-    openGraph: { title, description, url: `${SITE_URL}/drug/${encodeURIComponent(name)}` },
+    alternates: { canonical: `/drug/${name}` },
+    openGraph: { title, description, url: `${SITE_URL}/drug/${name}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
@@ -52,20 +53,20 @@ export default async function DrugHubPage(
   { params }: { params: Promise<{ name: string }> }
 ) {
   const { name } = await params
-  const displayName = toTitleCase(decodeURIComponent(name))
-  const pills = await fetchPillsByDrug(decodeURIComponent(name))
+  const displayName = toTitleCase(unslugify(name))
+  const pills = await fetchPillsByDrug(unslugify(name))
 
   if (!displayName) notFound()
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: displayName, url: `/drug/${encodeURIComponent(name)}` },
+    { name: displayName, url: `/drug/${name}` },
   ])
 
   const hubJson = hubPageSchema({
     name: `${displayName} Pill Identification`,
     description: `Browse all ${displayName} pills and identify them by imprint, color, and shape using FDA NDC data.`,
-    url: `/drug/${encodeURIComponent(name)}`,
+    url: `/drug/${name}`,
     dateModified: new Date().toISOString(),
   })
 

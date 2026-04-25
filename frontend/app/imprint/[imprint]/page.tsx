@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import PillCard from '../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../lib/structured-data'
+import { unslugify } from '../../lib/slugify'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -32,18 +33,18 @@ export async function generateMetadata(
   { params }: { params: Promise<{ imprint: string }> }
 ): Promise<Metadata> {
   const { imprint } = await params
-  const displayImprint = decodeURIComponent(imprint).toUpperCase()
+  const displayImprint = unslugify(imprint).toUpperCase()
   const title = `Imprint ${displayImprint} Pill — Identify Pill With Imprint ${displayImprint}`
   const description = `Identify the pill with imprint ${displayImprint}. View drug name, color, shape, strength, and full medication details. FDA-powered pill identifier.`.slice(0, 155)
 
   return {
     title,
     description,
-    alternates: { canonical: `/imprint/${encodeURIComponent(imprint)}` },
+    alternates: { canonical: `/imprint/${imprint}` },
     openGraph: {
       title,
       description,
-      url: `${SITE_URL}/imprint/${encodeURIComponent(imprint)}`,
+      url: `${SITE_URL}/imprint/${imprint}`,
     },
     twitter: { card: 'summary_large_image', title, description },
   }
@@ -53,20 +54,20 @@ export default async function ImprintHubPage(
   { params }: { params: Promise<{ imprint: string }> }
 ) {
   const { imprint } = await params
-  const displayImprint = decodeURIComponent(imprint).toUpperCase()
-  const pills = await fetchPillsByImprint(decodeURIComponent(imprint))
+  const displayImprint = unslugify(imprint).toUpperCase()
+  const pills = await fetchPillsByImprint(unslugify(imprint))
 
   if (!displayImprint) notFound()
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: `Imprint ${displayImprint}`, url: `/imprint/${encodeURIComponent(imprint)}` },
+    { name: `Imprint ${displayImprint}`, url: `/imprint/${imprint}` },
   ])
 
   const hubJson = hubPageSchema({
     name: `Pill With Imprint ${displayImprint}`,
     description: `Identify the pill with imprint code ${displayImprint}. View drug name, color, shape, and strength from the FDA database.`,
-    url: `/imprint/${encodeURIComponent(imprint)}`,
+    url: `/imprint/${imprint}`,
   })
 
   return (
@@ -112,7 +113,7 @@ export default async function ImprintHubPage(
               The imprint may have a different format in our database. Try searching manually.
             </p>
             <Link
-              href={`/search?q=${encodeURIComponent(imprint)}&type=imprint`}
+              href={`/search?q=${encodeURIComponent(unslugify(imprint))}&type=imprint`}
               className="inline-block bg-sky-600 hover:bg-sky-700 text-white font-medium px-5 py-2 rounded-lg transition-colors text-sm"
             >
               Search for {displayImprint} →

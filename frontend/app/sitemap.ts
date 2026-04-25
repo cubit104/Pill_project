@@ -44,9 +44,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ]
 
   try {
-    const [slugRes, classRes] = await Promise.all([
+    const [slugRes, classRes, hubRes] = await Promise.all([
       fetch(`${API_BASE}/api/slugs`, { next: { revalidate: 86400 } }),
       fetch(`${API_BASE}/api/classes`, { next: { revalidate: 86400 } }),
+      fetch(`${API_BASE}/api/hub-slugs`, { next: { revalidate: 86400 } }),
     ])
 
     if (!slugRes.ok) {
@@ -67,6 +68,20 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       classes = await classRes.json()
     }
 
+    let hubSlugs: { drugs: string[]; colors: string[]; shapes: string[]; imprints: string[] } = {
+      drugs: [],
+      colors: [],
+      shapes: [],
+      imprints: [],
+    }
+    if (!hubRes.ok) {
+      console.error(
+        `[sitemap] Failed to fetch hub slugs from backend: ${hubRes.status} ${hubRes.statusText}`
+      )
+    } else {
+      hubSlugs = await hubRes.json()
+    }
+
     const pillPages: MetadataRoute.Sitemap = slugs.map((slug) => ({
       url: `${SITE_URL}/pill/${encodeURIComponent(slug)}`,
       changeFrequency: 'monthly',
@@ -79,7 +94,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.6,
     }))
 
-    return [...staticPages, ...pillPages, ...classPages]
+    const hubPages: MetadataRoute.Sitemap = [
+      ...hubSlugs.drugs.map((s) => ({
+        url: `${SITE_URL}/drug/${s}`,
+        changeFrequency: 'weekly' as const,
+        priority: 0.7,
+      })),
+      ...hubSlugs.colors.map((s) => ({
+        url: `${SITE_URL}/color/${s}`,
+        changeFrequency: 'weekly' as const,
+        priority: 0.7,
+      })),
+      ...hubSlugs.shapes.map((s) => ({
+        url: `${SITE_URL}/shape/${s}`,
+        changeFrequency: 'weekly' as const,
+        priority: 0.7,
+      })),
+      ...hubSlugs.imprints.map((s) => ({
+        url: `${SITE_URL}/imprint/${s}`,
+        changeFrequency: 'weekly' as const,
+        priority: 0.7,
+      })),
+    ]
+
+    return [...staticPages, ...pillPages, ...classPages, ...hubPages]
   } catch (err) {
     // Return static pages only if endpoints are unavailable
     console.error('[sitemap] Failed to fetch data from backend:', err)
