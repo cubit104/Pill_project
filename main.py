@@ -77,6 +77,7 @@ from routes.admin import pills as admin_pills, drafts as admin_drafts, images as
 from routes.admin import audit as admin_audit, users as admin_users, stats as admin_stats  # noqa: E402
 from routes.admin import duplicates as admin_duplicates  # noqa: E402
 from routes.admin import backfill as admin_backfill  # noqa: E402
+from routes.admin import analytics as admin_analytics  # noqa: E402
 
 app.include_router(search.router)
 app.include_router(details.router)
@@ -94,6 +95,7 @@ app.include_router(admin_users.router)
 app.include_router(admin_stats.router)
 app.include_router(admin_duplicates.router)
 app.include_router(admin_backfill.router)
+app.include_router(admin_analytics.router)
 
 
 def regenerate_slugs():
