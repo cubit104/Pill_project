@@ -17,6 +17,8 @@ import {
   Monitor,
   RefreshCw,
   Play,
+  Activity,
+  ExternalLink,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../lib/supabase'
@@ -53,6 +55,7 @@ const TABS = [
   { id: 'seo', label: 'SEO', icon: Search },
   { id: 'performance', label: 'Performance', icon: Zap },
   { id: 'page-health', label: 'Page Health', icon: ShieldCheck },
+  { id: 'vercel', label: 'Vercel', icon: Activity },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
@@ -438,6 +441,128 @@ function PageHealthTab() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Vercel Tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+function VercelTab() {
+  const vercelUrl = process.env.NEXT_PUBLIC_VERCEL_PROJECT_URL
+    ? `https://vercel.com/${process.env.NEXT_PUBLIC_VERCEL_PROJECT_URL}/analytics`
+    : 'https://vercel.com/dashboard'
+
+  const speedInsightsUrl = process.env.NEXT_PUBLIC_VERCEL_PROJECT_URL
+    ? `https://vercel.com/${process.env.NEXT_PUBLIC_VERCEL_PROJECT_URL}/speed-insights`
+    : 'https://vercel.com/dashboard'
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-sm font-semibold text-gray-700">Vercel Web Analytics &amp; Speed Insights</h2>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Real-user traffic and performance data collected by the Vercel platform.
+        </p>
+      </div>
+
+      {/* Status card */}
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+            <Activity className="w-5 h-5 text-emerald-700" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-emerald-800 text-sm">Integration active</h3>
+            <p className="text-xs text-emerald-600 mt-0.5">
+              <code className="font-mono">@vercel/analytics</code> and{' '}
+              <code className="font-mono">@vercel/speed-insights</code> are injected into every public page.
+            </p>
+          </div>
+        </div>
+
+        <p className="text-xs text-emerald-700">
+          Data is collected automatically on every page visit. No additional configuration is required.
+          View detailed reports in the Vercel dashboard using the links below.
+        </p>
+      </div>
+
+      {/* Quick-access links */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <a
+          href={vercelUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-between bg-white rounded-xl border border-gray-100 shadow-sm p-5 hover:border-emerald-300 hover:shadow-md transition-all group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-black flex items-center justify-center">
+              <Globe className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-800">Web Analytics</p>
+              <p className="text-xs text-gray-400">Page views, visitors, referrers</p>
+            </div>
+          </div>
+          <ExternalLink className="w-4 h-4 text-gray-300 group-hover:text-emerald-500 transition-colors" />
+        </a>
+
+        <a
+          href={speedInsightsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-between bg-white rounded-xl border border-gray-100 shadow-sm p-5 hover:border-emerald-300 hover:shadow-md transition-all group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-black flex items-center justify-center">
+              <Zap className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-800">Speed Insights</p>
+              <p className="text-xs text-gray-400">Real-user Core Web Vitals</p>
+            </div>
+          </div>
+          <ExternalLink className="w-4 h-4 text-gray-300 group-hover:text-emerald-500 transition-colors" />
+        </a>
+      </div>
+
+      {/* What's being tracked */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+        <h3 className="text-sm font-semibold text-gray-800">What&apos;s being tracked</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-gray-600">
+          <div>
+            <p className="font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
+              <Globe className="w-3.5 h-3.5 text-emerald-600" /> Web Analytics
+            </p>
+            <ul className="space-y-1 list-disc list-inside">
+              <li>Page views &amp; unique visitors</li>
+              <li>Referrer / traffic source</li>
+              <li>Country &amp; region</li>
+              <li>Browser &amp; OS</li>
+              <li>Top pages by traffic</li>
+            </ul>
+          </div>
+          <div>
+            <p className="font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
+              <Zap className="w-3.5 h-3.5 text-emerald-600" /> Speed Insights
+            </p>
+            <ul className="space-y-1 list-disc list-inside">
+              <li>Largest Contentful Paint (LCP)</li>
+              <li>First Input Delay (FID)</li>
+              <li>Cumulative Layout Shift (CLS)</li>
+              <li>First Contentful Paint (FCP)</li>
+              <li>Interaction to Next Paint (INP)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* Privacy note */}
+      <p className="text-xs text-gray-400 text-center">
+        Vercel Analytics is privacy-friendly and does not use cookies or fingerprinting.
+        Data is only visible to project members in the Vercel dashboard.
+      </p>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main Analytics Page
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -519,6 +644,7 @@ export default function AnalyticsPage() {
           {activeTab === 'seo' && <SeoTab range={range} onRangeChange={setRange} />}
           {activeTab === 'performance' && <PerformanceTab />}
           {activeTab === 'page-health' && <PageHealthTab />}
+          {activeTab === 'vercel' && <VercelTab />}
         </motion.div>
       </AnimatePresence>
     </div>
