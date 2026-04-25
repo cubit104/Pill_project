@@ -109,7 +109,7 @@ def posthog_overview(
     if cached:
         return cached
 
-    days = _days_for_range(range_)
+    days = int(_days_for_range(range_))  # always 7, 28, or 90 — safe for f-string SQL
 
     try:
         # ── Pageviews timeseries (HogQL grouped by day) ───────────────────────
