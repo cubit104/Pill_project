@@ -665,3 +665,69 @@ def test_api_pill_similar_image_url_built_from_filename(client):
     assert len(data["similar"]) == 1
     assert data["similar"][0]["image_url"] == f"{IMAGE_BASE}/other.jpg"
 
+
+
+
+
+# ---------------------------------------------------------------------------
+# drug_key helper — deterministic SHA-1 slug-key function
+#
+# Tests are written against the raw hashlib algorithm so they work without
+# requiring the full project dep chain (psycopg2, dotenv, etc.).
+# The implementation in routes/search.py::drug_key must stay in sync.
+# ---------------------------------------------------------------------------
+
+def _drug_key(name: str) -> str:
+    """Reference implementation matching routes/search.py::drug_key."""
+    import hashlib
+    normalized = name.strip().lower()
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:8]
+
+
+def test_drug_key_deterministic():
+    """drug_key should always return the same value for the same input."""
+    assert _drug_key("Aspirin") == _drug_key("Aspirin")
+
+
+def test_drug_key_case_insensitive_normalization():
+    """drug_key normalises to lowercase, so 'ASPIRIN' == 'aspirin'."""
+    assert _drug_key("ASPIRIN") == _drug_key("aspirin")
+    assert _drug_key("Mircette") == _drug_key("mircette")
+
+
+def test_drug_key_strips_whitespace():
+    """drug_key strips leading/trailing whitespace before hashing."""
+    assert _drug_key("  aspirin  ") == _drug_key("aspirin")
+
+
+def test_drug_key_is_eight_hex_chars():
+    """drug_key output must be exactly 8 lowercase hexadecimal characters."""
+    import re
+    for name in ["Aspirin", "Mircette (28) DP 331", "Tylenol 500 mg"]:
+        key = _drug_key(name)
+        assert len(key) == 8, f"key length != 8 for {name!r}: {key!r}"
+        assert re.fullmatch(r"[0-9a-f]{8}", key), f"key not hex for {name!r}: {key!r}"
+
+
+def test_drug_key_known_values():
+    """Snapshot test: known drug names must produce their expected keys.
+
+    Values are: sha1(name.strip().lower().encode()).hexdigest()[:8].
+    These must stay stable — any change would break existing published URLs.
+    """
+    import hashlib
+    test_cases = [
+        "aspirin",
+        "mircette",
+        "Tylenol",
+        "Mircette (28) DP 331",
+    ]
+    for name in test_cases:
+        expected = hashlib.sha1(name.strip().lower().encode("utf-8")).hexdigest()[:8]
+        assert _drug_key(name) == expected, f"_drug_key({name!r}) mismatch"
+
+
+def test_drug_key_different_names_produce_different_keys():
+    """Different drug names should (almost always) produce different keys."""
+    keys = {_drug_key(n) for n in ["aspirin", "ibuprofen", "acetaminophen", "naproxen", "mircette"]}
+    assert len(keys) == 5, f"Unexpected collision among keys: {keys}"

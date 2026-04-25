@@ -1,4 +1,5 @@
 import re
+import hashlib
 import logging
 from typing import List, Optional
 
@@ -17,6 +18,17 @@ from utils import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def drug_key(name: str) -> str:
+    """Return an 8-hex-char SHA-1 key for a drug name.
+
+    Algorithm must stay in sync with ``frontend/app/lib/drugKey.ts::drugKey``:
+        normalized = name.strip().lower()
+        key = sha1(normalized).hexdigest()[:8]
+    """
+    normalized = name.strip().lower()
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:8]
 
 
 @router.get("/suggestions")
@@ -121,6 +133,7 @@ def get_suggestions(
 @router.get("/api/search")
 def api_search(
     q: Optional[str] = Query(None),
+    k: Optional[str] = Query(None),
     search_type: Optional[str] = Query("imprint", alias="type"),
     color: Optional[str] = Query(None),
     shape: Optional[str] = Query(None),
@@ -132,6 +145,48 @@ def api_search(
         raise HTTPException(500, "Database connection not available")
 
     try:
+        # ------------------------------------------------------------------
+        # Resolve hash key → original medicine_name (new clean-URL flow)
+        # ------------------------------------------------------------------
+        if k and search_type == "drug":
+            # `q` may contain the slug (e.g. "mircette-28-dp-331").  Use the
+            # first dash-separated word as a LIKE prefix to narrow candidates;
+            # fall back to a full table scan when q is absent.
+            prefix_hint: Optional[str] = None
+            if q:
+                first_word = q.split("-")[0].strip()
+                if first_word:
+                    prefix_hint = first_word
+
+            with database.db_engine.connect() as conn:
+                if prefix_hint:
+                    sql = text(
+                        "SELECT DISTINCT medicine_name FROM pillfinder "
+                        "WHERE medicine_name IS NOT NULL "
+                        "AND LOWER(medicine_name) LIKE :prefix"
+                    )
+                    rows = conn.execute(sql, {"prefix": f"{prefix_hint}%"}).fetchall()
+                else:
+                    sql = text(
+                        "SELECT DISTINCT medicine_name FROM pillfinder "
+                        "WHERE medicine_name IS NOT NULL"
+                    )
+                    rows = conn.execute(sql).fetchall()
+
+            resolved: Optional[str] = None
+            for row in rows:
+                if row[0] and drug_key(row[0]) == k:
+                    resolved = row[0]
+                    break
+
+            if resolved:
+                logger.info(f"[search] resolved k={k!r} → {resolved!r}")
+                q = resolved
+            else:
+                logger.warning(f"[search] k={k!r} not resolved (prefix_hint={prefix_hint!r}), falling back to q={q!r}")
+                # If resolution failed and q is the slug, the query will
+                # return 0 results — that is acceptable; no crash.
+
         base_sql = """
             SELECT
                 medicine_name,

@@ -82,6 +82,7 @@ export default function PillDetailClient({
   similar,
   faqItems,
   identificationSummary,
+  drugHref,
 }: {
   pill: PillDetail
   slug?: string
@@ -93,6 +94,7 @@ export default function PillDetailClient({
   similar?: SimilarPill[]
   faqItems?: Array<{ question: string; answer: string }>
   identificationSummary?: string
+  drugHref?: string
 }) {
   const router = useRouter()
   const [zoomImage, setZoomImage] = useState<string | null>(null)
@@ -152,7 +154,7 @@ export default function PillDetailClient({
                 <li aria-hidden="true" className="select-none">›</li>
                 <li>
                   <Link
-                    href={`/drug/${encodeURIComponent(pill.drug_name.toLowerCase())}`}
+                    href={drugHref || `/drug/${encodeURIComponent(pill.drug_name.toLowerCase())}`}
                     className="hover:text-sky-700 transition-colors"
                   >
                     {pill.drug_name}
@@ -544,7 +546,7 @@ export default function PillDetailClient({
           <div className="flex flex-wrap gap-2">
             {pill.drug_name && pill.drug_name !== 'Unknown' && (
               <Link
-                href={`/drug/${encodeURIComponent(pill.drug_name.toLowerCase())}`}
+                href={drugHref || `/drug/${encodeURIComponent(pill.drug_name.toLowerCase())}`}
                 className="text-sm bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 hover:border-sky-300 transition-colors"
               >
                 More {pill.drug_name} pills →

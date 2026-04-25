@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import PillCard from '../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../lib/structured-data'
+import { buildDrugHref } from '../../lib/drugKey'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -17,9 +18,26 @@ function toTitleCase(str: string): string {
     .join(' ')
 }
 
-async function fetchPillsByDrug(name: string): Promise<PillResult[]> {
+/**
+ * Derive a raw display string from the URL params.
+ * When `k` is present, `name` is a dash-slug → replace dashes with spaces.
+ * When `k` is absent, `name` is the legacy decoded drug name.
+ */
+function rawDisplayFromParams(name: string, k?: string): string {
+  return k ? name.replace(/-/g, ' ') : decodeURIComponent(name)
+}
+
+async function fetchPillsByDrug(name: string, k?: string): Promise<PillResult[]> {
   try {
-    const params = new URLSearchParams({ q: name, type: 'drug', per_page: '48' })
+    const urlParams: Record<string, string> = { type: 'drug', per_page: '48' }
+    if (k) {
+      // New format: resolve by hash key. Pass the slug as a prefix hint too.
+      urlParams.k = k
+      urlParams.q = name
+    } else {
+      urlParams.q = name
+    }
+    const params = new URLSearchParams(urlParams)
     const res = await fetch(`${API_BASE}/api/search?${params}`, {
       next: { revalidate: 3600 },
     })
@@ -32,40 +50,67 @@ async function fetchPillsByDrug(name: string): Promise<PillResult[]> {
 }
 
 export async function generateMetadata(
-  { params }: { params: Promise<{ name: string }> }
+  { params, searchParams }: {
+    params: Promise<{ name: string }>
+    searchParams: Promise<{ k?: string }>
+  }
 ): Promise<Metadata> {
   const { name } = await params
-  const displayName = toTitleCase(decodeURIComponent(name))
+  const { k } = await searchParams
+  // When k is present, name is a slug; when absent, name is the original (old URL, already decoded)
+  const rawDisplayName = rawDisplayFromParams(name, k)
+  const displayName = toTitleCase(rawDisplayName)
   const title = `${displayName} Pills — Identify ${displayName} by Imprint, Color & Shape`
   const description = `Look up ${displayName} pills by imprint code, color, and shape. Find all ${displayName} medications in our FDA-powered pill identifier.`.slice(0, 155)
+
+  // Build clean canonical URL
+  const canonicalUrl = k
+    ? `/drug/${name}?k=${k}`
+    : `/drug/${encodeURIComponent(name)}`
 
   return {
     title,
     description,
-    alternates: { canonical: `/drug/${encodeURIComponent(name)}` },
-    openGraph: { title, description, url: `${SITE_URL}/drug/${encodeURIComponent(name)}` },
+    alternates: { canonical: canonicalUrl },
+    openGraph: { title, description, url: `${SITE_URL}${canonicalUrl}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
 
 export default async function DrugHubPage(
-  { params }: { params: Promise<{ name: string }> }
+  { params, searchParams }: {
+    params: Promise<{ name: string }>
+    searchParams: Promise<{ k?: string }>
+  }
 ) {
   const { name } = await params
-  const displayName = toTitleCase(decodeURIComponent(name))
-  const pills = await fetchPillsByDrug(decodeURIComponent(name))
+  const { k } = await searchParams
+  // When k is present, name is a slug; when absent, name is original drug name (old URL)
+  const queryName = k ? name : decodeURIComponent(name)
+  const pills = await fetchPillsByDrug(queryName, k)
+
+  // Build display name: prefer first result's drug_name (authoritative), fall back to slug/decoded
+  const rawDisplayName = (pills.length > 0 && pills[0].drug_name)
+    ? pills[0].drug_name
+    : rawDisplayFromParams(name, k)
+  const displayName = toTitleCase(rawDisplayName)
 
   if (!displayName) notFound()
 
+  // Build the canonical clean URL for self-references (structured data, breadcrumbs, metadata)
+  const selfHref = k
+    ? `/drug/${name}?k=${k}`
+    : buildDrugHref(decodeURIComponent(name)) || `/drug/${encodeURIComponent(name)}`
+
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: displayName, url: `/drug/${encodeURIComponent(name)}` },
+    { name: displayName, url: selfHref },
   ])
 
   const hubJson = hubPageSchema({
     name: `${displayName} Pill Identification`,
     description: `Browse all ${displayName} pills and identify them by imprint, color, and shape using FDA NDC data.`,
-    url: `/drug/${encodeURIComponent(name)}`,
+    url: selfHref,
     dateModified: new Date().toISOString(),
   })
 
