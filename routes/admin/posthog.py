@@ -62,6 +62,12 @@ def _ph_query(api_key: str, project_id: str, host: str, payload: dict) -> dict:
         "Content-Type": "application/json",
     }
     resp = requests.post(url, json=payload, headers=headers, timeout=30)
+    if not resp.ok:
+        try:
+            body = resp.json()
+        except Exception:
+            body = resp.text[:500]
+        logger.error("PostHog API %s error: status=%s body=%s", url, resp.status_code, body)
     resp.raise_for_status()
     return resp.json()
 
@@ -70,6 +76,12 @@ def _ph_get(api_key: str, url: str, params: Optional[dict] = None) -> dict:
     """Execute a GET request to a PostHog endpoint."""
     headers = {"Authorization": f"Bearer {api_key}"}
     resp = requests.get(url, headers=headers, params=params or {}, timeout=30)
+    if not resp.ok:
+        try:
+            body = resp.json()
+        except Exception:
+            body = resp.text[:500]
+        logger.error("PostHog API %s error: status=%s body=%s", url, resp.status_code, body)
     resp.raise_for_status()
     return resp.json()
 
@@ -84,7 +96,7 @@ def _days_for_range(range_str: str) -> int:
 
 @router.get("/overview")
 def posthog_overview(
-    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
+    range_: str = Query("28d", alias="range", pattern="^(7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     """Pageviews, sessions, top pages, top events, top referrers, country/device breakdowns."""
@@ -92,12 +104,12 @@ def posthog_overview(
     if not api_key:
         return _not_configured()
 
-    cache_key = f"ph_overview_{range}"
+    cache_key = f"ph_overview_{range_}"
     cached = _cache_get(cache_key)
     if cached:
         return cached
 
-    days = _days_for_range(range)
+    days = _days_for_range(range_)
     date_from = f"-{days}d"
 
     try:
@@ -267,7 +279,7 @@ def posthog_overview(
 
         result = {
             "configured": True,
-            "range": range,
+            "range": range_,
             "summary": {
                 "pageviews": total_pageviews,
                 "sessions": total_sessions,
@@ -338,7 +350,7 @@ def _build_funnel_series(steps: list) -> list:
 
 @router.get("/funnel")
 def posthog_funnel(
-    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
+    range_: str = Query("28d", alias="range", pattern="^(7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     """Core user journey funnel: landing → search/pill → drug page."""
@@ -346,12 +358,12 @@ def posthog_funnel(
     if not api_key:
         return _not_configured()
 
-    cache_key = f"ph_funnel_{range}"
+    cache_key = f"ph_funnel_{range_}"
     cached = _cache_get(cache_key)
     if cached:
         return cached
 
-    days = _days_for_range(range)
+    days = _days_for_range(range_)
     date_from = f"-{days}d"
 
     try:
@@ -385,7 +397,7 @@ def posthog_funnel(
                     "drop_off": prev_count - count if i > 0 else 0,
                 })
 
-        out = {"configured": True, "range": range, "steps": steps}
+        out = {"configured": True, "range": range_, "steps": steps}
         _cache_set(cache_key, out)
         return out
 
@@ -415,7 +427,11 @@ def posthog_replays(
 
     try:
         url = f"{host}/api/projects/{project_id}/session_recordings/"
-        data = _ph_get(api_key, url, params={"limit": limit, "order": "-start_time"})
+        params = {
+            "limit": limit,
+            "date_from": "-30d",
+        }
+        data = _ph_get(api_key, url, params=params)
 
         replays = []
         posthog_ui_host = "https://us.posthog.com"
@@ -429,7 +445,7 @@ def posthog_replays(
                 "distinct_id": rec.get("distinct_id"),
                 "click_count": rec.get("click_count", 0),
                 "keypress_count": rec.get("keypress_count", 0),
-                "start_url": rec.get("start_url", ""),
+                "start_url": rec.get("start_url") or (rec.get("urls") or [None])[0] or "",
                 "replay_url": f"{posthog_ui_host}/project/{project_id}/replay/{session_id}",
             })
 
@@ -451,7 +467,7 @@ _MAX_RETENTION_WEEKS = 52
 
 @router.get("/retention")
 def posthog_retention(
-    range: str = Query("12w", pattern=r"^\d+w$"),
+    range_: str = Query("12w", alias="range", pattern=r"^\d+w$"),
     admin: dict = Depends(get_admin_user),
 ):
     """Weekly retention cohort grid."""
@@ -461,7 +477,7 @@ def posthog_retention(
 
     # Cap weeks to prevent unbounded queries/cache growth
     try:
-        weeks = int(range.rstrip("w"))
+        weeks = int(range_.rstrip("w"))
     except ValueError:
         weeks = 12
     weeks = min(weeks, _MAX_RETENTION_WEEKS)
