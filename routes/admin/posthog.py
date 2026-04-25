@@ -3,6 +3,7 @@ import logging
 import os
 import threading
 import time
+from datetime import date, timedelta
 from typing import Optional
 
 import requests
@@ -129,11 +130,20 @@ def posthog_overview(
             }
         }
         ts_result = _ph_query(api_key, project_id, host, ts_payload)
-        timeseries = []
+
+        # Build a complete day-by-day scaffold for the window (oldest → newest),
+        # filling days absent from the query result with 0.
+        today = date.today()
+        timeseries_map = {
+            (today - timedelta(days=i)).isoformat(): 0
+            for i in range(days - 1, -1, -1)
+        }
         for row in (ts_result.get("results") or []):
             # row[0] is an ISO datetime string like "2024-01-15T00:00:00"
             day_str = str(row[0])[:10] if row[0] else ""
-            timeseries.append({"date": day_str, "pageviews": int(row[1])})
+            if day_str in timeseries_map:
+                timeseries_map[day_str] = int(row[1])
+        timeseries = [{"date": d, "pageviews": v} for d, v in timeseries_map.items()]
 
         # ── Summary stats (HogQL aggregation) ────────────────────────────────
         stats_payload = {
