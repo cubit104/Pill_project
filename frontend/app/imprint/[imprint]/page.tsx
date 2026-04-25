@@ -11,11 +11,12 @@ const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
 
-async function fetchPillsByImprint(imprint: string): Promise<PillResult[]> {
+async function fetchPillsByImprint(imprintSlug: string): Promise<PillResult[]> {
   try {
     const params = new URLSearchParams({
-      q: imprint,
+      q: imprintSlug,
       type: 'imprint',
+      slug: 'true',
       per_page: '48',
     })
     const res = await fetch(`${API_BASE}/api/search?${params}`, {
@@ -56,7 +57,7 @@ export default async function ImprintHubPage(
   const { imprint } = await params
   const searchTerm = unslugify(imprint)
   const displayImprint = searchTerm.toUpperCase()
-  const pills = await fetchPillsByImprint(searchTerm)
+  const pills = await fetchPillsByImprint(imprint)
 
   if (!displayImprint) notFound()
 

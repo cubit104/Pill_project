@@ -18,9 +18,9 @@ function toTitleCase(str: string): string {
     .join(' ')
 }
 
-async function fetchPillsByDrug(name: string): Promise<PillResult[]> {
+async function fetchPillsByDrug(nameSlug: string): Promise<PillResult[]> {
   try {
-    const params = new URLSearchParams({ q: name, type: 'drug', per_page: '48' })
+    const params = new URLSearchParams({ q: nameSlug, type: 'drug', slug: 'true', per_page: '48' })
     const res = await fetch(`${API_BASE}/api/search?${params}`, {
       next: { revalidate: 3600 },
     })
@@ -54,7 +54,7 @@ export default async function DrugHubPage(
 ) {
   const { name } = await params
   const displayName = toTitleCase(unslugify(name))
-  const pills = await fetchPillsByDrug(unslugify(name))
+  const pills = await fetchPillsByDrug(name)
 
   if (!displayName) notFound()
 

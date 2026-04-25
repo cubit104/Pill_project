@@ -124,6 +124,7 @@ def api_search(
     search_type: Optional[str] = Query("imprint", alias="type"),
     color: Optional[str] = Query(None),
     shape: Optional[str] = Query(None),
+    slug_query: bool = Query(False, alias="slug"),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=100),
 ) -> dict:
@@ -153,14 +154,29 @@ def api_search(
         if q:
             query = q.strip()
             if search_type == "imprint":
-                norm = normalize_imprint(query)
-                where_conditions.append(
-                    "UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) LIKE UPPER(:imprint_like)"
-                )
-                params["imprint_like"] = f"%{norm}%"
+                if slug_query:
+                    # Exact slug-normalized match: handles hyphens/slashes/special chars
+                    # that would otherwise be lost by unslugify before sending to the DB
+                    where_conditions.append(
+                        "REGEXP_REPLACE(LOWER(splimprint), '[^a-z0-9]+', '-', 'g') = :imprint_slug"
+                    )
+                    params["imprint_slug"] = query.strip("-")
+                else:
+                    norm = normalize_imprint(query)
+                    where_conditions.append(
+                        "UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) LIKE UPPER(:imprint_like)"
+                    )
+                    params["imprint_like"] = f"%{norm}%"
             elif search_type == "drug":
-                where_conditions.append("LOWER(medicine_name) LIKE LOWER(:drug_name)")
-                params["drug_name"] = f"{query.lower()}%"
+                if slug_query:
+                    # Exact slug-normalized match: handles {, (, ), / in medicine_name
+                    where_conditions.append(
+                        "REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', '-', 'g') = :drug_slug"
+                    )
+                    params["drug_slug"] = query.strip("-")
+                else:
+                    where_conditions.append("LOWER(medicine_name) LIKE LOWER(:drug_name)")
+                    params["drug_name"] = f"{query.lower()}%"
             elif search_type == "ndc":
                 clean_ndc = re.sub(r'[^0-9]', '', query)
                 where_conditions.append("""

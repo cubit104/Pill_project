@@ -1,7 +1,8 @@
 import os
+import time
 import logging
 from xml.sax.saxutils import escape as xml_escape
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
@@ -15,6 +16,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# In-memory cache for hub slugs — avoids repeated full table scans on every request
+_HUB_CACHE_TTL = 3600  # 1 hour
+_hub_cache: Optional[Dict[str, List[str]]] = None
+_hub_cache_ts: float = 0.0
+
 
 def _fetch_all_slugs(conn) -> List[str]:
     """Query the database and return all non-null pill slugs."""
@@ -25,7 +31,16 @@ def _fetch_all_slugs(conn) -> List[str]:
 
 
 def _fetch_hub_values(conn) -> Dict[str, List[str]]:
-    """Return distinct slugified hub values for drugs, colors, shapes, and imprints."""
+    """Return distinct slugified hub values for drugs, colors, shapes, and imprints.
+
+    Results are cached for _HUB_CACHE_TTL seconds to avoid repeated full table scans.
+    The conn argument is used only when the cache is stale.
+    """
+    global _hub_cache, _hub_cache_ts
+    now = time.time()
+    if _hub_cache is not None and now - _hub_cache_ts < _HUB_CACHE_TTL:
+        return _hub_cache
+
     hub: Dict[str, List[str]] = {"drugs": [], "colors": [], "shapes": [], "imprints": []}
 
     queries = {
@@ -44,12 +59,19 @@ def _fetch_hub_values(conn) -> Dict[str, List[str]]:
                 seen[key].add(s)
                 hub[key].append(s)
 
+    _hub_cache = hub
+    _hub_cache_ts = now
     return hub
 
 
 @router.get("/api/hub-slugs", response_model=Dict[str, List[str]])
 def get_hub_slugs():
     """Return distinct slugified hub values for drug/color/shape/imprint pages."""
+    # Serve from cache if still fresh — avoids a DB connection on every sitemap build
+    now = time.time()
+    if _hub_cache is not None and now - _hub_cache_ts < _HUB_CACHE_TTL:
+        return _hub_cache
+
     if not database.db_engine:
         if not database.connect_to_database():
             raise HTTPException(status_code=500, detail="Database connection not available")
