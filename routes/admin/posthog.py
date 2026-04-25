@@ -1,0 +1,506 @@
+"""Admin analytics endpoints — PostHog product analytics, funnels, replays, retention."""
+import logging
+import os
+import time
+from functools import lru_cache
+from typing import Optional
+
+import requests
+from fastapi import APIRouter, Depends, Query
+
+from routes.admin.auth import get_admin_user
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/admin/analytics/posthog", tags=["admin-analytics-posthog"])
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+RANGE_DAYS = {"7d": 7, "28d": 28, "90d": 90}
+_CACHE: dict = {}
+CACHE_TTL = 300  # 5 minutes
+
+
+def _not_configured() -> dict:
+    return {
+        "configured": False,
+        "message": "PostHog admin queries not configured. Set POSTHOG_PERSONAL_API_KEY.",
+    }
+
+
+def _get_posthog_config():
+    """Return (personal_api_key, project_id, host) or (None, None, None)."""
+    key = os.getenv("POSTHOG_PERSONAL_API_KEY", "")
+    project_id = os.getenv("POSTHOG_PROJECT_ID", "396739")
+    host = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com").rstrip("/")
+    if not key:
+        return None, None, None
+    return key, project_id, host
+
+
+def _cache_get(cache_key: str):
+    entry = _CACHE.get(cache_key)
+    if entry and (time.time() - entry["ts"] < CACHE_TTL):
+        return entry["data"]
+    return None
+
+
+def _cache_set(cache_key: str, data):
+    _CACHE[cache_key] = {"ts": time.time(), "data": data}
+
+
+def _ph_query(api_key: str, project_id: str, host: str, payload: dict) -> dict:
+    """Execute a PostHog HogQL/Insight query via the Query API."""
+    url = f"{host}/api/projects/{project_id}/query/"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    resp = requests.post(url, json=payload, headers=headers, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _ph_get(api_key: str, url: str, params: Optional[dict] = None) -> dict:
+    """Execute a GET request to a PostHog endpoint."""
+    headers = {"Authorization": f"Bearer {api_key}"}
+    resp = requests.get(url, headers=headers, params=params or {}, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _days_for_range(range_str: str) -> int:
+    return RANGE_DAYS.get(range_str, 28)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Overview Endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/overview")
+def posthog_overview(
+    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
+    admin: dict = Depends(get_admin_user),
+):
+    """Pageviews, sessions, top pages, top events, top referrers, country/device breakdowns."""
+    api_key, project_id, host = _get_posthog_config()
+    if not api_key:
+        return _not_configured()
+
+    cache_key = f"ph_overview_{range}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    days = _days_for_range(range)
+    date_from = f"-{days}d"
+
+    try:
+        # ── Pageviews timeseries ──────────────────────────────────────────────
+        ts_payload = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {"kind": "EventsNode", "event": "$pageview", "name": "Pageviews"},
+                ],
+                "dateRange": {"date_from": date_from},
+                "interval": "day",
+            }
+        }
+        ts_result = _ph_query(api_key, project_id, host, ts_payload)
+        timeseries = []
+        if ts_result.get("results") and len(ts_result["results"]) > 0:
+            series = ts_result["results"][0]
+            labels = series.get("labels", [])
+            data = series.get("data", [])
+            timeseries = [{"date": labels[i], "pageviews": int(data[i])} for i in range(len(labels))]
+
+        # ── Summary stats ─────────────────────────────────────────────────────
+        stats_payload = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {"kind": "EventsNode", "event": "$pageview", "name": "Pageviews"},
+                    {"kind": "EventsNode", "event": "$pageview", "name": "Sessions", "math": "unique_session"},
+                    {"kind": "EventsNode", "event": "$pageview", "name": "Users", "math": "dau"},
+                ],
+                "dateRange": {"date_from": date_from},
+                "interval": "day",
+            }
+        }
+        stats_result = _ph_query(api_key, project_id, host, stats_payload)
+        total_pageviews = 0
+        total_sessions = 0
+        total_users = 0
+        if stats_result.get("results"):
+            for series in stats_result["results"]:
+                name = series.get("label", "")
+                total = sum(series.get("data", []))
+                if "Pageviews" in name and "Session" not in name and "User" not in name:
+                    total_pageviews = int(total)
+                elif "Sessions" in name:
+                    total_sessions = int(total)
+                elif "Users" in name:
+                    total_users = int(total)
+
+        # ── Top Pages ─────────────────────────────────────────────────────────
+        top_pages_payload = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": f"""
+                    SELECT
+                        properties.$pathname AS path,
+                        count() AS pageviews,
+                        count(DISTINCT person_id) AS unique_visitors
+                    FROM events
+                    WHERE event = '$pageview'
+                        AND timestamp >= now() - INTERVAL {days} DAY
+                    GROUP BY path
+                    ORDER BY pageviews DESC
+                    LIMIT 20
+                """,
+            }
+        }
+        top_pages_result = _ph_query(api_key, project_id, host, top_pages_payload)
+        top_pages = [
+            {"path": row[0], "pageviews": int(row[1]), "unique_visitors": int(row[2])}
+            for row in (top_pages_result.get("results") or [])
+        ]
+
+        # ── Top Events ────────────────────────────────────────────────────────
+        top_events_payload = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": f"""
+                    SELECT
+                        event,
+                        count() AS count,
+                        count(DISTINCT person_id) AS unique_users
+                    FROM events
+                    WHERE timestamp >= now() - INTERVAL {days} DAY
+                        AND event NOT IN ('$feature_flag_called', '$$anon_distinct_id_change')
+                    GROUP BY event
+                    ORDER BY count DESC
+                    LIMIT 20
+                """,
+            }
+        }
+        top_events_result = _ph_query(api_key, project_id, host, top_events_payload)
+        top_events = [
+            {"event": row[0], "count": int(row[1]), "unique_users": int(row[2])}
+            for row in (top_events_result.get("results") or [])
+        ]
+
+        # ── Top Referrers ─────────────────────────────────────────────────────
+        referrers_payload = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": f"""
+                    SELECT
+                        coalesce(properties.$referrer, '(direct)') AS referrer,
+                        count() AS sessions
+                    FROM events
+                    WHERE event = '$pageview'
+                        AND timestamp >= now() - INTERVAL {days} DAY
+                    GROUP BY referrer
+                    ORDER BY sessions DESC
+                    LIMIT 15
+                """,
+            }
+        }
+        referrers_result = _ph_query(api_key, project_id, host, referrers_payload)
+        top_referrers = [
+            {"referrer": row[0], "sessions": int(row[1])}
+            for row in (referrers_result.get("results") or [])
+        ]
+
+        # ── Country Breakdown ─────────────────────────────────────────────────
+        country_payload = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": f"""
+                    SELECT
+                        coalesce(properties.$geoip_country_name, 'Unknown') AS country,
+                        count(DISTINCT person_id) AS users
+                    FROM events
+                    WHERE event = '$pageview'
+                        AND timestamp >= now() - INTERVAL {days} DAY
+                    GROUP BY country
+                    ORDER BY users DESC
+                    LIMIT 15
+                """,
+            }
+        }
+        country_result = _ph_query(api_key, project_id, host, country_payload)
+        countries = [
+            {"country": row[0], "users": int(row[1])}
+            for row in (country_result.get("results") or [])
+        ]
+
+        # ── Device Breakdown ──────────────────────────────────────────────────
+        device_payload = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": f"""
+                    SELECT
+                        coalesce(properties.$device_type, 'Unknown') AS device_type,
+                        count(DISTINCT person_id) AS users
+                    FROM events
+                    WHERE event = '$pageview'
+                        AND timestamp >= now() - INTERVAL {days} DAY
+                    GROUP BY device_type
+                    ORDER BY users DESC
+                    LIMIT 10
+                """,
+            }
+        }
+        device_result = _ph_query(api_key, project_id, host, device_payload)
+        devices = [
+            {"device": row[0], "users": int(row[1])}
+            for row in (device_result.get("results") or [])
+        ]
+
+        result = {
+            "configured": True,
+            "range": range,
+            "summary": {
+                "pageviews": total_pageviews,
+                "sessions": total_sessions,
+                "users": total_users,
+            },
+            "timeseries": timeseries,
+            "top_pages": top_pages,
+            "top_events": top_events,
+            "top_referrers": top_referrers,
+            "countries": countries,
+            "devices": devices,
+        }
+        _cache_set(cache_key, result)
+        return result
+
+    except Exception as exc:
+        logger.error("PostHog overview error: %s", exc)
+        return {"configured": True, "error": str(exc)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Funnel Endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+DEFAULT_FUNNEL_STEPS = [
+    {"event": "$pageview", "url": "/", "name": "Landing (Home)"},
+    {"event": "$pageview", "url": "/search", "name": "Engagement (Search or Pill)"},
+    {"event": "$pageview", "url": "/drug/", "name": "Deep Engagement (Drug Page)"},
+]
+
+
+@router.get("/funnel")
+def posthog_funnel(
+    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
+    admin: dict = Depends(get_admin_user),
+):
+    """Core user journey funnel: landing → search/pill → drug page."""
+    api_key, project_id, host = _get_posthog_config()
+    if not api_key:
+        return _not_configured()
+
+    cache_key = f"ph_funnel_{range}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    days = _days_for_range(range)
+    date_from = f"-{days}d"
+
+    try:
+        funnel_payload = {
+            "query": {
+                "kind": "FunnelsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                        "name": "Landing (Home)",
+                        "properties": [
+                            {
+                                "key": "$pathname",
+                                "operator": "exact",
+                                "value": "/",
+                                "type": "event",
+                            }
+                        ],
+                    },
+                    {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                        "name": "Engagement (Search or Pill)",
+                        "properties": [
+                            {
+                                "key": "$pathname",
+                                "operator": "regex",
+                                "value": "^(/search|/pill/)",
+                                "type": "event",
+                            }
+                        ],
+                    },
+                    {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                        "name": "Deep Engagement (Drug Page)",
+                        "properties": [
+                            {
+                                "key": "$pathname",
+                                "operator": "icontains",
+                                "value": "/drug/",
+                                "type": "event",
+                            }
+                        ],
+                    },
+                ],
+                "dateRange": {"date_from": date_from},
+                "funnelsFilter": {
+                    "funnelWindowInterval": 14,
+                    "funnelWindowIntervalUnit": "day",
+                },
+            }
+        }
+        result = _ph_query(api_key, project_id, host, funnel_payload)
+
+        steps = []
+        if result.get("results") and len(result["results"]) > 0:
+            raw_steps = result["results"]
+            for i, step in enumerate(raw_steps):
+                count = step.get("count", 0)
+                prev_count = raw_steps[i - 1].get("count", count) if i > 0 else count
+                conversion_from_prev = (count / prev_count * 100) if prev_count > 0 else 0
+                total_count = raw_steps[0].get("count", count) if raw_steps else count
+                conversion_from_start = (count / total_count * 100) if total_count > 0 else 0
+                steps.append({
+                    "name": step.get("name", f"Step {i + 1}"),
+                    "count": count,
+                    "conversion_from_prev": round(conversion_from_prev, 1),
+                    "conversion_from_start": round(conversion_from_start, 1),
+                    "drop_off": prev_count - count if i > 0 else 0,
+                })
+
+        out = {"configured": True, "range": range, "steps": steps}
+        _cache_set(cache_key, out)
+        return out
+
+    except Exception as exc:
+        logger.error("PostHog funnel error: %s", exc)
+        return {"configured": True, "error": str(exc)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Replays Endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/replays")
+def posthog_replays(
+    limit: int = Query(10, ge=1, le=50),
+    admin: dict = Depends(get_admin_user),
+):
+    """Recent session replays with metadata and deep-link URLs."""
+    api_key, project_id, host = _get_posthog_config()
+    if not api_key:
+        return _not_configured()
+
+    cache_key = f"ph_replays_{limit}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        url = f"{host}/api/projects/{project_id}/session_recordings/"
+        data = _ph_get(api_key, url, params={"limit": limit, "order": "-start_time"})
+
+        replays = []
+        posthog_ui_host = "https://us.posthog.com"
+        for rec in data.get("results", [])[:limit]:
+            session_id = rec.get("id", "")
+            replays.append({
+                "session_id": session_id,
+                "start_time": rec.get("start_time"),
+                "end_time": rec.get("end_time"),
+                "duration": rec.get("recording_duration"),
+                "distinct_id": rec.get("distinct_id"),
+                "click_count": rec.get("click_count", 0),
+                "keypress_count": rec.get("keypress_count", 0),
+                "start_url": rec.get("start_url", ""),
+                "replay_url": f"{posthog_ui_host}/project/{project_id}/replay/{session_id}",
+            })
+
+        out = {"configured": True, "replays": replays}
+        _cache_set(cache_key, out)
+        return out
+
+    except Exception as exc:
+        logger.error("PostHog replays error: %s", exc)
+        return {"configured": True, "error": str(exc)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Retention Endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/retention")
+def posthog_retention(
+    range: str = Query("12w"),
+    admin: dict = Depends(get_admin_user),
+):
+    """Weekly retention cohort grid."""
+    api_key, project_id, host = _get_posthog_config()
+    if not api_key:
+        return _not_configured()
+
+    cache_key = f"ph_retention_{range}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        weeks = int(range.rstrip("w")) if range.endswith("w") else 12
+        date_from = f"-{weeks}w"
+
+        retention_payload = {
+            "query": {
+                "kind": "RetentionQuery",
+                "retentionFilter": {
+                    "retentionType": "retention_first_time",
+                    "totalIntervals": weeks,
+                    "period": "Week",
+                    "targetEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+                "dateRange": {"date_from": date_from},
+            }
+        }
+        result = _ph_query(api_key, project_id, host, retention_payload)
+
+        cohorts = []
+        for row in result.get("result", []):
+            cohorts.append({
+                "date": row.get("date"),
+                "cohort_size": row.get("values", [{}])[0].get("count", 0) if row.get("values") else 0,
+                "values": [
+                    {
+                        "period": v.get("label", f"Week {i}"),
+                        "count": v.get("count", 0),
+                        "percentage": round(
+                            v.get("count", 0) / row["values"][0]["count"] * 100, 1
+                        ) if row.get("values") and row["values"][0].get("count") else 0,
+                    }
+                    for i, v in enumerate(row.get("values", []))
+                ],
+            })
+
+        out = {"configured": True, "range": range, "cohorts": cohorts}
+        _cache_set(cache_key, out)
+        return out
+
+    except Exception as exc:
+        logger.error("PostHog retention error: %s", exc)
+        return {"configured": True, "error": str(exc)}

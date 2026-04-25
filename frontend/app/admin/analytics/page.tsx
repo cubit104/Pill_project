@@ -19,9 +19,25 @@ import {
   Play,
   Activity,
   ExternalLink,
+  FlaskConical,
+  Video,
+  ArrowRight,
+  Timer,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../lib/supabase'
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Cell,
+} from 'recharts'
 
 import StatCard from './components/StatCard'
 import TrafficChart from './components/TrafficChart'
@@ -42,6 +58,10 @@ import {
   useSearchConsoleOverview,
   usePageHealth,
   usePageSpeed,
+  usePostHogOverview,
+  usePostHogFunnel,
+  usePostHogReplays,
+  usePostHogRetention,
   type RangeOption,
 } from './hooks/useAnalytics'
 
@@ -56,6 +76,7 @@ const TABS = [
   { id: 'performance', label: 'Performance', icon: Zap },
   { id: 'page-health', label: 'Page Health', icon: ShieldCheck },
   { id: 'vercel', label: 'Vercel', icon: Activity },
+  { id: 'posthog', label: 'PostHog', icon: FlaskConical },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
@@ -563,6 +584,395 @@ function VercelTab() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PostHog Tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PH_ORANGE = '#f3811e'
+
+function PostHogFunnelWidget({ range }: { range: RangeOption }) {
+  const { data, loading, error, refetch } = usePostHogFunnel(range)
+  const ph = data as any
+
+  if (loading) return <SkeletonChart height={180} />
+  if (error) return <ErrorCard message={error} onRetry={refetch} />
+  if (ph?.configured === false) return null
+  if (ph?.error) return <ErrorCard message={ph.error} />
+  const steps: any[] = ph?.steps ?? []
+  if (steps.length === 0) return null
+
+  const max = steps[0]?.count || 1
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+      <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+        <FlaskConical className="w-4 h-4 text-orange-500" />
+        Core User Journey Funnel
+      </h3>
+      <div className="space-y-3">
+        {steps.map((step: any, i: number) => (
+          <div key={i} className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-gray-700">{step.name}</span>
+              <span className="text-gray-500 tabular-nums">
+                {step.count.toLocaleString()} {i > 0 && <span className="text-orange-500">({step.conversion_from_prev}%)</span>}
+              </span>
+            </div>
+            <div className="h-6 bg-gray-100 rounded-full overflow-hidden">
+              <motion.div
+                className="h-full rounded-full"
+                style={{ backgroundColor: PH_ORANGE, opacity: 0.8 - i * 0.15 }}
+                initial={{ width: 0 }}
+                animate={{ width: `${(step.count / max) * 100}%` }}
+                transition={{ duration: 0.6, delay: i * 0.1 }}
+              />
+            </div>
+            {i > 0 && step.drop_off > 0 && (
+              <p className="text-xs text-gray-400">
+                ↓ {step.drop_off.toLocaleString()} dropped off
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PostHogRetentionGrid({ range = '12w' }: { range?: string }) {
+  const { data, loading, error, refetch } = usePostHogRetention(range)
+  const ph = data as any
+
+  if (loading) return <SkeletonChart height={200} />
+  if (error) return <ErrorCard message={error} onRetry={refetch} />
+  if (ph?.configured === false) return null
+  if (ph?.error) return <ErrorCard message={ph.error} />
+  const cohorts: any[] = ph?.cohorts ?? []
+  if (cohorts.length === 0) return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 text-center text-gray-400 text-sm py-10">
+      No retention data available yet.
+    </div>
+  )
+
+  const maxCols = Math.max(...cohorts.map(c => c.values.length))
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3 overflow-x-auto">
+      <h3 className="text-sm font-semibold text-gray-800">Weekly Retention Cohorts</h3>
+      <table className="text-xs min-w-full">
+        <thead>
+          <tr>
+            <th className="text-left pr-3 pb-2 text-gray-500 font-medium whitespace-nowrap">Cohort</th>
+            <th className="text-right pr-2 pb-2 text-gray-500 font-medium">Size</th>
+            {Array.from({ length: maxCols }).map((_, i) => (
+              <th key={i} className="text-center px-1 pb-2 text-gray-500 font-medium whitespace-nowrap">
+                Week {i}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {cohorts.map((cohort: any, ri: number) => (
+            <tr key={ri} className="border-t border-gray-50">
+              <td className="pr-3 py-1.5 text-gray-600 whitespace-nowrap">
+                {cohort.date ? new Date(cohort.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : `Cohort ${ri + 1}`}
+              </td>
+              <td className="text-right pr-2 py-1.5 text-gray-600 tabular-nums">{cohort.cohort_size.toLocaleString()}</td>
+              {Array.from({ length: maxCols }).map((_, ci) => {
+                const v = cohort.values[ci]
+                const pct = v?.percentage ?? 0
+                const alpha = Math.min(pct / 100, 1)
+                return (
+                  <td
+                    key={ci}
+                    className="text-center px-1 py-1.5 tabular-nums rounded"
+                    style={{
+                      backgroundColor: pct > 0 ? `rgba(243,129,30,${alpha * 0.7 + 0.1})` : 'transparent',
+                      color: pct > 40 ? '#fff' : '#374151',
+                    }}
+                  >
+                    {v ? `${pct}%` : '—'}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function PostHogReplaysCard() {
+  const { data, loading, error, refetch } = usePostHogReplays(10)
+  const ph = data as any
+
+  if (loading) return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+      <SkeletonTable rows={5} />
+    </div>
+  )
+  if (error) return <ErrorCard message={error} onRetry={refetch} />
+  if (ph?.configured === false) return null
+  if (ph?.error) return <ErrorCard message={ph.error} />
+  const replays: any[] = ph?.replays ?? []
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3">
+      <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+        <Video className="w-4 h-4 text-orange-500" />
+        Recent Session Replays
+      </h3>
+      {replays.length === 0 ? (
+        <p className="text-xs text-gray-400 text-center py-6">No replays recorded yet.</p>
+      ) : (
+        <div className="divide-y divide-gray-50">
+          {replays.map((replay: any, i: number) => {
+            const durationSec = Math.round((replay.duration || 0))
+            const durationStr = durationSec >= 60
+              ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`
+              : `${durationSec}s`
+            const startDate = replay.start_time
+              ? new Date(replay.start_time).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+              : '—'
+            return (
+              <motion.div
+                key={replay.session_id}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="flex items-center justify-between py-2.5 gap-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-gray-800 truncate">{replay.start_url || '(unknown)'}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {startDate} · <Timer className="w-3 h-3 inline" /> {durationStr}
+                    {replay.click_count > 0 && ` · ${replay.click_count} clicks`}
+                  </p>
+                </div>
+                <a
+                  href={replay.replay_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 flex items-center gap-1.5 text-xs font-medium text-orange-600 hover:text-orange-700 border border-orange-200 hover:border-orange-400 px-2.5 py-1 rounded-lg transition-colors"
+                >
+                  <Play className="w-3 h-3" />
+                  Watch
+                </a>
+              </motion.div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PostHogTab({ range, onRangeChange }: { range: RangeOption; onRangeChange: (r: RangeOption) => void }) {
+  const { data, loading, error, refetch } = usePostHogOverview(range)
+  const ph = data as any
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-orange-100">
+              <FlaskConical className="w-3 h-3 text-orange-600" />
+            </span>
+            PostHog — Product Analytics
+          </h2>
+          <p className="text-xs text-gray-400 mt-0.5">Traffic, funnels, session replays, and retention.</p>
+        </div>
+        <DateRangePicker value={range} onChange={onRangeChange} />
+      </div>
+
+      {error && <ErrorCard message={error} onRetry={refetch} />}
+
+      {!loading && ph?.configured === false ? (
+        <NotConfiguredCard
+          service="PostHog"
+          message={ph.message}
+          steps={[
+            'Go to PostHog (app.posthog.com) → Personal Settings → Personal API Keys',
+            'Click "Create personal API key" — give it scopes: query:read, session_recording:read, project:read',
+            'Copy the key and set POSTHOG_PERSONAL_API_KEY in your environment variables',
+            'Optionally set POSTHOG_PROJECT_ID (default: 396739) and POSTHOG_HOST (default: https://us.i.posthog.com)',
+            'The public site tracking (NEXT_PUBLIC_POSTHOG_KEY) is already pre-configured',
+          ]}
+        />
+      ) : (
+        <>
+          {/* Stat cards */}
+          {loading ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
+            </div>
+          ) : ph?.error ? (
+            <ErrorCard message={ph.error} onRetry={refetch} />
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <StatCard
+                label={`Pageviews (${range})`}
+                value={ph?.summary?.pageviews ?? null}
+                icon={<Eye className="w-4 h-4" />}
+                delay={0}
+              />
+              <StatCard
+                label={`Sessions (${range})`}
+                value={ph?.summary?.sessions ?? null}
+                icon={<Activity className="w-4 h-4" />}
+                delay={0.05}
+              />
+              <StatCard
+                label={`Users (${range})`}
+                value={ph?.summary?.users ?? null}
+                icon={<Users className="w-4 h-4" />}
+                delay={0.1}
+              />
+            </div>
+          )}
+
+          {/* Pageviews timeseries */}
+          {loading ? (
+            <SkeletonChart height={240} />
+          ) : ph?.timeseries?.length > 0 ? (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-sm font-semibold text-gray-800 mb-4">Pageviews Over Time</h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={ph.timeseries} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                  <defs>
+                    <linearGradient id="phGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={PH_ORANGE} stopOpacity={0.25} />
+                      <stop offset="95%" stopColor={PH_ORANGE} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} width={40} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }} />
+                  <Area type="monotone" dataKey="pageviews" stroke={PH_ORANGE} strokeWidth={2} fill="url(#phGrad)" dot={false} activeDot={{ r: 4 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : null}
+
+          {/* Top pages + Top events */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {loading ? (
+              <>
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5"><SkeletonTable /></div>
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5"><SkeletonTable /></div>
+              </>
+            ) : (
+              <>
+                {/* Top Pages */}
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3">
+                  <h3 className="text-sm font-semibold text-gray-800">Top Pages</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-gray-400 border-b border-gray-100">
+                          <th className="text-left pb-2 font-medium">Path</th>
+                          <th className="text-right pb-2 font-medium">Pageviews</th>
+                          <th className="text-right pb-2 font-medium">Visitors</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {(ph?.top_pages ?? []).slice(0, 10).map((p: any, i: number) => (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="py-1.5 text-gray-700 truncate max-w-[180px]">{p.path}</td>
+                            <td className="py-1.5 text-right tabular-nums text-gray-600">{p.pageviews.toLocaleString()}</td>
+                            <td className="py-1.5 text-right tabular-nums text-gray-600">{p.unique_visitors.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        {(ph?.top_pages ?? []).length === 0 && (
+                          <tr><td colSpan={3} className="py-6 text-center text-gray-400">No data yet</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Top Events */}
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3">
+                  <h3 className="text-sm font-semibold text-gray-800">Top Events</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-gray-400 border-b border-gray-100">
+                          <th className="text-left pb-2 font-medium">Event</th>
+                          <th className="text-right pb-2 font-medium">Count</th>
+                          <th className="text-right pb-2 font-medium">Users</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {(ph?.top_events ?? []).slice(0, 10).map((e: any, i: number) => (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="py-1.5 text-gray-700 font-mono truncate max-w-[180px]">{e.event}</td>
+                            <td className="py-1.5 text-right tabular-nums text-gray-600">{e.count.toLocaleString()}</td>
+                            <td className="py-1.5 text-right tabular-nums text-gray-600">{e.unique_users.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        {(ph?.top_events ?? []).length === 0 && (
+                          <tr><td colSpan={3} className="py-6 text-center text-gray-400">No data yet</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Top referrers + Country breakdown */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {loading ? (
+              <>
+                <SkeletonChart height={220} />
+                <SkeletonChart height={220} />
+              </>
+            ) : (
+              <>
+                <SimpleBarChart
+                  title="Top Referrers"
+                  data={(ph?.top_referrers ?? []).map((r: any) => ({ label: r.referrer, value: r.sessions }))}
+                  color={PH_ORANGE}
+                  valueLabel="Sessions"
+                />
+                <SimpleBarChart
+                  title="Top Countries"
+                  data={(ph?.countries ?? []).map((c: any) => ({ label: c.country, value: c.users }))}
+                  color="#6366f1"
+                  valueLabel="Users"
+                />
+              </>
+            )}
+          </div>
+
+          {/* Device breakdown */}
+          {!loading && (ph?.devices ?? []).length > 0 && (
+            <DonutChart
+              title="Device Breakdown"
+              data={(ph.devices).map((d: any) => ({ name: d.device, value: d.users }))}
+              valueLabel="Users"
+            />
+          )}
+
+          {/* Funnel */}
+          <PostHogFunnelWidget range={range} />
+
+          {/* Session replays */}
+          <PostHogReplaysCard />
+
+          {/* Retention */}
+          <PostHogRetentionGrid range="12w" />
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main Analytics Page
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -612,7 +1022,9 @@ export default function AnalyticsPage() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`relative flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
-                  isActive ? 'text-emerald-700' : 'text-gray-500 hover:text-gray-700'
+                  isActive
+                    ? tab.id === 'posthog' ? 'text-orange-600' : 'text-emerald-700'
+                    : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -620,7 +1032,8 @@ export default function AnalyticsPage() {
                 {isActive && (
                   <motion.div
                     layoutId="tab-underline"
-                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 rounded-full"
+                    className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
+                    style={{ backgroundColor: tab.id === 'posthog' ? '#f3811e' : '#059669' }}
                     transition={{ type: 'spring', stiffness: 500, damping: 40 }}
                   />
                 )}
@@ -645,6 +1058,7 @@ export default function AnalyticsPage() {
           {activeTab === 'performance' && <PerformanceTab />}
           {activeTab === 'page-health' && <PageHealthTab />}
           {activeTab === 'vercel' && <VercelTab />}
+          {activeTab === 'posthog' && <PostHogTab range={range} onRangeChange={setRange} />}
         </motion.div>
       </AnimatePresence>
     </div>
