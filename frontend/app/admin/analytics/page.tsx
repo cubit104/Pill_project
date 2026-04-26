@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import dynamic from 'next/dynamic'
 import {
   BarChart2,
   TrendingUp,
@@ -49,6 +50,7 @@ import DateRangePicker from './components/DateRangePicker'
 import NotConfiguredCard from './components/NotConfiguredCard'
 import ErrorCard from './components/ErrorCard'
 import { SkeletonCard, SkeletonTable, SkeletonChart } from './components/SkeletonCard'
+import VisitorLocationsTable from './components/VisitorLocationsTable'
 import {
   useGA4Overview,
   useSearchConsoleOverview,
@@ -60,6 +62,9 @@ import {
   usePostHogRetention,
   type RangeOption,
 } from './hooks/useAnalytics'
+
+// Lazy-load WorldMap to avoid SSR issues with react-simple-maps
+const WorldMap = dynamic(() => import('./components/WorldMap'), { ssr: false })
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tab definitions
@@ -199,7 +204,7 @@ function OverviewTab({ range, onRangeChange }: { range: RangeOption; onRangeChan
 // Traffic Tab
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TrafficTab({ range, onRangeChange }: { range: RangeOption; onRangeChange: (r: RangeOption) => void }) {
+function TrafficTab({ range, onRangeChange, token }: { range: RangeOption; onRangeChange: (r: RangeOption) => void; token: string | null }) {
   const { data, loading, error, refetch } = useGA4Overview(range)
 
   if (error) return <ErrorCard message={error} onRetry={refetch} />
@@ -227,6 +232,9 @@ function TrafficTab({ range, onRangeChange }: { range: RangeOption; onRangeChang
           {/* Traffic over time */}
           {ga4?.timeseries?.length > 0 && <TrafficChart data={ga4.timeseries} />}
 
+          {/* World map choropleth */}
+          <WorldMap countries={ga4?.countries ?? []} />
+
           {/* Country + Device row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <SimpleBarChart
@@ -241,6 +249,9 @@ function TrafficTab({ range, onRangeChange }: { range: RangeOption; onRangeChang
               valueLabel="Sessions"
             />
           </div>
+
+          {/* Visitor locations table */}
+          <VisitorLocationsTable range={range} token={token} />
 
           {/* Tables */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -976,6 +987,7 @@ export default function AnalyticsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [range, setRange] = useState<RangeOption>('28d')
   const [loading, setLoading] = useState(true)
+  const [token, setToken] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => {
@@ -986,6 +998,7 @@ export default function AnalyticsPage() {
         router.push('/admin/login')
         return
       }
+      setToken(session.access_token)
       setLoading(false)
     }
     init()
@@ -1049,7 +1062,7 @@ export default function AnalyticsPage() {
           transition={{ duration: 0.2 }}
         >
           {activeTab === 'overview' && <OverviewTab range={range} onRangeChange={setRange} />}
-          {activeTab === 'traffic' && <TrafficTab range={range} onRangeChange={setRange} />}
+          {activeTab === 'traffic' && <TrafficTab range={range} onRangeChange={setRange} token={token} />}
           {activeTab === 'seo' && <SeoTab range={range} onRangeChange={setRange} />}
           {activeTab === 'performance' && <PerformanceTab />}
           {activeTab === 'page-health' && <PageHealthTab />}
