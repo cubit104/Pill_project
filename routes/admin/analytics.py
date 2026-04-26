@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/admin/analytics", tags=["admin-analytics"])
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-RANGE_DAYS = {"7d": 7, "28d": 28, "90d": 90}
+RANGE_DAYS = {"1d": 1, "7d": 7, "28d": 28, "90d": 90}
 
 # In-memory access-token cache: {"token": str, "expiry": float (epoch seconds)}
 _TOKEN_CACHE: dict = {}
@@ -118,7 +118,7 @@ def _get_search_console_site_url():
 
 @router.get("/ga4/overview")
 def ga4_overview(
-    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
+    range: str = Query("28d", pattern="^(1d|7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     property_id = _get_ga4_property_id()
@@ -292,7 +292,7 @@ def ga4_overview(
 
 @router.get("/search-console/overview")
 def search_console_overview(
-    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
+    range: str = Query("28d", pattern="^(1d|7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     site_url = _get_search_console_site_url()
@@ -505,7 +505,7 @@ def run_pagespeed(
 
 @router.get("/ga4/visitor-ips")
 def ga4_visitor_ips(
-    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
+    range: str = Query("28d", pattern="^(1d|7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     property_id = _get_ga4_property_id()

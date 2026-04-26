@@ -8,6 +8,7 @@ interface Props {
 }
 
 const OPTIONS: { value: RangeOption; label: string }[] = [
+  { value: '1d', label: '24h' },
   { value: '7d', label: 'Last 7 days' },
   { value: '28d', label: 'Last 28 days' },
   { value: '90d', label: 'Last 90 days' },

@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/admin/analytics/posthog", tags=["admin-analytics
 # Helpers
 # ────────────────────────────────────────────────────────────────────────────
 
-RANGE_DAYS = {"7d": 7, "28d": 28, "90d": 90}
+RANGE_DAYS = {"1d": 1, "7d": 7, "28d": 28, "90d": 90}
 _CACHE: dict = {}
 _CACHE_LOCK = threading.Lock()
 CACHE_TTL = 300  # 5 minutes
@@ -114,7 +114,7 @@ def _scalar_count(api_key: str, project_id: str, host: str, sql: str, label: str
 
 @router.get("/overview")
 def posthog_overview(
-    range_: str = Query("28d", alias="range", pattern="^(7d|28d|90d)$"),
+    range_: str = Query("28d", alias="range", pattern="^(1d|7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     """Pageviews, sessions, top pages, top events, top referrers, country/device breakdowns."""
@@ -404,7 +404,7 @@ def _build_funnel_series(steps: list) -> list:
 
 @router.get("/funnel")
 def posthog_funnel(
-    range_: str = Query("28d", alias="range", pattern="^(7d|28d|90d)$"),
+    range_: str = Query("28d", alias="range", pattern="^(1d|7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     """Core user journey funnel: landing → search/pill → drug page."""
@@ -592,7 +592,7 @@ def posthog_retention(
 
 @router.get("/visitor-locations")
 def posthog_visitor_locations(
-    range_: str = Query("28d", alias="range", pattern="^(7d|28d|90d)$"),
+    range_: str = Query("28d", alias="range", pattern="^(1d|7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     """Return visitor locations including IP, city, region, country from PostHog GeoIP data."""
@@ -618,6 +618,7 @@ def posthog_visitor_locations(
                         coalesce(properties.$geoip_subdivision_1_name, 'Unknown') AS region,
                         coalesce(properties.$geoip_country_name, 'Unknown') AS country,
                         coalesce(properties.$geoip_country_code, '') AS country_code,
+                        max(timestamp) AS last_seen,
                         count() AS pageviews,
                         count(DISTINCT person_id) AS users
                     FROM events
@@ -625,7 +626,7 @@ def posthog_visitor_locations(
                         AND timestamp >= now() - INTERVAL {days} DAY
                         AND properties.$ip IS NOT NULL
                     GROUP BY ip_address, city, region, country, country_code
-                    ORDER BY pageviews DESC
+                    ORDER BY last_seen DESC
                     LIMIT 100
                 """,
             }
@@ -638,8 +639,9 @@ def posthog_visitor_locations(
                 "region": row[2] or "Unknown",
                 "country": row[3] or "Unknown",
                 "country_code": row[4] or "",
-                "pageviews": int(row[5]) if row[5] else 0,
-                "users": int(row[6]) if row[6] else 0,
+                "last_seen": str(row[5]) if row[5] else None,
+                "pageviews": int(row[6]) if row[6] else 0,
+                "users": int(row[7]) if row[7] else 0,
             }
             for row in (result.get("results") or [])
         ]
