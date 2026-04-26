@@ -112,7 +112,7 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
         </div>
         {/* Close button — mobile only */}
         <button
-          onClick={onClose}
+          onClick={() => onClose?.()}
           className="md:hidden flex items-center justify-center w-8 h-8 text-gray-400 hover:text-white transition-colors"
           aria-label="Close menu"
         >
@@ -130,7 +130,7 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
             <Link
               key={href}
               href={href}
-              onClick={onClose}
+              onClick={() => onClose?.()}
               title={label}
               className={`flex items-center gap-3 px-3 py-3 rounded-md text-sm font-medium transition-colors
                 md:justify-center md:px-2 lg:justify-start lg:px-3
