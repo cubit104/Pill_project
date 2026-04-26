@@ -44,6 +44,7 @@ async function fetchPill(slug: string): Promise<PillDetail | null> {
     brand_names: raw.brand_names,
     status_rx_otc: raw.status_rx_otc,
     route: raw.route,
+    meta_title: raw.meta_title ?? undefined,
     image_url: raw.image_url ?? (Array.isArray(raw.image_urls) ? raw.image_urls[0] : undefined),
     images: raw.images ?? raw.image_urls ?? [],
     spl_set_id: raw.spl_set_id ?? undefined,
@@ -142,16 +143,16 @@ export async function generateMetadata(
     }
   }
 
-  // Build SEO title: {Color} {Shape} {Drug Name} {Strength} Pill With Imprint {Imprint} | PillSeek
-  const titleParts = [
+  // Use stored meta_title if available; otherwise build from pill fields
+  const computedTitle = [
     pill.color,
     pill.shape,
     pill.drug_name,
     pill.strength,
     'Pill',
     pill.imprint ? `With Imprint ${pill.imprint}` : null,
-  ].filter(Boolean)
-  const title = titleParts.join(' ')
+  ].filter(Boolean).join(' ')
+  const title = pill.meta_title || computedTitle
 
   // Identification summary is shared between on-page paragraph, meta description, and JSON-LD
   const identificationSummary = buildIdentificationSummary(pill)

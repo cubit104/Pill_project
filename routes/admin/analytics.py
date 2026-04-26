@@ -587,7 +587,11 @@ def page_health(admin: dict = Depends(get_admin_user)):
                         medicine_name,
                         meta_title,
                         meta_description,
-                        noindex
+                        noindex,
+                        splcolor_text,
+                        splshape_text,
+                        spl_strength,
+                        splimprint
                     FROM pillfinder
                     WHERE deleted_at IS NULL
                     ORDER BY id
@@ -606,7 +610,11 @@ def page_health(admin: dict = Depends(get_admin_user)):
                         SELECT id, slug, medicine_name,
                                NULL AS meta_title,
                                NULL AS meta_description,
-                               NULL AS noindex
+                               NULL AS noindex,
+                               NULL AS splcolor_text,
+                               NULL AS splshape_text,
+                               NULL AS spl_strength,
+                               NULL AS splimprint
                         FROM pillfinder
                         WHERE deleted_at IS NULL
                         ORDER BY id
@@ -623,7 +631,8 @@ def page_health(admin: dict = Depends(get_admin_user)):
     desc_map: dict[str, list[str]] = {}
 
     for row in rows:
-        row_id, slug, medicine_name, meta_title, meta_description, noindex = row
+        row_id, slug, medicine_name, meta_title, meta_description, noindex, \
+            splcolor_text, splshape_text, spl_strength, splimprint = row
         page_url = f"/pill/{slug}" if slug else f"/pill/{row_id}"
 
         # Garbage drug name (data quality)
@@ -641,8 +650,20 @@ def page_health(admin: dict = Depends(get_admin_user)):
             )
             continue  # Skip SEO checks for garbage-name pages
 
+        # Compute effective title: use stored meta_title or fall back to auto-generated
+        def _auto_title(color: Optional[str], shape: Optional[str], name: Optional[str],
+                        strength: Optional[str], imprint: Optional[str]) -> str:
+            parts = [color or "", shape or "", name or "", strength or "", "Pill"]
+            if imprint:
+                parts.append(f"With Imprint {imprint}")
+            return " ".join(p for p in parts if p).strip()
+
+        effective_title = (meta_title or "").strip() or _auto_title(
+            splcolor_text, splshape_text, medicine_name, spl_strength, splimprint
+        )
+
         # Missing meta_title
-        if not meta_title:
+        if not effective_title:
             issues.append(
                 {
                     "id": str(row_id),
@@ -655,7 +676,7 @@ def page_health(admin: dict = Depends(get_admin_user)):
                 }
             )
         else:
-            title_len = len(meta_title)
+            title_len = len(effective_title)
             if title_len < 30:
                 issues.append(
                     {
@@ -665,7 +686,7 @@ def page_health(admin: dict = Depends(get_admin_user)):
                         "severity": "warning",
                         "message": f"Meta title is too short ({title_len} chars, min 30).",
                         "field": "meta_title",
-                        "current_value": meta_title,
+                        "current_value": effective_title,
                     }
                 )
             elif title_len > 60:
@@ -677,11 +698,11 @@ def page_health(admin: dict = Depends(get_admin_user)):
                         "severity": "warning",
                         "message": f"Meta title is too long ({title_len} chars, max 60).",
                         "field": "meta_title",
-                        "current_value": meta_title,
+                        "current_value": effective_title,
                     }
                 )
             # Accumulate for dup detection
-            key = meta_title.strip().lower()
+            key = effective_title.strip().lower()
             title_map.setdefault(key, []).append(page_url)
 
         # Missing meta_description

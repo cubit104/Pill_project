@@ -33,9 +33,24 @@ EDITABLE_FIELDS = [
     "medicine_name", "author", "brand_names", "splimprint", "splcolor_text", "splshape_text",
     "splsize", "spl_strength", "spl_ingredients", "spl_inactive_ing", "dosage_form",
     "route", "dea_schedule_name", "pharmclass_fda_epc", "ndc9", "ndc11", "rxcui",
-    "rxcui_1", "status_rx_otc", "imprint_status", "slug", "meta_description",
+    "rxcui_1", "status_rx_otc", "imprint_status", "slug", "meta_title", "meta_description",
     "image_filename", "has_image", "image_alt_text", "tags",
 ]
+
+
+def _build_meta_title(data: dict) -> str:
+    """Auto-generate an SEO title from pill fields."""
+    parts = [
+        data.get("splcolor_text") or "",
+        data.get("splshape_text") or "",
+        data.get("medicine_name") or "",
+        data.get("spl_strength") or "",
+        "Pill",
+    ]
+    imprint = data.get("splimprint") or ""
+    if imprint:
+        parts.append(f"With Imprint {imprint}")
+    return " ".join(p for p in parts if p).strip()
 
 
 def _sanitize(value: Optional[str]) -> Optional[str]:
@@ -68,6 +83,7 @@ class PillCreate(BaseModel):
     status_rx_otc: Optional[str] = None
     imprint_status: Optional[str] = None
     slug: Optional[str] = None
+    meta_title: Optional[str] = None
     meta_description: Optional[str] = None
     image_filename: Optional[str] = None
     image_alt_text: Optional[str] = None
@@ -777,6 +793,11 @@ def get_pill(pill_id: str, admin: dict = Depends(get_admin_user)):
             ]
             pill["resolved_image_urls"] = resolved_urls
 
+            # If meta_title is not stored yet, compute it from the pill fields so
+            # the edit form shows a pre-filled value the admin can review/override.
+            if not pill.get("meta_title"):
+                pill["meta_title"] = _build_meta_title(pill)
+
         return pill
     except HTTPException:
         raise
@@ -918,6 +939,41 @@ def update_pill(
 
     if not updates:
         return {"updated": False}
+
+    # Auto-compute meta_title if it wasn't explicitly provided — fetch the
+    # current row so we can merge and build an accurate title.
+    if "meta_title" not in updates:
+        try:
+            with database.db_engine.connect() as conn:
+                mt_row = conn.execute(
+                    text("""
+                        SELECT meta_title, splcolor_text, splshape_text,
+                               medicine_name, spl_strength, splimprint
+                        FROM pillfinder WHERE id = :id AND deleted_at IS NULL LIMIT 1
+                    """),
+                    {"id": pill_id},
+                ).fetchone()
+            if mt_row:
+                current_meta_title = mt_row[0]
+                # Only auto-set when the stored value is still NULL (not when admin cleared it)
+                if not current_meta_title:
+                    merged_for_title = {
+                        "splcolor_text": mt_row[1],
+                        "splshape_text": mt_row[2],
+                        "medicine_name": mt_row[3],
+                        "spl_strength": mt_row[4],
+                        "splimprint": mt_row[5],
+                    }
+                    # Apply any incoming updates so the title reflects the new values
+                    for field in ("splcolor_text", "splshape_text", "medicine_name",
+                                  "spl_strength", "splimprint"):
+                        if field in updates:
+                            merged_for_title[field] = updates[field]
+                    computed = _build_meta_title(merged_for_title)
+                    if computed:
+                        updates["meta_title"] = computed
+        except SQLAlchemyError:
+            pass  # Non-critical — proceed without auto-computing
 
     # Editors cannot modify critical fields; they must use the draft workflow
     if admin["role"] == "editor":
@@ -1153,5 +1209,66 @@ def hard_delete_pill(
         raise
     except SQLAlchemyError as e:
         logger.error(f"hard_delete_pill DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
+@router.post("/backfill-meta-titles", status_code=200)
+def backfill_meta_titles(
+    request: Request,
+    admin: dict = Depends(require_superuser),
+):
+    """Backfill meta_title for all rows where it is currently NULL (superuser only)."""
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT id, splcolor_text, splshape_text, medicine_name,
+                           spl_strength, splimprint
+                    FROM pillfinder
+                    WHERE deleted_at IS NULL AND (meta_title IS NULL OR meta_title = '')
+                """)
+            ).fetchall()
+
+        updated = 0
+        skipped = 0
+        with database.db_engine.begin() as conn:
+            for row in rows:
+                pill_id_bf, color, shape, name, strength, imprint = row
+                data = {
+                    "splcolor_text": color,
+                    "splshape_text": shape,
+                    "medicine_name": name,
+                    "spl_strength": strength,
+                    "splimprint": imprint,
+                }
+                title = _build_meta_title(data)
+                if not title:
+                    skipped += 1
+                    continue
+                conn.execute(
+                    text("UPDATE pillfinder SET meta_title = :t, updated_at = now() WHERE id = :id"),
+                    {"t": title, "id": str(pill_id_bf)},
+                )
+                updated += 1
+
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action="backfill_meta_titles",
+                entity_type="pill",
+                entity_id="bulk",
+                diff={"updated": updated, "skipped": skipped},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+
+        return {"updated": updated, "skipped": skipped}
+    except SQLAlchemyError as e:
+        logger.error(f"backfill_meta_titles DB error: {e}", exc_info=True)
         root = getattr(e, "orig", None) or e
         raise HTTPException(status_code=500, detail=f"Database error: {root}")
