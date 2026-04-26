@@ -717,8 +717,8 @@ function PostHogRetentionGrid({ range = '12w' }: { range?: string }) {
   )
 }
 
-function PostHogReplaysCard() {
-  const { data, loading, error, refetch } = usePostHogReplays(10)
+function PostHogReplaysCard({ range }: { range: RangeOption }) {
+  const { data, loading, error, refetch } = usePostHogReplays(10, range)
   const ph = data as any
 
   if (loading) return (
@@ -985,10 +985,16 @@ function PostHogTab({ range, onRangeChange, token }: { range: RangeOption; onRan
           <PostHogFunnelWidget range={range} />
 
           {/* Session replays */}
-          <PostHogReplaysCard />
+          <PostHogReplaysCard range={range} />
 
           {/* Retention */}
-          <PostHogRetentionGrid range="12w" />
+          {range === '1d' ? (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-5 py-8 text-center text-gray-400 text-sm">
+              Weekly retention is not meaningful for the 24h view. Switch to 7 days or longer.
+            </div>
+          ) : (
+            <PostHogRetentionGrid range={{ '7d': '4w', '28d': '8w', '90d': '12w' }[range] ?? '8w'} />
+          )}
         </>
       )}
     </div>

@@ -78,8 +78,8 @@ export function usePostHogFunnel(range: RangeOption) {
   return useFetch<any>(`/api/admin/analytics/posthog/funnel?range=${range}`)
 }
 
-export function usePostHogReplays(limit = 10) {
-  return useFetch<any>(`/api/admin/analytics/posthog/replays?limit=${limit}`)
+export function usePostHogReplays(limit = 10, range: RangeOption = '28d') {
+  return useFetch<any>(`/api/admin/analytics/posthog/replays?limit=${limit}&range=${range}`)
 }
 
 export function usePostHogRetention(range = '12w') {
