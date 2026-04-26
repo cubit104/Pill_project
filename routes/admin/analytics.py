@@ -500,6 +500,49 @@ def run_pagespeed(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# GA4 Visitor Locations
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/ga4/visitor-ips")
+def ga4_visitor_ips(
+    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
+    admin: dict = Depends(get_admin_user),
+):
+    property_id = _get_ga4_property_id()
+    if not property_id:
+        return _not_configured("GA4", "Set GA4_PROPERTY_ID and Google OAuth2 env vars. See docs/admin-analytics.md for setup instructions.")
+    try:
+        from google.analytics.data_v1beta import BetaAnalyticsDataClient
+        from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
+        credentials = _build_oauth2_credentials()
+        client = BetaAnalyticsDataClient(credentials=credentials)
+        days = RANGE_DAYS.get(range, 28)
+        req = RunReportRequest(
+            property=f"properties/{property_id}",
+            date_ranges=[DateRange(start_date=f"{days}daysAgo", end_date="today")],
+            dimensions=[Dimension(name="city"), Dimension(name="region"), Dimension(name="country")],
+            metrics=[Metric(name="totalUsers"), Metric(name="sessions")],
+            limit=100,
+            order_bys=[{"metric": {"metric_name": "sessions"}, "desc": True}],
+        )
+        resp = client.run_report(req)
+        rows = [
+            {
+                "city": r.dimension_values[0].value,
+                "region": r.dimension_values[1].value,
+                "country": r.dimension_values[2].value,
+                "users": int(float(r.metric_values[0].value)),
+                "sessions": int(float(r.metric_values[1].value)),
+            }
+            for r in resp.rows
+        ]
+        return {"configured": True, "range": range, "locations": rows}
+    except Exception as exc:
+        logger.error(f"GA4 visitor locations error: {exc}", exc_info=True)
+        return {"configured": True, "error": str(exc)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Page Health (no external config needed)
 # ─────────────────────────────────────────────────────────────────────────────
 
