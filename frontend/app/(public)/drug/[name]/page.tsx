@@ -74,8 +74,8 @@ export default async function DrugHubPage(
   if (name !== canonicalSlug) {
     redirect(`/drug/${canonicalSlug}`)
   }
-  const displayName = toTitleCase(name.replace(/-/g, ' '))
-  const pills = await fetchPillsByDrug(name)
+  const displayName = toTitleCase(decoded.replace(/-/g, ' '))
+  const pills = await fetchPillsByDrug(decoded)
 
   if (!displayName) notFound()
 
