@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import PillCard from '../../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../../lib/structured-data'
@@ -49,9 +49,11 @@ export async function generateMetadata(
   { params }: { params: Promise<{ name: string }> }
 ): Promise<Metadata> {
   const { name } = await params
-  // Produce a canonical slug even if `name` came from a legacy percent-decoded URL
-  const canonicalSlug = slugifyDrugName(name) || encodeURIComponent(name)
-  const displayName = toTitleCase(name.replace(/-/g, ' '))
+  // Decode first so percent-encoded params (e.g. "ethambutol%20hydrochloride")
+  // produce the correct canonical slug rather than encoding the % sign itself.
+  const decoded = decodeURIComponent(name)
+  const canonicalSlug = slugifyDrugName(decoded) || decoded
+  const displayName = toTitleCase(canonicalSlug.replace(/-/g, ' '))
   const title = `${displayName} Pills — Identify ${displayName} by Imprint, Color & Shape`
   const description = `Look up ${displayName} pills by imprint code, color, and shape. Find all ${displayName} medications in our FDA-powered pill identifier.`.slice(0, 155)
 
@@ -68,10 +70,14 @@ export default async function DrugHubPage(
   { params }: { params: Promise<{ name: string }> }
 ) {
   const { name } = await params
-  // Produce a canonical slug even if `name` came from a legacy percent-decoded URL
-  const canonicalSlug = slugifyDrugName(name) || encodeURIComponent(name)
-  const displayName = toTitleCase(name.replace(/-/g, ' '))
-  const pills = await fetchPillsByDrug(name)
+  // Redirect legacy %20 URLs to hyphenated canonical slugs
+  const decoded = decodeURIComponent(name)
+  const canonicalSlug = slugifyDrugName(decoded) || decoded
+  if (name !== canonicalSlug) {
+    redirect(`/drug/${canonicalSlug}`)
+  }
+  const displayName = toTitleCase(canonicalSlug.replace(/-/g, ' '))
+  const pills = await fetchPillsByDrug(decoded)
 
   if (!displayName) notFound()
 
