@@ -989,11 +989,11 @@ function PostHogTab({ range, onRangeChange, token }: { range: RangeOption; onRan
 
           {/* Retention */}
           {range === '1d' ? (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 text-center text-gray-400 text-sm py-8">
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-5 py-8 text-center text-gray-400 text-sm">
               Weekly retention is not meaningful for the 24h view. Switch to 7 days or longer.
             </div>
           ) : (
-            <PostHogRetentionGrid range={range === '7d' ? '4w' : range === '90d' ? '12w' : '8w'} />
+            <PostHogRetentionGrid range={{ '7d': '4w', '28d': '8w', '90d': '12w' }[range] ?? '8w'} />
           )}
         </>
       )}

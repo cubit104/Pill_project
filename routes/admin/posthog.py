@@ -500,7 +500,7 @@ def posthog_replays(
     if not api_key:
         return _not_configured()
 
-    range_to_date = {"1d": "-1d", "7d": "-7d", "28d": "-30d", "90d": "-90d"}
+    range_to_date = {"1d": "-1d", "7d": "-7d", "28d": "-28d", "90d": "-90d"}
     date_from = range_to_date.get(range_, "-30d")
     cache_key = f"ph_replays_{limit}_{range_}"
     cached = _cache_get(cache_key)
