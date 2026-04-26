@@ -127,42 +127,67 @@ def posthog_overview(
     if cached:
         return cached
 
-    days = int(_days_for_range(range_))  # always 7, 28, or 90 — safe for f-string SQL
+    days = int(_days_for_range(range_))  # always 1, 7, 28, or 90 — safe for f-string SQL
 
     try:
-        # ── Pageviews timeseries (HogQL grouped by day) ───────────────────────
-        ts_payload = {
-            "query": {
-                "kind": "HogQLQuery",
-                "query": f"""
-                    SELECT
-                        toStartOfDay(timestamp) AS day,
-                        count() AS pageviews
-                    FROM events
-                    WHERE event = '$pageview'
-                        AND timestamp >= now() - INTERVAL {days} DAY
-                    GROUP BY day
-                    ORDER BY day ASC
-                """,
+        # ── Pageviews timeseries ──────────────────────────────────────────────
+        if days == 1:
+            # 24h view: group by hour for 24 data points
+            ts_query = """
+                SELECT
+                    toStartOfHour(timestamp) AS hour,
+                    count() AS pageviews
+                FROM events
+                WHERE event = '$pageview'
+                    AND timestamp >= now() - INTERVAL 24 HOUR
+                GROUP BY hour
+                ORDER BY hour ASC
+            """
+            ts_result = _ph_query(api_key, project_id, host, {"query": {"kind": "HogQLQuery", "query": ts_query}})
+            now_utc = datetime.now(timezone.utc)
+            timeseries_map = {
+                (now_utc - timedelta(hours=i)).strftime("%Y-%m-%d %H:00"): 0
+                for i in range(23, -1, -1)
             }
-        }
-        ts_result = _ph_query(api_key, project_id, host, ts_payload)
+            for row in (ts_result.get("results") or []):
+                hour_str = str(row[0])[:16] if row[0] else ""
+                if hour_str in timeseries_map:
+                    timeseries_map[hour_str] = int(row[1])
+            timeseries = [{"date": d, "pageviews": v} for d, v in timeseries_map.items()]
+        else:
+            # Multi-day view: group by day
+            ts_payload = {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"""
+                        SELECT
+                            toStartOfDay(timestamp) AS day,
+                            count() AS pageviews
+                        FROM events
+                        WHERE event = '$pageview'
+                            AND timestamp >= now() - INTERVAL {days} DAY
+                        GROUP BY day
+                        ORDER BY day ASC
+                    """,
+                }
+            }
+            ts_result = _ph_query(api_key, project_id, host, ts_payload)
 
-        # Build a complete day-by-day scaffold for the window in UTC, since
-        # PostHog's `toStartOfDay(timestamp)` is UTC. Using local server time
-        # caused recent events to fall on a calendar day that wasn't in the
-        # scaffold and get silently dropped on non-UTC hosts.
-        today_utc = datetime.now(timezone.utc).date()
-        timeseries_map = {
-            (today_utc - timedelta(days=i)).isoformat(): 0
-            for i in range(days - 1, -1, -1)
-        }
-        for row in (ts_result.get("results") or []):
-            # row[0] is an ISO datetime string like "2024-01-15T00:00:00"
-            day_str = str(row[0])[:10] if row[0] else ""
-            if day_str in timeseries_map:
-                timeseries_map[day_str] = int(row[1])
-        timeseries = [{"date": d, "pageviews": v} for d, v in timeseries_map.items()]
+            # Build a complete day-by-day scaffold for the window in UTC, since
+            # PostHog's `toStartOfDay(timestamp)` is UTC. Using local server time
+            # caused recent events to fall on a calendar day that wasn't in the
+            # scaffold and get silently dropped on non-UTC hosts.
+            today_utc = datetime.now(timezone.utc).date()
+            timeseries_map = {
+                (today_utc - timedelta(days=i)).isoformat(): 0
+                for i in range(days - 1, -1, -1)
+            }
+            for row in (ts_result.get("results") or []):
+                # row[0] is an ISO datetime string like "2024-01-15T00:00:00"
+                day_str = str(row[0])[:10] if row[0] else ""
+                if day_str in timeseries_map:
+                    timeseries_map[day_str] = int(row[1])
+            timeseries = [{"date": d, "pageviews": v} for d, v in timeseries_map.items()]
 
         # ── Summary stats — three INDEPENDENT queries ─────────────────────────
         # Previously these were bundled into a single SELECT with three aggregates.
@@ -467,6 +492,7 @@ def posthog_funnel(
 @router.get("/replays")
 def posthog_replays(
     limit: int = Query(10, ge=1, le=50),
+    range_: str = Query("28d", alias="range", pattern="^(1d|7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     """Recent session replays with metadata and deep-link URLs."""
@@ -474,7 +500,9 @@ def posthog_replays(
     if not api_key:
         return _not_configured()
 
-    cache_key = f"ph_replays_{limit}"
+    range_to_date = {"1d": "-1d", "7d": "-7d", "28d": "-30d", "90d": "-90d"}
+    date_from = range_to_date.get(range_, "-30d")
+    cache_key = f"ph_replays_{limit}_{range_}"
     cached = _cache_get(cache_key)
     if cached:
         return cached
@@ -483,7 +511,7 @@ def posthog_replays(
         url = f"{host}/api/projects/{project_id}/session_recordings/"
         params = {
             "limit": limit,
-            "date_from": "-30d",
+            "date_from": date_from,
         }
         data = _ph_get(api_key, url, params=params)
 
