@@ -1237,7 +1237,7 @@ def backfill_meta_titles(
         skipped = 0
         with database.db_engine.begin() as conn:
             for row in rows:
-                pill_id_bf, color, shape, name, strength, imprint = row
+                pill_id_row, color, shape, name, strength, imprint = row
                 data = {
                     "splcolor_text": color,
                     "splshape_text": shape,
@@ -1251,7 +1251,7 @@ def backfill_meta_titles(
                     continue
                 conn.execute(
                     text("UPDATE pillfinder SET meta_title = :t, updated_at = now() WHERE id = :id"),
-                    {"t": title, "id": str(pill_id_bf)},
+                    {"t": title, "id": str(pill_id_row)},
                 )
                 updated += 1
 

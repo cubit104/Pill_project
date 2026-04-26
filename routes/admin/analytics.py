@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 import database
 from routes.admin.auth import get_admin_user
+from routes.admin.pills import _build_meta_title as _pill_build_meta_title
 
 logger = logging.getLogger(__name__)
 
@@ -651,16 +652,13 @@ def page_health(admin: dict = Depends(get_admin_user)):
             continue  # Skip SEO checks for garbage-name pages
 
         # Compute effective title: use stored meta_title or fall back to auto-generated
-        def _auto_title(color: Optional[str], shape: Optional[str], name: Optional[str],
-                        strength: Optional[str], imprint: Optional[str]) -> str:
-            parts = [color or "", shape or "", name or "", strength or "", "Pill"]
-            if imprint:
-                parts.append(f"With Imprint {imprint}")
-            return " ".join(p for p in parts if p).strip()
-
-        effective_title = (meta_title or "").strip() or _auto_title(
-            splcolor_text, splshape_text, medicine_name, spl_strength, splimprint
-        )
+        effective_title = (meta_title or "").strip() or _pill_build_meta_title({
+            "splcolor_text": splcolor_text,
+            "splshape_text": splshape_text,
+            "medicine_name": medicine_name,
+            "spl_strength": spl_strength,
+            "splimprint": splimprint,
+        })
 
         # Missing meta_title
         if not effective_title:
