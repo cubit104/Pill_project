@@ -45,7 +45,8 @@ def _normalize_color(val: str) -> str:
 
 def _normalize_drug_name(val: str) -> str:
     """Title-case the drug name: take the part before the first slash, then
-    title-case each comma-separated token and rejoin with a space."""
+    title-case each comma-separated token and rejoin with a space.
+    """
     val = val.partition("/")[0]
     return " ".join(p.strip().title() for p in val.split(",") if p.strip())
 
