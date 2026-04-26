@@ -46,7 +46,7 @@ def _normalize_color(val: str) -> str:
 def _normalize_drug_name(val: str) -> str:
     """Title-case the drug name: take the part before the first slash, then
     title-case each comma-separated token and rejoin with a space."""
-    val = val.split("/")[0]
+    val = val.partition("/")[0]
     return " ".join(p.strip().title() for p in val.split(",") if p.strip())
 
 
@@ -65,7 +65,7 @@ def _build_meta_title(data: dict) -> str:
     shape = (data.get("splshape_text") or "").strip().title()
     drug = _normalize_drug_name(data.get("medicine_name") or "")
     strength = _normalize_strength(data.get("spl_strength") or "")
-    imprint = (data.get("splimprint") or "").strip()  # no normalization
+    imprint = (data.get("splimprint") or "").strip()  # preserve original text, only strip surrounding whitespace
 
     # Require at least one meaningful field before building a title
     if not any([color, shape, drug, strength]) and not imprint:
