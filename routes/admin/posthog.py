@@ -3,7 +3,7 @@ import logging
 import os
 import threading
 import time
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/analytics/posthog", tags=["admin-analytics-posthog"])
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 # Helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 
 RANGE_DAYS = {"7d": 7, "28d": 28, "90d": 90}
 _CACHE: dict = {}
@@ -91,9 +91,26 @@ def _days_for_range(range_str: str) -> int:
     return RANGE_DAYS.get(range_str, 28)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+def _scalar_count(api_key: str, project_id: str, host: str, sql: str, label: str) -> int:
+    """Run a single-cell aggregate HogQL query and return an int. Logs and returns 0 on failure
+    so a single broken metric never blanks out an entire dashboard row."""
+    try:
+        result = _ph_query(api_key, project_id, host, {
+            "query": {"kind": "HogQLQuery", "query": sql},
+        })
+        rows = result.get("results") or []
+        if not rows or rows[0] is None:
+            return 0
+        val = rows[0][0]
+        return int(val) if val is not None else 0
+    except Exception as exc:
+        logger.error("PostHog scalar query %s failed: %s", label, exc)
+        return 0
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # Overview Endpoint
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 
 @router.get("/overview")
 def posthog_overview(
@@ -131,11 +148,13 @@ def posthog_overview(
         }
         ts_result = _ph_query(api_key, project_id, host, ts_payload)
 
-        # Build a complete day-by-day scaffold for the window (oldest → newest),
-        # filling days absent from the query result with 0.
-        today = date.today()
+        # Build a complete day-by-day scaffold for the window in UTC, since
+        # PostHog's `toStartOfDay(timestamp)` is UTC. Using local server time
+        # caused recent events to fall on a calendar day that wasn't in the
+        # scaffold and get silently dropped on non-UTC hosts.
+        today_utc = datetime.now(timezone.utc).date()
         timeseries_map = {
-            (today - timedelta(days=i)).isoformat(): 0
+            (today_utc - timedelta(days=i)).isoformat(): 0
             for i in range(days - 1, -1, -1)
         }
         for row in (ts_result.get("results") or []):
@@ -145,31 +164,55 @@ def posthog_overview(
                 timeseries_map[day_str] = int(row[1])
         timeseries = [{"date": d, "pageviews": v} for d, v in timeseries_map.items()]
 
-        # ── Summary stats (HogQL aggregation) ────────────────────────────────
-        stats_payload = {
-            "query": {
-                "kind": "HogQLQuery",
-                "query": f"""
-                    SELECT
-                        count() AS pageviews,
-                        count(DISTINCT properties.$session_id) AS sessions,
-                        count(DISTINCT person_id) AS users
-                    FROM events
+        # ── Summary stats — three INDEPENDENT queries ─────────────────────────
+        # Previously these were bundled into a single SELECT with three aggregates.
+        # If any one column failed to evaluate (e.g. the session_id property
+        # path), the whole row came back null and all three KPI cards rendered
+        # 0 even though identical aggregates worked fine in the per-section
+        # queries below. Splitting isolates failures.
+        total_pageviews = _scalar_count(
+            api_key, project_id, host,
+            f"""
+                SELECT count() FROM events
+                WHERE event = '$pageview'
+                  AND timestamp >= now() - INTERVAL {days} DAY
+            """,
+            "pageviews",
+        )
+
+        # Try $session_id directly first (HogQL exposes common props at the top
+        # level on most projects); fall back to properties.$session_id.
+        total_sessions = _scalar_count(
+            api_key, project_id, host,
+            f"""
+                SELECT count(DISTINCT $session_id) FROM events
+                WHERE event = '$pageview'
+                  AND timestamp >= now() - INTERVAL {days} DAY
+                  AND $session_id IS NOT NULL
+            """,
+            "sessions ($session_id)",
+        )
+        if total_sessions == 0:
+            total_sessions = _scalar_count(
+                api_key, project_id, host,
+                f"""
+                    SELECT count(DISTINCT properties.$session_id) FROM events
                     WHERE event = '$pageview'
-                        AND timestamp >= now() - INTERVAL {days} DAY
+                      AND timestamp >= now() - INTERVAL {days} DAY
+                      AND properties.$session_id IS NOT NULL
                 """,
-            }
-        }
-        stats_result = _ph_query(api_key, project_id, host, stats_payload)
-        total_pageviews = 0
-        total_sessions = 0
-        total_users = 0
-        rows = stats_result.get("results") or []
-        if rows:
-            row = rows[0]
-            total_pageviews = int(row[0]) if row[0] is not None else 0
-            total_sessions = int(row[1]) if row[1] is not None else 0
-            total_users = int(row[2]) if row[2] is not None else 0
+                "sessions (properties.$session_id)",
+            )
+
+        total_users = _scalar_count(
+            api_key, project_id, host,
+            f"""
+                SELECT count(DISTINCT person_id) FROM events
+                WHERE event = '$pageview'
+                  AND timestamp >= now() - INTERVAL {days} DAY
+            """,
+            "users",
+        )
 
         # ── Top Pages ─────────────────────────────────────────────────────────
         top_pages_payload = {
@@ -311,9 +354,9 @@ def posthog_overview(
         return {"configured": True, "error": "Failed to fetch PostHog overview data. Check server logs for details."}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 # Funnel Endpoint
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 
 # Single source of truth for the core user-journey funnel steps.
 # Each entry maps directly to a FunnelsQuery series node.
@@ -417,9 +460,9 @@ def posthog_funnel(
         return {"configured": True, "error": "Failed to fetch PostHog funnel data. Check server logs for details."}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 # Replays Endpoint
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 
 @router.get("/replays")
 def posthog_replays(
@@ -469,9 +512,9 @@ def posthog_replays(
         return {"configured": True, "error": "Failed to fetch PostHog replays. Check server logs for details."}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 # Retention Endpoint
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 
 _MAX_RETENTION_WEEKS = 52
 
