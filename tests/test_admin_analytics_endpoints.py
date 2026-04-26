@@ -490,3 +490,104 @@ class TestBuildOAuth2Credentials:
         for var in ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN"):
             assert var in msg, f"Missing var name in error message: {var}"
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PostHog Visitor Locations
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPostHogVisitorLocations:
+    """Tests for GET /api/admin/analytics/posthog/visitor-locations."""
+
+    _PATH = "/api/admin/analytics/posthog/visitor-locations"
+
+    def _get(self, client, range_param, ph_query_result):
+        import database as db_module
+        import routes.admin.posthog as ph_module
+
+        db_module.db_engine = _make_auth_engine()
+        with ph_module._CACHE_LOCK:
+            ph_module._CACHE.clear()
+
+        env = {"POSTHOG_PERSONAL_API_KEY": "phx_fake_key"}
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch("routes.admin.posthog._ph_query", return_value=ph_query_result), \
+             patch.dict(os.environ, env, clear=False):
+            return client.get(f"{self._PATH}?range={range_param}", headers=AUTH_HEADERS)
+
+    # ── Not-configured ────────────────────────────────────────────────────────
+
+    def test_not_configured_returns_200(self, client):
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch.dict(os.environ, {"POSTHOG_PERSONAL_API_KEY": ""}, clear=False):
+            resp = client.get(self._PATH, headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+
+    def test_not_configured_flag(self, client):
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch.dict(os.environ, {"POSTHOG_PERSONAL_API_KEY": ""}, clear=False):
+            data = client.get(self._PATH, headers=AUTH_HEADERS).json()
+        assert data["configured"] is False
+
+    # ── Happy path ────────────────────────────────────────────────────────────
+
+    def test_happy_path_configured_true(self, client):
+        resp = self._get(client, "28d", {"results": []})
+        assert resp.status_code == 200
+        assert resp.json()["configured"] is True
+
+    def test_happy_path_required_keys(self, client):
+        data = self._get(client, "28d", {"results": []}).json()
+        for key in ("configured", "range", "locations"):
+            assert key in data, f"Missing key: {key}"
+
+    def test_happy_path_locations_shape(self, client):
+        """Each location row must contain the expected fields."""
+        rows = [
+            ["1.2.3.4", "New York", "New York", "United States", "US", 42, 10],
+            ["5.6.7.8", "London", "England", "United Kingdom", "GB", 15, 5],
+        ]
+        data = self._get(client, "7d", {"results": rows}).json()
+        assert len(data["locations"]) == 2
+        for row in data["locations"]:
+            for field in ("ip", "city", "region", "country", "country_code", "pageviews", "users"):
+                assert field in row, f"Missing field: {field}"
+
+    def test_happy_path_location_values(self, client):
+        rows = [["1.2.3.4", "Paris", "Île-de-France", "France", "FR", 7, 3]]
+        data = self._get(client, "7d", {"results": rows}).json()
+        loc = data["locations"][0]
+        assert loc["ip"] == "1.2.3.4"
+        assert loc["city"] == "Paris"
+        assert loc["region"] == "Île-de-France"
+        assert loc["country"] == "France"
+        assert loc["country_code"] == "FR"
+        assert loc["pageviews"] == 7
+        assert loc["users"] == 3
+
+    def test_happy_path_range_echoed(self, client):
+        data = self._get(client, "7d", {"results": []}).json()
+        assert data["range"] == "7d"
+
+    # ── Null/missing values ───────────────────────────────────────────────────
+
+    def test_null_fields_default_to_unknown(self, client):
+        """None values from HogQL must default to 'Unknown'/''/0 rather than null."""
+        rows = [[None, None, None, None, None, None, None]]
+        data = self._get(client, "28d", {"results": rows}).json()
+        loc = data["locations"][0]
+        assert loc["ip"] == ""
+        assert loc["city"] == "Unknown"
+        assert loc["region"] == "Unknown"
+        assert loc["country"] == "Unknown"
+        assert loc["country_code"] == ""
+        assert loc["pageviews"] == 0
+        assert loc["users"] == 0
+
+    def test_empty_results_returns_empty_list(self, client):
+        data = self._get(client, "28d", {"results": []}).json()
+        assert data["locations"] == []
+
