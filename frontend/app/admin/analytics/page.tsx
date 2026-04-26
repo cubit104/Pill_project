@@ -51,6 +51,7 @@ import NotConfiguredCard from './components/NotConfiguredCard'
 import ErrorCard from './components/ErrorCard'
 import { SkeletonCard, SkeletonTable, SkeletonChart } from './components/SkeletonCard'
 import VisitorLocationsTable from './components/VisitorLocationsTable'
+import PostHogVisitorLocationsTable from './components/PostHogVisitorLocationsTable'
 import {
   useGA4Overview,
   useSearchConsoleOverview,
@@ -774,7 +775,7 @@ function PostHogReplaysCard() {
   )
 }
 
-function PostHogTab({ range, onRangeChange }: { range: RangeOption; onRangeChange: (r: RangeOption) => void }) {
+function PostHogTab({ range, onRangeChange, token }: { range: RangeOption; onRangeChange: (r: RangeOption) => void; token: string | null }) {
   const { data, loading, error, refetch } = usePostHogOverview(range)
   const ph = data as any
 
@@ -956,6 +957,14 @@ function PostHogTab({ range, onRangeChange }: { range: RangeOption; onRangeChang
             )}
           </div>
 
+          {/* World map choropleth */}
+          {!loading && (ph?.countries ?? []).length > 0 && (
+            <WorldMap countries={ph?.countries ?? []} />
+          )}
+
+          {/* PostHog visitor IP/location table */}
+          <PostHogVisitorLocationsTable range={range} token={token} />
+
           {/* Device breakdown */}
           {!loading && (ph?.devices ?? []).length > 0 && (
             <DonutChart
@@ -1067,7 +1076,7 @@ export default function AnalyticsPage() {
           {activeTab === 'performance' && <PerformanceTab />}
           {activeTab === 'page-health' && <PageHealthTab />}
           {activeTab === 'vercel' && <VercelTab />}
-          {activeTab === 'posthog' && <PostHogTab range={range} onRangeChange={setRange} />}
+          {activeTab === 'posthog' && <PostHogTab range={range} onRangeChange={setRange} token={token} />}
         </motion.div>
       </AnimatePresence>
     </div>

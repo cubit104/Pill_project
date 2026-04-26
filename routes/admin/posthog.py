@@ -584,3 +584,69 @@ def posthog_retention(
     except Exception as exc:
         logger.error("PostHog retention error: %s", exc)
         return {"configured": True, "error": "Failed to fetch PostHog retention data. Check server logs for details."}
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Visitor Locations Endpoint
+# ────────────────────────────────────────────────────────────────────────────
+
+@router.get("/visitor-locations")
+def posthog_visitor_locations(
+    range_: str = Query("28d", alias="range", pattern="^(7d|28d|90d)$"),
+    admin: dict = Depends(get_admin_user),
+):
+    """Return visitor locations including IP, city, region, country from PostHog GeoIP data."""
+    api_key, project_id, host = _get_posthog_config()
+    if not api_key:
+        return _not_configured()
+
+    cache_key = f"ph_visitor_locations_{range_}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    days = int(_days_for_range(range_))
+
+    try:
+        payload = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": f"""
+                    SELECT
+                        properties.$ip AS ip_address,
+                        coalesce(properties.$geoip_city_name, 'Unknown') AS city,
+                        coalesce(properties.$geoip_subdivision_1_name, 'Unknown') AS region,
+                        coalesce(properties.$geoip_country_name, 'Unknown') AS country,
+                        coalesce(properties.$geoip_country_code, '') AS country_code,
+                        count() AS pageviews,
+                        count(DISTINCT person_id) AS users
+                    FROM events
+                    WHERE event = '$pageview'
+                        AND timestamp >= now() - INTERVAL {days} DAY
+                        AND properties.$ip IS NOT NULL
+                    GROUP BY ip_address, city, region, country, country_code
+                    ORDER BY pageviews DESC
+                    LIMIT 100
+                """,
+            }
+        }
+        result = _ph_query(api_key, project_id, host, payload)
+        locations = [
+            {
+                "ip": row[0] or "",
+                "city": row[1] or "Unknown",
+                "region": row[2] or "Unknown",
+                "country": row[3] or "Unknown",
+                "country_code": row[4] or "",
+                "pageviews": int(row[5]) if row[5] else 0,
+                "users": int(row[6]) if row[6] else 0,
+            }
+            for row in (result.get("results") or [])
+        ]
+        out = {"configured": True, "range": range_, "locations": locations}
+        _cache_set(cache_key, out)
+        return out
+
+    except Exception as exc:
+        logger.error("PostHog visitor locations error: %s", exc)
+        return {"configured": True, "error": "Failed to fetch PostHog visitor locations. Check server logs for details."}
