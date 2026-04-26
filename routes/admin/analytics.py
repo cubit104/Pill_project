@@ -1,8 +1,9 @@
 """Admin analytics endpoints — GA4, Search Console, PageSpeed Insights, Page Health."""
-import json
 import logging
 import os
 import re
+import threading
+import time
 from typing import Optional
 
 import requests
@@ -22,48 +23,87 @@ router = APIRouter(prefix="/api/admin/analytics", tags=["admin-analytics"])
 
 RANGE_DAYS = {"7d": 7, "28d": 28, "90d": 90}
 
+# In-memory access-token cache: {"token": str, "expiry": float (epoch seconds)}
+_TOKEN_CACHE: dict = {}
+_TOKEN_LOCK = threading.Lock()
+_TOKEN_EXPIRY_BUFFER = 60  # refresh 60 s before actual expiry
+
 
 def _not_configured(service: str, instructions: str) -> dict:
     return {"configured": False, "message": f"{service} not configured. {instructions}"}
 
 
-def _get_ga4_credentials():
-    """Load GA4 credentials from env.  Returns (property_id, creds_dict | None)."""
-    property_id = os.getenv("GA4_PROPERTY_ID", "")
-    sa_json_raw = os.getenv("GA4_SERVICE_ACCOUNT_JSON", "")
-    if not property_id or not sa_json_raw:
-        return None, None
-    # Accept either raw JSON string or a file path
-    if sa_json_raw.strip().startswith("{"):
-        try:
-            creds_dict = json.loads(sa_json_raw)
-        except json.JSONDecodeError:
-            return None, None
-    else:
-        if not os.path.isfile(sa_json_raw):
-            return None, None
-        with open(sa_json_raw) as f:
-            creds_dict = json.load(f)
-    return property_id, creds_dict
+def _build_oauth2_credentials():
+    """Build Google OAuth2 credentials from env vars.
+
+    Returns a ``google.oauth2.credentials.Credentials`` instance ready to use,
+    or raises ``RuntimeError`` with a descriptive message if any required var is
+    missing.  Access tokens are cached in memory and refreshed automatically.
+    """
+    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
+    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
+    refresh_token = os.getenv("GOOGLE_OAUTH_REFRESH_TOKEN", "")
+
+    missing = [
+        name
+        for name, val in [
+            ("GOOGLE_OAUTH_CLIENT_ID", client_id),
+            ("GOOGLE_OAUTH_CLIENT_SECRET", client_secret),
+            ("GOOGLE_OAUTH_REFRESH_TOKEN", refresh_token),
+        ]
+        if not val
+    ]
+    if missing:
+        raise RuntimeError(
+            f"Google OAuth2 not configured — missing env var(s): {', '.join(missing)}. "
+            "See docs/admin-analytics.md for setup instructions."
+        )
+
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+
+    with _TOKEN_LOCK:
+        cached = _TOKEN_CACHE.get("token")
+        expiry = _TOKEN_CACHE.get("expiry", 0.0)
+        if cached and time.time() < expiry - _TOKEN_EXPIRY_BUFFER:
+            # Return cached credentials (token still valid)
+            creds = Credentials(
+                token=cached,
+                refresh_token=refresh_token,
+                client_id=client_id,
+                client_secret=client_secret,
+                token_uri="https://oauth2.googleapis.com/token",
+                scopes=["https://www.googleapis.com/auth/analytics.readonly"],
+            )
+            return creds
+
+        # Build credentials and force a refresh to get a fresh access token
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            client_id=client_id,
+            client_secret=client_secret,
+            token_uri="https://oauth2.googleapis.com/token",
+            scopes=["https://www.googleapis.com/auth/analytics.readonly"],
+        )
+        creds.refresh(Request())
+        new_expiry = (
+            creds.expiry.timestamp() if creds.expiry else time.time() + 3600
+        )
+        _TOKEN_CACHE["token"] = creds.token
+        _TOKEN_CACHE["expiry"] = new_expiry
+
+    return creds
 
 
-def _get_search_console_credentials():
-    """Load Search Console creds from env."""
-    site_url = os.getenv("SEARCH_CONSOLE_SITE_URL", "")
-    sa_json_raw = os.getenv("GA4_SERVICE_ACCOUNT_JSON", "")  # reuse same service account
-    if not site_url or not sa_json_raw:
-        return None, None
-    if sa_json_raw.strip().startswith("{"):
-        try:
-            creds_dict = json.loads(sa_json_raw)
-        except json.JSONDecodeError:
-            return None, None
-    else:
-        if not os.path.isfile(sa_json_raw):
-            return None, None
-        with open(sa_json_raw) as f:
-            creds_dict = json.load(f)
-    return site_url, creds_dict
+def _get_ga4_property_id():
+    """Return the GA4 property ID from env, or None if not set."""
+    return os.getenv("GA4_PROPERTY_ID", "") or None
+
+
+def _get_search_console_site_url():
+    """Return the Search Console site URL from env, or None if not set."""
+    return os.getenv("SEARCH_CONSOLE_SITE_URL", "") or None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -75,16 +115,16 @@ def ga4_overview(
     range: str = Query("28d", pattern="^(7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
-    property_id, creds_dict = _get_ga4_credentials()
+    property_id = _get_ga4_property_id()
     if not property_id:
         return _not_configured(
             "GA4",
-            "Set GA4_PROPERTY_ID and GA4_SERVICE_ACCOUNT_JSON environment variables. "
+            "Set GA4_PROPERTY_ID, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, "
+            "and GOOGLE_OAUTH_REFRESH_TOKEN environment variables. "
             "See docs/admin-analytics.md for setup instructions.",
         )
 
     try:
-        from google.oauth2 import service_account
         from google.analytics.data_v1beta import BetaAnalyticsDataClient
         from google.analytics.data_v1beta.types import (
             DateRange,
@@ -93,10 +133,7 @@ def ga4_overview(
             RunReportRequest,
         )
 
-        credentials = service_account.Credentials.from_service_account_info(
-            creds_dict,
-            scopes=["https://www.googleapis.com/auth/analytics.readonly"],
-        )
+        credentials = _build_oauth2_credentials()
         client = BetaAnalyticsDataClient(credentials=credentials)
 
         days = RANGE_DAYS.get(range, 28)
@@ -252,23 +289,20 @@ def search_console_overview(
     range: str = Query("28d", pattern="^(7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
-    site_url, creds_dict = _get_search_console_credentials()
+    site_url = _get_search_console_site_url()
     if not site_url:
         return _not_configured(
             "Search Console",
-            "Set SEARCH_CONSOLE_SITE_URL and GA4_SERVICE_ACCOUNT_JSON environment variables. "
+            "Set SEARCH_CONSOLE_SITE_URL, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, "
+            "and GOOGLE_OAUTH_REFRESH_TOKEN environment variables. "
             "See docs/admin-analytics.md for setup instructions.",
         )
 
     try:
-        from google.oauth2 import service_account
         from googleapiclient.discovery import build
         import datetime
 
-        credentials = service_account.Credentials.from_service_account_info(
-            creds_dict,
-            scopes=["https://www.googleapis.com/auth/webmasters.readonly"],
-        )
+        credentials = _build_oauth2_credentials()
         service = build("searchconsole", "v1", credentials=credentials)
 
         days = RANGE_DAYS.get(range, 28)
