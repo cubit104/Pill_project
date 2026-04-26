@@ -38,25 +38,43 @@ EDITABLE_FIELDS = [
 ]
 
 
+def _normalize_color(val: str) -> str:
+    """Title-case each comma-separated color token and rejoin with a space."""
+    return " ".join(p.strip().title() for p in val.split(",") if p.strip())
+
+
+def _normalize_drug_name(val: str) -> str:
+    """Title-case the drug name: take the part before the first slash, then
+    title-case each comma-separated token and rejoin with a space."""
+    val = val.split("/")[0]
+    return " ".join(p.strip().title() for p in val.split(",") if p.strip())
+
+
+def _normalize_strength(val: str) -> str:
+    """Lowercase the strength string (preserves numbers and slashes)."""
+    return val.strip().lower()
+
+
 def _build_meta_title(data: dict) -> str:
     """Auto-generate an SEO title from pill fields.
 
     Returns an empty string when no meaningful field values are present
     (i.e. when the result would be the bare generic suffix "Pill").
     """
-    base_parts = [
-        data.get("splcolor_text") or "",
-        data.get("splshape_text") or "",
-        data.get("medicine_name") or "",
-        data.get("spl_strength") or "",
-    ]
-    imprint = data.get("splimprint") or ""
+    color = _normalize_color(data.get("splcolor_text") or "")
+    shape = (data.get("splshape_text") or "").strip().title()
+    drug = _normalize_drug_name(data.get("medicine_name") or "")
+    strength = _normalize_strength(data.get("spl_strength") or "")
+    imprint = (data.get("splimprint") or "").strip()  # no normalization
+
     # Require at least one meaningful field before building a title
-    if not any(base_parts) and not imprint:
+    if not any([color, shape, drug, strength]) and not imprint:
         return ""
-    parts = [*base_parts, "Pill"]
+
+    parts = [color, shape, drug, strength, "Pill"]
     if imprint:
         parts.append(f"With Imprint {imprint}")
+
     return " ".join(p for p in parts if p).strip()
 
 
