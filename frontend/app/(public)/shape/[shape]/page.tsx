@@ -1,9 +1,10 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import PillCard from '../../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../../lib/structured-data'
+import { slugifyUrl } from '../../../lib/url-utils'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -42,8 +43,8 @@ export async function generateMetadata(
   return {
     title,
     description,
-    alternates: { canonical: `/shape/${encodeURIComponent(shape)}` },
-    openGraph: { title, description, url: `${SITE_URL}/shape/${encodeURIComponent(shape)}` },
+    alternates: { canonical: `/shape/${slugifyUrl(decodeURIComponent(shape))}` },
+    openGraph: { title, description, url: `${SITE_URL}/shape/${slugifyUrl(decodeURIComponent(shape))}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
@@ -52,20 +53,26 @@ export default async function ShapeHubPage(
   { params }: { params: Promise<{ shape: string }> }
 ) {
   const { shape } = await params
-  const displayShape = toTitleCase(decodeURIComponent(shape))
-  const pills = await fetchPillsByShape(decodeURIComponent(shape))
+  // Redirect legacy %20 URLs to hyphenated canonical slugs
+  const decoded = decodeURIComponent(shape)
+  const slugged = slugifyUrl(decoded)
+  if (shape !== slugged) {
+    redirect(`/shape/${slugged}`)
+  }
+  const displayShape = toTitleCase(decoded)
+  const pills = await fetchPillsByShape(decoded)
 
   if (!displayShape) notFound()
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: `${displayShape} Pills`, url: `/shape/${encodeURIComponent(shape)}` },
+    { name: `${displayShape} Pills`, url: `/shape/${slugged}` },
   ])
 
   const hubJson = hubPageSchema({
     name: `${displayShape} Pills`,
     description: `Browse ${displayShape.toLowerCase()} pills identified by imprint, color, and drug name using FDA data.`,
-    url: `/shape/${encodeURIComponent(shape)}`,
+    url: `/shape/${slugged}`,
     dateModified: new Date().toISOString(),
   })
 
@@ -110,7 +117,7 @@ export default async function ShapeHubPage(
             {relatedShapes.map((s) => (
               <Link
                 key={s}
-                href={`/shape/${encodeURIComponent(s)}`}
+                href={`/shape/${slugifyUrl(s)}`}
                 className="text-sm bg-slate-100 text-slate-600 px-3 py-1.5 rounded-full border border-slate-200 hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 transition-colors"
               >
                 {toTitleCase(s)} Pills
@@ -155,7 +162,7 @@ export default async function ShapeHubPage(
             {['white', 'yellow', 'orange', 'pink', 'blue', 'green', 'red'].map((c) => (
               <Link
                 key={c}
-                href={`/color/${encodeURIComponent(c)}`}
+                href={`/color/${slugifyUrl(c)}`}
                 className="text-sm bg-white text-sky-700 px-3 py-1.5 rounded-full border border-sky-200 hover:bg-sky-100 transition-colors"
               >
                 {toTitleCase(c)}

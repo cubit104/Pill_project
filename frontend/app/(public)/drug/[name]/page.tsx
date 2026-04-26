@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import PillCard from '../../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../../lib/structured-data'
@@ -68,6 +68,12 @@ export default async function DrugHubPage(
   { params }: { params: Promise<{ name: string }> }
 ) {
   const { name } = await params
+  // Redirect legacy %20 URLs to hyphenated canonical slugs
+  const decoded = decodeURIComponent(name)
+  const slugged = slugifyDrugName(decoded) || name
+  if (name !== slugged) {
+    redirect(`/drug/${slugged}`)
+  }
   // Produce a canonical slug even if `name` came from a legacy percent-decoded URL
   const canonicalSlug = slugifyDrugName(name) || encodeURIComponent(name)
   const displayName = toTitleCase(name.replace(/-/g, ' '))
