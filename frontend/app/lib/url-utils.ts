@@ -2,17 +2,17 @@
  * Convert a string to a SEO-friendly URL segment using hyphens.
  * "Ethambutol Hydrochloride" -> "ethambutol-hydrochloride"
  * "light blue" -> "light-blue"
+ * "Café/Crème" -> "cafe-creme"
  *
- * Note: characters other than a-z, 0-9, spaces, and hyphens are stripped.
- * This is intentional for URL safety. For drug names with special characters
- * (slashes, apostrophes, etc.), use slugifyDrugName from lib/slug.ts instead.
+ * Diacritics are normalized and runs of non-alphanumeric characters are
+ * converted to single hyphens for consistent URL segments.
  */
 export function slugifyUrl(value: string): string {
   return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
+    .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
 }

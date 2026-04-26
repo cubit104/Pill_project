@@ -49,9 +49,11 @@ export async function generateMetadata(
   { params }: { params: Promise<{ name: string }> }
 ): Promise<Metadata> {
   const { name } = await params
-  // Produce a canonical slug even if `name` came from a legacy percent-decoded URL
-  const canonicalSlug = slugifyDrugName(name) || encodeURIComponent(name)
-  const displayName = toTitleCase(name.replace(/-/g, ' '))
+  // Decode first so percent-encoded params (e.g. "ethambutol%20hydrochloride")
+  // produce the correct canonical slug rather than encoding the % sign itself.
+  const decoded = decodeURIComponent(name)
+  const canonicalSlug = slugifyDrugName(decoded) || decoded
+  const displayName = toTitleCase(canonicalSlug.replace(/-/g, ' '))
   const title = `${displayName} Pills — Identify ${displayName} by Imprint, Color & Shape`
   const description = `Look up ${displayName} pills by imprint code, color, and shape. Find all ${displayName} medications in our FDA-powered pill identifier.`.slice(0, 155)
 
