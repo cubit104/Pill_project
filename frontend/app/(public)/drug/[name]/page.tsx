@@ -70,12 +70,10 @@ export default async function DrugHubPage(
   const { name } = await params
   // Redirect legacy %20 URLs to hyphenated canonical slugs
   const decoded = decodeURIComponent(name)
-  const slugged = slugifyDrugName(decoded) || name
-  if (name !== slugged) {
-    redirect(`/drug/${slugged}`)
+  const canonicalSlug = slugifyDrugName(decoded) || name
+  if (name !== canonicalSlug) {
+    redirect(`/drug/${canonicalSlug}`)
   }
-  // Produce a canonical slug even if `name` came from a legacy percent-decoded URL
-  const canonicalSlug = slugifyDrugName(name) || encodeURIComponent(name)
   const displayName = toTitleCase(name.replace(/-/g, ' '))
   const pills = await fetchPillsByDrug(name)
 
