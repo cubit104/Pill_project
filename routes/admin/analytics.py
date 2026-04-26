@@ -445,7 +445,7 @@ def run_pagespeed(
     try:
         resp = requests.get(
             "https://www.googleapis.com/pagespeedonline/v5/runPagespeed",
-            params={"url": url, "strategy": strategy, "key": api_key},
+            params={"url": url, "strategy": strategy, "key": api_key, "category": ["PERFORMANCE", "SEO", "ACCESSIBILITY", "BEST_PRACTICES"]},
             timeout=30,
         )
         resp.raise_for_status()
