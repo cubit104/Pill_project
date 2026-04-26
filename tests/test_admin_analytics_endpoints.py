@@ -188,10 +188,15 @@ class TestPageSpeedNotConfigured:
 # Page Health — functional tests
 # ─────────────────────────────────────────────────────────────────────────────
 
-# A DB row: (id, slug, medicine_name, meta_title, meta_description, noindex)
+# DB rows: (id, slug, medicine_name, meta_title, meta_description, noindex[, color, shape, strength, imprint])
+# The code now pads shorter rows with None for the 4 new extra columns, so both 6-col and 10-col
+# tuples are accepted.
 _GOOD_ROW = (1, "aspirin", "Aspirin", "Aspirin 500mg – Trusted Pain Relief Tablet", "Aspirin 500mg is used to relieve pain and reduce fever. Commonly recommended by doctors for headaches, body aches, and mild pain.", None)
 _GARBAGE_ROW = (2, "garbage", "12 Ethinyl Estradiol Norethindrone 9 Ethinyl Estradiol 7 Inert Ingredients Active Ingredients junk", None, None, None)
-_MISSING_META_ROW = (3, "ibuprofen", "Ibuprofen", None, None, None)
+# Truly empty pill — no medicine_name, no identifying fields → effective_title is empty → missing_meta_title IS flagged
+_MISSING_META_ROW = (3, "unknown-pill", None, None, None, None)
+# Pill with medicine_name but no stored meta_title → effective_title auto-generated → NOT flagged
+_HAS_NAME_NO_STORED_TITLE_ROW = (5, "ibuprofen", "Ibuprofen", None, None, None)
 _NOINDEX_ROW = (4, "some-drug", "Some Drug", "Some Drug Title Tag Here", "Some Drug description that is long enough to pass the minimum character check for meta description.", True)
 
 
@@ -255,10 +260,17 @@ class TestPageHealth:
         assert garbage_issues[0]["severity"] == "critical"
 
     def test_missing_meta_title_flagged(self, client):
+        # Truly empty row (no medicine_name, no identifying fields) → effective_title is empty
         data = self._get(client, [_MISSING_META_ROW]).json()
         title_issues = [i for i in data["issues"] if i["issue_type"] == "missing_meta_title"]
         assert len(title_issues) == 1
         assert title_issues[0]["severity"] == "critical"
+
+    def test_pill_with_name_but_no_stored_title_not_flagged(self, client):
+        # Pill has medicine_name — effective_title falls back to auto-generated → NOT flagged
+        data = self._get(client, [_HAS_NAME_NO_STORED_TITLE_ROW]).json()
+        title_issues = [i for i in data["issues"] if i["issue_type"] == "missing_meta_title"]
+        assert len(title_issues) == 0
 
     def test_missing_meta_description_flagged(self, client):
         data = self._get(client, [_MISSING_META_ROW]).json()

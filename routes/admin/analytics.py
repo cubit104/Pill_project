@@ -632,8 +632,11 @@ def page_health(admin: dict = Depends(get_admin_user)):
     desc_map: dict[str, list[str]] = {}
 
     for row in rows:
+        row_values = tuple(row)
+        if len(row_values) < 10:
+            row_values = row_values + (None,) * (10 - len(row_values))
         row_id, slug, medicine_name, meta_title, meta_description, noindex, \
-            splcolor_text, splshape_text, spl_strength, splimprint = row
+            splcolor_text, splshape_text, spl_strength, splimprint = row_values[:10]
         page_url = f"/pill/{slug}" if slug else f"/pill/{row_id}"
 
         # Garbage drug name (data quality)
