@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/admin/analytics", tags=["admin-analytics"])
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-RANGE_DAYS = {"7d": 7, "28d": 28, "90d": 90}
+RANGE_DAYS = {"1d": 1, "7d": 7, "28d": 28, "90d": 90}
 
 # In-memory access-token cache: {"token": str, "expiry": float (epoch seconds)}
 _TOKEN_CACHE: dict = {}
@@ -118,7 +118,7 @@ def _get_search_console_site_url():
 
 @router.get("/ga4/overview")
 def ga4_overview(
-    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
+    range: str = Query("28d", pattern="^(1d|7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     property_id = _get_ga4_property_id()
@@ -143,7 +143,8 @@ def ga4_overview(
         client = BetaAnalyticsDataClient(credentials=credentials)
 
         days = RANGE_DAYS.get(range, 28)
-        date_range = DateRange(start_date=f"{days}daysAgo", end_date="today")
+        start_date = "today" if range == "1d" else f"{days}daysAgo"
+        date_range = DateRange(start_date=start_date, end_date="today")
 
         # --- Summary metrics ---
         summary_req = RunReportRequest(
@@ -292,7 +293,7 @@ def ga4_overview(
 
 @router.get("/search-console/overview")
 def search_console_overview(
-    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
+    range: str = Query("28d", pattern="^(1d|7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     site_url = _get_search_console_site_url()
@@ -313,7 +314,7 @@ def search_console_overview(
 
         days = RANGE_DAYS.get(range, 28)
         end = datetime.date.today()
-        start = end - datetime.timedelta(days=days)
+        start = end - datetime.timedelta(days=max(days - 1, 0))
 
         def _query(dimensions, row_limit=10, extra=None):
             body = {
@@ -505,7 +506,7 @@ def run_pagespeed(
 
 @router.get("/ga4/visitor-ips")
 def ga4_visitor_ips(
-    range: str = Query("28d", pattern="^(7d|28d|90d)$"),
+    range: str = Query("28d", pattern="^(1d|7d|28d|90d)$"),
     admin: dict = Depends(get_admin_user),
 ):
     property_id = _get_ga4_property_id()
@@ -517,9 +518,10 @@ def ga4_visitor_ips(
         credentials = _build_oauth2_credentials()
         client = BetaAnalyticsDataClient(credentials=credentials)
         days = RANGE_DAYS.get(range, 28)
+        start_date = "today" if range == "1d" else f"{days}daysAgo"
         req = RunReportRequest(
             property=f"properties/{property_id}",
-            date_ranges=[DateRange(start_date=f"{days}daysAgo", end_date="today")],
+            date_ranges=[DateRange(start_date=start_date, end_date="today")],
             dimensions=[Dimension(name="city"), Dimension(name="region"), Dimension(name="country")],
             metrics=[Metric(name="totalUsers"), Metric(name="sessions")],
             limit=100,

@@ -547,17 +547,17 @@ class TestPostHogVisitorLocations:
     def test_happy_path_locations_shape(self, client):
         """Each location row must contain the expected fields."""
         rows = [
-            ["1.2.3.4", "New York", "New York", "United States", "US", 42, 10],
-            ["5.6.7.8", "London", "England", "United Kingdom", "GB", 15, 5],
+            ["1.2.3.4", "New York", "New York", "United States", "US", "2024-01-15T10:30:00", 42, 10],
+            ["5.6.7.8", "London", "England", "United Kingdom", "GB", "2024-01-15T09:00:00", 15, 5],
         ]
         data = self._get(client, "7d", {"results": rows}).json()
         assert len(data["locations"]) == 2
         for row in data["locations"]:
-            for field in ("ip", "city", "region", "country", "country_code", "pageviews", "users"):
+            for field in ("ip", "city", "region", "country", "country_code", "last_seen", "pageviews", "users"):
                 assert field in row, f"Missing field: {field}"
 
     def test_happy_path_location_values(self, client):
-        rows = [["1.2.3.4", "Paris", "Île-de-France", "France", "FR", 7, 3]]
+        rows = [["1.2.3.4", "Paris", "Île-de-France", "France", "FR", "2024-01-15T12:00:00", 7, 3]]
         data = self._get(client, "7d", {"results": rows}).json()
         loc = data["locations"][0]
         assert loc["ip"] == "1.2.3.4"
@@ -565,6 +565,7 @@ class TestPostHogVisitorLocations:
         assert loc["region"] == "Île-de-France"
         assert loc["country"] == "France"
         assert loc["country_code"] == "FR"
+        assert loc["last_seen"] == "2024-01-15T12:00:00"
         assert loc["pageviews"] == 7
         assert loc["users"] == 3
 
@@ -576,7 +577,7 @@ class TestPostHogVisitorLocations:
 
     def test_null_fields_default_to_unknown(self, client):
         """None values from HogQL must default to 'Unknown'/''/0 rather than null."""
-        rows = [[None, None, None, None, None, None, None]]
+        rows = [[None, None, None, None, None, None, None, None]]
         data = self._get(client, "28d", {"results": rows}).json()
         loc = data["locations"][0]
         assert loc["ip"] == ""
@@ -584,6 +585,7 @@ class TestPostHogVisitorLocations:
         assert loc["region"] == "Unknown"
         assert loc["country"] == "Unknown"
         assert loc["country_code"] == ""
+        assert loc["last_seen"] is None
         assert loc["pageviews"] == 0
         assert loc["users"] == 0
 

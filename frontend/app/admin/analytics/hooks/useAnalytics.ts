@@ -26,7 +26,7 @@ async function apiFetch(path: string, options?: RequestInit) {
   return res.json()
 }
 
-export type RangeOption = '7d' | '28d' | '90d'
+export type RangeOption = '1d' | '7d' | '28d' | '90d'
 
 interface FetchState<T> {
   data: T | null
