@@ -73,7 +73,10 @@ def _build_oauth2_credentials():
                 client_id=client_id,
                 client_secret=client_secret,
                 token_uri="https://oauth2.googleapis.com/token",
-                scopes=["https://www.googleapis.com/auth/analytics.readonly"],
+                scopes=[
+                    "https://www.googleapis.com/auth/analytics.readonly",
+                    "https://www.googleapis.com/auth/webmasters.readonly",
+                ],
             )
             return creds
 
@@ -84,7 +87,10 @@ def _build_oauth2_credentials():
             client_id=client_id,
             client_secret=client_secret,
             token_uri="https://oauth2.googleapis.com/token",
-            scopes=["https://www.googleapis.com/auth/analytics.readonly"],
+            scopes=[
+                "https://www.googleapis.com/auth/analytics.readonly",
+                "https://www.googleapis.com/auth/webmasters.readonly",
+            ],
         )
         creds.refresh(Request())
         new_expiry = (
