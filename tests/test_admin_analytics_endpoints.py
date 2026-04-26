@@ -107,7 +107,9 @@ class TestGA4NotConfigured:
         db_module.db_engine = _make_auth_engine()
         env = {
             "GA4_PROPERTY_ID": "",
-            "GA4_SERVICE_ACCOUNT_JSON": "",
+            "GOOGLE_OAUTH_CLIENT_ID": "",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "",
         }
         with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
              patch.dict(os.environ, env, clear=False):
@@ -145,7 +147,9 @@ class TestSearchConsoleNotConfigured:
         db_module.db_engine = _make_auth_engine()
         env = {
             "SEARCH_CONSOLE_SITE_URL": "",
-            "GA4_SERVICE_ACCOUNT_JSON": "",
+            "GOOGLE_OAUTH_CLIENT_ID": "",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "",
         }
         with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
              patch.dict(os.environ, env, clear=False):
@@ -418,3 +422,71 @@ class TestPostHogOverview:
         side_effect = _make_ph_query_side_effect(ts_rows=[], stats_rows=[])
         data = self._get(client, "90d", side_effect).json()
         assert len(data["timeseries"]) == 90
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OAuth2 credential builder unit tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBuildOAuth2Credentials:
+    """Unit tests for routes.admin.analytics._build_oauth2_credentials."""
+
+    def _clear_cache(self):
+        import routes.admin.analytics as analytics_module
+        with analytics_module._TOKEN_LOCK:
+            analytics_module._TOKEN_CACHE.clear()
+
+    def test_raises_when_client_id_missing(self):
+        self._clear_cache()
+        import routes.admin.analytics as analytics_module
+        env = {
+            "GOOGLE_OAUTH_CLIENT_ID": "",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "secret",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "token",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            with pytest.raises(RuntimeError) as exc_info:
+                analytics_module._build_oauth2_credentials()
+        assert "GOOGLE_OAUTH_CLIENT_ID" in str(exc_info.value)
+
+    def test_raises_when_client_secret_missing(self):
+        self._clear_cache()
+        import routes.admin.analytics as analytics_module
+        env = {
+            "GOOGLE_OAUTH_CLIENT_ID": "client-id",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "token",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            with pytest.raises(RuntimeError) as exc_info:
+                analytics_module._build_oauth2_credentials()
+        assert "GOOGLE_OAUTH_CLIENT_SECRET" in str(exc_info.value)
+
+    def test_raises_when_refresh_token_missing(self):
+        self._clear_cache()
+        import routes.admin.analytics as analytics_module
+        env = {
+            "GOOGLE_OAUTH_CLIENT_ID": "client-id",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "secret",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            with pytest.raises(RuntimeError) as exc_info:
+                analytics_module._build_oauth2_credentials()
+        assert "GOOGLE_OAUTH_REFRESH_TOKEN" in str(exc_info.value)
+
+    def test_error_message_lists_all_missing_vars(self):
+        self._clear_cache()
+        import routes.admin.analytics as analytics_module
+        env = {
+            "GOOGLE_OAUTH_CLIENT_ID": "",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            with pytest.raises(RuntimeError) as exc_info:
+                analytics_module._build_oauth2_credentials()
+        msg = str(exc_info.value)
+        for var in ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN"):
+            assert var in msg, f"Missing var name in error message: {var}"
+

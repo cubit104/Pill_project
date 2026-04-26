@@ -21,18 +21,28 @@ missing — they never crash.
 
 ---
 
+## Why OAuth2 instead of a service account?
+
+GA4 properties tied to a personal Google account cannot easily grant access to a
+service account — the GA4 property owner must be the one who authorises access.
+The **OAuth2 refresh-token flow** lets the property owner consent once and the
+server uses that long-lived token indefinitely without further interaction.
+
+---
+
 ## Environment Variables
 
 Add these to your `.env` (local) and to your hosting provider's env settings
-(Render / Railway / Fly):
+(Render / Railway / Fly / Vercel):
 
 ```env
 # ── Google Analytics 4 ─────────────────────────────────────────────────────
 GA4_PROPERTY_ID=123456789
-# Either paste the entire service account JSON as a single-line string:
-GA4_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"..."}
-# Or provide an absolute path to the JSON file:
-# GA4_SERVICE_ACCOUNT_JSON=/etc/secrets/ga4-service-account.json
+
+# ── Google OAuth2 (GA4 + Search Console) ───────────────────────────────────
+GOOGLE_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
+GOOGLE_OAUTH_REFRESH_TOKEN=your-long-lived-refresh-token
 
 # ── Google Search Console ───────────────────────────────────────────────────
 # Must match the exact verified URL in GSC (trailing slash matters!)
@@ -44,33 +54,71 @@ PAGESPEED_API_KEY=AIzaSy...
 
 ---
 
-## Setting up Google Analytics 4
+## Setting up Google Analytics 4 & Search Console (OAuth2 flow)
 
-1. Go to [analytics.google.com](https://analytics.google.com) → Admin → Property
-   → **Property details** and copy the **Property ID** (numbers only).
-2. In [Google Cloud Console](https://console.cloud.google.com):
-   - Create or select a project.
-   - Navigate to **IAM & Admin → Service Accounts** → **Create Service Account**.
-   - Give it a name (e.g. `pillseek-analytics`).
-   - Download a **JSON key** for the service account.
-3. Back in GA4 → Admin → **Account access management** → add the service account's
-   email with **Viewer** role.
-4. Set `GA4_PROPERTY_ID` to your property ID (e.g. `"320154789"`).
-5. Set `GA4_SERVICE_ACCOUNT_JSON` to the full JSON key (as one line) **or** to the
-   absolute path of the saved JSON file.
+### Step 1 — Create OAuth 2.0 credentials in Google Cloud Console
 
----
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) and select
+   (or create) your project.
+2. Navigate to **APIs & Services → Credentials → Create credentials → OAuth client ID**.
+3. Choose **Application type: Desktop app** (simplest) and give it a name.
+4. Note the **Client ID** and **Client Secret** — you'll need them below.
+5. Back on the Credentials page, also make sure the **OAuth consent screen** is
+   configured (add yourself as a test user if the app is in "testing" mode).
 
-## Setting up Google Search Console
+### Step 2 — Enable the required APIs
 
-1. Verify your site at [search.google.com/search-console](https://search.google.com/search-console).
-2. In Search Console → **Settings → Users and permissions** → **Add user** → paste the
-   service account email from the GA4 setup above → grant **Restricted** access.
-3. Set `SEARCH_CONSOLE_SITE_URL` to the exact verified URL (e.g. `https://pillseek.com/`).
-   > ⚠️ The URL must match *exactly* — including or excluding the trailing slash.
+In **APIs & Services → Library**, enable:
+- **Google Analytics Data API** (for GA4)
+- **Google Search Console API** (for GSC)
 
-The same service account JSON (`GA4_SERVICE_ACCOUNT_JSON`) is reused for both GA4
-and Search Console — no separate credential is needed.
+### Step 3 — Find your GA4 Property ID
+
+Go to [analytics.google.com](https://analytics.google.com) → Admin → Property →
+**Property details** and copy the **Property ID** (numbers only, e.g. `123456789`).
+
+### Step 4 — Run the bootstrap script to get a refresh token
+
+Set your client credentials in the environment and run the helper script **once**
+from your local machine:
+
+```bash
+export GOOGLE_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
+export GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
+
+# From the repository root:
+pip install google-auth-oauthlib   # if not already installed
+python scripts/get_ga_refresh_token.py
+```
+
+A browser window opens for you to log in with the Google account that owns the GA4
+property and Search Console site.  After consent the script prints:
+
+```
+GOOGLE_OAUTH_REFRESH_TOKEN=1//0g...
+```
+
+Copy that value — it does not expire unless you explicitly revoke it.
+
+### Step 5 — Add all values to your environment
+
+```env
+GA4_PROPERTY_ID=123456789
+GOOGLE_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
+GOOGLE_OAUTH_REFRESH_TOKEN=1//0g...
+SEARCH_CONSOLE_SITE_URL=https://pillseek.com/
+```
+
+Restart the backend service after updating env vars.
+
+### Troubleshooting
+
+| Symptom | Likely cause |
+|---------|-------------|
+| `configured: false` on GA4/GSC tabs | One or more OAuth env vars are empty |
+| `Token has been expired or revoked` | The refresh token was revoked — re-run the bootstrap script |
+| `Access Not Configured` | The GA Data API or Search Console API is not enabled in your GCP project |
 
 ---
 
@@ -137,9 +185,11 @@ rather than an error — the frontend renders a friendly setup card.
 Added to `requirements.txt`:
 - `google-analytics-data` — GA4 Data API v1beta client
 - `google-api-python-client` — Search Console API
-- `google-auth` — Service account authentication
+- `google-auth` — Google authentication base library
+- `google-auth-oauthlib` — OAuth2 flow helpers (refresh-token support)
 
 Install locally:
 ```bash
 pip install -r requirements.txt
 ```
+
