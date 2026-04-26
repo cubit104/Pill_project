@@ -143,7 +143,8 @@ def ga4_overview(
         client = BetaAnalyticsDataClient(credentials=credentials)
 
         days = RANGE_DAYS.get(range, 28)
-        date_range = DateRange(start_date=f"{days}daysAgo", end_date="today")
+        start_date = "today" if range == "1d" else f"{days}daysAgo"
+        date_range = DateRange(start_date=start_date, end_date="today")
 
         # --- Summary metrics ---
         summary_req = RunReportRequest(
@@ -313,7 +314,7 @@ def search_console_overview(
 
         days = RANGE_DAYS.get(range, 28)
         end = datetime.date.today()
-        start = end - datetime.timedelta(days=days)
+        start = end - datetime.timedelta(days=max(days - 1, 0))
 
         def _query(dimensions, row_limit=10, extra=None):
             body = {
@@ -517,9 +518,10 @@ def ga4_visitor_ips(
         credentials = _build_oauth2_credentials()
         client = BetaAnalyticsDataClient(credentials=credentials)
         days = RANGE_DAYS.get(range, 28)
+        start_date = "today" if range == "1d" else f"{days}daysAgo"
         req = RunReportRequest(
             property=f"properties/{property_id}",
-            date_ranges=[DateRange(start_date=f"{days}daysAgo", end_date="today")],
+            date_ranges=[DateRange(start_date=start_date, end_date="today")],
             dimensions=[Dimension(name="city"), Dimension(name="region"), Dimension(name="country")],
             metrics=[Metric(name="totalUsers"), Metric(name="sessions")],
             limit=100,

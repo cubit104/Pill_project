@@ -18,6 +18,7 @@ function formatRelativeTime(isoString: string | null | undefined): string {
   const date = new Date(isoString)
   if (isNaN(date.getTime())) return '—'
   const diffMs = Date.now() - date.getTime()
+  if (diffMs < 0) return 'just now'
   const diffSec = Math.floor(diffMs / 1000)
   if (diffSec < 60) return `${diffSec}s ago`
   const diffMin = Math.floor(diffSec / 60)
