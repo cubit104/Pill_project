@@ -140,7 +140,7 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
                 }`}
             >
               <Icon className="w-4 h-4 shrink-0" />
-              <span className="flex-1 md:hidden lg:block">{label}</span>
+              <span className="flex-1 md:sr-only lg:not-sr-only">{label}</span>
               {href === '/admin/duplicates' && dupCount != null && dupCount > 0 && (
                 <span className="bg-yellow-400 text-yellow-900 text-xs font-bold px-1.5 py-0.5 rounded-full md:hidden lg:inline">
                   {dupCount}
