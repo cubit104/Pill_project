@@ -40,6 +40,8 @@ export const FIELD_SCHEMA: FieldSchemaEntry[] = [
   // Tier 3 — Optional
   { key: 'brand_names',       label: 'Brand Names',          tier: 'optional' },
   { key: 'splsize',           label: 'Size',                 tier: 'optional' },
+  { key: 'meta_title',        label: 'SEO Title',            tier: 'optional', inputType: 'text',
+    placeholder: 'Auto-generated — edit to override' },
   { key: 'meta_description',  label: 'Meta Description',     tier: 'optional', inputType: 'textarea' },
   { key: 'pharmclass_fda_epc',label: 'FDA Pharma Class',     tier: 'optional' },
   { key: 'rxcui',             label: 'RxCUI',                tier: 'optional' },

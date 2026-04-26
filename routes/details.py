@@ -306,6 +306,7 @@ def get_pill_by_slug(slug: str):
                 "brand_names": pill_info.get("brand_names"),
                 "status_rx_otc": pill_info.get("status_rx_otc"),
                 "route": pill_info.get("route"),
+                "meta_title": pill_info.get("meta_title") or None,
                 "image_url": image_urls[0] if image_urls else None,
                 "images": image_urls,
                 "has_multiple_images": len(image_urls) > 1,
