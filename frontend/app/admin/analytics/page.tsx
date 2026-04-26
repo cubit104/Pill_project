@@ -1053,7 +1053,7 @@ export default function AnalyticsPage() {
                 }`}
               >
                 <Icon className="w-4 h-4" />
-                {tab.label}
+                <span className="sr-only sm:not-sr-only">{tab.label}</span>
                 {isActive && (
                   <motion.div
                     layoutId="tab-underline"

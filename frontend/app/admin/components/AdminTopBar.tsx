@@ -1,9 +1,13 @@
 'use client'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../lib/supabase'
-import { LogOut } from 'lucide-react'
+import { LogOut, Menu } from 'lucide-react'
 
-export default function AdminTopBar() {
+interface AdminTopBarProps {
+  onMenuClick?: () => void
+}
+
+export default function AdminTopBar({ onMenuClick }: AdminTopBarProps) {
   const router = useRouter()
   const supabase = createClient()
 
@@ -14,7 +18,14 @@ export default function AdminTopBar() {
 
   return (
     <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
-      <div />
+      <button
+        onClick={onMenuClick}
+        className="md:hidden flex items-center justify-center w-8 h-8 text-gray-600 hover:text-gray-900 transition-colors"
+        aria-label="Open menu"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
+      <div className="hidden md:block" />
       <button
         onClick={handleSignOut}
         className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
