@@ -132,25 +132,32 @@ def posthog_overview(
     try:
         # ── Pageviews timeseries ──────────────────────────────────────────────
         if days == 1:
-            # 24h view: group by hour for 24 data points
+            # 24h view: group by hour for 24 data points. Anchor both the SQL
+            # window and the Python scaffold to the same UTC hour boundary so
+            # no valid earliest bucket is returned by PostHog and then silently
+            # dropped because it is outside the scaffold.
             ts_query = """
                 SELECT
                     toStartOfHour(timestamp) AS hour,
                     count() AS pageviews
                 FROM events
                 WHERE event = '$pageview'
-                    AND timestamp >= now() - INTERVAL 24 HOUR
+                    AND timestamp >= toStartOfHour(now()) - INTERVAL 23 HOUR
+                    AND timestamp < toStartOfHour(now()) + INTERVAL 1 HOUR
                 GROUP BY hour
                 ORDER BY hour ASC
             """
             ts_result = _ph_query(api_key, project_id, host, {"query": {"kind": "HogQLQuery", "query": ts_query}})
-            now_utc = datetime.now(timezone.utc)
+            current_hour_utc = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
             timeseries_map = {
-                (now_utc - timedelta(hours=i)).strftime("%Y-%m-%d %H:00"): 0
+                (current_hour_utc - timedelta(hours=i)).strftime("%Y-%m-%d %H:00"): 0
                 for i in range(23, -1, -1)
             }
             for row in (ts_result.get("results") or []):
-                hour_str = str(row[0])[:16] if row[0] else ""
+                # PostHog often returns ISO datetime strings like
+                # "2025-01-10T13:00:00"; normalize the separator so the
+                # key matches the scaffold format "%Y-%m-%d %H:00".
+                hour_str = str(row[0]).replace("T", " ")[:16] if row[0] else ""
                 if hour_str in timeseries_map:
                     timeseries_map[hour_str] = int(row[1])
             timeseries = [{"date": d, "pageviews": v} for d, v in timeseries_map.items()]

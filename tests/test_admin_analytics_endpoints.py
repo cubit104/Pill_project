@@ -295,7 +295,8 @@ def _make_ph_query_side_effect(ts_rows, stats_rows, extra_rows=None):
     """Return a side_effect function for patching routes.admin.posthog._ph_query.
 
     Dispatches based on the 'kind' and 'query' content of the payload:
-    - timeseries query  → ts_rows
+    - hourly timeseries query → ts_rows  (toStartOfHour, for 1d range)
+    - daily timeseries query  → ts_rows  (toStartOfDay)
     - stats query       → stats_rows
     - everything else   → extra_rows (default: empty results)
     """
@@ -304,7 +305,7 @@ def _make_ph_query_side_effect(ts_rows, stats_rows, extra_rows=None):
     def _side_effect(api_key, project_id, host, payload):
         q = payload.get("query", {})
         sql = q.get("query", "")
-        if "toStartOfDay" in sql:
+        if "toStartOfHour" in sql or "toStartOfDay" in sql:
             return {"results": ts_rows}
         if "count(DISTINCT properties.$session_id)" in sql:
             return {"results": stats_rows}
@@ -422,6 +423,69 @@ class TestPostHogOverview:
         side_effect = _make_ph_query_side_effect(ts_rows=[], stats_rows=[])
         data = self._get(client, "90d", side_effect).json()
         assert len(data["timeseries"]) == 90
+
+    # ── 24h / hourly path ─────────────────────────────────────────────────────
+
+    def test_1d_timeseries_has_24_points(self, client):
+        """range=1d must produce exactly 24 hourly buckets."""
+        side_effect = _make_ph_query_side_effect(ts_rows=[], stats_rows=[])
+        data = self._get(client, "1d", side_effect).json()
+        assert len(data["timeseries"]) == 24
+
+    def test_1d_timeseries_all_zeros_when_no_events(self, client):
+        side_effect = _make_ph_query_side_effect(ts_rows=[], stats_rows=[])
+        data = self._get(client, "1d", side_effect).json()
+        assert all(p["pageviews"] == 0 for p in data["timeseries"])
+
+    def test_1d_timeseries_shape(self, client):
+        """Each bucket must have 'date' and 'pageviews' keys."""
+        side_effect = _make_ph_query_side_effect(ts_rows=[], stats_rows=[])
+        data = self._get(client, "1d", side_effect).json()
+        for point in data["timeseries"]:
+            assert "date" in point
+            assert "pageviews" in point
+            assert isinstance(point["pageviews"], int)
+
+    def test_1d_timeseries_date_format(self, client):
+        """Bucket dates must follow 'YYYY-MM-DD HH:00' (space, not T)."""
+        import re
+        side_effect = _make_ph_query_side_effect(ts_rows=[], stats_rows=[])
+        data = self._get(client, "1d", side_effect).json()
+        pattern = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:00$")
+        for point in data["timeseries"]:
+            assert pattern.match(point["date"]), f"Unexpected date format: {point['date']}"
+
+    def test_1d_timeseries_iso_t_separator_normalized(self, client):
+        """PostHog ISO strings with 'T' separator must be matched to the scaffold."""
+        from datetime import datetime, timezone
+        current_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        # Simulate PostHog returning a row with a 'T' separator in the timestamp.
+        iso_ts = current_hour.strftime("%Y-%m-%dT%H:00:00")
+        side_effect = _make_ph_query_side_effect(
+            ts_rows=[[iso_ts, 42]],
+            stats_rows=[],
+        )
+        data = self._get(client, "1d", side_effect).json()
+        # The current hour bucket should have been filled with the pageview count.
+        current_hour_key = current_hour.strftime("%Y-%m-%d %H:00")
+        matching = [p for p in data["timeseries"] if p["date"] == current_hour_key]
+        assert len(matching) == 1
+        assert matching[0]["pageviews"] == 42
+
+    def test_1d_timeseries_space_separator_normalized(self, client):
+        """PostHog strings with a space separator must also match the scaffold."""
+        from datetime import datetime, timezone
+        current_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        space_ts = current_hour.strftime("%Y-%m-%d %H:00:00")
+        side_effect = _make_ph_query_side_effect(
+            ts_rows=[[space_ts, 7]],
+            stats_rows=[],
+        )
+        data = self._get(client, "1d", side_effect).json()
+        current_hour_key = current_hour.strftime("%Y-%m-%d %H:00")
+        matching = [p for p in data["timeseries"] if p["date"] == current_hour_key]
+        assert len(matching) == 1
+        assert matching[0]["pageviews"] == 7
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -592,4 +656,126 @@ class TestPostHogVisitorLocations:
     def test_empty_results_returns_empty_list(self, client):
         data = self._get(client, "28d", {"results": []}).json()
         assert data["locations"] == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PostHog Replays — range parameter forwarding
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPostHogReplays:
+    """Tests for GET /api/admin/analytics/posthog/replays."""
+
+    _PATH = "/api/admin/analytics/posthog/replays"
+
+    def _get(self, client, range_param, ph_get_result, captured_params=None):
+        """Make a GET request to /replays, optionally capturing the params passed to _ph_get."""
+        import database as db_module
+        import routes.admin.posthog as ph_module
+
+        db_module.db_engine = _make_auth_engine()
+        with ph_module._CACHE_LOCK:
+            ph_module._CACHE.clear()
+
+        env = {"POSTHOG_PERSONAL_API_KEY": "phx_fake_key"}
+
+        def _fake_ph_get(api_key, url, params=None):
+            if captured_params is not None:
+                captured_params.update(params or {})
+            return ph_get_result
+
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch("routes.admin.posthog._ph_get", side_effect=_fake_ph_get), \
+             patch.dict(os.environ, env, clear=False):
+            return client.get(f"{self._PATH}?range={range_param}", headers=AUTH_HEADERS)
+
+    # ── date_from mapping ─────────────────────────────────────────────────────
+
+    @pytest.mark.parametrize("range_param,expected_date_from", [
+        ("1d",  "-1d"),
+        ("7d",  "-7d"),
+        ("28d", "-28d"),
+        ("90d", "-90d"),
+    ])
+    def test_date_from_matches_range(self, client, range_param, expected_date_from):
+        """Backend must forward the correct date_from for each range value."""
+        captured = {}
+        self._get(client, range_param, {"results": []}, captured_params=captured)
+        assert captured.get("date_from") == expected_date_from, (
+            f"range={range_param} should produce date_from={expected_date_from!r}, "
+            f"got {captured.get('date_from')!r}"
+        )
+
+    # ── cache key varies by range ─────────────────────────────────────────────
+
+    def test_cache_key_varies_by_range(self, client):
+        """Different ranges must produce independent cache entries."""
+        import routes.admin.posthog as ph_module
+        import database as db_module
+
+        db_module.db_engine = _make_auth_engine()
+        env = {"POSTHOG_PERSONAL_API_KEY": "phx_fake_key"}
+
+        call_count = {"n": 0}
+
+        def _fake_ph_get(api_key, url, params=None):
+            call_count["n"] += 1
+            return {"results": []}
+
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch("routes.admin.posthog._ph_get", side_effect=_fake_ph_get), \
+             patch.dict(os.environ, env, clear=False):
+
+            with ph_module._CACHE_LOCK:
+                ph_module._CACHE.clear()
+
+            client.get(f"{self._PATH}?range=7d",  headers=AUTH_HEADERS)
+            client.get(f"{self._PATH}?range=28d", headers=AUTH_HEADERS)
+            client.get(f"{self._PATH}?range=90d", headers=AUTH_HEADERS)
+
+        # Each distinct range should have triggered its own upstream request.
+        assert call_count["n"] == 3, (
+            "Expected 3 upstream calls for 3 distinct ranges; "
+            f"got {call_count['n']} (cache key is not range-specific)"
+        )
+
+    # ── not-configured ────────────────────────────────────────────────────────
+
+    def test_not_configured_returns_200(self, client):
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch.dict(os.environ, {"POSTHOG_PERSONAL_API_KEY": ""}, clear=False):
+            resp = client.get(self._PATH, headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        assert resp.json()["configured"] is False
+
+    # ── response shape ────────────────────────────────────────────────────────
+
+    def test_happy_path_configured_true(self, client):
+        data = self._get(client, "28d", {"results": []}).json()
+        assert data["configured"] is True
+
+    def test_happy_path_replays_key_present(self, client):
+        data = self._get(client, "7d", {"results": []}).json()
+        assert "replays" in data
+
+    def test_happy_path_replay_shape(self, client):
+        """Each replay entry must contain the expected fields."""
+        fake_rec = {
+            "id": "abc123",
+            "start_time": "2025-01-10T10:00:00Z",
+            "end_time": "2025-01-10T10:05:00Z",
+            "recording_duration": 300,
+            "distinct_id": "user_1",
+            "click_count": 5,
+            "keypress_count": 12,
+            "start_url": "https://example.com/",
+            "urls": ["https://example.com/"],
+        }
+        data = self._get(client, "28d", {"results": [fake_rec]}).json()
+        assert len(data["replays"]) == 1
+        replay = data["replays"][0]
+        for field in ("session_id", "start_time", "end_time", "duration", "distinct_id",
+                      "click_count", "keypress_count", "start_url", "replay_url"):
+            assert field in replay, f"Missing field: {field}"
 
