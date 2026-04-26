@@ -40,6 +40,7 @@ app = FastAPI(
     title="Pill Identifier API",
     description="API for identifying pills and medications",
     version="2.0.0",
+    redirect_slashes=False,
 )
 
 # Enable CORS
