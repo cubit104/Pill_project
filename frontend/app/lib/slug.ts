@@ -12,3 +12,18 @@ export function classSlugify(className: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'unknown'
 }
+
+/**
+ * Convert a drug name to a URL-safe slug.
+ *
+ * Examples:
+ *   "Ethambutol Hydrochloride"  → "ethambutol-hydrochloride"
+ *   "21 Desogestrel/Ethinyl Estradiol"  → "21-desogestrel-ethinyl-estradiol"
+ */
+export function slugifyDrugName(name: string): string {
+  if (!name) return ''
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
