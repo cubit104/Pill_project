@@ -293,8 +293,9 @@ function ComboboxInput({
   const [highlighted, setHighlighted] = useState(-1)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  const valueLower = value.toLowerCase()
   const filtered = suggestions.filter(s =>
-    value === '' || s.toLowerCase().includes(value.toLowerCase())
+    value === '' || s.toLowerCase().includes(valueLower)
   )
 
   useEffect(() => {
@@ -311,7 +312,7 @@ function ComboboxInput({
     if (!open) { if (e.key === 'ArrowDown') setOpen(true); return }
     if (e.key === 'ArrowDown') { e.preventDefault(); setHighlighted(h => Math.min(h + 1, filtered.length - 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlighted(h => Math.max(h - 1, -1)) }
-    else if (e.key === 'Enter' && highlighted >= 0) { e.preventDefault(); onChange(filtered[highlighted]); setOpen(false); setHighlighted(-1) }
+    else if (e.key === 'Enter') { e.preventDefault(); if (highlighted >= 0) { onChange(filtered[highlighted]); setOpen(false); setHighlighted(-1) } else { setOpen(false) } }
     else if (e.key === 'Escape') { setOpen(false); setHighlighted(-1) }
   }
 
