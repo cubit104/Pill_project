@@ -296,6 +296,43 @@ def test_api_pill_slug_found(client):
     assert response.status_code == 200
 
 
+def test_api_pill_slug_meta_description_null_when_db_empty(client):
+    """GET /api/pill/{slug} should return meta_description as null when the DB column is NULL."""
+    import database as db_module
+    mock_row = ("Aspirin", "ASPIRIN 500", "White", "Round", "0069-0020-01", "215831",
+                "aspirin500.jpg", "aspirin-500mg-0069-0020-01", None)
+    mock_columns = ["medicine_name", "splimprint", "splcolor_text", "splshape_text",
+                    "ndc11", "rxcui", "image_filename", "slug", "meta_description"]
+    mock_result = MagicMock()
+    mock_result.fetchone.return_value = mock_row
+    mock_result.keys.return_value = mock_columns
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/pill/aspirin-500mg-0069-0020-01")
+    assert response.status_code == 200
+    data = response.json()
+    assert "meta_description" in data
+    assert data["meta_description"] is None
+
+
+def test_api_pill_slug_meta_description_returned_when_set(client):
+    """GET /api/pill/{slug} should return the stored meta_description string when present."""
+    import database as db_module
+    description = "This is a white round pill with imprint ASPIRIN 500, identified as Aspirin 500 mg."
+    mock_row = ("Aspirin", "ASPIRIN 500", "White", "Round", "0069-0020-01", "215831",
+                "aspirin500.jpg", "aspirin-500mg-0069-0020-01", description)
+    mock_columns = ["medicine_name", "splimprint", "splcolor_text", "splshape_text",
+                    "ndc11", "rxcui", "image_filename", "slug", "meta_description"]
+    mock_result = MagicMock()
+    mock_result.fetchone.return_value = mock_row
+    mock_result.keys.return_value = mock_columns
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    response = client.get("/api/pill/aspirin-500mg-0069-0020-01")
+    assert response.status_code == 200
+    data = response.json()
+    assert "meta_description" in data
+    assert data["meta_description"] == description
+
+
 # ---------------------------------------------------------------------------
 # Sitemap endpoint
 # ---------------------------------------------------------------------------

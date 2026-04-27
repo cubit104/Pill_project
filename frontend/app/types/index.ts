@@ -30,7 +30,7 @@ export interface PillDetail extends PillResult {
   spl_set_id?: string
   /** ISO 8601 timestamp from the DB (updated_at / last_updated / ingested_at). */
   updated_at?: string
-  /** Pre-generated SEO meta description stored in the DB (≤155 chars). */
+  /** Pre-generated SEO meta description stored in the DB. */
   meta_description?: string
 }
 

@@ -11,19 +11,25 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import database
 from sqlalchemy import text
+from utils import normalize_text
 
 MAX_LEN = 155
+BATCH_SIZE = 1000
 
 
 def build_meta_description(row: dict) -> str:
-    """Mirror the frontend buildIdentificationSummary logic."""
-    color = (row.get("splcolor_text") or "").strip()
-    shape = (row.get("splshape_text") or "").strip()
+    """Mirror the frontend buildIdentificationSummary logic.
+
+    Fields are normalized the same way normalize_fields() does before the API
+    serves them, so the stored text matches what the frontend would generate.
+    """
+    color = normalize_text((row.get("splcolor_text") or "")).strip()
+    shape = normalize_text((row.get("splshape_text") or "")).strip()
     imprint = (row.get("splimprint") or "").strip()
-    drug_name = (row.get("medicine_name") or "").strip()
-    strength = (row.get("spl_strength") or "").strip()
+    drug_name = normalize_text((row.get("medicine_name") or "")).strip()
+    strength = normalize_text((row.get("spl_strength") or "")).strip()
     manufacturer = (row.get("author") or "").strip()
-    dosage_form = (row.get("dosage_form") or "").strip()
+    dosage_form = normalize_text((row.get("dosage_form") or "")).strip()
     ndc = (row.get("ndc11") or "").strip()
 
     physical = " ".join(filter(None, [color, shape]))
@@ -33,7 +39,7 @@ def build_meta_description(row: dict) -> str:
     s1_imprint = f" with imprint {imprint}" if imprint else ""
     s1_drug = (
         f", identified as {drug_name}{' ' + strength if strength else ''}"
-        if drug_name and drug_name.lower() != "unknown"
+        if drug_name and drug_name != "Unknown"
         else ""
     )
     s1_mfr = f" manufactured by {manufacturer}" if manufacturer else ""
@@ -60,19 +66,28 @@ def backfill():
             print("ERROR: Could not connect to database")
             return
 
-    with database.db_engine.connect() as conn:
-        rows = conn.execute(
-            text("""
-                SELECT id, medicine_name, splimprint, splcolor_text, splshape_text,
-                       spl_strength, author, dosage_form, ndc11
-                FROM pillfinder
-                WHERE meta_description IS NULL OR TRIM(meta_description) = ''
-            """)
-        ).fetchall()
+    last_id = 0
+    total_updated = 0
 
-        print(f"Found {len(rows)} rows missing meta_description")
+    while True:
+        # Read the next batch using cursor-based pagination to avoid OFFSET skew
+        # as rows are updated between iterations.
+        with database.db_engine.connect() as read_conn:
+            rows = read_conn.execute(
+                text("""
+                    SELECT id, medicine_name, splimprint, splcolor_text, splshape_text,
+                           spl_strength, author, dosage_form, ndc11
+                    FROM pillfinder
+                    WHERE (meta_description IS NULL OR TRIM(meta_description) = '')
+                      AND id > :last_id
+                    ORDER BY id
+                    LIMIT :batch_size
+                """),
+                {"last_id": last_id, "batch_size": BATCH_SIZE},
+            ).fetchall()
+
         if not rows:
-            return
+            break
 
         updates = []
         for row in rows:
@@ -90,12 +105,26 @@ def backfill():
             desc = build_meta_description(row_dict)
             updates.append({"id": row_dict["id"], "desc": desc})
 
-        with conn.begin():
-            conn.execute(
-                text("UPDATE pillfinder SET meta_description = :desc WHERE id = :id"),
+        # Use engine.begin() for a clean, auto-committing write transaction.
+        # The WHERE predicate makes re-runs safe: intentionally set values are
+        # never overwritten.
+        with database.db_engine.begin() as write_conn:
+            write_conn.execute(
+                text(
+                    "UPDATE pillfinder SET meta_description = :desc "
+                    "WHERE id = :id "
+                    "AND (meta_description IS NULL OR TRIM(meta_description) = '')"
+                ),
                 updates,
             )
-        print(f"✅ Updated {len(updates)} rows with meta_description")
+
+        total_updated += len(updates)
+        last_id = rows[-1][0]
+
+        if len(rows) < BATCH_SIZE:
+            break
+
+    print(f"✅ Updated {total_updated} rows with meta_description")
 
 
 if __name__ == "__main__":
