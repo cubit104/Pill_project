@@ -6,7 +6,6 @@ import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill } from '../../types'
 import type { Reviewer } from '../../lib/reviewers'
 import { classSlugify, slugifyDrugName } from '../../lib/slug'
-import { slugifyUrl } from '../../lib/url-utils'
 
 function PillIconLarge() {
   return (
@@ -241,7 +240,7 @@ export default function PillDetailClient({
               <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
                 {pill.color && (
                   <Link
-                    href={`/color/${slugifyUrl(pill.color)}`}
+                    href={`/color/${encodeURIComponent(pill.color.toLowerCase())}`}
                     className="text-xs bg-sky-50 text-sky-700 border border-sky-200 px-2.5 py-1 rounded-full font-medium hover:bg-sky-100 transition-colors"
                   >
                     {pill.color}
@@ -249,7 +248,7 @@ export default function PillDetailClient({
                 )}
                 {pill.shape && (
                   <Link
-                    href={`/shape/${slugifyUrl(pill.shape)}`}
+                    href={`/shape/${encodeURIComponent(pill.shape.toLowerCase())}`}
                     className="text-xs bg-teal-50 text-teal-700 border border-teal-200 px-2.5 py-1 rounded-full font-medium hover:bg-teal-100 transition-colors"
                   >
                     {pill.shape}
@@ -553,7 +552,7 @@ export default function PillDetailClient({
             )}
             {pill.color && (
               <Link
-                href={`/color/${slugifyUrl(pill.color)}`}
+                href={`/color/${encodeURIComponent(pill.color.toLowerCase())}`}
                 className="text-sm bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 hover:border-sky-300 transition-colors"
               >
                 {pill.color} pills →
@@ -561,7 +560,7 @@ export default function PillDetailClient({
             )}
             {pill.shape && (
               <Link
-                href={`/shape/${slugifyUrl(pill.shape)}`}
+                href={`/shape/${encodeURIComponent(pill.shape.toLowerCase())}`}
                 className="text-sm bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 hover:border-sky-300 transition-colors"
               >
                 {pill.shape} pills →

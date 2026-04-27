@@ -4,7 +4,6 @@ import { notFound } from 'next/navigation'
 import PillCard from '../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../lib/structured-data'
-import { slugifyUrl } from '../../lib/url-utils'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -43,8 +42,8 @@ export async function generateMetadata(
   return {
     title,
     description,
-    alternates: { canonical: `/shape/${slugifyUrl(shape)}` },
-    openGraph: { title, description, url: `${SITE_URL}/shape/${slugifyUrl(shape)}` },
+    alternates: { canonical: `/shape/${encodeURIComponent(shape)}` },
+    openGraph: { title, description, url: `${SITE_URL}/shape/${encodeURIComponent(shape)}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
@@ -60,13 +59,13 @@ export default async function ShapeHubPage(
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: `${displayShape} Pills`, url: `/shape/${slugifyUrl(shape)}` },
+    { name: `${displayShape} Pills`, url: `/shape/${encodeURIComponent(shape)}` },
   ])
 
   const hubJson = hubPageSchema({
     name: `${displayShape} Pills`,
     description: `Browse ${displayShape.toLowerCase()} pills identified by imprint, color, and drug name using FDA data.`,
-    url: `/shape/${slugifyUrl(shape)}`,
+    url: `/shape/${encodeURIComponent(shape)}`,
     dateModified: new Date().toISOString(),
   })
 
@@ -111,7 +110,7 @@ export default async function ShapeHubPage(
             {relatedShapes.map((s) => (
               <Link
                 key={s}
-                href={`/shape/${slugifyUrl(s)}`}
+                href={`/shape/${encodeURIComponent(s)}`}
                 className="text-sm bg-slate-100 text-slate-600 px-3 py-1.5 rounded-full border border-slate-200 hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 transition-colors"
               >
                 {toTitleCase(s)} Pills
@@ -156,7 +155,7 @@ export default async function ShapeHubPage(
             {['white', 'yellow', 'orange', 'pink', 'blue', 'green', 'red'].map((c) => (
               <Link
                 key={c}
-                href={`/color/${slugifyUrl(c)}`}
+                href={`/color/${encodeURIComponent(c)}`}
                 className="text-sm bg-white text-sky-700 px-3 py-1.5 rounded-full border border-sky-200 hover:bg-sky-100 transition-colors"
               >
                 {toTitleCase(c)}
