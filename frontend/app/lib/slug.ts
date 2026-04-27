@@ -21,9 +21,5 @@ export function classSlugify(className: string): string {
  *   "Ibuprofen 200 mg"           → "ibuprofen-200-mg"
  */
 export function slugifyDrugName(drugName: string): string {
-  if (!drugName) return 'unknown'
-  return drugName
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'unknown'
+  return classSlugify(drugName)
 }
