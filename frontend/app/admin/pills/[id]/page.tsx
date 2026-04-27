@@ -1,7 +1,7 @@
 'use client'
 
 export const dynamic = 'force-dynamic'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useId } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
@@ -292,6 +292,8 @@ function ComboboxInput({
   const [open, setOpen] = useState(false)
   const [highlighted, setHighlighted] = useState(-1)
   const containerRef = useRef<HTMLDivElement>(null)
+  const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const listId = useId()
 
   const valueLower = value.toLowerCase()
   const filtered = suggestions.filter(s =>
@@ -299,21 +301,35 @@ function ComboboxInput({
   )
 
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    return () => { if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current) }
   }, [])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!open) { if (e.key === 'ArrowDown') setOpen(true); return }
+    if (!open) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setOpen(true)
+        setHighlighted(filtered.length > 0 ? 0 : -1)
+      }
+      return
+    }
     if (e.key === 'ArrowDown') { e.preventDefault(); setHighlighted(h => Math.min(h + 1, filtered.length - 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlighted(h => Math.max(h - 1, -1)) }
     else if (e.key === 'Enter') { e.preventDefault(); if (highlighted >= 0) { onChange(filtered[highlighted]); setOpen(false); setHighlighted(-1) } else { setOpen(false) } }
     else if (e.key === 'Escape') { setOpen(false); setHighlighted(-1) }
+  }
+
+  const handleBlur = () => {
+    if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current)
+    blurTimeoutRef.current = setTimeout(() => { setOpen(false); setHighlighted(-1) }, 150)
+  }
+
+  const handleMouseDown = (s: string) => (e: React.MouseEvent) => {
+    e.preventDefault()
+    if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current)
+    onChange(s)
+    setOpen(false)
+    setHighlighted(-1)
   }
 
   return (
@@ -323,18 +339,31 @@ function ComboboxInput({
         value={value}
         onChange={e => { onChange(e.target.value); setOpen(true); setHighlighted(-1) }}
         onFocus={() => setOpen(true)}
+        onBlur={handleBlur}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         className={className}
         autoComplete="off"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={open && filtered.length > 0}
+        aria-controls={listId}
+        aria-activedescendant={highlighted >= 0 ? `${listId}-option-${highlighted}` : undefined}
       />
       {open && filtered.length > 0 && (
-        <ul className="absolute z-50 w-full bg-white border border-gray-200 rounded-md shadow-lg mt-1 max-h-56 overflow-y-auto text-sm">
+        <ul
+          id={listId}
+          role="listbox"
+          className="absolute z-50 w-full bg-white border border-gray-200 rounded-md shadow-lg mt-1 max-h-56 overflow-y-auto text-sm"
+        >
           {filtered.map((s, i) => (
             <li
               key={s}
+              id={`${listId}-option-${i}`}
+              role="option"
+              aria-selected={i === highlighted}
               className={`px-3 py-2 cursor-pointer hover:bg-indigo-50 ${i === highlighted ? 'bg-indigo-100' : ''}`}
-              onMouseDown={e => { e.preventDefault(); onChange(s); setOpen(false); setHighlighted(-1) }}
+              onMouseDown={handleMouseDown(s)}
             >
               {s}
             </li>

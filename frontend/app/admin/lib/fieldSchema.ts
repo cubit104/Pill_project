@@ -1,6 +1,8 @@
 /**
  * Authoritative field schema for pillfinder editable columns.
- * Mirrors routes/admin/field_schema.py — keep in sync.
+ * Mirrors routes/admin/field_schema.py — keep in sync for field keys/tiers.
+ * Note: `inputType` and `suggestions` are UI-only hints; they are not sent to
+ * or stored by the backend.
  */
 
 export type FieldTier = 'required' | 'required_or_na' | 'optional'
