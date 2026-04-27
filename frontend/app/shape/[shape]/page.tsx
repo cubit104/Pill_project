@@ -58,8 +58,9 @@ export default async function ShapeHubPage(
   if (shape !== slugged) {
     redirect(`/shape/${slugged}`)
   }
-  const displayShape = toTitleCase(slugged.replace(/-/g, ' '))
-  const pills = await fetchPillsByShape(slugged)
+  const apiShape = slugged.replace(/-/g, ' ')
+  const displayShape = toTitleCase(apiShape)
+  const pills = await fetchPillsByShape(apiShape)
 
   if (!displayShape) notFound()
 
