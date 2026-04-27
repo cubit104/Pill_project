@@ -48,6 +48,7 @@ async function fetchPill(slug: string): Promise<PillDetail | null> {
     images: raw.images ?? raw.image_urls ?? [],
     spl_set_id: raw.spl_set_id ?? undefined,
     updated_at: raw.updated_at ?? undefined,
+    meta_description: raw.meta_description ?? undefined,
   }
 }
 
@@ -162,7 +163,7 @@ export async function generateMetadata(
     const lastSpace = truncated.lastIndexOf(' ')
     return lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated
   }
-  const description = truncateAtWord(identificationSummary, 155)
+  const description = pill.meta_description || truncateAtWord(identificationSummary, 155)
 
   const images = pill.images && pill.images.length > 0
     ? pill.images

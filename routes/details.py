@@ -252,6 +252,7 @@ def get_pill_by_slug(slug: str):
                     or pill_info.get("last_updated")
                     or pill_info.get("ingested_at")
                 ),
+                "meta_description": pill_info.get("meta_description") or None,
             }
 
         return mapped
