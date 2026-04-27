@@ -442,7 +442,15 @@ export default function EditPillPage() {
   const handleDiscard = () => {
     if (!pill) return
     const formData: PillData = {}
-    FIELD_SCHEMA.forEach(({ key }) => { formData[key] = pill[key] ?? '' })
+    FIELD_SCHEMA.forEach(({ key }) => {
+      if (key === 'meta_title') {
+        // Mirror the same seeding logic as loadPill so the field returns to the
+        // same user-visible baseline (preview) rather than blank when DB is null.
+        formData[key] = pill[key] ?? pill['meta_title_preview'] ?? ''
+      } else {
+        formData[key] = pill[key] ?? ''
+      }
+    })
     formData['has_image'] = pill['has_image'] ?? ''
     setForm(formData)
     setFieldErrors({})
