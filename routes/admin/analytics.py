@@ -588,7 +588,6 @@ def page_health(admin: dict = Depends(get_admin_user)):
                         medicine_name,
                         meta_title,
                         meta_description,
-                        noindex,
                         splcolor_text,
                         splshape_text,
                         spl_strength,
@@ -601,7 +600,7 @@ def page_health(admin: dict = Depends(get_admin_user)):
                 )
             ).fetchall()
     except Exception as exc:
-        # meta_title / meta_description / noindex columns may not exist yet — fall back
+        # meta_title / meta_description columns may not exist yet — fall back
         logger.warning(f"page_health full query failed ({exc}), falling back to basic columns")
         try:
             with database.db_engine.connect() as conn:
@@ -611,7 +610,6 @@ def page_health(admin: dict = Depends(get_admin_user)):
                         SELECT id, slug, medicine_name,
                                NULL AS meta_title,
                                NULL AS meta_description,
-                               NULL AS noindex,
                                NULL AS splcolor_text,
                                NULL AS splshape_text,
                                NULL AS spl_strength,
@@ -633,10 +631,10 @@ def page_health(admin: dict = Depends(get_admin_user)):
 
     for row in rows:
         row_values = tuple(row)
-        if len(row_values) < 10:
-            row_values = row_values + (None,) * (10 - len(row_values))
-        row_id, slug, medicine_name, meta_title, meta_description, noindex, \
-            splcolor_text, splshape_text, spl_strength, splimprint = row_values[:10]
+        if len(row_values) < 9:
+            row_values = row_values + (None,) * (9 - len(row_values))
+        row_id, slug, medicine_name, meta_title, meta_description, \
+            splcolor_text, splshape_text, spl_strength, splimprint = row_values[:9]
         page_url = f"/pill/{slug}" if slug else f"/pill/{row_id}"
 
         # Garbage drug name (data quality)
@@ -747,20 +745,6 @@ def page_health(admin: dict = Depends(get_admin_user)):
                 )
             key = meta_description.strip().lower()
             desc_map.setdefault(key, []).append(page_url)
-
-        # noindex flag
-        if noindex:
-            issues.append(
-                {
-                    "id": str(row_id),
-                    "url": page_url,
-                    "issue_type": "noindex",
-                    "severity": "warning",
-                    "message": "Page has noindex set — it will not appear in search results.",
-                    "field": "noindex",
-                    "current_value": str(noindex),
-                }
-            )
 
     # Duplicate title detection
     for title_key, pages in title_map.items():
