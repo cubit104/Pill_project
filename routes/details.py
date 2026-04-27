@@ -66,7 +66,8 @@ def _aggregate_image_filenames(conn, raw_medicine_name: str, raw_splimprint: str
     try:
         image_q = text("""
             SELECT image_filename FROM pillfinder
-            WHERE LOWER(TRIM(medicine_name)) = LOWER(TRIM(:medicine_name))
+            WHERE deleted_at IS NULL
+              AND LOWER(TRIM(medicine_name)) = LOWER(TRIM(:medicine_name))
               AND UPPER(REGEXP_REPLACE(COALESCE(splimprint, ''), '[;,\\s]+', ' ', 'g'))
                 = UPPER(REGEXP_REPLACE(COALESCE(:splimprint, ''), '[;,\\s]+', ' ', 'g'))
               AND image_filename IS NOT NULL
@@ -105,10 +106,13 @@ def get_pill_details(
                 clean_ndc = re.sub(r'[^0-9]', '', ndc)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE ndc11 = :ndc
-                       OR ndc9  = :ndc
-                       OR REPLACE(ndc11, '-', '') = :clean_ndc
-                       OR REPLACE(ndc9,  '-', '') = :clean_ndc
+                    WHERE deleted_at IS NULL
+                      AND (
+                        ndc11 = :ndc
+                        OR ndc9  = :ndc
+                        OR REPLACE(ndc11, '-', '') = :clean_ndc
+                        OR REPLACE(ndc9,  '-', '') = :clean_ndc
+                      )
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"ndc": ndc, "clean_ndc": clean_ndc})
@@ -116,7 +120,8 @@ def get_pill_details(
             elif rxcui:
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE rxcui = :rxcui
+                    WHERE deleted_at IS NULL
+                      AND rxcui = :rxcui
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"rxcui": rxcui})
@@ -126,7 +131,8 @@ def get_pill_details(
                 norm_name_val = normalize_name(drug_name)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
+                    WHERE deleted_at IS NULL
+                      AND UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
                       AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)
                     LIMIT 1
                 """)
@@ -136,7 +142,8 @@ def get_pill_details(
                 norm_imp = normalize_imprint(imprint)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
+                    WHERE deleted_at IS NULL
+                      AND UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"imprint": norm_imp})
@@ -145,7 +152,8 @@ def get_pill_details(
                 norm_name_val = normalize_name(drug_name)
                 query = text("""
                     SELECT * FROM pillfinder
-                    WHERE LOWER(TRIM(medicine_name)) = LOWER(:drug_name)
+                    WHERE deleted_at IS NULL
+                      AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"drug_name": norm_name_val})
@@ -172,8 +180,39 @@ def get_pill_details(
             else:
                 filenames = _aggregate_image_filenames(conn, raw_medicine_name, raw_splimprint, raw_image_filename)
 
+            # Fetch additional NDCs from pill_ndcs sibling table
+            pill_ndcs_rows = []
+            try:
+                ndcs_result = conn.execute(
+                    text(
+                        """
+                        SELECT ndc11, package_description, is_primary
+                        FROM pill_ndcs
+                        WHERE pill_id = :pill_id
+                        ORDER BY is_primary DESC, ndc11
+                        """
+                    ),
+                    {"pill_id": str(pill_info.get("id"))},
+                )
+                pill_ndcs_rows = ndcs_result.fetchall()
+            except SQLAlchemyError as _e:
+                err_msg = str(_e).lower()
+                if "pill_ndcs" in err_msg and (
+                    "does not exist" in err_msg or "no such table" in err_msg
+                ):
+                    logger.debug("pill_ndcs table not yet created: %s", _e)
+                else:
+                    logger.warning(
+                        "pill_ndcs lookup failed for pill %s: %s", pill_info.get("id"), _e
+                    )
+
         image_data = process_image_filenames(filenames)
         pill_info.update(image_data)
+        pill_info["additional_ndcs"] = [
+            {"ndc11": r[0], "package_description": r[1]}
+            for r in pill_ndcs_rows
+            if not r[2]  # is_primary == False
+        ]
 
         logger.info(f"Details for {pill_info.get('medicine_name')}: {len(pill_info['image_urls'])} images")
         return pill_info
@@ -195,7 +234,7 @@ def get_pill_by_slug(slug: str):
 
     try:
         with database.db_engine.connect() as conn:
-            query = text("SELECT * FROM pillfinder WHERE slug = :slug LIMIT 1")
+            query = text("SELECT * FROM pillfinder WHERE deleted_at IS NULL AND slug = :slug LIMIT 1")
             result = conn.execute(query, {"slug": slug})
             row = result.fetchone()
             if not row:
@@ -219,6 +258,34 @@ def get_pill_by_slug(slug: str):
 
             logger.info(f"Slug {slug}: medicine_name={raw_medicine_name!r}, splimprint={raw_splimprint!r}, found {len(image_urls)} images, own_filename={raw_image_filename!r}")
 
+            # Fetch additional NDCs from pill_ndcs sibling table
+            additional_ndcs = []
+            try:
+                ndcs_result = conn.execute(
+                    text(
+                        """
+                        SELECT ndc11, package_description, is_primary
+                        FROM pill_ndcs
+                        WHERE pill_id = :pill_id
+                        ORDER BY is_primary DESC, ndc11
+                        """
+                    ),
+                    {"pill_id": str(pill_info.get("id"))},
+                )
+                additional_ndcs = [
+                    {"ndc11": r[0], "package_description": r[1]}
+                    for r in ndcs_result.fetchall()
+                    if not r[2]  # is_primary == False
+                ]
+            except SQLAlchemyError as _e:
+                err_msg = str(_e).lower()
+                if "pill_ndcs" in err_msg and (
+                    "does not exist" in err_msg or "no such table" in err_msg
+                ):
+                    logger.debug("pill_ndcs table not yet created: %s", _e)
+                else:
+                    logger.warning("pill_ndcs lookup failed for %s: %s", slug, _e)
+
             mapped = {
                 "drug_name": pill_info.get("medicine_name"),
                 "imprint": pill_info.get("splimprint"),
@@ -239,6 +306,7 @@ def get_pill_by_slug(slug: str):
                 "brand_names": pill_info.get("brand_names"),
                 "status_rx_otc": pill_info.get("status_rx_otc"),
                 "route": pill_info.get("route"),
+                "meta_title": pill_info.get("meta_title") or None,
                 "image_url": image_urls[0] if image_urls else None,
                 "images": image_urls,
                 "has_multiple_images": len(image_urls) > 1,
@@ -252,6 +320,7 @@ def get_pill_by_slug(slug: str):
                     or pill_info.get("last_updated")
                     or pill_info.get("ingested_at")
                 ),
+                "additional_ndcs": additional_ndcs,
                 "meta_description": pill_info.get("meta_description") or None,
             }
 
@@ -300,7 +369,7 @@ def get_related_by_class(slug: str, limit: int = Query(default=10, ge=1, le=50))
             # 1) Resolve the input pill's pharma class
             row = conn.execute(text("""
                 SELECT medicine_name, dailymed_pharma_class_epc, pharmclass_fda_epc
-                FROM pillfinder WHERE slug = :slug LIMIT 1
+                FROM pillfinder WHERE deleted_at IS NULL AND slug = :slug LIMIT 1
             """), {"slug": slug}).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Pill not found")
@@ -317,7 +386,8 @@ def get_related_by_class(slug: str, limit: int = Query(default=10, ge=1, le=50))
                     medicine_name, spl_strength, slug, splcolor_text, splshape_text,
                     image_filename
                 FROM pillfinder
-                WHERE (dailymed_pharma_class_epc = :cls OR pharmclass_fda_epc = :cls)
+                WHERE deleted_at IS NULL
+                  AND (dailymed_pharma_class_epc = :cls OR pharmclass_fda_epc = :cls)
                   AND slug IS NOT NULL AND slug != ''
                   AND slug != :slug
                 ORDER BY medicine_name, spl_strength, slug
@@ -352,7 +422,8 @@ def list_pharma_classes():
                     spl_strength,
                     COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
                   FROM pillfinder
-                  WHERE (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
+                  WHERE deleted_at IS NULL
+                    AND (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
                     AND slug IS NOT NULL AND slug != ''
                 ) sub
                 WHERE class_name IS NOT NULL
@@ -382,7 +453,8 @@ def get_class_drugs(class_slug: str, limit: int = Query(default=100, ge=1, le=50
                 FROM (
                     SELECT COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
                     FROM pillfinder
-                    WHERE (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
+                    WHERE deleted_at IS NULL
+                      AND (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
                       AND slug IS NOT NULL AND slug != ''
                 ) sub
                 WHERE class_name IS NOT NULL
@@ -406,7 +478,8 @@ def get_class_drugs(class_slug: str, limit: int = Query(default=100, ge=1, le=50
                     medicine_name, spl_strength, slug, splcolor_text, splshape_text,
                     image_filename
                 FROM pillfinder
-                WHERE (dailymed_pharma_class_epc = :cls OR pharmclass_fda_epc = :cls)
+                WHERE deleted_at IS NULL
+                  AND (dailymed_pharma_class_epc = :cls OR pharmclass_fda_epc = :cls)
                   AND slug IS NOT NULL AND slug != ''
                 ORDER BY medicine_name, spl_strength, slug
                 LIMIT :limit
