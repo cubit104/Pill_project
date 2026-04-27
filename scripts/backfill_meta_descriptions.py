@@ -66,12 +66,11 @@ def backfill():
             print("ERROR: Could not connect to database")
             return
 
-    last_id = 0
+    offset = 0
     total_updated = 0
 
     while True:
-        # Read the next batch using cursor-based pagination to avoid OFFSET skew
-        # as rows are updated between iterations.
+        # Use OFFSET-based pagination (id is UUID, not integer — can't use id > last_id)
         with database.db_engine.connect() as read_conn:
             rows = read_conn.execute(
                 text("""
@@ -79,11 +78,10 @@ def backfill():
                            spl_strength, author, dosage_form, ndc11
                     FROM pillfinder
                     WHERE (meta_description IS NULL OR TRIM(meta_description) = '')
-                      AND id > :last_id
                     ORDER BY id
-                    LIMIT :batch_size
+                    LIMIT :batch_size OFFSET :offset
                 """),
-                {"last_id": last_id, "batch_size": BATCH_SIZE},
+                {"batch_size": BATCH_SIZE, "offset": offset},
             ).fetchall()
 
         if not rows:
@@ -119,7 +117,9 @@ def backfill():
             )
 
         total_updated += len(updates)
-        last_id = rows[-1][0]
+        offset += len(rows)
+
+        print(f"  ... processed {total_updated} rows so far")
 
         if len(rows) < BATCH_SIZE:
             break
