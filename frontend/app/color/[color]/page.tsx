@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import PillCard from '../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../lib/structured-data'
+import { slugifyUrl } from '../../lib/url-utils'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -43,8 +44,8 @@ export async function generateMetadata(
   return {
     title,
     description,
-    alternates: { canonical: `/color/${encodeURIComponent(color)}` },
-    openGraph: { title, description, url: `${SITE_URL}/color/${encodeURIComponent(color)}` },
+    alternates: { canonical: `/color/${slugifyUrl(displayColor)}` },
+    openGraph: { title, description, url: `${SITE_URL}/color/${slugifyUrl(displayColor)}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
@@ -54,19 +55,19 @@ export default async function ColorHubPage(
 ) {
   const { color } = await params
   const displayColor = toTitleCase(decodeURIComponent(color))
-  const pills = await fetchPillsByColor(decodeURIComponent(color))
+  const pills = await fetchPillsByColor(displayColor.toLowerCase())
 
   if (!displayColor) notFound()
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: `${displayColor} Pills`, url: `/color/${encodeURIComponent(color)}` },
+    { name: `${displayColor} Pills`, url: `/color/${slugifyUrl(displayColor)}` },
   ])
 
   const hubJson = hubPageSchema({
     name: `${displayColor} Pills`,
     description: `Browse ${displayColor.toLowerCase()} pills identified by imprint, shape, and drug name using FDA data.`,
-    url: `/color/${encodeURIComponent(color)}`,
+    url: `/color/${slugifyUrl(displayColor)}`,
     dateModified: new Date().toISOString(),
   })
 
@@ -111,7 +112,7 @@ export default async function ColorHubPage(
             {relatedColors.map((c) => (
               <Link
                 key={c}
-                href={`/color/${encodeURIComponent(c)}`}
+                href={`/color/${slugifyUrl(c)}`}
                 className="text-sm bg-slate-100 text-slate-600 px-3 py-1.5 rounded-full border border-slate-200 hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 transition-colors"
               >
                 {toTitleCase(c)} Pills
@@ -156,7 +157,7 @@ export default async function ColorHubPage(
             {['round', 'oval', 'capsule', 'rectangle', 'square', 'triangle'].map((shape) => (
               <Link
                 key={shape}
-                href={`/shape/${encodeURIComponent(shape)}`}
+                href={`/shape/${slugifyUrl(shape)}`}
                 className="text-sm bg-white text-sky-700 px-3 py-1.5 rounded-full border border-sky-200 hover:bg-sky-100 transition-colors"
               >
                 {toTitleCase(shape)}
