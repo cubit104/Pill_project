@@ -94,16 +94,16 @@ def get_suggestions(
     # Drug-name suggestions
     elif search_type == "drug":
         logger.info("→ branch: drug")
-        lower_q = norm_q.lower()
+        norm_drug_q = re.sub(r'[^a-z0-9]+', ' ', norm_q.lower()).strip()
         with database.db_engine.connect() as conn:
             sql = text("""
                 SELECT DISTINCT medicine_name
                     FROM pillfinder
-                    WHERE LOWER(medicine_name) LIKE :like_q
+                    WHERE REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE :like_q
                     ORDER BY medicine_name
                     LIMIT :lim
             """)
-            rows = conn.execute(sql, {"like_q": f"{lower_q}%", "lim": MAX_SUGGESTIONS})
+            rows = conn.execute(sql, {"like_q": f"{norm_drug_q}%", "lim": MAX_SUGGESTIONS})
             out = []
             seen = set()
             for r in rows:
@@ -159,8 +159,11 @@ def api_search(
                 )
                 params["imprint_like"] = f"%{norm}%"
             elif search_type == "drug":
-                where_conditions.append("LOWER(medicine_name) LIKE LOWER(:drug_name)")
-                params["drug_name"] = f"{query.lower()}%"
+                norm_drug = re.sub(r'[^a-z0-9]+', ' ', query.lower()).strip()
+                where_conditions.append(
+                    "REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE :drug_name"
+                )
+                params["drug_name"] = f"{norm_drug}%"
             elif search_type == "ndc":
                 clean_ndc = re.sub(r'[^0-9]', '', query)
                 where_conditions.append("""
