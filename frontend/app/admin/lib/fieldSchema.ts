@@ -1,6 +1,8 @@
 /**
  * Authoritative field schema for pillfinder editable columns.
- * Mirrors routes/admin/field_schema.py — keep in sync.
+ * Mirrors routes/admin/field_schema.py — keep in sync for field keys/tiers.
+ * Note: `inputType` and `suggestions` are UI-only hints; they are not sent to
+ * or stored by the backend.
  */
 
 export type FieldTier = 'required' | 'required_or_na' | 'optional'
@@ -11,7 +13,8 @@ export interface FieldSchemaEntry {
   tier: FieldTier
   /** If set, the field is only required when data[conditional] === 'TRUE' */
   conditional?: string
-  inputType?: 'text' | 'textarea'
+  inputType?: 'text' | 'textarea' | 'combobox'
+  suggestions?: string[]
   placeholder?: string
 }
 
@@ -21,19 +24,25 @@ export const FIELD_SCHEMA: FieldSchemaEntry[] = [
   { key: 'author',            label: 'Manufacturer',         tier: 'required' },
   { key: 'spl_strength',      label: 'Strength',             tier: 'required' },
   { key: 'splimprint',        label: 'Imprint',              tier: 'required' },
-  { key: 'splcolor_text',     label: 'Color',                tier: 'required' },
-  { key: 'splshape_text',     label: 'Shape',                tier: 'required' },
+  { key: 'splcolor_text',     label: 'Color',                tier: 'required',      inputType: 'combobox',
+    suggestions: ['White','Pink','Red','Orange','Yellow','Green','Blue','Purple','Brown','Black','Gray','Turquoise','Beige','Tan','Maroon','Lavender','Teal'] },
+  { key: 'splshape_text',     label: 'Shape',                tier: 'required',      inputType: 'combobox',
+    suggestions: ['Round','Oval','Capsule','Oblong','Triangle','Rectangle','Pentagon','Hexagon','Octagon','Diamond','Double Arc','Bullet','Barrel'] },
   { key: 'slug',              label: 'Slug',                 tier: 'required' },
 
   // Tier 2 — Required or N/A
   { key: 'ndc9',              label: 'NDC-9',                tier: 'required_or_na' },
   { key: 'ndc11',             label: 'NDC-11',               tier: 'required_or_na' },
-  { key: 'dosage_form',       label: 'Dosage Form',          tier: 'required_or_na' },
-  { key: 'route',             label: 'Route',                tier: 'required_or_na' },
+  { key: 'dosage_form',       label: 'Dosage Form',          tier: 'required_or_na', inputType: 'combobox',
+    suggestions: ['Tablet','Capsule','Caplet','Chewable Tablet','Orally Disintegrating Tablet','Extended Release Tablet','Extended Release Capsule','Delayed Release Tablet','Delayed Release Capsule','Lozenge'] },
+  { key: 'route',             label: 'Route',                tier: 'required_or_na', inputType: 'combobox',
+    suggestions: ['Oral','Sublingual','Buccal'] },
   { key: 'spl_ingredients',   label: 'Active Ingredients',   tier: 'required_or_na', inputType: 'textarea' },
   { key: 'spl_inactive_ing',  label: 'Inactive Ingredients', tier: 'required_or_na', inputType: 'textarea' },
-  { key: 'dea_schedule_name', label: 'DEA Schedule',         tier: 'required_or_na' },
-  { key: 'status_rx_otc',     label: 'Rx/OTC Status',        tier: 'required_or_na' },
+  { key: 'dea_schedule_name', label: 'DEA Schedule',         tier: 'required_or_na', inputType: 'combobox',
+    suggestions: ['N/A','Schedule I','Schedule II','Schedule III','Schedule IV','Schedule V'] },
+  { key: 'status_rx_otc',     label: 'Rx/OTC Status',        tier: 'required_or_na', inputType: 'combobox',
+    suggestions: ['Rx','OTC','Rx; OTC','OTC Monograph Final','OTC Monograph Not Final'] },
   { key: 'image_alt_text',    label: 'Image Alt Text',       tier: 'required_or_na', conditional: 'has_image',
     placeholder: 'White oval pill imprinted MP 45' },
 
@@ -46,7 +55,8 @@ export const FIELD_SCHEMA: FieldSchemaEntry[] = [
   { key: 'pharmclass_fda_epc',label: 'FDA Pharma Class',     tier: 'optional' },
   { key: 'rxcui',             label: 'RxCUI',                tier: 'optional' },
   { key: 'rxcui_1',           label: 'RxCUI Alt',            tier: 'optional' },
-  { key: 'imprint_status',    label: 'Imprint Status',       tier: 'optional' },
+  { key: 'imprint_status',    label: 'Imprint Status',       tier: 'optional',      inputType: 'combobox',
+    suggestions: ['Engraved','Printed','Embossed','Debossed','Scored','Engraved;Scored','Printed;Scored','Debossed;Scored'] },
   { key: 'tags',              label: 'Tags (comma-separated)', tier: 'optional',
     placeholder: 'blood pressure, hypertension, generic' },
 ]
