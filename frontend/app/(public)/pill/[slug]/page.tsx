@@ -19,7 +19,7 @@ const SITE_URL = (
 
 async function fetchPill(slug: string): Promise<PillDetail | null> {
   const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, {
-    next: { revalidate: 3600 },
+    next: { revalidate: 30 },
   })
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`API error ${res.status}`)
