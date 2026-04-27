@@ -371,7 +371,16 @@ export default function EditPillPage() {
       }
       setResolvedImageUrls(data.resolved_image_urls || [])
       const formData: PillData = {}
-      FIELD_SCHEMA.forEach(({ key }) => { formData[key] = data[key] ?? '' })
+      FIELD_SCHEMA.forEach(({ key }) => {
+        if (key === 'meta_title') {
+          // Use DB value when set; fall back to the server-computed preview so
+          // the field shows something useful. pill state stays '' (null→'') so
+          // getChangedFields() treats any non-empty form value as a real change.
+          formData[key] = data[key] ?? data['meta_title_preview'] ?? ''
+        } else {
+          formData[key] = data[key] ?? ''
+        }
+      })
       formData['has_image'] = data['has_image'] ?? ''
       setForm(formData)
     } catch (e) {
@@ -474,7 +483,12 @@ export default function EditPillPage() {
     if (!session) return
     const changedFields = getChangedFields()
     const allFields: Record<string, string | null> = {}
-    FIELD_SCHEMA.forEach(f => { allFields[f.key] = form[f.key] ?? '' })
+    FIELD_SCHEMA.forEach(f => {
+      const v = form[f.key] ?? ''
+      // Only include a field in the publish payload if it has a non-empty value,
+      // OR if it was explicitly changed (changedFields handles explicit clears via null).
+      if (v !== '') allFields[f.key] = v
+    })
     Object.assign(allFields, changedFields)
     try {
       const res = await fetch(`/api/admin/pills/${pillId}?publish=true`, {

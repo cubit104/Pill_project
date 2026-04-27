@@ -819,12 +819,14 @@ def get_pill(pill_id: str, admin: dict = Depends(get_admin_user)):
             ]
             pill["resolved_image_urls"] = resolved_urls
 
-            # If meta_title is NULL in the DB, compute it from the pill fields so
-            # the edit form shows a pre-filled value the admin can review/override.
-            # We check for None explicitly so an intentionally-empty stored value
-            # ("") is not silently overwritten.
+            # If meta_title is NULL in the DB, expose the computed value as
+            # meta_title_preview so the frontend can populate the form field as a
+            # helpful placeholder while keeping meta_title itself as None (null).
+            # This preserves an accurate baseline for change-detection: the form
+            # will differ from pill state and getChangedFields() will include the
+            # field in every Save PUT until the admin explicitly saves a value.
             if pill.get("meta_title") is None:
-                pill["meta_title"] = _build_meta_title(pill)
+                pill["meta_title_preview"] = _build_meta_title(pill)
 
         return pill
     except HTTPException:
