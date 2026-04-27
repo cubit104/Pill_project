@@ -59,7 +59,7 @@ def get_filters():
         with database.db_engine.connect() as conn:
             shape_query = text("""
                 SELECT DISTINCT splshape_text FROM pillfinder
-                WHERE splshape_text IS NOT NULL AND splshape_text != ''
+                WHERE deleted_at IS NULL AND splshape_text IS NOT NULL AND splshape_text != ''
             """)
             result = conn.execute(shape_query)
 

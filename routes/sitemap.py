@@ -18,7 +18,7 @@ router = APIRouter()
 def _fetch_all_slugs(conn) -> List[str]:
     """Query the database and return all non-null pill slugs."""
     result = conn.execute(
-        text("SELECT slug FROM pillfinder WHERE slug IS NOT NULL ORDER BY slug")
+        text("SELECT slug FROM pillfinder WHERE deleted_at IS NULL AND slug IS NOT NULL ORDER BY slug")
     )
     return [row[0] for row in result if row[0]]
 

@@ -1,4 +1,4 @@
-# PillSeek — Identify Any Medication
+# PillSeek — Identify Any Medication...
 
 > Formerly known as IDMyPills.
 
@@ -23,6 +23,29 @@ pillseek.com → Render → FastAPI serves everything
 - XML sitemap at `/sitemap.xml`
 - Mobile-first responsive design (Next.js + Tailwind CSS)
 - Schema.org structured data on pill detail pages
+- **Admin dashboard** at `/admin` — manage pills, images, drafts, users (see below)
+
+## Admin Dashboard
+
+A form-based admin dashboard lives at `/admin`. It allows non-technical users to manage pill data, images, and content without writing SQL.
+
+**Key features:**
+- Magic link authentication (no passwords)
+- Role-based access: `superadmin`, `editor`, `reviewer`, `readonly`
+- Pill CRUD with soft delete and restore
+- Draft + review + publish workflow for content changes
+- Image upload to Supabase Storage
+- Full audit log for every write action
+- Optimistic locking to prevent lost updates
+
+**Getting started with admin:**
+1. Run the SQL migrations in `supabase/migrations/` against your Supabase project
+2. Enable Magic Link auth in Supabase Dashboard → Authentication → Providers
+3. Set the required environment variables (see `.env.example`)
+4. Seed the first superadmin (see `ADMIN.md`)
+5. Navigate to `/admin/login` and enter your email
+
+See [`ADMIN.md`](./ADMIN.md) for architecture details and [`docs/admin-guide.md`](./docs/admin-guide.md) for the user guide.
 
 ## Requirements
 
@@ -177,6 +200,34 @@ npm install
 npm run dev    # development server at http://localhost:3000
 npm run build  # production static export to frontend/out/
 ```
+
+## Vercel Deployment (Two-Project Setup)
+
+The frontend is split across two Vercel projects that build from the same repository:
+
+| Project | Domain | Branch | `NEXT_PUBLIC_ENABLE_ADMIN` |
+|---|---|---|---|
+| `pill-project` | `pillseek.com` | `main` | unset / `false` |
+| `pill-project-admin` | `admin.pillseek.com` | `develop` | `true` |
+
+Both projects share the same Supabase database and Render backend (`API_BASE_URL`).
+
+**How the split works:**
+
+- `middleware.ts` checks `NEXT_PUBLIC_ENABLE_ADMIN` at request time.  When it is not `"true"`, any request to `/admin` or `/admin/*` is rewritten to a 404 page.  This means `pillseek.com/admin` is unreachable while `admin.pillseek.com/admin` works normally.
+- The admin layout exports `robots: { index: false, follow: false }` so search engines never index `admin.pillseek.com`.
+- `robots.ts` disallows `/admin/` for all crawlers on both domains.
+
+**Environment variables per project:**
+
+| Variable | `pill-project` | `pill-project-admin` |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ set | ✅ set (same value) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ set | ✅ set (same value) |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ set | ✅ set (same value) |
+| `API_BASE_URL` | ✅ set | ✅ set (same value) |
+| `NEXT_PUBLIC_SITE_URL` | `https://pillseek.com` | `https://admin.pillseek.com` |
+| `NEXT_PUBLIC_ENABLE_ADMIN` | *(unset)* | `true` |
 
 ## License
 

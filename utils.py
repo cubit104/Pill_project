@@ -1,4 +1,5 @@
 import os
+import posixpath
 import re
 import logging
 from functools import lru_cache
@@ -78,7 +79,12 @@ def clean_filename(filename: str) -> str:
     """Clean individual filename"""
     if pd.isna(filename) or not filename:
         return ""
-    return re.sub(r'[^\w.-]', '', str(filename).strip())
+    cleaned = re.sub(r'[^\w./-]', '', str(filename).strip())
+    # Normalize and reject path traversal (..) or absolute paths
+    normalized = posixpath.normpath(cleaned) if cleaned else ""
+    if not normalized or normalized.startswith('/') or '..' in normalized.split('/'):
+        return ""
+    return normalized
 
 
 def get_clean_image_list(image_str: str) -> List[str]:
