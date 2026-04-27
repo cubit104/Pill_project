@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import PillCard from '../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../lib/structured-data'
+import { slugifyDrugName } from '../../lib/slug'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -42,8 +43,8 @@ export async function generateMetadata(
   return {
     title,
     description,
-    alternates: { canonical: `/drug/${encodeURIComponent(name)}` },
-    openGraph: { title, description, url: `${SITE_URL}/drug/${encodeURIComponent(name)}` },
+    alternates: { canonical: `/drug/${slugifyDrugName(displayName)}` },
+    openGraph: { title, description, url: `${SITE_URL}/drug/${slugifyDrugName(displayName)}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
@@ -53,19 +54,19 @@ export default async function DrugHubPage(
 ) {
   const { name } = await params
   const displayName = toTitleCase(decodeURIComponent(name))
-  const pills = await fetchPillsByDrug(decodeURIComponent(name))
+  const pills = await fetchPillsByDrug(displayName)
 
   if (!displayName) notFound()
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: displayName, url: `/drug/${encodeURIComponent(name)}` },
+    { name: displayName, url: `/drug/${slugifyDrugName(displayName)}` },
   ])
 
   const hubJson = hubPageSchema({
     name: `${displayName} Pill Identification`,
     description: `Browse all ${displayName} pills and identify them by imprint, color, and shape using FDA NDC data.`,
-    url: `/drug/${encodeURIComponent(name)}`,
+    url: `/drug/${slugifyDrugName(displayName)}`,
     dateModified: new Date().toISOString(),
   })
 

@@ -12,3 +12,14 @@ export function classSlugify(className: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'unknown'
 }
+
+/**
+ * Convert a drug name to a URL-safe slug.
+ *
+ * Examples:
+ *   "Hydralazine Hydrochloride"  → "hydralazine-hydrochloride"
+ *   "Ibuprofen 200 mg"           → "ibuprofen-200-mg"
+ */
+export function slugifyDrugName(drugName: string): string {
+  return classSlugify(drugName)
+}
