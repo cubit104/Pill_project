@@ -1,9 +1,10 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import PillCard from '../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../lib/structured-data'
+import { slugifyDrugName } from '../../lib/slug'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -35,15 +36,17 @@ export async function generateMetadata(
   { params }: { params: Promise<{ name: string }> }
 ): Promise<Metadata> {
   const { name } = await params
-  const displayName = toTitleCase(decodeURIComponent(name))
+  const decoded = decodeURIComponent(name)
+  const canonicalSlug = slugifyDrugName(decoded) || decoded
+  const displayName = toTitleCase(canonicalSlug.replace(/-/g, ' '))
   const title = `${displayName} Pills — Identify ${displayName} by Imprint, Color & Shape`
   const description = `Look up ${displayName} pills by imprint code, color, and shape. Find all ${displayName} medications in our FDA-powered pill identifier.`.slice(0, 155)
 
   return {
     title,
     description,
-    alternates: { canonical: `/drug/${encodeURIComponent(name)}` },
-    openGraph: { title, description, url: `${SITE_URL}/drug/${encodeURIComponent(name)}` },
+    alternates: { canonical: `/drug/${canonicalSlug}` },
+    openGraph: { title, description, url: `${SITE_URL}/drug/${canonicalSlug}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
@@ -52,20 +55,25 @@ export default async function DrugHubPage(
   { params }: { params: Promise<{ name: string }> }
 ) {
   const { name } = await params
-  const displayName = toTitleCase(decodeURIComponent(name))
-  const pills = await fetchPillsByDrug(decodeURIComponent(name))
+  const decoded = decodeURIComponent(name)
+  const canonicalSlug = slugifyDrugName(decoded) || decoded
+  if (name !== canonicalSlug) {
+    redirect(`/drug/${canonicalSlug}`)
+  }
+  const displayName = toTitleCase(canonicalSlug.replace(/-/g, ' '))
+  const pills = await fetchPillsByDrug(decoded)
 
   if (!displayName) notFound()
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: displayName, url: `/drug/${encodeURIComponent(name)}` },
+    { name: displayName, url: `/drug/${canonicalSlug}` },
   ])
 
   const hubJson = hubPageSchema({
     name: `${displayName} Pill Identification`,
     description: `Browse all ${displayName} pills and identify them by imprint, color, and shape using FDA NDC data.`,
-    url: `/drug/${encodeURIComponent(name)}`,
+    url: `/drug/${canonicalSlug}`,
     dateModified: new Date().toISOString(),
   })
 
