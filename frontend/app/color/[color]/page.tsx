@@ -60,7 +60,7 @@ export default async function ColorHubPage(
     redirect(`/color/${slugged}`)
   }
   const displayColor = toTitleCase(slugged.replace(/-/g, ' '))
-  const pills = await fetchPillsByColor(decodeURIComponent(color))
+  const pills = await fetchPillsByColor(slugged)
 
   if (!displayColor) notFound()
 

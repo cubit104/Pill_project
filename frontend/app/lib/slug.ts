@@ -1,3 +1,5 @@
+import { slugifyUrl } from './url-utils'
+
 /**
  * Convert a pharmacologic class name to a URL-safe slug.
  *
@@ -15,17 +17,12 @@ export function classSlugify(className: string): string {
 
 /**
  * Convert a drug name to a SEO-friendly URL slug using hyphens.
+ * Delegates to slugifyUrl for consistent behaviour.
  *
  * Examples:
  *   "Ethambutol Hydrochloride"  → "ethambutol-hydrochloride"
  *   "Café/Crème"                → "cafe-creme"
  */
 export function slugifyDrugName(name: string): string {
-  return name
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  return slugifyUrl(name)
 }

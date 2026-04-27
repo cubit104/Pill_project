@@ -59,7 +59,7 @@ export default async function ShapeHubPage(
     redirect(`/shape/${slugged}`)
   }
   const displayShape = toTitleCase(slugged.replace(/-/g, ' '))
-  const pills = await fetchPillsByShape(decodeURIComponent(shape))
+  const pills = await fetchPillsByShape(slugged)
 
   if (!displayShape) notFound()
 
