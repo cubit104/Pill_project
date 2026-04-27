@@ -36,7 +36,7 @@ export const FIELD_SCHEMA: FieldSchemaEntry[] = [
   { key: 'dosage_form',       label: 'Dosage Form',          tier: 'required_or_na', inputType: 'combobox',
     suggestions: ['Tablet','Capsule','Caplet','Chewable Tablet','Orally Disintegrating Tablet','Extended Release Tablet','Extended Release Capsule','Delayed Release Tablet','Delayed Release Capsule','Lozenge'] },
   { key: 'route',             label: 'Route',                tier: 'required_or_na', inputType: 'combobox',
-    suggestions: ['Oral','Sublingual','Buccal','Inhalation','Ophthalmic','Otic','Nasal','Rectal','Topical'] },
+    suggestions: ['Oral','Sublingual','Buccal'] },
   { key: 'spl_ingredients',   label: 'Active Ingredients',   tier: 'required_or_na', inputType: 'textarea' },
   { key: 'spl_inactive_ing',  label: 'Inactive Ingredients', tier: 'required_or_na', inputType: 'textarea' },
   { key: 'dea_schedule_name', label: 'DEA Schedule',         tier: 'required_or_na', inputType: 'combobox',
