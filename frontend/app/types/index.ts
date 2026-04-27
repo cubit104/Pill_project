@@ -34,6 +34,8 @@ export interface PillDetail extends PillResult {
   image_alt_text?: string
   /** Stored SEO title — auto-generated from pill fields and editable in admin. */
   meta_title?: string
+  /** Pre-generated SEO meta description stored in the DB. */
+  meta_description?: string
 }
 
 export interface SimilarPill {
