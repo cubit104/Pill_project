@@ -53,7 +53,7 @@ export default async function DrugHubPage(
 ) {
   const { name } = await params
   const displayName = toTitleCase(decodeURIComponent(name))
-  const pills = await fetchPillsByDrug(decodeURIComponent(name))
+  const pills = await fetchPillsByDrug(displayName)
 
   if (!displayName) notFound()
 

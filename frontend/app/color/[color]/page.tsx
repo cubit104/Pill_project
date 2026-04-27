@@ -54,7 +54,7 @@ export default async function ColorHubPage(
 ) {
   const { color } = await params
   const displayColor = toTitleCase(decodeURIComponent(color))
-  const pills = await fetchPillsByColor(decodeURIComponent(color))
+  const pills = await fetchPillsByColor(decodeURIComponent(color).replace(/-/g, ' '))
 
   if (!displayColor) notFound()
 

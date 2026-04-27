@@ -53,7 +53,7 @@ export default async function ShapeHubPage(
 ) {
   const { shape } = await params
   const displayShape = toTitleCase(decodeURIComponent(shape))
-  const pills = await fetchPillsByShape(decodeURIComponent(shape))
+  const pills = await fetchPillsByShape(decodeURIComponent(shape).replace(/-/g, ' '))
 
   if (!displayShape) notFound()
 
