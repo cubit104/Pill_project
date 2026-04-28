@@ -544,6 +544,65 @@ def test_api_class_limit_too_large_rejected(client):
     assert response.status_code == 422
 
 
+def test_api_class_plural_slug_resolves(client):
+    """GET /api/class/contraceptives should resolve to the singular DB class 'Contraceptive'."""
+    import database as db_module
+
+    drug_rows = [
+        ("Norethindrone", "0.35mg", "norethindrone-035mg", "White", "Round", None),
+    ]
+    call_count = {"n": 0}
+
+    def execute_side_effect(query, params=None):
+        mock_res = MagicMock()
+        if params and "class_slug" in params:
+            call_count["n"] += 1
+            # First call: exact slug "contraceptives" → no match
+            # Subsequent calls (fallbacks): "contraceptiv", "contraceptive"
+            if params["class_slug"] == "contraceptive":
+                mock_res.scalar.return_value = "Contraceptive"
+            else:
+                mock_res.scalar.return_value = None
+        else:
+            mock_res.fetchall.return_value = drug_rows
+        return mock_res
+
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = execute_side_effect
+    response = client.get("/api/class/contraceptives")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["class_name"] == "Contraceptive"
+    # Canonical slug should match the DB class name, not the input plural slug
+    assert data["slug"] == "contraceptive"
+    assert "drugs" in data
+
+
+def test_api_class_returns_canonical_slug(client):
+    """GET /api/class/{class_slug} response slug should be the canonical slug derived from class_name."""
+    import database as db_module
+
+    drug_rows = [
+        ("Ibuprofen", "200mg", "ibuprofen-200mg", "White", "Round", None),
+    ]
+
+    def execute_side_effect(query, params=None):
+        mock_res = MagicMock()
+        if params and "class_slug" in params:
+            mock_res.scalar.return_value = "Salicylates"
+        else:
+            mock_res.fetchall.return_value = drug_rows
+        return mock_res
+
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = execute_side_effect
+    response = client.get("/api/class/salicylates")
+    assert response.status_code == 200
+    data = response.json()
+    # Slug in response must be derived from matched class_name, not raw input
+    assert data["slug"] == "salicylates"
+
+
 # ---------------------------------------------------------------------------
 # /api/pill/{slug}/similar endpoint
 # ---------------------------------------------------------------------------

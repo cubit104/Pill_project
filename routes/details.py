@@ -397,6 +397,19 @@ def get_class_drugs(class_slug: str, limit: int = Query(default=100, ge=1, le=50
             """)
             matched_class = conn.execute(q, {"class_slug": class_slug}).scalar()
 
+            # Fallback: try de-pluralized forms of the slug so that URLs like
+            # /class/contraceptives/ resolve to the DB entry "Contraceptive".
+            if not matched_class:
+                fallback_slugs = []
+                if class_slug.endswith("s") and len(class_slug) > 1:
+                    fallback_slugs.append(class_slug[:-1])
+                if class_slug.endswith("es") and len(class_slug) > 2:
+                    fallback_slugs.append(class_slug[:-2])
+                for fallback in fallback_slugs:
+                    matched_class = conn.execute(q, {"class_slug": fallback}).scalar()
+                    if matched_class:
+                        break
+
             if not matched_class:
                 raise HTTPException(status_code=404, detail="Pharma class not found")
 
@@ -414,9 +427,10 @@ def get_class_drugs(class_slug: str, limit: int = Query(default=100, ge=1, le=50
 
             drugs = [_row_to_drug_dict(r) for r in drug_rows]
 
+            canonical_slug = slugify_class(matched_class)
             return {
                 "class_name": matched_class,
-                "slug": class_slug,
+                "slug": canonical_slug,
                 "count": len(drugs),
                 "drugs": drugs,
             }
