@@ -30,6 +30,12 @@ export interface PillDetail extends PillResult {
   spl_set_id?: string
   /** ISO 8601 timestamp from the DB (updated_at / last_updated / ingested_at). */
   updated_at?: string
+  /** Alt text for the pill image (accessibility + SEO). */
+  image_alt_text?: string
+  /** Stored SEO title — auto-generated from pill fields and editable in admin. */
+  meta_title?: string
+  /** Pre-generated SEO meta description stored in the DB. */
+  meta_description?: string
 }
 
 export interface SimilarPill {
