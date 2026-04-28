@@ -104,7 +104,6 @@ def main(argv=None):
     counts = {
         "processed": summary["processed"],
         "updated": summary["updated"],
-        "skipped_multi": summary["skipped_multi"],
         "skipped_none": summary["skipped_none"],
         "errors": summary["errors"],
         "dry_run": summary["dry_run"],
