@@ -1,7 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  trailingSlash: true,
-  skipTrailingSlashRedirect: true,
+  // No trailing slash — URLs are /pill/slug not /pill/slug/
+  // Consistent with canonical tags, sitemap, and OG URLs
+  trailingSlash: false,
   images: {
     remotePatterns: [
       {

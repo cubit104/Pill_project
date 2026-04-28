@@ -19,7 +19,7 @@ const SITE_URL = (
 
 async function fetchPill(slug: string): Promise<PillDetail | null> {
   const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, {
-    next: { revalidate: 30 },
+    next: { revalidate: 900 }, // 15 minutes
   })
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`API error ${res.status}`)
@@ -83,7 +83,6 @@ function buildFaqItems(pill: PillDetail): Array<{ question: string; answer: stri
   const items: Array<{ question: string; answer: string }> = []
 
   if (pill.drug_name && pill.drug_name !== 'Unknown') {
-    // Build the answer as a proper sentence with correct spacing between parts.
     const namePart = `This pill is identified as ${pill.drug_name}${pill.strength ? ` ${pill.strength}` : ''}`
     const formPart = pill.dosage_form ? `, a ${pill.dosage_form}` : ''
     const mfrPart = pill.manufacturer ? ` manufactured by ${pill.manufacturer}` : ''
@@ -97,7 +96,7 @@ function buildFaqItems(pill: PillDetail): Array<{ question: string; answer: stri
     const physicalDesc = [pill.color, pill.shape].filter(Boolean).join(' ')
     items.push({
       question: `What does the imprint "${pill.imprint}" mean?`,
-      answer: `The imprint "${pill.imprint}" on this${physicalDesc ? ` ${physicalDesc}` : ''} pill helps identify it as ${pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : 'this medication'}. Pill imprints are assigned by manufacturers and registered with the FDA.`,
+      answer: `The imprint "${pill.imprint}" on this${physicalDesc ? ` ${physicalDesc}` : ''} pill helps identify it as ${pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : 'this medication'}.`,
     })
   }
 
@@ -144,7 +143,6 @@ export async function generateMetadata(
     }
   }
 
-  // Use stored meta_title if available; otherwise build from pill fields
   const computedTitle = [
     pill.color,
     pill.shape,
@@ -155,9 +153,7 @@ export async function generateMetadata(
   ].filter(Boolean).join(' ')
   const title = pill.meta_title || computedTitle
 
-  // Identification summary is shared between on-page paragraph, meta description, and JSON-LD
   const identificationSummary = buildIdentificationSummary(pill)
-  // Truncate at a word boundary so the meta description doesn't end mid-word
   const truncateAtWord = (text: string, limit: number) => {
     if (text.length <= limit) return text
     const truncated = text.slice(0, limit)
@@ -172,10 +168,11 @@ export async function generateMetadata(
     ? [pill.image_url]
     : []
 
+  // Canonical URL — no trailing slash, matches actual browser URL
   const canonicalUrl = `${SITE_URL}/pill/${encodeURIComponent(slug)}`
 
-  // Determine indexability — only index if we have meaningful data
-  const hasData = !!(pill.drug_name && pill.drug_name !== 'Unknown' && (pill.imprint || pill.ndc))
+  // Index if we have a drug name + imprint — NDC is not required
+  const hasData = !!(pill.drug_name && pill.drug_name !== 'Unknown' && pill.imprint)
   const robots = hasData
     ? { index: true, follow: true }
     : { index: false, follow: true }
@@ -184,7 +181,8 @@ export async function generateMetadata(
     title,
     description,
     robots,
-    alternates: { canonical: `/pill/${encodeURIComponent(slug)}` },
+    // Absolute canonical — must exactly match the browser URL (no trailing slash)
+    alternates: { canonical: canonicalUrl },
     openGraph: {
       title,
       description,
@@ -220,19 +218,18 @@ export default async function PillDetailPage(
   ])
   if (!pill) notFound()
 
+  // Breadcrumb JSON-LD uses absolute URLs to match canonical
   const breadcrumbs = breadcrumbSchema([
-    { name: 'Home', url: '/' },
+    { name: 'Home', url: `${SITE_URL}/` },
     ...(pill.drug_name && pill.drug_name !== 'Unknown'
       ? (() => {
           const drugSlug = slugifyDrugName(pill.drug_name)
-          return drugSlug ? [{ name: pill.drug_name, url: `/drug/${drugSlug}` }] : []
+          return drugSlug ? [{ name: pill.drug_name, url: `${SITE_URL}/drug/${drugSlug}` }] : []
         })()
       : []),
-    { name: pill.drug_name ?? slug, url: `/pill/${encodeURIComponent(slug)}` },
+    { name: pill.drug_name ?? slug, url: `${SITE_URL}/pill/${encodeURIComponent(slug)}` },
   ])
 
-  // Use a real DB timestamp when available; omit dateModified/lastReviewed when not.
-  // Validate by parsing the string — reject if Date.parse returns NaN (e.g. malformed values).
   const rawTimestamp =
     pill.updated_at && typeof pill.updated_at === 'string' && pill.updated_at.length > 0
       ? pill.updated_at
@@ -296,4 +293,3 @@ export default async function PillDetailPage(
     </>
   )
 }
-
