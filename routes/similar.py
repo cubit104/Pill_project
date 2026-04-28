@@ -46,7 +46,7 @@ def get_similar_pills(slug: str):
                 text("""
                     SELECT medicine_name, splimprint, splcolor_text, splshape_text
                     FROM pillfinder
-                    WHERE slug = :slug
+                    WHERE deleted_at IS NULL AND slug = :slug
                     LIMIT 1
                 """),
                 {"slug": slug},
@@ -76,7 +76,8 @@ def get_similar_pills(slug: str):
                         author,
                         image_filename
                     FROM pillfinder
-                    WHERE slug IS NOT NULL AND slug != ''
+                    WHERE deleted_at IS NULL
+                      AND slug IS NOT NULL AND slug != ''
                       AND slug != :slug
                       AND LOWER(TRIM(COALESCE(splcolor_text, ''))) = LOWER(TRIM(:color))
                       AND LOWER(TRIM(COALESCE(splshape_text, ''))) = LOWER(TRIM(:shape))
