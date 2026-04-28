@@ -4,6 +4,7 @@ const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com').replace(/\/$/, '')
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  // Static pages — no trailing slash, consistent with next.config.js trailingSlash: false
   const staticPages: MetadataRoute.Sitemap = [
     {
       url: `${SITE_URL}/`,
@@ -67,6 +68,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       classes = await classRes.json()
     }
 
+    // No trailing slash — matches actual browser URLs and canonical tags
     const pillPages: MetadataRoute.Sitemap = slugs.map((slug) => ({
       url: `${SITE_URL}/pill/${encodeURIComponent(slug)}`,
       changeFrequency: 'monthly',
@@ -81,7 +83,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
     return [...staticPages, ...pillPages, ...classPages]
   } catch (err) {
-    // Return static pages only if endpoints are unavailable
     console.error('[sitemap] Failed to fetch data from backend:', err)
     return staticPages
   }
