@@ -11,6 +11,8 @@ interface Stats {
   unique_drugs: number
   missing_images: number
   pending_drafts: number
+  score_80_90: number
+  score_90_100: number
   recent_activity: Array<{
     id: number
     occurred_at: string
@@ -88,17 +90,29 @@ export default function AdminDashboard() {
   }
 
   const cards = [
-    { label: 'Total Pills', value: stats?.total_pills ?? 0, color: 'bg-blue-50 text-blue-700 border-blue-200', href: null },
-    { label: 'Unique Drugs', value: stats?.unique_drugs ?? 0, color: 'bg-green-50 text-green-700 border-green-200', href: null },
+    { label: 'Total Pills',    value: stats?.total_pills    ?? 0, color: 'bg-blue-50 text-blue-700 border-blue-200',     href: null },
+    { label: 'Unique Drugs',   value: stats?.unique_drugs   ?? 0, color: 'bg-green-50 text-green-700 border-green-200',   href: null },
     { label: 'Missing Images', value: stats?.missing_images ?? 0, color: 'bg-yellow-50 text-yellow-700 border-yellow-200', href: '/admin/pills/missing-images' },
     { label: 'Pending Drafts', value: stats?.pending_drafts ?? 0, color: 'bg-purple-50 text-purple-700 border-purple-200', href: null },
+    {
+      label: 'Score 80–90',
+      value: stats?.score_80_90 ?? 0,
+      color: 'bg-orange-50 text-orange-700 border-orange-200',
+      href: '/admin/pills/incomplete',
+    },
+    {
+      label: 'Score 90–100',
+      value: stats?.score_90_100 ?? 0,
+      color: 'bg-teal-50 text-teal-700 border-teal-200',
+      href: '/admin/pills/incomplete',
+    },
   ]
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         {cards.map(({ label, value, color, href }) => {
           const content = (
             <>
