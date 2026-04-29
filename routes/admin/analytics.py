@@ -458,15 +458,16 @@ def search_console_indexing(admin: dict = Depends(get_admin_user)):
         result = service.sitemaps().list(siteUrl=site_url).execute()
         sitemaps = result.get("sitemap", [])
 
-        def _first_contents(s: dict) -> dict:
+        def _get_first_sitemap_content(s: dict) -> dict:
+            """Return the first content entry from a sitemap object, or an empty dict."""
             contents = s.get("contents") or []
             return contents[0] if contents else {}
 
         total_submitted = sum(
-            int(_first_contents(s).get("submitted", 0)) for s in sitemaps
+            int(_get_first_sitemap_content(s).get("submitted", 0)) for s in sitemaps
         )
         total_indexed = sum(
-            int(_first_contents(s).get("indexed", 0)) for s in sitemaps
+            int(_get_first_sitemap_content(s).get("indexed", 0)) for s in sitemaps
         )
 
         response = {
@@ -477,8 +478,8 @@ def search_console_indexing(admin: dict = Depends(get_admin_user)):
             "sitemaps": [
                 {
                     "path": s.get("path"),
-                    "submitted": int(_first_contents(s).get("submitted", 0)),
-                    "indexed": int(_first_contents(s).get("indexed", 0)),
+                    "submitted": int(_get_first_sitemap_content(s).get("submitted", 0)),
+                    "indexed": int(_get_first_sitemap_content(s).get("indexed", 0)),
                     "last_submitted": s.get("lastSubmitted"),
                     "last_downloaded": s.get("lastDownloaded"),
                     "is_sitemaps_index": s.get("isSitemapsIndex", False),
