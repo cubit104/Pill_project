@@ -451,9 +451,30 @@ def search_console_indexing(admin: dict = Depends(get_admin_user)):
 
     try:
         from googleapiclient.discovery import build
+        import datetime
 
         credentials = _build_oauth2_credentials()
         service = build("searchconsole", "v1", credentials=credentials)
+
+        # Count distinct pages with impressions in last ~16 months (max GSC retention).
+        # Pages that have appeared in search results are definitionally indexed by Google,
+        # making this a live and accurate count unlike the stale sitemaps API indexed field.
+        end = datetime.date.today()
+        start = end - datetime.timedelta(days=480)
+        analytics_rows = (
+            service.searchanalytics()
+            .query(
+                siteUrl=site_url,
+                body={
+                    "startDate": start.isoformat(),
+                    "endDate": end.isoformat(),
+                    "dimensions": ["page"],
+                    "rowLimit": 25000,
+                },
+            )
+            .execute()
+            .get("rows", [])
+        )
 
         result = service.sitemaps().list(siteUrl=site_url).execute()
         sitemaps = result.get("sitemap", [])
@@ -466,9 +487,15 @@ def search_console_indexing(admin: dict = Depends(get_admin_user)):
         total_submitted = sum(
             int(_get_first_sitemap_content(s).get("submitted", 0)) for s in sitemaps
         )
-        total_indexed = sum(
-            int(_get_first_sitemap_content(s).get("indexed", 0)) for s in sitemaps
-        )
+
+        # Use Search Analytics page count when available; fall back to the sitemaps
+        # API indexed field when the site has no impression data yet (new sites).
+        if analytics_rows:
+            total_indexed = len(analytics_rows)
+        else:
+            total_indexed = sum(
+                int(_get_first_sitemap_content(s).get("indexed", 0)) for s in sitemaps
+            )
 
         response = {
             "configured": True,
