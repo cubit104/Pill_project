@@ -10,7 +10,7 @@ if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_POSTHOG_KEY) {
     capture_pageview: false,
     capture_pageleave: true,
     persistence: 'localStorage+cookie',
-    disable_session_recording: true,
+    disable_session_recording: false,
   })
 }
 
