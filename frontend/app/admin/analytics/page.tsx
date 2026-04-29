@@ -61,6 +61,7 @@ import {
   usePostHogFunnel,
   usePostHogReplays,
   usePostHogRetention,
+  usePostHogLive,
   type RangeOption,
 } from './hooks/useAnalytics'
 
@@ -717,6 +718,108 @@ function PostHogRetentionGrid({ range = '12w' }: { range?: string }) {
   )
 }
 
+function countryFlag(code: string): string {
+  if (!code || code.length !== 2) return '🌐'
+  return String.fromCodePoint(
+    ...code.toUpperCase().split('').map(c => 0x1F1E6 + c.charCodeAt(0) - 65)
+  )
+}
+
+function timeAgo(ts: string | null): string {
+  if (!ts) return '—'
+  const diffMs = Date.now() - new Date(ts).getTime()
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 60) return `${diffSec}s ago`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  return `${diffHr}h ago`
+}
+
+function PostHogLiveWidget() {
+  const { data, loading, error, refetch } = usePostHogLive()
+  const live = data as any
+
+  if (loading && !live) return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+      <SkeletonTable rows={4} />
+    </div>
+  )
+  if (error) return <ErrorCard message={error} onRetry={refetch} />
+  if (live?.configured === false) return null
+  if (live?.error) return <ErrorCard message={live.error} onRetry={refetch} />
+
+  const activeUsers: number = live?.active_users ?? 0
+  const events: any[] = live?.events ?? []
+  const asOf: string | null = live?.as_of ?? null
+  const lastUpdated = asOf
+    ? new Date(asOf).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+          </span>
+          <span className="text-sm font-semibold text-gray-700">Live Visitors</span>
+        </div>
+        {lastUpdated && (
+          <span className="text-xs text-gray-400">Last updated: {lastUpdated}</span>
+        )}
+      </div>
+
+      {/* Active users count */}
+      {activeUsers === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-2">No active visitors right now</p>
+      ) : (
+        <div className="flex items-baseline gap-2">
+          <span className="text-4xl font-bold text-emerald-600">{activeUsers}</span>
+          <span className="text-sm text-gray-500">user{activeUsers !== 1 ? 's' : ''} active now</span>
+        </div>
+      )}
+
+      {/* Live feed table */}
+      {events.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-gray-400 border-b border-gray-100">
+                <th className="text-left pb-2 font-medium">Time</th>
+                <th className="text-left pb-2 font-medium">Page</th>
+                <th className="text-left pb-2 font-medium">Country</th>
+                <th className="text-left pb-2 font-medium">Device</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {events.map((ev: any, i: number) => (
+                <tr key={i} className="hover:bg-gray-50 transition-colors">
+                  <td className="py-2 pr-3 text-gray-400 whitespace-nowrap">{timeAgo(ev.timestamp)}</td>
+                  <td className="py-2 pr-3 text-gray-800 font-medium truncate max-w-[180px]">{ev.path || '/'}</td>
+                  <td className="py-2 pr-3 whitespace-nowrap">
+                    <span title={ev.country}>{countryFlag(ev.country_code)}</span>
+                  </td>
+                  <td className="py-2 text-gray-500 whitespace-nowrap">
+                    {ev.device === 'Mobile' ? (
+                      <Smartphone className="w-3.5 h-3.5 inline text-gray-400" aria-label="Mobile" />
+                    ) : (
+                      <Monitor className="w-3.5 h-3.5 inline text-gray-400" aria-label="Desktop" />
+                    )}
+                    {ev.browser && <span className="ml-1">{ev.browser}</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PostHogReplaysCard({ range }: { range: RangeOption }) {
   const { data, loading, error, refetch } = usePostHogReplays(10, range)
   const ph = data as any
@@ -817,6 +920,9 @@ function PostHogTab({ range, onRangeChange, token }: { range: RangeOption; onRan
         />
       ) : (
         <>
+          {/* Live Visitors widget — always first */}
+          <PostHogLiveWidget />
+
           {/* Stat cards */}
           {loading ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">

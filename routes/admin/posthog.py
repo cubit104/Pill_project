@@ -687,3 +687,67 @@ def posthog_visitor_locations(
     except Exception as exc:
         logger.error("PostHog visitor locations error: %s", exc)
         return {"configured": True, "error": "Failed to fetch PostHog visitor locations. Check server logs for details."}
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Live Visitors Endpoint
+# ────────────────────────────────────────────────────────────────────────────
+
+@router.get("/live")
+def posthog_live(admin: dict = Depends(get_admin_user)):
+    """Return active users in last 5 minutes and recent live page events."""
+    api_key, project_id, host = _get_posthog_config()
+    if not api_key:
+        return _not_configured()
+
+    try:
+        # Active users in last 5 minutes
+        active_users = _scalar_count(api_key, project_id, host, """
+            SELECT count(DISTINCT person_id) FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= now() - INTERVAL 5 MINUTE
+        """, "live_active_users")
+
+        # Recent page events (last 30 minutes, up to 20 rows)
+        payload = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": """
+                    SELECT
+                        timestamp,
+                        properties.$pathname AS path,
+                        coalesce(properties.$geoip_country_name, 'Unknown') AS country,
+                        coalesce(properties.$geoip_country_code, '') AS country_code,
+                        coalesce(properties.$device_type, 'Desktop') AS device,
+                        coalesce(properties.$browser, '') AS browser
+                    FROM events
+                    WHERE event = '$pageview'
+                      AND timestamp >= now() - INTERVAL 30 MINUTE
+                    ORDER BY timestamp DESC
+                    LIMIT 20
+                """,
+            }
+        }
+        result = _ph_query(api_key, project_id, host, payload)
+        events = [
+            {
+                "timestamp": str(row[0]) if row[0] else None,
+                "path": row[1] or "/",
+                "country": row[2] or "Unknown",
+                "country_code": row[3] or "",
+                "device": row[4] or "Desktop",
+                "browser": row[5] or "",
+            }
+            for row in (result.get("results") or [])
+        ]
+
+        return {
+            "configured": True,
+            "active_users": active_users,
+            "events": events,
+            "as_of": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+
+    except Exception as exc:
+        logger.error("PostHog live error: %s", exc)
+        return {"configured": True, "error": "Failed to fetch live data."}
