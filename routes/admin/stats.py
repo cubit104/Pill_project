@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 import database
 from routes.admin.auth import get_admin_user
-from routes.admin.field_schema import FIELD_SCHEMA, _is_empty
+from routes.admin.field_schema import compute_seo_score
 
 logger = logging.getLogger(__name__)
 
@@ -17,39 +17,9 @@ router = APIRouter(prefix="/api/admin", tags=["admin-stats"])
 # Cache score bucket counts for 5 minutes (expensive to compute across all pills)
 _score_cache: dict = {"data": None, "expires": 0.0}
 
-# SEO-relevant fields: tier1 (required) + tier2 (required_or_na), split by whether
-# they are conditional on has_image so we can handle that at runtime.
-_SEO_TIER1 = [f["key"] for f in FIELD_SCHEMA if f["tier"] == "required"]
-_SEO_TIER2_BASE = [
-    f["key"] for f in FIELD_SCHEMA
-    if f["tier"] == "required_or_na" and not f.get("conditional")
-]
-_SEO_TIER2_COND = [
-    f["key"] for f in FIELD_SCHEMA
-    if f["tier"] == "required_or_na" and f.get("conditional") == "has_image"
-]
-
-
 def _compute_seo_score(pill_data: dict) -> int:
-    """
-    Compute an SEO-completeness score (0-100) using only tier1 + tier2 fields.
-
-    Optional (tier3) fields are intentionally excluded so that pills that have
-    all required / required-or-N/A fields filled can realistically reach the
-    80-90 and 90-100 buckets shown on the dashboard.
-
-    A field is considered "filled" if it is non-empty (N/A counts as filled for
-    tier2 fields because it is a deliberate editorial decision).
-    """
-    has_image = str(pill_data.get("has_image", "") or "").upper() == "TRUE"
-    fields = _SEO_TIER1 + _SEO_TIER2_BASE
-    if has_image:
-        fields = fields + _SEO_TIER2_COND
-    total = len(fields)
-    if total == 0:
-        return 0
-    filled = sum(1 for k in fields if not _is_empty(pill_data.get(k)))
-    return int(filled / total * 100 + 0.5)
+    """Wrapper delegating to the shared compute_seo_score in field_schema."""
+    return compute_seo_score(pill_data)
 
 
 def _get_score_buckets() -> dict:

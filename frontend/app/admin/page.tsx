@@ -98,13 +98,13 @@ export default function AdminDashboard() {
       label: 'Score 80–90',
       value: stats?.score_80_90 ?? 0,
       color: 'bg-orange-50 text-orange-700 border-orange-200',
-      href: '/admin/pills/incomplete',
+      href: '/admin/pills/incomplete?score_min=80&score_max=89',
     },
     {
       label: 'Score 90–100',
       value: stats?.score_90_100 ?? 0,
       color: 'bg-teal-50 text-teal-700 border-teal-200',
-      href: '/admin/pills/incomplete',
+      href: '/admin/pills/incomplete?score_min=90&score_max=100',
     },
   ]
 
