@@ -76,9 +76,9 @@ The PostHog integration is configured with strict privacy defaults:
 
 ## Disabling session replay
 
-Session replay uses additional quota. If you need to turn it off:
+Session replay is **enabled by default** (`disable_session_recording: false`). It uses additional PostHog quota. If you need to turn it off:
 
-1. Open `frontend/app/lib/posthog.tsx`.
+1. Open `frontend/app/components/PostHogProvider.tsx`.
 2. Change `disable_session_recording: false` to `disable_session_recording: true`.
 3. Deploy.
 
