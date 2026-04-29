@@ -116,6 +116,10 @@ export function usePostHogLive() {
   return { data, loading, error, refetch: fetch_ }
 }
 
+export function useIndexingStats() {
+  return useFetch<any>('/api/admin/analytics/search-console/indexing')
+}
+
 export function usePageSpeed() {
   const [result, setResult] = useState<any | null>(null)
   const [loading, setLoading] = useState(false)

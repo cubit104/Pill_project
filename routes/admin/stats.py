@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 import database
 from routes.admin.auth import get_admin_user
-from routes.admin.field_schema import compute_completeness
+from routes.admin.field_schema import compute_seo_score
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +17,13 @@ router = APIRouter(prefix="/api/admin", tags=["admin-stats"])
 # Cache score bucket counts for 5 minutes (expensive to compute across all pills)
 _score_cache: dict = {"data": None, "expires": 0.0}
 
+def _compute_seo_score(pill_data: dict) -> int:
+    """Wrapper delegating to the shared compute_seo_score in field_schema."""
+    return compute_seo_score(pill_data)
+
 
 def _get_score_buckets() -> dict:
-    """Fetch all pills and compute score bucket counts. Cached for 5 minutes."""
+    """Fetch all pills and compute SEO score bucket counts. Cached for 5 minutes."""
     now = time.time()
     if _score_cache["data"] is not None and now < _score_cache["expires"]:
         return _score_cache["data"]
@@ -46,10 +50,18 @@ def _get_score_buckets() -> dict:
         score_90_100 = 0
 
         for r in rows:
-            cols = r._fields if hasattr(r, "_fields") else r.keys()
-            pill_data = {k: (str(v) if v is not None else None) for k, v in zip(cols, r)}
-            result = compute_completeness(pill_data)
-            s = result["score"]
+            # Use _mapping (SQLAlchemy 2.x) for reliable key→value extraction;
+            # fall back to _fields / keys() for older versions.
+            try:
+                pill_data = {
+                    k: (str(v) if v is not None else None)
+                    for k, v in r._mapping.items()
+                }
+            except AttributeError:
+                cols = r._fields if hasattr(r, "_fields") else list(r.keys())
+                pill_data = {k: (str(v) if v is not None else None) for k, v in zip(cols, r)}
+
+            s = _compute_seo_score(pill_data)
             if 90 <= s <= 100:
                 score_90_100 += 1
             elif 80 <= s < 90:
@@ -59,8 +71,8 @@ def _get_score_buckets() -> dict:
         _score_cache["data"] = data
         _score_cache["expires"] = now + 300.0  # cache 5 minutes
         return data
-    except SQLAlchemyError as e:
-        logger.error(f"_get_score_buckets DB error: {e}")
+    except Exception as e:  # catch all errors so we always log the real reason
+        logger.error(f"_get_score_buckets error: {e}", exc_info=True)
         return {"score_80_90": 0, "score_90_100": 0}
 
 

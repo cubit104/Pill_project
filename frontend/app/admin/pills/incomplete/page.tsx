@@ -37,6 +37,9 @@ function IncompletePillsInner() {
 
   const page = Number(searchParams.get('page') || '1')
   const tier = searchParams.get('tier') || ''
+  const scoreMin = searchParams.get('score_min')
+  const scoreMax = searchParams.get('score_max')
+  const scoreRangeMode = scoreMin !== null || scoreMax !== null
 
   const getSession = useCallback(async () => {
     const supabase = createClient()
@@ -49,7 +52,9 @@ function IncompletePillsInner() {
     if (!session) { router.push('/admin/login'); return }
 
     const params = new URLSearchParams()
-    if (tier) params.set('tier', tier)
+    if (!scoreRangeMode && tier) params.set('tier', tier)
+    if (scoreMin !== null) params.set('score_min', scoreMin)
+    if (scoreMax !== null) params.set('score_max', scoreMax)
     params.set('page', String(page))
     params.set('per_page', '20')
 
@@ -68,7 +73,7 @@ function IncompletePillsInner() {
     } finally {
       setLoading(false)
     }
-  }, [tier, page, router, getSession])
+  }, [tier, page, scoreMin, scoreMax, scoreRangeMode, router, getSession])
 
   useEffect(() => { fetchPills() }, [fetchPills])
 
@@ -88,37 +93,56 @@ function IncompletePillsInner() {
 
   const fieldLabel = (key: string) => FIELD_SCHEMA_BY_KEY[key]?.label ?? key
 
+  const heading = scoreRangeMode
+    ? `Score ${scoreMin ?? ''}–${scoreMax ?? ''} Pills`
+    : 'Incomplete Pills'
+
+  const subtitle = scoreRangeMode
+    ? `Pills with SEO completeness score between ${scoreMin ?? '0'}% and ${scoreMax ?? '100'}%`
+    : null
+
+  const summaryText = loading
+    ? 'Loading\u2026'
+    : scoreRangeMode
+      ? `${total.toLocaleString()} pills in this score range`
+      : `${total.toLocaleString()} pills need attention`
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Link href="/admin" className="text-gray-500 hover:text-gray-700 flex items-center gap-1 text-sm">
           <ArrowLeft className="w-4 h-4" /> Dashboard
         </Link>
-        <h1 className="text-2xl font-bold text-gray-900">Incomplete Pills</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{heading}</h1>
+          {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
+        </div>
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex gap-2 flex-wrap">
-        {tabs.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setTierFilter(tab.key)}
-            className={`px-3 py-1 rounded-full text-sm font-medium border transition-colors ${
-              tier === tab.key
-                ? 'bg-indigo-600 text-white border-indigo-600'
-                : 'bg-white text-gray-700 border-gray-300 hover:border-indigo-400'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* Filter tabs — hidden in score-range mode */}
+      {!scoreRangeMode && (
+        <div className="flex gap-2 flex-wrap">
+          {tabs.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setTierFilter(tab.key)}
+              className={`px-3 py-1 rounded-full text-sm font-medium border transition-colors ${
+                tier === tab.key
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white text-gray-700 border-gray-300 hover:border-indigo-400'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && <div className="bg-red-50 text-red-700 px-4 py-2 rounded-md text-sm">{error}</div>}
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-4 py-2 border-b border-gray-200 text-sm text-gray-600">
-          {loading ? <span>Loading&hellip;</span> : <span>{total.toLocaleString()} pills need attention</span>}
+          <span>{summaryText}</span>
         </div>
 
         <div className="overflow-x-auto">
@@ -139,7 +163,7 @@ function IncompletePillsInner() {
                 <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">Loading&hellip;</td></tr>
               )}
               {!loading && pills.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">{'\uD83C\uDF89'} No incomplete pills found!</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">{'\uD83C\uDF89'} No pills found!</td></tr>
               )}
               {pills.map((pill) => (
                 <tr key={pill.id} className="hover:bg-gray-50">
