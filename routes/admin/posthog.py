@@ -736,14 +736,14 @@ def posthog_live(response: Response, admin: dict = Depends(get_admin_user)):
         result = _ph_query(api_key, project_id, host, payload)
         events = [
             {
-                "timestamp": str(row[0]) if row[0] else None,
-                "path": row[1] or "/",
-                "country": row[2] or "Unknown",
-                "country_code": row[3] or "",
-                "city": row[4] or "",
-                "ip": row[5] or "",
-                "device": row[6] or "Desktop",
-                "browser": row[7] or "",
+                "timestamp": str(row[0]) if len(row) > 0 and row[0] else None,
+                "path": (row[1] if len(row) > 1 else None) or "/",
+                "country": (row[2] if len(row) > 2 else None) or "Unknown",
+                "country_code": (row[3] if len(row) > 3 else None) or "",
+                "city": (row[4] if len(row) > 4 else None) or "",
+                "ip": (row[5] if len(row) > 5 else None) or "",
+                "device": (row[6] if len(row) > 6 else None) or "Desktop",
+                "browser": (row[7] if len(row) > 7 else None) or "",
             }
             for row in (result.get("results") or [])
         ]

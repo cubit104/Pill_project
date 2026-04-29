@@ -884,7 +884,7 @@ function PostHogLiveWidget() {
                     <td className="py-2 pr-3 text-gray-400 whitespace-nowrap">{timeAgo(ev.timestamp)}</td>
                     <td className="py-2 pr-3 text-gray-800 font-medium truncate max-w-[180px]">{ev.path || '/'}</td>
                     <td className="py-2 pr-3 whitespace-nowrap">
-                      {countryFlag(ev.country_code)} {ev.country}
+                      <span aria-hidden="true">{countryFlag(ev.country_code)}</span> {ev.country}
                     </td>
                     <td className="py-2 pr-3 text-gray-500 whitespace-nowrap">{ev.city || '—'}</td>
                     <td className="py-2 pr-3 font-mono text-gray-500 whitespace-nowrap">{ev.ip || '—'}</td>
