@@ -428,6 +428,104 @@ function FieldInput({
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Google Index Status Panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+function IndexStatusPanel({ slug, token }: { slug: string; token: string | null }) {
+  const [result, setResult] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
+
+  const check = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/admin/analytics/search-console/inspect-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ url: `${siteUrl}/pill/${slug}` }),
+      })
+      if (!res.ok) {
+        throw new Error(await safeErrorDetail(res, 'Failed to check index status'))
+      }
+      const data = await res.json()
+      setResult(data)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const verdictColor = result?.verdict === 'PASS'
+    ? 'text-emerald-600'
+    : result?.verdict === 'FAIL'
+    ? 'text-red-600'
+    : 'text-gray-500'
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-gray-700">Google Index Status</h3>
+        <button
+          onClick={check}
+          disabled={loading}
+          className="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {loading ? 'Checking…' : '🔍 Check'}
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-500">{error}</p>}
+      {result?.configured === false && (
+        <p className="text-xs text-gray-400">{result.message || 'Search Console is not configured.'}</p>
+      )}
+      {result && result.configured !== false && !result.error && (
+        <div className="space-y-1 text-xs">
+          <div className="flex justify-between">
+            <span className="text-gray-500">Verdict</span>
+            <span className={`font-bold ${verdictColor}`}>{result.verdict ?? '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Coverage</span>
+            <span className="text-gray-700 text-right max-w-[60%]">{result.coverage_state ?? '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Last Crawled</span>
+            <span className="text-gray-700">{result.last_crawl_time ? new Date(result.last_crawl_time).toLocaleDateString() : '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Indexing State</span>
+            <span className="text-gray-700 text-right max-w-[60%]">{result.indexing_state ?? '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Robots.txt</span>
+            <span className="text-gray-700">{result.robots_txt_state ?? '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Mobile</span>
+            <span className="text-gray-700">{result.mobile_usability_verdict ?? '—'}</span>
+          </div>
+          {result.google_canonical && result.google_canonical !== `${siteUrl}/pill/${slug}` && (
+            <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-amber-700">
+              ⚠️ Google canonical differs from expected URL
+            </div>
+          )}
+        </div>
+      )}
+      {result?.error && <p className="text-xs text-red-500">{result.error}</p>}
+      {!result && !loading && (
+        <p className="text-xs text-gray-400">Click Check to inspect this URL in Google Search Console.</p>
+      )}
+    </div>
+  )
+}
+
 export default function EditPillPage() {
   const params = useParams()
   const pillId = params.id as string
@@ -675,6 +773,8 @@ export default function EditPillPage() {
       </div>
 
       <CompletenessBar completeness={completeness} />
+
+      {pill?.slug && <IndexStatusPanel slug={pill.slug} token={token} />}
 
       {/* Prominent blue banner — visible whenever pending drafts exist */}
       {draftCount > 0 && (

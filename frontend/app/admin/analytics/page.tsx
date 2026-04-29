@@ -61,6 +61,7 @@ import {
   usePostHogFunnel,
   usePostHogReplays,
   usePostHogRetention,
+  useIndexingStats,
   type RangeOption,
 } from './hooks/useAnalytics'
 
@@ -276,6 +277,7 @@ function TrafficTab({ range, onRangeChange, token }: { range: RangeOption; onRan
 
 function SeoTab({ range, onRangeChange }: { range: RangeOption; onRangeChange: (r: RangeOption) => void }) {
   const { data, loading, error, refetch } = useSearchConsoleOverview(range)
+  const indexing = useIndexingStats()
 
   if (error) return <ErrorCard message={error} onRetry={refetch} />
   const sc = data as any
@@ -307,6 +309,71 @@ function SeoTab({ range, onRangeChange }: { range: RangeOption; onRangeChange: (
             <StatCard label="Impressions" value={sc?.summary?.impressions} icon={<Eye className="w-4 h-4" />} delay={0.05} />
             <StatCard label="Avg. CTR" value={sc?.summary?.ctr} format="percent" delay={0.1} />
             <StatCard label="Avg. Position" value={sc?.summary?.position} format="position" icon={<Search className="w-4 h-4" />} delay={0.15} />
+          </div>
+
+          {/* Index Coverage */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-700 mb-4">Index Coverage</h3>
+            {indexing.loading ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+              </div>
+            ) : indexing.error ? (
+              <p className="text-xs text-red-500">{indexing.error}</p>
+            ) : indexing.data?.configured === false ? (
+              <p className="text-xs text-gray-400">{indexing.data.message}</p>
+            ) : indexing.data?.error ? (
+              <p className="text-xs text-red-500">{indexing.data.error}</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-emerald-700">
+                    {indexing.data?.indexed?.toLocaleString() ?? '—'}
+                  </div>
+                  <div className="text-xs text-emerald-600 mt-1 font-medium">✅ Indexed</div>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-red-700">
+                    {indexing.data?.not_indexed?.toLocaleString() ?? '—'}
+                  </div>
+                  <div className="text-xs text-red-600 mt-1 font-medium">🚫 Not Indexed</div>
+                </div>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-gray-700">
+                    {indexing.data?.submitted?.toLocaleString() ?? '—'}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1 font-medium">📋 Submitted</div>
+                </div>
+              </div>
+            )}
+            {indexing.data?.sitemaps?.length > 0 && (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="text-gray-500 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left py-2 pr-4">Sitemap</th>
+                      <th className="text-right py-2 px-2">Submitted</th>
+                      <th className="text-right py-2 px-2">Indexed</th>
+                      <th className="text-right py-2 px-2">Warnings</th>
+                      <th className="text-right py-2 px-2">Errors</th>
+                      <th className="text-right py-2">Last Downloaded</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {indexing.data.sitemaps.map((s: any) => (
+                      <tr key={s.path} className="text-gray-600">
+                        <td className="py-2 pr-4 font-mono truncate max-w-xs">{s.path}</td>
+                        <td className="text-right py-2 px-2">{s.submitted?.toLocaleString()}</td>
+                        <td className="text-right py-2 px-2 text-emerald-600 font-medium">{s.indexed?.toLocaleString()}</td>
+                        <td className="text-right py-2 px-2 text-amber-600">{s.warnings ?? '—'}</td>
+                        <td className="text-right py-2 px-2 text-red-600">{s.errors ?? '—'}</td>
+                        <td className="text-right py-2 text-gray-400">{s.last_downloaded ? new Date(s.last_downloaded).toLocaleDateString() : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
