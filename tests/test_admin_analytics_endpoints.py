@@ -1081,6 +1081,214 @@ class TestSearchConsoleInspectUrl:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Search Console — Submit URL for Indexing (/search-console/submit-indexing)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSearchConsoleSubmitIndexing:
+    _PATH = "/api/admin/analytics/search-console/submit-indexing"
+
+    _CONFIGURED_ENV = {
+        "SEARCH_CONSOLE_SITE_URL": "https://pillseek.com",
+        "GOOGLE_OAUTH_CLIENT_ID": "cid",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "csecret",
+        "GOOGLE_OAUTH_REFRESH_TOKEN": "rtoken",
+    }
+
+    def _post(self, client, payload=None, extra_env=None):
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+        env = {
+            "SEARCH_CONSOLE_SITE_URL": "",
+            "GOOGLE_OAUTH_CLIENT_ID": "",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "",
+            **(extra_env or {}),
+        }
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch.dict(os.environ, env, clear=False):
+            return client.post(self._PATH, json=payload or {}, headers=AUTH_HEADERS)
+
+    def test_requires_auth(self, client):
+        """Returns 401 when no token is provided."""
+        with patch("routes.admin.auth._verify_jwt", return_value=None):
+            resp = client.post(self._PATH, json={"url": "https://pillseek.com/pill/aspirin"})
+        assert resp.status_code == 401
+
+    def test_not_configured_returns_200(self, client):
+        """Returns HTTP 200 even when OAuth env vars are absent."""
+        resp = self._post(client, {"url": "https://pillseek.com/pill/aspirin"})
+        assert resp.status_code == 200
+
+    def test_not_configured_flag(self, client):
+        """Returns configured=False when OAuth env vars are absent."""
+        data = self._post(client, {"url": "https://pillseek.com/pill/aspirin"}).json()
+        assert data["configured"] is False
+
+    def test_missing_url_returns_error(self, client):
+        """Returns error when url field is absent."""
+        data = self._post(client, {}, extra_env=self._CONFIGURED_ENV).json()
+        assert data.get("configured") is True
+        assert "error" in data
+
+    def test_non_https_url_rejected(self, client):
+        """Rejects non-http(s) URLs (e.g. ftp://)."""
+        data = self._post(
+            client,
+            {"url": "ftp://pillseek.com/pill/aspirin"},
+            extra_env=self._CONFIGURED_ENV,
+        ).json()
+        assert data.get("configured") is True
+        assert "error" in data
+
+    def test_mismatched_hostname_returns_error(self, client):
+        """Rejects URLs from a different hostname than the configured site."""
+        data = self._post(
+            client,
+            {"url": "https://evil.example.com/pill/aspirin"},
+            extra_env=self._CONFIGURED_ENV,
+        ).json()
+        assert data.get("configured") is True
+        assert "error" in data
+        assert "evil.example.com" in data["error"]
+
+    def test_successful_submission(self, client):
+        """On successful Indexing API call, returns submitted=True."""
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+
+        mock_resp = MagicMock()
+        mock_resp.ok = True
+        mock_resp.status_code = 200
+        mock_resp.content = b'{"urlNotificationMetadata": {}}'
+        mock_resp.json.return_value = {"urlNotificationMetadata": {}}
+
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch("routes.admin.analytics._build_indexing_credentials", return_value=MagicMock()), \
+             patch("routes.admin.analytics._record_indexing_submission"), \
+             patch("requests.post", return_value=mock_resp), \
+             patch.dict(os.environ, self._CONFIGURED_ENV, clear=False):
+            resp = client.post(
+                self._PATH,
+                json={"url": "https://pillseek.com/pill/aspirin"},
+                headers=AUTH_HEADERS,
+            )
+
+        data = resp.json()
+        assert resp.status_code == 200
+        assert data["configured"] is True
+        assert data["submitted"] is True
+
+    def test_api_error_returns_submitted_false(self, client):
+        """When Indexing API returns non-2xx, submitted is False with error info."""
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+
+        mock_resp = MagicMock()
+        mock_resp.ok = False
+        mock_resp.status_code = 403
+        mock_resp.content = b'{"error": {"message": "insufficient permissions"}}'
+        mock_resp.json.return_value = {"error": {"message": "insufficient permissions"}}
+        mock_resp.text = '{"error": {"message": "insufficient permissions"}}'
+
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch("routes.admin.analytics._build_indexing_credentials", return_value=MagicMock()), \
+             patch("routes.admin.analytics._record_indexing_submission"), \
+             patch("requests.post", return_value=mock_resp), \
+             patch.dict(os.environ, self._CONFIGURED_ENV, clear=False):
+            resp = client.post(
+                self._PATH,
+                json={"url": "https://pillseek.com/pill/aspirin"},
+                headers=AUTH_HEADERS,
+            )
+
+        data = resp.json()
+        assert data["configured"] is True
+        assert data["submitted"] is False
+        assert "error" in data
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Search Console — Indexing Stats (/search-console/indexing-stats)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSearchConsoleIndexingStats:
+    _PATH = "/api/admin/analytics/search-console/indexing-stats"
+
+    def test_requires_auth(self, client):
+        """Returns 401 when no token is provided."""
+        with patch("routes.admin.auth._verify_jwt", return_value=None):
+            resp = client.get(self._PATH)
+        assert resp.status_code == 401
+
+    def test_returns_zeros_when_table_missing(self, client):
+        """Returns zeros gracefully when google_indexing_submissions table doesn't exist."""
+        import database as db_module
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+
+        def _execute(sql, *args, **kwargs):
+            sql_str = str(sql).lower()
+            if "profiles" in sql_str or "admin_users" in sql_str:
+                result = MagicMock()
+                result.fetchone.return_value = FAKE_SUPERUSER_PROFILE
+                return result
+            # Simulate missing table
+            raise Exception("relation 'google_indexing_submissions' does not exist")
+
+        mock_conn.execute.side_effect = _execute
+        mock_engine.connect.return_value = mock_conn
+        db_module.db_engine = mock_engine
+
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+            resp = client.get(self._PATH, headers=AUTH_HEADERS)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_submitted"] == 0
+        assert data["this_month"] == 0
+        assert data["unique_pages"] == 0
+
+    def test_returns_stats_from_db(self, client):
+        """Returns real counts when the table exists."""
+        import database as db_module
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+
+        call_count = 0
+
+        def _execute(sql, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            sql_str = str(sql).lower()
+            if "profiles" in sql_str or "admin_users" in sql_str:
+                result.fetchone.return_value = FAKE_SUPERUSER_PROFILE
+            else:
+                # Stats query — return (total_submitted, this_month, unique_pages)
+                result.fetchone.return_value = (42, 7, 15)
+            return result
+
+        mock_conn.execute.side_effect = _execute
+        mock_engine.connect.return_value = mock_conn
+        db_module.db_engine = mock_engine
+
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+            resp = client.get(self._PATH, headers=AUTH_HEADERS)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_submitted"] == 42
+        assert data["this_month"] == 7
+        assert data["unique_pages"] == 15
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PostHog Live Visitors endpoint
 # ─────────────────────────────────────────────────────────────────────────────
 
