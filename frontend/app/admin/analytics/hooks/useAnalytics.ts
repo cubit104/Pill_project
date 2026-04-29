@@ -86,6 +86,10 @@ export function usePostHogRetention(range = '12w') {
   return useFetch<any>(`/api/admin/analytics/posthog/retention?range=${range}`)
 }
 
+export function useIndexingStats() {
+  return useFetch<any>('/api/admin/analytics/search-console/indexing')
+}
+
 export function usePageSpeed() {
   const [result, setResult] = useState<any | null>(null)
   const [loading, setLoading] = useState(false)

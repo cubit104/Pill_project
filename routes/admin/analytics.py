@@ -423,6 +423,140 @@ def search_console_overview(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Search Console — Index Coverage (sitemaps)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 1-hour in-memory cache for the indexing endpoint
+_INDEXING_CACHE: dict = {}
+_INDEXING_CACHE_LOCK = threading.Lock()
+_INDEXING_CACHE_TTL = 3600  # seconds
+
+
+@router.get("/search-console/indexing")
+def search_console_indexing(admin: dict = Depends(get_admin_user)):
+    site_url = _get_search_console_site_url()
+    if not site_url:
+        return _not_configured(
+            "Search Console",
+            "Set SEARCH_CONSOLE_SITE_URL, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, "
+            "and GOOGLE_OAUTH_REFRESH_TOKEN environment variables. "
+            "See docs/admin-analytics.md for setup instructions.",
+        )
+
+    with _INDEXING_CACHE_LOCK:
+        cached = _INDEXING_CACHE.get("data")
+        cached_at = _INDEXING_CACHE.get("cached_at", 0.0)
+        if cached is not None and time.time() - cached_at < _INDEXING_CACHE_TTL:
+            return cached
+
+    try:
+        from googleapiclient.discovery import build
+
+        credentials = _build_oauth2_credentials()
+        service = build("searchconsole", "v1", credentials=credentials)
+
+        result = service.sitemaps().list(siteUrl=site_url).execute()
+        sitemaps = result.get("sitemap", [])
+
+        def _first_contents(s: dict) -> dict:
+            contents = s.get("contents") or []
+            return contents[0] if contents else {}
+
+        total_submitted = sum(
+            int(_first_contents(s).get("submitted", 0)) for s in sitemaps
+        )
+        total_indexed = sum(
+            int(_first_contents(s).get("indexed", 0)) for s in sitemaps
+        )
+
+        response = {
+            "configured": True,
+            "submitted": total_submitted,
+            "indexed": total_indexed,
+            "not_indexed": max(0, total_submitted - total_indexed),
+            "sitemaps": [
+                {
+                    "path": s.get("path"),
+                    "submitted": int(_first_contents(s).get("submitted", 0)),
+                    "indexed": int(_first_contents(s).get("indexed", 0)),
+                    "last_submitted": s.get("lastSubmitted"),
+                    "last_downloaded": s.get("lastDownloaded"),
+                    "is_sitemaps_index": s.get("isSitemapsIndex", False),
+                    "warnings": int(s.get("warnings", 0)),
+                    "errors": int(s.get("errors", 0)),
+                }
+                for s in sitemaps
+            ],
+        }
+
+        with _INDEXING_CACHE_LOCK:
+            _INDEXING_CACHE["data"] = response
+            _INDEXING_CACHE["cached_at"] = time.time()
+
+        return response
+    except Exception as exc:
+        logger.error(f"GSC indexing error: {exc}", exc_info=True)
+        return {"configured": True, "error": str(exc)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Search Console — URL Inspection
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.post("/search-console/inspect-url")
+def inspect_url(body: dict, admin: dict = Depends(get_admin_user)):
+    site_url = _get_search_console_site_url()
+    if not site_url:
+        return _not_configured(
+            "Search Console",
+            "Set SEARCH_CONSOLE_SITE_URL, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, "
+            "and GOOGLE_OAUTH_REFRESH_TOKEN environment variables. "
+            "See docs/admin-analytics.md for setup instructions.",
+        )
+
+    url = body.get("url", "").strip()
+    if not url:
+        return {"error": "url is required"}
+
+    try:
+        from googleapiclient.discovery import build
+
+        credentials = _build_oauth2_credentials()
+        service = build("searchconsole", "v1", credentials=credentials)
+
+        result = service.urlInspection().index().inspect(
+            body={
+                "inspectionUrl": url,
+                "siteUrl": site_url,
+            }
+        ).execute()
+
+        inspection = result.get("inspectionResult", {})
+        index_status = inspection.get("indexStatusResult", {})
+        mobile = inspection.get("mobileUsabilityResult", {})
+
+        return {
+            "configured": True,
+            "url": url,
+            "verdict": index_status.get("verdict"),
+            "coverage_state": index_status.get("coverageState"),
+            "robots_txt_state": index_status.get("robotsTxtState"),
+            "indexing_state": index_status.get("indexingState"),
+            "last_crawl_time": index_status.get("lastCrawlTime"),
+            "page_fetch_state": index_status.get("pageFetchState"),
+            "google_canonical": index_status.get("googleCanonical"),
+            "user_canonical": index_status.get("userCanonical"),
+            "mobile_usability_verdict": mobile.get("verdict"),
+            "sitemap": index_status.get("sitemap", []),
+            "referring_urls": index_status.get("referringUrls", []),
+        }
+    except Exception as exc:
+        logger.error(f"URL inspection error: {exc}", exc_info=True)
+        return {"configured": True, "error": str(exc)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PageSpeed Insights
 # ─────────────────────────────────────────────────────────────────────────────
 
