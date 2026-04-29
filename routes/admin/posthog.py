@@ -711,7 +711,7 @@ def posthog_live(response: Response, admin: dict = Depends(get_admin_user)):
               AND timestamp >= now() - INTERVAL 5 MINUTE
         """, "live_active_users")
 
-        # Recent page events (last 30 minutes, up to 20 rows)
+        # Recent page events (last 30 minutes, up to 100 rows)
         payload = {
             "query": {
                 "kind": "HogQLQuery",
@@ -721,13 +721,15 @@ def posthog_live(response: Response, admin: dict = Depends(get_admin_user)):
                         properties.$pathname AS path,
                         coalesce(properties.$geoip_country_name, 'Unknown') AS country,
                         coalesce(properties.$geoip_country_code, '') AS country_code,
+                        coalesce(properties.$geoip_city_name, '') AS city,
+                        properties.$ip AS ip,
                         coalesce(properties.$device_type, 'Desktop') AS device,
                         coalesce(properties.$browser, '') AS browser
                     FROM events
                     WHERE event = '$pageview'
                       AND timestamp >= now() - INTERVAL 30 MINUTE
                     ORDER BY timestamp DESC
-                    LIMIT 20
+                    LIMIT 100
                 """,
             }
         }
@@ -738,8 +740,10 @@ def posthog_live(response: Response, admin: dict = Depends(get_admin_user)):
                 "path": row[1] or "/",
                 "country": row[2] or "Unknown",
                 "country_code": row[3] or "",
-                "device": row[4] or "Desktop",
-                "browser": row[5] or "",
+                "city": row[4] or "",
+                "ip": row[5] or "",
+                "device": row[6] or "Desktop",
+                "browser": row[7] or "",
             }
             for row in (result.get("results") or [])
         ]

@@ -805,9 +805,16 @@ function timeAgo(ts: string | null): string {
   return `${diffHr}h ago`
 }
 
+const PAGE_SIZE = 20
+
 function PostHogLiveWidget() {
   const { data, loading, error, refetch } = usePostHogLive()
   const live = data as any
+  const [page, setPage] = useState(0)
+
+  useEffect(() => {
+    setPage(0)
+  }, [data])
 
   if (loading && !live) return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
@@ -824,6 +831,11 @@ function PostHogLiveWidget() {
   const lastUpdated = asOf
     ? new Date(asOf).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : null
+
+  const totalPages = Math.ceil(events.length / PAGE_SIZE)
+  const pageStart = page * PAGE_SIZE
+  const pageEnd = Math.min(pageStart + PAGE_SIZE, events.length)
+  const pageRows = events.slice(pageStart, pageEnd)
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
@@ -853,37 +865,67 @@ function PostHogLiveWidget() {
 
       {/* Live feed table */}
       {events.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-gray-400 border-b border-gray-100">
-                <th className="text-left pb-2 font-medium">Time</th>
-                <th className="text-left pb-2 font-medium">Page</th>
-                <th className="text-left pb-2 font-medium">Country</th>
-                <th className="text-left pb-2 font-medium">Device</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {events.map((ev: any, i: number) => (
-                <tr key={`${ev.timestamp ?? ''}-${ev.path ?? ''}-${i}`} className="hover:bg-gray-50 transition-colors">
-                  <td className="py-2 pr-3 text-gray-400 whitespace-nowrap">{timeAgo(ev.timestamp)}</td>
-                  <td className="py-2 pr-3 text-gray-800 font-medium truncate max-w-[180px]">{ev.path || '/'}</td>
-                  <td className="py-2 pr-3 whitespace-nowrap">
-                    <span title={ev.country}>{countryFlag(ev.country_code)}</span>
-                  </td>
-                  <td className="py-2 text-gray-500 whitespace-nowrap">
-                    {ev.device === 'Mobile' ? (
-                      <Smartphone className="w-3.5 h-3.5 inline text-gray-400" aria-label="Mobile" />
-                    ) : (
-                      <Monitor className="w-3.5 h-3.5 inline text-gray-400" aria-label="Desktop" />
-                    )}
-                    {ev.browser && <span className="ml-1">{ev.browser}</span>}
-                  </td>
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-gray-400 border-b border-gray-100">
+                  <th className="text-left pb-2 font-medium">Time</th>
+                  <th className="text-left pb-2 font-medium">Page</th>
+                  <th className="text-left pb-2 font-medium">Country</th>
+                  <th className="text-left pb-2 font-medium">City</th>
+                  <th className="text-left pb-2 font-medium">IP</th>
+                  <th className="text-left pb-2 font-medium">Device</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {pageRows.map((ev: any, i: number) => (
+                  <tr key={`${ev.timestamp ?? ''}-${ev.path ?? ''}-${pageStart + i}`} className="hover:bg-gray-50 transition-colors">
+                    <td className="py-2 pr-3 text-gray-400 whitespace-nowrap">{timeAgo(ev.timestamp)}</td>
+                    <td className="py-2 pr-3 text-gray-800 font-medium truncate max-w-[180px]">{ev.path || '/'}</td>
+                    <td className="py-2 pr-3 whitespace-nowrap">
+                      {countryFlag(ev.country_code)} {ev.country}
+                    </td>
+                    <td className="py-2 pr-3 text-gray-500 whitespace-nowrap">{ev.city || '—'}</td>
+                    <td className="py-2 pr-3 font-mono text-gray-500 whitespace-nowrap">{ev.ip || '—'}</td>
+                    <td className="py-2 text-gray-500 whitespace-nowrap">
+                      {ev.device === 'Mobile' ? (
+                        <Smartphone className="w-3.5 h-3.5 inline text-gray-400" aria-label="Mobile" />
+                      ) : (
+                        <Monitor className="w-3.5 h-3.5 inline text-gray-400" aria-label="Desktop" />
+                      )}
+                      {ev.browser && <span className="ml-1">{ev.browser}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {events.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+              <span className="text-xs text-gray-400">
+                Showing {pageStart + 1}–{pageEnd} of {events.length}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="px-2.5 py-1 rounded text-xs font-medium border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  Prev
+                </button>
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="px-2.5 py-1 rounded text-xs font-medium border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
