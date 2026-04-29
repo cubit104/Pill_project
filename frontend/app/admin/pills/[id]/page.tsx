@@ -499,7 +499,7 @@ function IndexStatusPanel({ slug, token }: { slug: string; token: string | null 
       } else if (data.configured === false) {
         setSubmitResult(`⚠️ ${data.message}`)
       } else {
-        setSubmitResult(`Error: ${data.detail || data.message || 'Submission failed'}`)
+        setSubmitResult(`Error: ${data.error || data.detail || data.message || 'Submission failed'}`)
       }
     } catch (e: any) {
       setSubmitResult(`Error: ${e.message}`)

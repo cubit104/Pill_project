@@ -657,7 +657,11 @@ def submit_url_for_indexing(body: dict, admin: dict = Depends(get_admin_user)):
         )
 
         if not resp.ok:
-            error_msg = response_raw.get("error", {}).get("message", resp.text)
+            error_obj = response_raw.get("error", {})
+            if isinstance(error_obj, dict):
+                error_msg = error_obj.get("message", resp.text[:200])
+            else:
+                error_msg = str(error_obj)[:200]
             return {"configured": True, "submitted": False, "status": response_status, "url": url, "error": error_msg}
 
         return {"configured": True, "submitted": True, "status": response_status, "url": url}
@@ -675,7 +679,7 @@ def submit_url_for_indexing(body: dict, admin: dict = Depends(get_admin_user)):
 
 def _record_indexing_submission(
     url: str,
-    submitted_by,
+    submitted_by: Optional[str],
     response_status: Optional[str],
     response_raw: dict,
 ) -> None:
