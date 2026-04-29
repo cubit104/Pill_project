@@ -460,7 +460,7 @@ def search_console_indexing(admin: dict = Depends(get_admin_user)):
         # Pages that have appeared in search results are definitionally indexed by Google,
         # making this a live and accurate count unlike the stale sitemaps API indexed field.
         end = datetime.date.today()
-        start = end - datetime.timedelta(days=480)
+        start = end - datetime.timedelta(days=480)  # ~16 months (480 days), max GSC retention
         analytics_rows = (
             service.searchanalytics()
             .query(
@@ -469,6 +469,9 @@ def search_console_indexing(admin: dict = Depends(get_admin_user)):
                     "startDate": start.isoformat(),
                     "endDate": end.isoformat(),
                     "dimensions": ["page"],
+                    # GSC API hard limit; sites with >25 000 indexed pages will be
+                    # undercounted. Pagination is not used here because it would
+                    # significantly slow down the already-cached endpoint.
                     "rowLimit": 25000,
                 },
             )
