@@ -17,7 +17,7 @@ import bleach
 
 import database
 from routes.admin.auth import get_admin_user, log_audit, require_superuser, CRITICAL_FIELDS
-from routes.admin.field_schema import validate_pill, compute_completeness
+from routes.admin.field_schema import validate_pill, compute_completeness, compute_seo_score
 from utils import get_image_url
 
 logger = logging.getLogger(__name__)
@@ -399,6 +399,8 @@ def get_recent(
 @router.get("/incomplete")
 def get_incomplete_pills(
     tier: Optional[str] = Query(None),  # "required" | "required_or_na" | None (all)
+    score_min: Optional[int] = Query(None),
+    score_max: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     admin: dict = Depends(get_admin_user),
@@ -427,6 +429,8 @@ def get_incomplete_pills(
                     WHERE deleted_at IS NULL
                 """),
             ).fetchall()
+
+        score_range_mode = score_min is not None or score_max is not None
 
         results = []
         for r in rows:
@@ -458,22 +462,46 @@ def get_incomplete_pills(
                 "tags": r[24],
                 "spl_strength": r[25],
             }
-            comp = compute_completeness(pill_data)
 
-            if tier == "required" and not comp["missing_required"]:
-                continue
-            if tier == "required_or_na" and not comp["needs_na_confirmation"]:
-                continue
-            if tier is None and comp["score"] == 100:
-                continue
+            if score_range_mode:
+                seo = compute_seo_score(pill_data)
+                if score_min is not None and seo < score_min:
+                    continue
+                if score_max is not None and seo > score_max:
+                    continue
+                # Also compute completeness details for display
+                comp = compute_completeness(pill_data)
+                pill_data["completeness_score"] = seo
+                pill_data["missing_required"] = comp["missing_required"]
+                pill_data["needs_na_confirmation"] = comp["needs_na_confirmation"]
+                pill_data["_sort_key"] = seo
+            else:
+                comp = compute_completeness(pill_data)
 
-            pill_data["completeness_score"] = comp["score"]
-            pill_data["missing_required"] = comp["missing_required"]
-            pill_data["needs_na_confirmation"] = comp["needs_na_confirmation"]
+                if tier == "required" and not comp["missing_required"]:
+                    continue
+                if tier == "required_or_na" and not comp["needs_na_confirmation"]:
+                    continue
+                if tier is None and comp["score"] == 100:
+                    continue
+
+                pill_data["completeness_score"] = comp["score"]
+                pill_data["missing_required"] = comp["missing_required"]
+                pill_data["needs_na_confirmation"] = comp["needs_na_confirmation"]
+                pill_data["_sort_key"] = comp["score"]
+
             results.append(pill_data)
 
-        # Sort by lowest score first
-        results.sort(key=lambda p: p["completeness_score"])
+        if score_range_mode:
+            # Highest SEO score first so near-perfect pills appear at top
+            results.sort(key=lambda p: p["_sort_key"], reverse=True)
+        else:
+            # Lowest completeness first (most needing attention)
+            results.sort(key=lambda p: p["_sort_key"])
+
+        # Remove internal sort key before returning
+        for p in results:
+            p.pop("_sort_key", None)
 
         total = len(results)
         offset = (page - 1) * per_page

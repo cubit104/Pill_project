@@ -150,3 +150,40 @@ def compute_completeness(data: dict) -> dict:
         "needs_na_confirmation": needs_na,
         "optional_empty": optional_empty,
     }
+
+
+def compute_seo_score(data: dict) -> int:
+    """
+    Compute an SEO-completeness score (0–100) using only tier1 + tier2 fields.
+
+    Optional (tier3) fields are intentionally excluded so that pills with all
+    required / required-or-N/A fields filled can reach the 80–90 and 90–100
+    score buckets shown on the dashboard.
+
+    A field is considered "filled" if it is non-empty (N/A counts as filled for
+    tier2 fields because it is a deliberate editorial decision).
+
+    Includes ``image_alt_text`` in the total only when ``has_image == "TRUE"``.
+    """
+    has_image = str(data.get("has_image", "") or "").upper() == "TRUE"
+
+    tier1_keys = [f["key"] for f in FIELD_SCHEMA if f["tier"] == "required"]
+    tier2_base = [
+        f["key"] for f in FIELD_SCHEMA
+        if f["tier"] == "required_or_na" and not f.get("conditional")
+    ]
+    tier2_cond = [
+        f["key"] for f in FIELD_SCHEMA
+        if f["tier"] == "required_or_na" and f.get("conditional") == "has_image"
+    ]
+
+    fields = tier1_keys + tier2_base
+    if has_image:
+        fields = fields + tier2_cond
+
+    total = len(fields)
+    if total == 0:
+        return 0
+
+    filled = sum(1 for k in fields if not _is_empty(data.get(k)))
+    return int(filled / total * 100 + 0.5)
