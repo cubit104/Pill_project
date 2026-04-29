@@ -1,5 +1,5 @@
-"""One-time helper to obtain a Google OAuth2 refresh token for the GA4 / Search Console
-integration.
+"""One-time helper to obtain a Google OAuth2 refresh token for the GA4, Search Console,
+and Google Indexing API integrations.
 
 Usage
 -----
@@ -15,8 +15,10 @@ Prerequisites
      ``http://localhost`` as an authorised redirect URI.
    - Note the **Client ID** and **Client Secret**.
 
-2. Enable the Google Analytics Data API (for GA4) and/or the Google Search Console
-   API in your Cloud project.
+2. Enable the following APIs in your Cloud project:
+   - Google Analytics Data API (for GA4)
+   - Google Search Console API (for GSC)
+   - Web Search Indexing API (for the Google Indexing API)
 
 3. Export (or pass via ``--client-id`` / ``--client-secret``) your credentials:
        export GOOGLE_OAUTH_CLIENT_ID=your-client-id
@@ -25,6 +27,15 @@ Prerequisites
 
 The script will open a browser window for you to consent.  After consent it prints
 the refresh token — add it to your production env as ``GOOGLE_OAUTH_REFRESH_TOKEN``.
+
+Scopes requested
+----------------
+- ``analytics.readonly``  — GA4 Data API read access
+- ``webmasters.readonly`` — Search Console read access
+- ``indexing``            — Google Indexing API (submit URLs for crawling)
+
+All three scopes are bundled into a single token so that one ``GOOGLE_OAUTH_REFRESH_TOKEN``
+env var covers every Google integration in this project.
 """
 
 import argparse
@@ -69,6 +80,7 @@ def main():
     scopes = [
         "https://www.googleapis.com/auth/analytics.readonly",
         "https://www.googleapis.com/auth/webmasters.readonly",
+        "https://www.googleapis.com/auth/indexing",  # Google Indexing API
     ]
 
     client_config = {
