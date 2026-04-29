@@ -518,7 +518,14 @@ def inspect_url(body: dict, admin: dict = Depends(get_admin_user)):
 
     url = body.get("url", "").strip()
     if not url:
-        return {"error": "url is required"}
+        return {"configured": True, "error": "url is required"}
+
+    # Validate the URL belongs to the configured site to prevent quota abuse
+    from urllib.parse import urlparse
+    site_host = urlparse(site_url).hostname or ""
+    url_host = urlparse(url).hostname or ""
+    if site_host and url_host != site_host:
+        return {"configured": True, "error": f"URL hostname '{url_host}' does not match the configured site '{site_host}'"}
 
     try:
         from googleapiclient.discovery import build

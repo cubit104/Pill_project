@@ -365,8 +365,8 @@ function SeoTab({ range, onRangeChange }: { range: RangeOption; onRangeChange: (
                         <td className="py-2 pr-4 font-mono truncate max-w-xs">{s.path}</td>
                         <td className="text-right py-2 px-2">{s.submitted?.toLocaleString()}</td>
                         <td className="text-right py-2 px-2 text-emerald-600 font-medium">{s.indexed?.toLocaleString()}</td>
-                        <td className="text-right py-2 px-2 text-amber-600">{s.warnings || '—'}</td>
-                        <td className="text-right py-2 px-2 text-red-600">{s.errors || '—'}</td>
+                        <td className="text-right py-2 px-2 text-amber-600">{s.warnings ?? '—'}</td>
+                        <td className="text-right py-2 px-2 text-red-600">{s.errors ?? '—'}</td>
                         <td className="text-right py-2 text-gray-400">{s.last_downloaded ? new Date(s.last_downloaded).toLocaleDateString() : '—'}</td>
                       </tr>
                     ))}

@@ -432,7 +432,7 @@ function FieldInput({
 // Google Index Status Panel
 // ─────────────────────────────────────────────────────────────────────────────
 
-function IndexStatusPanel({ slug }: { slug: string }) {
+function IndexStatusPanel({ slug, token }: { slug: string; token: string | null }) {
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -443,16 +443,17 @@ function IndexStatusPanel({ slug }: { slug: string }) {
     setLoading(true)
     setError(null)
     try {
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch('/api/admin/analytics/search-console/inspect-url', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ url: `${siteUrl}/pill/${slug}` }),
       })
+      if (!res.ok) {
+        throw new Error(await safeErrorDetail(res, 'Failed to check index status'))
+      }
       const data = await res.json()
       setResult(data)
     } catch (e: any) {
@@ -481,7 +482,10 @@ function IndexStatusPanel({ slug }: { slug: string }) {
         </button>
       </div>
       {error && <p className="text-xs text-red-500">{error}</p>}
-      {result && !result.error && (
+      {result?.configured === false && (
+        <p className="text-xs text-gray-400">{result.message || 'Search Console is not configured.'}</p>
+      )}
+      {result && result.configured !== false && !result.error && (
         <div className="space-y-1 text-xs">
           <div className="flex justify-between">
             <span className="text-gray-500">Verdict</span>
@@ -770,7 +774,7 @@ export default function EditPillPage() {
 
       <CompletenessBar completeness={completeness} />
 
-      {pill?.slug && <IndexStatusPanel slug={pill.slug} />}
+      {pill?.slug && <IndexStatusPanel slug={pill.slug} token={token} />}
 
       {/* Prominent blue banner — visible whenever pending drafts exist */}
       {draftCount > 0 && (

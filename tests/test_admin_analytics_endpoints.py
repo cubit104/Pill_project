@@ -784,3 +784,201 @@ class TestPostHogReplays:
                       "click_count", "keypress_count", "start_url", "replay_url"):
             assert field in replay, f"Missing field: {field}"
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Search Console — Index Coverage (/search-console/indexing)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSearchConsoleIndexing:
+    _PATH = "/api/admin/analytics/search-console/indexing"
+
+    def _get(self, client, extra_env=None):
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+        env = {
+            "SEARCH_CONSOLE_SITE_URL": "",
+            "GOOGLE_OAUTH_CLIENT_ID": "",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "",
+            **(extra_env or {}),
+        }
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch.dict(os.environ, env, clear=False):
+            return client.get(self._PATH, headers=AUTH_HEADERS)
+
+    def test_requires_auth(self, client):
+        """Returns 401 when no token is provided."""
+        with patch("routes.admin.auth._verify_jwt", return_value=None):
+            resp = client.get(self._PATH)
+        assert resp.status_code == 401
+
+    def test_not_configured_returns_200(self, client):
+        """Returns HTTP 200 even when env vars are missing."""
+        assert self._get(client).status_code == 200
+
+    def test_not_configured_flag(self, client):
+        """Returns configured=false when site URL is absent."""
+        assert self._get(client).json()["configured"] is False
+
+    def test_not_configured_message_present(self, client):
+        data = self._get(client).json()
+        assert "message" in data and data["message"]
+
+    def test_configured_calls_gsc_api(self, client):
+        """When env vars are present, calls sitemaps.list and returns configured=True."""
+        import database as db_module
+        import routes.admin.analytics as analytics_module
+        db_module.db_engine = _make_auth_engine()
+
+        fake_sitemaps = [
+            {
+                "path": "https://pillseek.com/sitemap.xml",
+                "lastSubmitted": "2025-01-01T00:00:00Z",
+                "lastDownloaded": "2025-01-02T00:00:00Z",
+                "isSitemapsIndex": False,
+                "warnings": 0,
+                "errors": 0,
+                "contents": [{"submitted": "100", "indexed": "80"}],
+            }
+        ]
+
+        mock_service = MagicMock()
+        mock_service.sitemaps().list().execute.return_value = {"sitemap": fake_sitemaps}
+
+        env = {
+            "SEARCH_CONSOLE_SITE_URL": "https://pillseek.com",
+            "GOOGLE_OAUTH_CLIENT_ID": "cid",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "csecret",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "rtoken",
+        }
+
+        # Clear cache so we always hit the API
+        with analytics_module._INDEXING_CACHE_LOCK:
+            analytics_module._INDEXING_CACHE.clear()
+
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch("routes.admin.analytics._build_oauth2_credentials", return_value=MagicMock()), \
+             patch("googleapiclient.discovery.build", return_value=mock_service), \
+             patch.dict(os.environ, env, clear=False):
+            resp = client.get(self._PATH, headers=AUTH_HEADERS)
+
+        data = resp.json()
+        assert data["configured"] is True
+        assert data["indexed"] == 80
+        assert data["submitted"] == 100
+        assert data["not_indexed"] == 20
+        assert len(data["sitemaps"]) == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Search Console — URL Inspection (/search-console/inspect-url)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSearchConsoleInspectUrl:
+    _PATH = "/api/admin/analytics/search-console/inspect-url"
+
+    def _post(self, client, payload=None, extra_env=None):
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+        env = {
+            "SEARCH_CONSOLE_SITE_URL": "",
+            "GOOGLE_OAUTH_CLIENT_ID": "",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "",
+            **(extra_env or {}),
+        }
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch.dict(os.environ, env, clear=False):
+            return client.post(self._PATH, json=payload or {}, headers=AUTH_HEADERS)
+
+    def test_requires_auth(self, client):
+        """Returns 401 when no token is provided."""
+        with patch("routes.admin.auth._verify_jwt", return_value=None):
+            resp = client.post(self._PATH, json={"url": "https://pillseek.com/pill/aspirin"})
+        assert resp.status_code == 401
+
+    def test_not_configured_returns_200(self, client):
+        assert self._post(client, {"url": "https://pillseek.com/pill/aspirin"}).status_code == 200
+
+    def test_not_configured_flag(self, client):
+        data = self._post(client, {"url": "https://pillseek.com/pill/aspirin"}).json()
+        assert data["configured"] is False
+
+    def test_missing_url_returns_error(self, client):
+        """Returns configured=True with error when url is absent."""
+        extra_env = {
+            "SEARCH_CONSOLE_SITE_URL": "https://pillseek.com",
+            "GOOGLE_OAUTH_CLIENT_ID": "cid",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "csecret",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "rtoken",
+        }
+        data = self._post(client, {}, extra_env=extra_env).json()
+        assert data.get("configured") is True
+        assert "error" in data
+
+    def test_mismatched_hostname_returns_error(self, client):
+        """Rejects URLs from a different hostname than the configured site."""
+        extra_env = {
+            "SEARCH_CONSOLE_SITE_URL": "https://pillseek.com",
+            "GOOGLE_OAUTH_CLIENT_ID": "cid",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "csecret",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "rtoken",
+        }
+        data = self._post(
+            client,
+            {"url": "https://evil.example.com/pill/aspirin"},
+            extra_env=extra_env,
+        ).json()
+        assert data.get("configured") is True
+        assert "error" in data
+        assert "evil.example.com" in data["error"]
+
+    def test_configured_calls_gsc_api(self, client):
+        """When env vars are present and URL matches, calls urlInspection API."""
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+
+        fake_result = {
+            "inspectionResult": {
+                "indexStatusResult": {
+                    "verdict": "PASS",
+                    "coverageState": "Submitted and indexed",
+                    "robotsTxtState": "ALLOWED",
+                    "indexingState": "INDEXING_ALLOWED",
+                    "lastCrawlTime": "2025-01-10T08:00:00Z",
+                    "pageFetchState": "SUCCESSFUL",
+                    "googleCanonical": "https://pillseek.com/pill/aspirin",
+                    "userCanonical": "https://pillseek.com/pill/aspirin",
+                    "sitemap": [],
+                    "referringUrls": [],
+                },
+                "mobileUsabilityResult": {"verdict": "PASS"},
+            }
+        }
+
+        mock_service = MagicMock()
+        mock_service.urlInspection().index().inspect().execute.return_value = fake_result
+
+        env = {
+            "SEARCH_CONSOLE_SITE_URL": "https://pillseek.com",
+            "GOOGLE_OAUTH_CLIENT_ID": "cid",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "csecret",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "rtoken",
+        }
+
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch("routes.admin.analytics._build_oauth2_credentials", return_value=MagicMock()), \
+             patch("googleapiclient.discovery.build", return_value=mock_service), \
+             patch.dict(os.environ, env, clear=False):
+            resp = client.post(
+                self._PATH,
+                json={"url": "https://pillseek.com/pill/aspirin"},
+                headers=AUTH_HEADERS,
+            )
+
+        data = resp.json()
+        assert data["configured"] is True
+        assert data["verdict"] == "PASS"
+        assert data["coverage_state"] == "Submitted and indexed"
+        assert data["mobile_usability_verdict"] == "PASS"
