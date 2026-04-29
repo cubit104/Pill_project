@@ -605,6 +605,143 @@ def inspect_url(body: dict, admin: dict = Depends(get_admin_user)):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Search Console — Submit URL for Indexing
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.post("/search-console/submit-indexing")
+def submit_url_for_indexing(body: dict, admin: dict = Depends(get_admin_user)):
+    """Submit a URL to the Google Indexing API and record the submission."""
+    url = (body.get("url") or "").strip()
+    if not url:
+        return {"configured": True, "error": "url is required"}
+
+    try:
+        credentials = _build_oauth2_credentials()
+    except RuntimeError as exc:
+        return _not_configured(
+            "Google Indexing API",
+            str(exc),
+        )
+
+    indexing_endpoint = "https://indexing.googleapis.com/v3/urlNotifications:publish"
+    payload = {"url": url, "type": "URL_UPDATED"}
+
+    response_status = None
+    response_raw: dict = {}
+    try:
+        import google.auth.transport.requests as ga_requests
+
+        auth_req = ga_requests.Request()
+        credentials.refresh(auth_req)
+        access_token = credentials.token
+
+        resp = requests.post(
+            indexing_endpoint,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            timeout=15,
+        )
+        response_raw = resp.json() if resp.content else {}
+        response_status = str(resp.status_code)
+
+        # Store the submission regardless of HTTP status
+        _record_indexing_submission(
+            url=url,
+            submitted_by=admin.get("id"),
+            response_status=response_status,
+            response_raw=response_raw,
+        )
+
+        if not resp.ok:
+            error_msg = response_raw.get("error", {}).get("message", resp.text)
+            return {"configured": True, "submitted": False, "status": response_status, "url": url, "error": error_msg}
+
+        return {"configured": True, "submitted": True, "status": response_status, "url": url}
+    except Exception as exc:
+        logger.error(f"submit_url_for_indexing error: {exc}", exc_info=True)
+        # Still try to record the failure
+        _record_indexing_submission(
+            url=url,
+            submitted_by=admin.get("id"),
+            response_status="error",
+            response_raw={"error": str(exc)},
+        )
+        return {"configured": True, "submitted": False, "error": str(exc), "url": url}
+
+
+def _record_indexing_submission(
+    url: str,
+    submitted_by,
+    response_status: Optional[str],
+    response_raw: dict,
+) -> None:
+    """Insert a row into google_indexing_submissions. Silently ignores errors."""
+    import json as _json
+
+    try:
+        if not database.db_engine:
+            database.connect_to_database()
+        with database.db_engine.connect() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO google_indexing_submissions
+                        (url, submitted_by, response_status, response_raw)
+                    VALUES
+                        (:url, :submitted_by, :response_status, :response_raw::jsonb)
+                    """
+                ),
+                {
+                    "url": url,
+                    "submitted_by": submitted_by,
+                    "response_status": response_status,
+                    "response_raw": _json.dumps(response_raw),
+                },
+            )
+            conn.commit()
+    except Exception as exc:
+        logger.warning(f"_record_indexing_submission failed (non-fatal): {exc}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Search Console — Indexing Stats
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/search-console/indexing-stats")
+def indexing_stats(admin: dict = Depends(get_admin_user)):
+    """Return aggregate counts from google_indexing_submissions."""
+    try:
+        if not database.db_engine:
+            database.connect_to_database()
+        with database.db_engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT
+                        COUNT(*)                                                          AS total_submitted,
+                        COUNT(*) FILTER (WHERE submitted_at >= date_trunc('month', now())) AS this_month,
+                        COUNT(DISTINCT url)                                               AS unique_pages
+                    FROM google_indexing_submissions
+                    """
+                )
+            ).fetchone()
+        if row:
+            return {
+                "total_submitted": int(row[0] or 0),
+                "this_month": int(row[1] or 0),
+                "unique_pages": int(row[2] or 0),
+            }
+    except Exception as exc:
+        logger.warning(f"indexing_stats query failed (non-fatal): {exc}")
+    return {"total_submitted": 0, "this_month": 0, "unique_pages": 0}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PageSpeed Insights
 # ─────────────────────────────────────────────────────────────────────────────
 

@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, useRef, useId } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
-import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink } from 'lucide-react'
 import {
   FIELD_SCHEMA,
   FIELD_SCHEMA_BY_KEY,
@@ -436,8 +436,20 @@ function IndexStatusPanel({ slug, token }: { slug: string; token: string | null 
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitResult, setSubmitResult] = useState<string | null>(null)
+  const [indexingStats, setIndexingStats] = useState<{ total_submitted: number; this_month: number; unique_pages: number } | null>(null)
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
+
+  useEffect(() => {
+    fetch('/api/admin/analytics/search-console/indexing-stats', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setIndexingStats(d))
+      .catch(() => {})
+  }, [token])
 
   const check = async () => {
     setLoading(true)
@@ -460,6 +472,39 @@ function IndexStatusPanel({ slug, token }: { slug: string; token: string | null 
       setError(e.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const submitForIndexing = async () => {
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/admin/analytics/search-console/submit-indexing', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ url: `${siteUrl}/pill/${slug}` }),
+      })
+      const data = await res.json()
+      if (res.ok && data.submitted) {
+        setSubmitResult('✅ Submitted to Google for indexing!')
+        // Refresh global stats after successful submission
+        fetch('/api/admin/analytics/search-console/indexing-stats', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+          .then(r => r.ok ? r.json() : null)
+          .then(d => d && setIndexingStats(d))
+          .catch(() => {})
+      } else if (data.configured === false) {
+        setSubmitResult(`⚠️ ${data.message}`)
+      } else {
+        setSubmitResult(`Error: ${data.detail || data.message || 'Submission failed'}`)
+      }
+    } catch (e: any) {
+      setSubmitResult(`Error: ${e.message}`)
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -516,11 +561,26 @@ function IndexStatusPanel({ slug, token }: { slug: string; token: string | null 
               ⚠️ Google canonical differs from expected URL
             </div>
           )}
+          {result.verdict !== 'PASS' && !submitResult && (
+            <button
+              onClick={submitForIndexing}
+              disabled={submitting}
+              className="w-full mt-2 text-xs bg-orange-500 text-white px-3 py-1.5 rounded hover:bg-orange-600 disabled:opacity-50"
+            >
+              {submitting ? 'Submitting…' : '🚀 Submit to Google for Indexing'}
+            </button>
+          )}
+          {submitResult && <p className="text-xs text-emerald-600 font-medium mt-2">{submitResult}</p>}
         </div>
       )}
       {result?.error && <p className="text-xs text-red-500">{result.error}</p>}
       {!result && !loading && (
         <p className="text-xs text-gray-400">Click Check to inspect this URL in Google Search Console.</p>
+      )}
+      {indexingStats && (
+        <p className="text-xs text-gray-400 mt-3 border-t pt-2">
+          📊 {indexingStats.total_submitted} pages submitted to Google across all users
+        </p>
       )}
     </div>
   )
@@ -545,6 +605,7 @@ export default function EditPillPage() {
   const [completeness, setCompleteness] = useState<CompletenessData | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [resolvedImageUrls, setResolvedImageUrls] = useState<string[]>([])
+  const [justPublished, setJustPublished] = useState(false)
 
   const getSession = useCallback(async () => {
     const supabase = createClient()
@@ -658,6 +719,7 @@ export default function EditPillPage() {
     setErrorDismissed(false)
     setSuccess('Form reset to last saved state.')
     setSuccessDismissed(false)
+    setJustPublished(false)
   }
 
   const handleSave = async () => {
@@ -681,6 +743,7 @@ export default function EditPillPage() {
       if (!res.ok) throw new Error(await safeErrorDetail(res, 'Save failed'))
       setSuccess('Changes saved')
       setSuccessDismissed(false)
+      setJustPublished(false)
       await loadPill(); await fetchCompleteness()
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
@@ -731,6 +794,7 @@ export default function EditPillPage() {
       if (!res.ok) throw new Error(await safeErrorDetail(res, 'Publish failed'))
       setSuccess('Saved & published successfully')
       setSuccessDismissed(false)
+      setJustPublished(true)
       await loadPill(); await fetchCompleteness()
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
@@ -816,9 +880,22 @@ export default function EditPillPage() {
       {showSuccess && (
         <div className="bg-green-50 text-green-700 px-4 py-2 rounded-md text-sm border border-green-200 flex items-center justify-between gap-2">
           <span>{success}</span>
-          <button onClick={() => setSuccessDismissed(true)} className="shrink-0 text-green-600 hover:text-green-800" aria-label="Dismiss message">
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-3">
+            {justPublished && pill?.slug && (
+              <a
+                href={`${process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'}/pill/${pill.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-green-800 font-semibold underline hover:text-green-900 whitespace-nowrap"
+              >
+                View Live Page →
+              </a>
+            )}
+            <button onClick={() => { setSuccessDismissed(true); setJustPublished(false) }}
+              className="shrink-0 text-green-600 hover:text-green-800" aria-label="Dismiss">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -841,6 +918,16 @@ export default function EditPillPage() {
           title="Discard unsaved changes and reset form to last saved state">
           <RotateCcw className="w-4 h-4" />Discard changes
         </button>
+        {pill?.slug && (
+          <a
+            href={`${process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'}/pill/${pill.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 text-sm font-medium transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" /> View Live Page
+          </a>
+        )}
       </div>
 
       {token && (
