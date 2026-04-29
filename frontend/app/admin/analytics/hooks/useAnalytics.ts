@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '../../lib/supabase'
 
 async function getToken(): Promise<string | null> {
@@ -84,6 +84,40 @@ export function usePostHogReplays(limit = 10, range: RangeOption = '28d') {
 
 export function usePostHogRetention(range = '12w') {
   return useFetch<any>(`/api/admin/analytics/posthog/retention?range=${range}`)
+}
+
+export function usePostHogLive() {
+  const [data, setData] = useState<any | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const cancelledRef = useRef(false)
+
+  const fetch_ = useCallback(async () => {
+    if (cancelledRef.current) return
+    setLoading(true)
+    setError(null)
+    try {
+      const d = await apiFetch('/api/admin/analytics/posthog/live')
+      if (!cancelledRef.current) setData(d)
+    } catch (e: any) {
+      if (!cancelledRef.current) setError(e.message)
+    } finally {
+      if (!cancelledRef.current) setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    cancelledRef.current = false
+    fetch_()
+    intervalRef.current = setInterval(fetch_, 30_000)
+    return () => {
+      cancelledRef.current = true
+      if (intervalRef.current !== null) clearInterval(intervalRef.current)
+    }
+  }, [fetch_])
+
+  return { data, loading, error, refetch: fetch_ }
 }
 
 export function useIndexingStats() {
