@@ -711,7 +711,7 @@ def posthog_live(response: Response, admin: dict = Depends(get_admin_user)):
               AND timestamp >= now() - INTERVAL 5 MINUTE
         """, "live_active_users")
 
-        # Recent page events (last 30 minutes, up to 20 rows)
+        # Recent page events (last 30 minutes, up to 100 rows)
         payload = {
             "query": {
                 "kind": "HogQLQuery",
@@ -721,25 +721,29 @@ def posthog_live(response: Response, admin: dict = Depends(get_admin_user)):
                         properties.$pathname AS path,
                         coalesce(properties.$geoip_country_name, 'Unknown') AS country,
                         coalesce(properties.$geoip_country_code, '') AS country_code,
+                        coalesce(properties.$geoip_city_name, '') AS city,
+                        properties.$ip AS ip,
                         coalesce(properties.$device_type, 'Desktop') AS device,
                         coalesce(properties.$browser, '') AS browser
                     FROM events
                     WHERE event = '$pageview'
                       AND timestamp >= now() - INTERVAL 30 MINUTE
                     ORDER BY timestamp DESC
-                    LIMIT 20
+                    LIMIT 100
                 """,
             }
         }
         result = _ph_query(api_key, project_id, host, payload)
         events = [
             {
-                "timestamp": str(row[0]) if row[0] else None,
-                "path": row[1] or "/",
-                "country": row[2] or "Unknown",
-                "country_code": row[3] or "",
-                "device": row[4] or "Desktop",
-                "browser": row[5] or "",
+                "timestamp": str(row[0]) if len(row) > 0 and row[0] else None,
+                "path": (row[1] if len(row) > 1 else None) or "/",
+                "country": (row[2] if len(row) > 2 else None) or "Unknown",
+                "country_code": (row[3] if len(row) > 3 else None) or "",
+                "city": (row[4] if len(row) > 4 else None) or "",
+                "ip": (row[5] if len(row) > 5 else None) or "",
+                "device": (row[6] if len(row) > 6 else None) or "Desktop",
+                "browser": (row[7] if len(row) > 7 else None) or "",
             }
             for row in (result.get("results") or [])
         ]
