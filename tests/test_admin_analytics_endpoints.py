@@ -79,6 +79,7 @@ ANALYTICS_GET_ENDPOINTS = [
     "/api/admin/analytics/ga4/overview",
     "/api/admin/analytics/search-console/overview",
     "/api/admin/analytics/page-health",
+    "/api/admin/analytics/posthog/live",
 ]
 
 
@@ -1077,3 +1078,120 @@ class TestSearchConsoleInspectUrl:
         assert data["verdict"] == "PASS"
         assert data["coverage_state"] == "Submitted and indexed"
         assert data["mobile_usability_verdict"] == "PASS"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PostHog Live Visitors endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPostHogLive:
+    """Tests for GET /api/admin/analytics/posthog/live."""
+
+    _PATH = "/api/admin/analytics/posthog/live"
+
+    def _get(self, client, scalar_count_value=0, ph_query_result=None):
+        import database as db_module
+        import routes.admin.posthog as ph_module
+
+        db_module.db_engine = _make_auth_engine()
+        with ph_module._CACHE_LOCK:
+            ph_module._CACHE.clear()
+
+        if ph_query_result is None:
+            ph_query_result = {"results": []}
+
+        env = {"POSTHOG_PERSONAL_API_KEY": "phx_fake_key"}
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch("routes.admin.posthog._scalar_count", return_value=scalar_count_value), \
+             patch("routes.admin.posthog._ph_query", return_value=ph_query_result), \
+             patch.dict(os.environ, env, clear=False):
+            return client.get(self._PATH, headers=AUTH_HEADERS)
+
+    # ── Auth required ─────────────────────────────────────────────────────────
+
+    def test_requires_auth(self, client):
+        with patch("routes.admin.auth._verify_jwt", return_value=None):
+            resp = client.get(self._PATH)
+        assert resp.status_code == 401
+
+    # ── Not-configured ────────────────────────────────────────────────────────
+
+    def test_not_configured_returns_200(self, client):
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch.dict(os.environ, {"POSTHOG_PERSONAL_API_KEY": ""}, clear=False):
+            resp = client.get(self._PATH, headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+
+    def test_not_configured_flag(self, client):
+        import database as db_module
+        db_module.db_engine = _make_auth_engine()
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch.dict(os.environ, {"POSTHOG_PERSONAL_API_KEY": ""}, clear=False):
+            data = client.get(self._PATH, headers=AUTH_HEADERS).json()
+        assert data["configured"] is False
+
+    # ── Happy-path response shape ─────────────────────────────────────────────
+
+    def test_happy_path_status_200(self, client):
+        assert self._get(client).status_code == 200
+
+    def test_happy_path_configured_true(self, client):
+        assert self._get(client).json()["configured"] is True
+
+    def test_happy_path_required_keys(self, client):
+        data = self._get(client).json()
+        for key in ("configured", "active_users", "events", "as_of"):
+            assert key in data, f"Missing key: {key}"
+
+    def test_happy_path_active_users_count(self, client):
+        data = self._get(client, scalar_count_value=7).json()
+        assert data["active_users"] == 7
+
+    def test_happy_path_events_shape(self, client):
+        rows = [
+            ["2024-01-15T10:00:00", "/pills/aspirin", "United States", "US", "Desktop", "Chrome"],
+            ["2024-01-15T09:55:00", "/pills/ibuprofen", "United Kingdom", "GB", "Mobile", "Safari"],
+        ]
+        data = self._get(client, scalar_count_value=2, ph_query_result={"results": rows}).json()
+        assert len(data["events"]) == 2
+        ev = data["events"][0]
+        for field in ("timestamp", "path", "country", "country_code", "device", "browser"):
+            assert field in ev, f"Missing event field: {field}"
+
+    def test_happy_path_event_values(self, client):
+        rows = [["2024-01-15T10:00:00", "/pills/aspirin", "United States", "US", "Desktop", "Chrome"]]
+        data = self._get(client, scalar_count_value=1, ph_query_result={"results": rows}).json()
+        ev = data["events"][0]
+        assert ev["path"] == "/pills/aspirin"
+        assert ev["country"] == "United States"
+        assert ev["country_code"] == "US"
+        assert ev["device"] == "Desktop"
+        assert ev["browser"] == "Chrome"
+
+    def test_happy_path_empty_events(self, client):
+        data = self._get(client, scalar_count_value=0, ph_query_result={"results": []}).json()
+        assert data["events"] == []
+        assert data["active_users"] == 0
+
+    def test_happy_path_as_of_present(self, client):
+        data = self._get(client).json()
+        assert data["as_of"] is not None
+        assert "T" in data["as_of"] or "-" in data["as_of"]
+
+    # ── No-cache headers ──────────────────────────────────────────────────────
+
+    def test_no_cache_control_header(self, client):
+        resp = self._get(client)
+        cc = resp.headers.get("cache-control", "")
+        assert "no-store" in cc
+        assert "no-cache" in cc
+
+    def test_pragma_no_cache_header(self, client):
+        resp = self._get(client)
+        assert resp.headers.get("pragma", "").lower() == "no-cache"
+
+    def test_expires_zero_header(self, client):
+        resp = self._get(client)
+        assert resp.headers.get("expires") == "0"

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from routes.admin.auth import get_admin_user
 
@@ -694,8 +694,11 @@ def posthog_visitor_locations(
 # ────────────────────────────────────────────────────────────────────────────
 
 @router.get("/live")
-def posthog_live(admin: dict = Depends(get_admin_user)):
+def posthog_live(response: Response, admin: dict = Depends(get_admin_user)):
     """Return active users in last 5 minutes and recent live page events."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     api_key, project_id, host = _get_posthog_config()
     if not api_key:
         return _not_configured()

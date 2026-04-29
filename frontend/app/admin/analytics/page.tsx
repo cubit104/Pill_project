@@ -795,7 +795,9 @@ function countryFlag(code: string): string {
 function timeAgo(ts: string | null): string {
   if (!ts) return '—'
   const diffMs = Date.now() - new Date(ts).getTime()
-  const diffSec = Math.floor(diffMs / 1000)
+  if (!Number.isFinite(diffMs)) return '—'
+  const clampedMs = Math.max(0, diffMs)
+  const diffSec = Math.floor(clampedMs / 1000)
   if (diffSec < 60) return `${diffSec}s ago`
   const diffMin = Math.floor(diffSec / 60)
   if (diffMin < 60) return `${diffMin}m ago`
@@ -863,7 +865,7 @@ function PostHogLiveWidget() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {events.map((ev: any, i: number) => (
-                <tr key={i} className="hover:bg-gray-50 transition-colors">
+                <tr key={`${ev.timestamp ?? ''}-${ev.path ?? ''}-${i}`} className="hover:bg-gray-50 transition-colors">
                   <td className="py-2 pr-3 text-gray-400 whitespace-nowrap">{timeAgo(ev.timestamp)}</td>
                   <td className="py-2 pr-3 text-gray-800 font-medium truncate max-w-[180px]">{ev.path || '/'}</td>
                   <td className="py-2 pr-3 whitespace-nowrap">

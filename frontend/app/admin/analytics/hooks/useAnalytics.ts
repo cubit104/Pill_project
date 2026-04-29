@@ -91,24 +91,28 @@ export function usePostHogLive() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const cancelledRef = useRef(false)
 
   const fetch_ = useCallback(async () => {
+    if (cancelledRef.current) return
     setLoading(true)
     setError(null)
     try {
       const d = await apiFetch('/api/admin/analytics/posthog/live')
-      setData(d)
+      if (!cancelledRef.current) setData(d)
     } catch (e: any) {
-      setError(e.message)
+      if (!cancelledRef.current) setError(e.message)
     } finally {
-      setLoading(false)
+      if (!cancelledRef.current) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
+    cancelledRef.current = false
     fetch_()
     intervalRef.current = setInterval(fetch_, 30_000)
     return () => {
+      cancelledRef.current = true
       if (intervalRef.current !== null) clearInterval(intervalRef.current)
     }
   }, [fetch_])
