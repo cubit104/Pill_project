@@ -451,6 +451,7 @@ def search_console_indexing(admin: dict = Depends(get_admin_user)):
 
     try:
         from googleapiclient.discovery import build
+        import datetime
 
         credentials = _build_oauth2_credentials()
         service = build("searchconsole", "v1", credentials=credentials)
@@ -466,9 +467,48 @@ def search_console_indexing(admin: dict = Depends(get_admin_user)):
         total_submitted = sum(
             int(_get_first_sitemap_content(s).get("submitted", 0)) for s in sitemaps
         )
-        total_indexed = sum(
+        sitemaps_indexed = sum(
             int(_get_first_sitemap_content(s).get("indexed", 0)) for s in sitemaps
         )
+
+        # Count distinct pages with impressions in last ~16 months (max GSC retention).
+        # Pages that have appeared in search results are definitionally indexed by Google,
+        # making this a live and accurate count unlike the stale sitemaps API indexed field.
+        # A separate try/except isolates this call so that quota errors or transient
+        # failures fall back to the sitemaps API indexed value rather than failing the
+        # whole endpoint.
+        try:
+            end = datetime.date.today()
+            start = end - datetime.timedelta(days=480)  # ~16 months (480 days), max GSC retention
+            _PAGE_LIMIT = 25000  # GSC API hard limit per request
+            analytics_page_count = 0
+            start_row = 0
+            while True:
+                page = (
+                    service.searchanalytics()
+                    .query(
+                        siteUrl=site_url,
+                        body={
+                            "startDate": start.isoformat(),
+                            "endDate": end.isoformat(),
+                            "dimensions": ["page"],
+                            "rowLimit": _PAGE_LIMIT,
+                            "startRow": start_row,
+                        },
+                    )
+                    .execute()
+                    .get("rows", [])
+                )
+                analytics_page_count += len(page)
+                if len(page) < _PAGE_LIMIT:
+                    break
+                start_row += _PAGE_LIMIT
+            total_indexed = analytics_page_count if analytics_page_count > 0 else sitemaps_indexed
+        except Exception as analytics_exc:
+            logger.warning(
+                f"GSC Search Analytics query failed, falling back to sitemaps indexed count: {analytics_exc}"
+            )
+            total_indexed = sitemaps_indexed
 
         response = {
             "configured": True,

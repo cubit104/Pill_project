@@ -826,7 +826,7 @@ class TestSearchConsoleIndexing:
         assert "message" in data and data["message"]
 
     def test_configured_calls_gsc_api(self, client):
-        """When env vars are present, calls sitemaps.list and returns configured=True."""
+        """When env vars are present, uses Search Analytics page count as indexed and sitemaps for submitted."""
         import database as db_module
         import routes.admin.analytics as analytics_module
         db_module.db_engine = _make_auth_engine()
@@ -843,8 +843,13 @@ class TestSearchConsoleIndexing:
             }
         ]
 
+        # 90 distinct pages returned by Search Analytics — these are the confirmed indexed count.
+        # Fewer than rowLimit=25000 so pagination stops after the first page.
+        fake_analytics_rows = [{"keys": [f"https://pillseek.com/pill/drug-{i}"]} for i in range(90)]
+
         mock_service = MagicMock()
         mock_service.sitemaps().list().execute.return_value = {"sitemap": fake_sitemaps}
+        mock_service.searchanalytics().query().execute.return_value = {"rows": fake_analytics_rows}
 
         env = {
             "SEARCH_CONSOLE_SITE_URL": "https://pillseek.com",
@@ -865,10 +870,100 @@ class TestSearchConsoleIndexing:
 
         data = resp.json()
         assert data["configured"] is True
-        assert data["indexed"] == 80
+        assert data["indexed"] == 90  # from Search Analytics page count
+        assert data["submitted"] == 100  # from sitemaps API
+        assert data["not_indexed"] == 10  # max(0, 100 - 90)
+        assert len(data["sitemaps"]) == 1
+
+    def test_configured_falls_back_to_sitemaps_indexed_when_no_analytics_rows(self, client):
+        """Falls back to sitemaps API indexed value when Search Analytics returns no rows."""
+        import database as db_module
+        import routes.admin.analytics as analytics_module
+        db_module.db_engine = _make_auth_engine()
+
+        fake_sitemaps = [
+            {
+                "path": "https://pillseek.com/sitemap.xml",
+                "lastSubmitted": "2025-01-01T00:00:00Z",
+                "lastDownloaded": "2025-01-02T00:00:00Z",
+                "isSitemapsIndex": False,
+                "warnings": 0,
+                "errors": 0,
+                "contents": [{"submitted": "100", "indexed": "80"}],
+            }
+        ]
+
+        mock_service = MagicMock()
+        mock_service.sitemaps().list().execute.return_value = {"sitemap": fake_sitemaps}
+        # Search Analytics returns no rows (new site / no impressions yet)
+        mock_service.searchanalytics().query().execute.return_value = {"rows": []}
+
+        env = {
+            "SEARCH_CONSOLE_SITE_URL": "https://pillseek.com",
+            "GOOGLE_OAUTH_CLIENT_ID": "cid",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "csecret",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "rtoken",
+        }
+
+        with analytics_module._INDEXING_CACHE_LOCK:
+            analytics_module._INDEXING_CACHE.clear()
+
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch("routes.admin.analytics._build_oauth2_credentials", return_value=MagicMock()), \
+             patch("googleapiclient.discovery.build", return_value=mock_service), \
+             patch.dict(os.environ, env, clear=False):
+            resp = client.get(self._PATH, headers=AUTH_HEADERS)
+
+        data = resp.json()
+        assert data["configured"] is True
+        assert data["indexed"] == 80  # falls back to sitemaps API indexed
         assert data["submitted"] == 100
         assert data["not_indexed"] == 20
-        assert len(data["sitemaps"]) == 1
+
+    def test_configured_falls_back_to_sitemaps_indexed_when_analytics_raises(self, client):
+        """Falls back to sitemaps indexed when the Search Analytics query throws (e.g. quota/403)."""
+        import database as db_module
+        import routes.admin.analytics as analytics_module
+        db_module.db_engine = _make_auth_engine()
+
+        fake_sitemaps = [
+            {
+                "path": "https://pillseek.com/sitemap.xml",
+                "lastSubmitted": "2025-01-01T00:00:00Z",
+                "lastDownloaded": "2025-01-02T00:00:00Z",
+                "isSitemapsIndex": False,
+                "warnings": 0,
+                "errors": 0,
+                "contents": [{"submitted": "100", "indexed": "80"}],
+            }
+        ]
+
+        mock_service = MagicMock()
+        mock_service.sitemaps().list().execute.return_value = {"sitemap": fake_sitemaps}
+        mock_service.searchanalytics().query().execute.side_effect = Exception("quota exceeded")
+
+        env = {
+            "SEARCH_CONSOLE_SITE_URL": "https://pillseek.com",
+            "GOOGLE_OAUTH_CLIENT_ID": "cid",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "csecret",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "rtoken",
+        }
+
+        with analytics_module._INDEXING_CACHE_LOCK:
+            analytics_module._INDEXING_CACHE.clear()
+
+        with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+             patch("routes.admin.analytics._build_oauth2_credentials", return_value=MagicMock()), \
+             patch("googleapiclient.discovery.build", return_value=mock_service), \
+             patch.dict(os.environ, env, clear=False):
+            resp = client.get(self._PATH, headers=AUTH_HEADERS)
+
+        data = resp.json()
+        assert data["configured"] is True
+        assert "error" not in data  # endpoint still succeeds
+        assert data["indexed"] == 80  # falls back to sitemaps API indexed
+        assert data["submitted"] == 100
+        assert data["not_indexed"] == 20
 
 
 # ─────────────────────────────────────────────────────────────────────────────
