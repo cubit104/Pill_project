@@ -165,6 +165,9 @@ def _build_indexing_credentials():
         _INDEXING_TOKEN_CACHE["expiry"] = new_expiry
 
     return creds
+
+
+def _get_ga4_property_id():
     """Return the GA4 property ID from env, or None if not set."""
     return os.getenv("GA4_PROPERTY_ID", "") or None
 
@@ -697,7 +700,7 @@ def submit_url_for_indexing(body: dict, admin: dict = Depends(get_admin_user)):
 
     try:
         credentials = _build_indexing_credentials()
-    except RuntimeError as exc:
+    except Exception as exc:
         return _not_configured("Google Indexing API", str(exc))
 
     indexing_endpoint = "https://indexing.googleapis.com/v3/urlNotifications:publish"
