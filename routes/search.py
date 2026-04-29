@@ -164,7 +164,7 @@ def api_search(
                 params["imprint_like"] = f"%{norm}%"
             elif search_type == "drug":
                 where_conditions.append(
-                    "(LOWER(medicine_name) LIKE LOWER(:drug_name) OR LOWER(tags) LIKE LOWER(:tags_like))"
+                    "(LOWER(medicine_name) LIKE LOWER(:drug_name) OR REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE LOWER(:drug_name) OR LOWER(tags) LIKE LOWER(:tags_like))"
                 )
                 params["drug_name"] = f"{query.lower()}%"
                 params["tags_like"] = f"%{query.lower()}%"
