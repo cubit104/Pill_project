@@ -1,5 +1,5 @@
 -- Migration: create google_indexing_submissions table
-CREATE TABLE IF NOT EXISTS google_indexing_submissions (
+CREATE TABLE IF NOT EXISTS public.google_indexing_submissions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   pill_id TEXT,
   url TEXT NOT NULL,
@@ -9,5 +9,5 @@ CREATE TABLE IF NOT EXISTS google_indexing_submissions (
   response_raw JSONB
 );
 
-CREATE INDEX IF NOT EXISTS idx_gis_submitted_at ON google_indexing_submissions (submitted_at);
-CREATE INDEX IF NOT EXISTS idx_gis_url ON google_indexing_submissions (url);
+CREATE INDEX IF NOT EXISTS idx_gis_submitted_at ON public.google_indexing_submissions (submitted_at);
+CREATE INDEX IF NOT EXISTS idx_gis_url ON public.google_indexing_submissions (url);

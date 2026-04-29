@@ -486,16 +486,16 @@ function IndexStatusPanel({ slug, token }: { slug: string; token: string | null 
         },
         body: JSON.stringify({ url: `${siteUrl}/pill/${slug}` }),
       })
-      const data = await res.json()
-      if (res.ok && data.submitted) {
+      let data: any = null
+      const contentType = res.headers.get('content-type') || ''
+      if (contentType.includes('application/json')) {
+        try { data = await res.json() } catch { /* ignore parse error */ }
+      }
+      if (!res.ok || !data) {
+        const errText = data ? (data.error || data.detail || data.message || 'Submission failed') : await safeErrorDetail(res, 'Submission failed')
+        setSubmitResult(`Error: ${errText}`)
+      } else if (data.submitted) {
         setSubmitResult('✅ Submitted to Google for indexing!')
-        // Refresh global stats after successful submission
-        fetch('/api/admin/analytics/search-console/indexing-stats', {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        })
-          .then(r => r.ok ? r.json() : null)
-          .then(d => d && setIndexingStats(d))
-          .catch(() => {})
       } else if (data.configured === false) {
         setSubmitResult(`⚠️ ${data.message}`)
       } else {
@@ -505,6 +505,13 @@ function IndexStatusPanel({ slug, token }: { slug: string; token: string | null 
       setSubmitResult(`Error: ${e.message}`)
     } finally {
       setSubmitting(false)
+      // Always refresh stats so the counter reflects what's stored server-side
+      fetch('/api/admin/analytics/search-console/indexing-stats', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => d && setIndexingStats(d))
+        .catch(() => {})
     }
   }
 
@@ -561,16 +568,32 @@ function IndexStatusPanel({ slug, token }: { slug: string; token: string | null 
               ⚠️ Google canonical differs from expected URL
             </div>
           )}
-          {result.verdict !== 'PASS' && !submitResult && (
+          {result.verdict !== 'PASS' && (
             <button
               onClick={submitForIndexing}
               disabled={submitting}
               className="w-full mt-2 text-xs bg-orange-500 text-white px-3 py-1.5 rounded hover:bg-orange-600 disabled:opacity-50"
             >
-              {submitting ? 'Submitting…' : '🚀 Submit to Google for Indexing'}
+              {submitting
+                ? 'Submitting…'
+                : submitResult
+                  ? '🔄 Try again'
+                  : '🚀 Submit to Google for Indexing'}
             </button>
           )}
-          {submitResult && <p className="text-xs text-emerald-600 font-medium mt-2">{submitResult}</p>}
+          {submitResult && (
+            <p
+              className={`text-xs font-medium mt-2 ${
+                submitResult.startsWith('Error:')
+                  ? 'text-red-600'
+                  : submitResult.startsWith('⚠️')
+                    ? 'text-amber-600'
+                    : 'text-emerald-600'
+              }`}
+            >
+              {submitResult}
+            </p>
+          )}
         </div>
       )}
       {result?.error && <p className="text-xs text-red-500">{result.error}</p>}

@@ -29,6 +29,10 @@ _TOKEN_CACHE: dict = {}
 _TOKEN_LOCK = threading.Lock()
 _TOKEN_EXPIRY_BUFFER = 60  # refresh 60 s before actual expiry
 
+# Separate cache for the Indexing API scope
+_INDEXING_TOKEN_CACHE: dict = {}
+_INDEXING_TOKEN_LOCK = threading.Lock()
+
 
 def _not_configured(service: str, instructions: str) -> dict:
     return {"configured": False, "message": f"{service} not configured. {instructions}"}
@@ -103,7 +107,64 @@ def _build_oauth2_credentials():
     return creds
 
 
-def _get_ga4_property_id():
+def _build_indexing_credentials():
+    """Build Google OAuth2 credentials scoped for the Indexing API.
+
+    Uses a separate token cache from the Analytics/Search Console credentials
+    because the refresh token must have been minted with the
+    ``https://www.googleapis.com/auth/indexing`` scope.
+
+    Raises ``RuntimeError`` if any required env var is missing.
+    """
+    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
+    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
+    refresh_token = os.getenv("GOOGLE_OAUTH_REFRESH_TOKEN", "")
+
+    missing = [
+        name
+        for name, val in [
+            ("GOOGLE_OAUTH_CLIENT_ID", client_id),
+            ("GOOGLE_OAUTH_CLIENT_SECRET", client_secret),
+            ("GOOGLE_OAUTH_REFRESH_TOKEN", refresh_token),
+        ]
+        if not val
+    ]
+    if missing:
+        raise RuntimeError(
+            f"Google OAuth2 not configured — missing env var(s): {', '.join(missing)}. "
+            "See docs/admin-analytics.md for setup instructions."
+        )
+
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+
+    with _INDEXING_TOKEN_LOCK:
+        cached = _INDEXING_TOKEN_CACHE.get("token")
+        expiry = _INDEXING_TOKEN_CACHE.get("expiry", 0.0)
+        if cached and time.time() < expiry - _TOKEN_EXPIRY_BUFFER:
+            return Credentials(
+                token=cached,
+                refresh_token=refresh_token,
+                client_id=client_id,
+                client_secret=client_secret,
+                token_uri="https://oauth2.googleapis.com/token",
+                scopes=["https://www.googleapis.com/auth/indexing"],
+            )
+
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            client_id=client_id,
+            client_secret=client_secret,
+            token_uri="https://oauth2.googleapis.com/token",
+            scopes=["https://www.googleapis.com/auth/indexing"],
+        )
+        creds.refresh(Request())
+        new_expiry = creds.expiry.timestamp() if creds.expiry else time.time() + 3600
+        _INDEXING_TOKEN_CACHE["token"] = creds.token
+        _INDEXING_TOKEN_CACHE["expiry"] = new_expiry
+
+    return creds
     """Return the GA4 property ID from env, or None if not set."""
     return os.getenv("GA4_PROPERTY_ID", "") or None
 
@@ -612,17 +673,32 @@ def inspect_url(body: dict, admin: dict = Depends(get_admin_user)):
 @router.post("/search-console/submit-indexing")
 def submit_url_for_indexing(body: dict, admin: dict = Depends(get_admin_user)):
     """Submit a URL to the Google Indexing API and record the submission."""
+    from urllib.parse import urlparse
+
     url = (body.get("url") or "").strip()
     if not url:
         return {"configured": True, "error": "url is required"}
 
+    # Only allow http(s) URLs
+    parsed_url = urlparse(url)
+    if parsed_url.scheme not in ("http", "https"):
+        return {"configured": True, "error": "url must be an http or https URL"}
+
+    # Validate the URL belongs to the configured site to prevent quota abuse
+    site_url = _get_search_console_site_url()
+    if site_url:
+        site_host = urlparse(site_url).hostname or ""
+        url_host = parsed_url.hostname or ""
+        if site_host and url_host != site_host:
+            return {
+                "configured": True,
+                "error": f"URL hostname '{url_host}' does not match the configured site '{site_host}'",
+            }
+
     try:
-        credentials = _build_oauth2_credentials()
+        credentials = _build_indexing_credentials()
     except RuntimeError as exc:
-        return _not_configured(
-            "Google Indexing API",
-            str(exc),
-        )
+        return _not_configured("Google Indexing API", str(exc))
 
     indexing_endpoint = "https://indexing.googleapis.com/v3/urlNotifications:publish"
     payload = {"url": url, "type": "URL_UPDATED"}
@@ -645,8 +721,12 @@ def submit_url_for_indexing(body: dict, admin: dict = Depends(get_admin_user)):
             },
             timeout=15,
         )
-        response_raw = resp.json() if resp.content else {}
         response_status = str(resp.status_code)
+        # Defensively parse JSON — non-JSON error bodies (e.g. HTML 5xx pages) must not crash
+        try:
+            response_raw = resp.json() if resp.content else {}
+        except ValueError:
+            response_raw = {"raw_text": resp.text[:500]}
 
         # Store the submission regardless of HTTP status
         _record_indexing_submission(
@@ -671,7 +751,7 @@ def submit_url_for_indexing(body: dict, admin: dict = Depends(get_admin_user)):
         _record_indexing_submission(
             url=url,
             submitted_by=admin.get("id"),
-            response_status="error",
+            response_status=response_status or "error",
             response_raw={"error": str(exc)},
         )
         return {"configured": True, "submitted": False, "error": str(exc), "url": url}
