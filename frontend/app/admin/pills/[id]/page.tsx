@@ -612,6 +612,7 @@ function IndexStatusPanel({ slug, token }: { slug: string; token: string | null 
         </p>
       </div>
     )}
+    </div> 
   )
 }
 
