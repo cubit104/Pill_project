@@ -1403,3 +1403,71 @@ class TestPostHogLive:
     def test_expires_zero_header(self, client):
         resp = self._get(client)
         assert resp.headers.get("expires") == "0"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _record_indexing_submission — SQL regression tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestRecordIndexingSubmissionSQL:
+    """Regression tests for the _record_indexing_submission helper.
+
+    The endpoint-level tests patch _record_indexing_submission entirely, so
+    they would not catch a regression back to the ``::jsonb`` cast syntax.
+    These tests verify the SQL text and bind parameters directly.
+    """
+
+    def _call(self, mock_conn):
+        """Invoke _record_indexing_submission with a mock DB connection."""
+        import database as db_module
+        from routes.admin.analytics import _record_indexing_submission
+
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value = mock_conn
+        db_module.db_engine = mock_engine
+
+        _record_indexing_submission(
+            url="https://pillseek.com/pill/aspirin",
+            submitted_by="user-123",
+            response_status="200",
+            response_raw={"urlNotificationMetadata": {}},
+        )
+
+    def _make_conn(self):
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        return mock_conn
+
+    def test_sql_uses_cast_not_double_colon(self, client):
+        """SQL must use CAST(:response_raw AS jsonb), not ::jsonb."""
+        mock_conn = self._make_conn()
+        self._call(mock_conn)
+
+        assert mock_conn.execute.called
+        sql_arg = str(mock_conn.execute.call_args[0][0])
+        assert "CAST(:response_raw AS jsonb)" in sql_arg
+        assert "::jsonb" not in sql_arg
+
+    def test_sql_bind_params_contain_no_extra_colon_params(self, client):
+        """Only the four expected named parameters should be passed to execute()."""
+        mock_conn = self._make_conn()
+        self._call(mock_conn)
+
+        assert mock_conn.execute.called
+        params = mock_conn.execute.call_args[0][1]
+        assert set(params.keys()) == {"url", "submitted_by", "response_status", "response_raw"}
+
+    def test_response_raw_serialised_as_json_string(self, client):
+        """response_raw must be passed as a JSON string, not a raw dict."""
+        import json
+
+        mock_conn = self._make_conn()
+        self._call(mock_conn)
+
+        params = mock_conn.execute.call_args[0][1]
+        # Should be a string so PostgreSQL / psycopg2 can cast it to jsonb
+        assert isinstance(params["response_raw"], str)
+        # And it should be valid JSON
+        parsed = json.loads(params["response_raw"])
+        assert isinstance(parsed, dict)
