@@ -72,6 +72,36 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
   )
 }
 
+/** Renders a comma-separated brand names string as individual clickable drug hub links. */
+function BrandNameChips({ brandNames }: { brandNames: string }) {
+  const names = brandNames.split(',').map((b) => b.trim()).filter(Boolean)
+  return (
+    <div className="py-3 border-b border-slate-100 last:border-0 flex flex-col sm:flex-row sm:items-start gap-1">
+      <dt className="text-sm font-medium text-slate-500 sm:w-44 shrink-0">Brand Names</dt>
+      <dd className="text-sm text-slate-800 sm:flex-1 flex flex-wrap gap-1">
+        {names.map((name, idx) => {
+          const brandSlug = slugifyDrugName(name)
+          return (
+            <span key={idx}>
+              {brandSlug ? (
+                <Link
+                  href={`/drug/${brandSlug}`}
+                  className="text-sky-700 hover:underline text-sm"
+                >
+                  {name}
+                </Link>
+              ) : (
+                <span>{name}</span>
+              )}
+              {idx < names.length - 1 && <span className="text-slate-400">,</span>}
+            </span>
+          )
+        })}
+      </dd>
+    </div>
+  )
+}
+
 export default function PillDetailClient({
   pill,
   slug,
@@ -103,6 +133,8 @@ export default function PillDetailClient({
     : pill.image_url
     ? [pill.image_url]
     : []
+
+  const drugNameSlug = slugifyDrugName(pill.drug_name)
 
   const deaLabels: Record<string, string> = {
     '1': 'Schedule I – High abuse potential, no accepted medical use',
@@ -227,7 +259,15 @@ export default function PillDetailClient({
 
             {/* Header Info */}
             <div className="flex-1 text-center sm:text-left">
-              <h1 className="text-2xl font-bold text-slate-900 mb-1">{pill.drug_name}</h1>
+              <h1 className="text-2xl font-bold text-slate-900 mb-1">
+                {drugNameSlug ? (
+                  <Link href={`/drug/${drugNameSlug}`} className="hover:underline">
+                    {pill.drug_name}
+                  </Link>
+                ) : (
+                  pill.drug_name
+                )}
+              </h1>
               {pill.strength && (
                 <p className="text-slate-500 text-sm mb-3">{pill.strength}</p>
               )}
@@ -377,6 +417,14 @@ export default function PillDetailClient({
                   >
                     {pill.pharma_class}
                   </Link>
+                  <a
+                    href={`https://dailymed.nlm.nih.gov/dailymed/search.cfm?query=${encodeURIComponent(pill.pharma_class)}&searchfields=pharmacologic_class`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-slate-400 hover:underline ml-2"
+                  >
+                    Search this class on DailyMed ↗
+                  </a>
                 </dd>
               </div>
             </dl>
@@ -470,7 +518,7 @@ export default function PillDetailClient({
           <dl>
             <DetailRow label="Manufacturer" value={pill.manufacturer} />
             <DetailRow label="Status (Rx/OTC)" value={pill.status_rx_otc} />
-            <DetailRow label="Brand Names" value={pill.brand_names} />
+            {pill.brand_names && <BrandNameChips brandNames={pill.brand_names} />}
             <DetailRow label="NDC Code" value={pill.ndc} />
           </dl>
         </div>
@@ -493,7 +541,7 @@ export default function PillDetailClient({
           <ul className="space-y-2 text-sm text-slate-700">
             {pill.ndc && (
               <li>
-                <strong>FDA NDC Directory</strong>
+                <strong>DailyMed NDC Search</strong>
                 {' — '}
                 <a
                   href={`https://dailymed.nlm.nih.gov/dailymed/search.cfm?query=${encodeURIComponent(pill.ndc)}`}
@@ -505,9 +553,23 @@ export default function PillDetailClient({
                 </a>
               </li>
             )}
+            {pill.ndc && (
+              <li>
+                <strong>FDA NDC Directory</strong>
+                {' — '}
+                <a
+                  href={`https://www.accessdata.fda.gov/cgi-bin/ndc_search/ndc_search.cfm?action=search&ndc=${encodeURIComponent(pill.ndc)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sky-700 hover:underline"
+                >
+                  Look up NDC {pill.ndc} on FDA.gov ↗
+                </a>
+              </li>
+            )}
             {pill.spl_set_id && (
               <li>
-                <strong>DailyMed SPL</strong>
+                <strong>FDA Drug Label (DailyMed)</strong>
                 {' — '}
                 <a
                   href={`https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=${encodeURIComponent(pill.spl_set_id)}`}
