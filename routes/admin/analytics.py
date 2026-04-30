@@ -779,7 +779,7 @@ def _record_indexing_submission(
                     INSERT INTO google_indexing_submissions
                         (url, submitted_by, response_status, response_raw)
                     VALUES
-                        (:url, :submitted_by, :response_status, :response_raw::jsonb)
+                        (:url, :submitted_by, :response_status, CAST(:response_raw AS jsonb))
                     """
                 ),
                 {
