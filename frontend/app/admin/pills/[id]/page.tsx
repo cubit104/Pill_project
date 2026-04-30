@@ -601,7 +601,7 @@ function IndexStatusPanel({ slug, token }: { slug: string; token: string | null 
         <p className="text-xs text-gray-400">Click Check to inspect this URL in Google Search Console.</p>
       )}
       {indexingStats && (
-        <p className="text-xs text-gray-400 mt-3 border-t pt-2">
+        <p className="text-sm text-indigo-600 font-medium mt-3 border-t pt-2">
           {indexingStats.total_submitted === indexingStats.unique_pages
             ? `📊 ${indexingStats.total_submitted} pages submitted to Google across all users`
             : `📊 ${indexingStats.total_submitted} submissions (${indexingStats.unique_pages} unique pages) submitted to Google across all users`
