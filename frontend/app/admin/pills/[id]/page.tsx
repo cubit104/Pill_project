@@ -608,7 +608,7 @@ function IndexStatusPanel({ slug, token }: { slug: string; token: string | null 
         </p>
         <p className="text-sm font-medium">
           <span className="text-emerald-600">🗂️ {indexingStats.unique_pages} unique pages</span>
-          <span className="text-emerald-600"> submitted</span>
+          <span className="text-emerald-600">submitted</span>
         </p>
       </div>
     )}
