@@ -72,16 +72,18 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
   )
 }
 
+/** Maximum characters shown before the "Read more" toggle is shown. */
+const INDICATION_COLLAPSE_THRESHOLD = 280
+
 /** Expand/collapse section for patient-friendly drug indication text. */
 function DrugIndicationSection({ indication }: { indication: import('../../../types').DrugIndication }) {
-  const THRESHOLD = 280
   const fullText = indication.plain_text
-  const needsToggle = fullText.length > THRESHOLD
+  const needsToggle = fullText.length > INDICATION_COLLAPSE_THRESHOLD
 
-  // Truncate at last word boundary before THRESHOLD
+  // Truncate at last word boundary before threshold
   const truncated = (() => {
     if (!needsToggle) return fullText
-    const cut = fullText.slice(0, THRESHOLD)
+    const cut = fullText.slice(0, INDICATION_COLLAPSE_THRESHOLD)
     const lastSpace = cut.lastIndexOf(' ')
     return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut) + '\u2026'
   })()
