@@ -106,7 +106,8 @@ function DrugIndicationSection({ indication }: { indication: import('../../../ty
           onClick={() => setExpanded((v) => !v)}
           className="mt-2 text-sm text-emerald-700 hover:underline focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded py-1 px-2 min-h-[40px]"
         >
-          {expanded ? 'Show less \u25b4' : 'Read more \u25be'}
+          <span aria-hidden="true">{expanded ? '\u25b4' : '\u25be'}</span>{' '}
+          {expanded ? 'Show less' : 'Read more'}
         </button>
       )}
       {indication.source_url && (
