@@ -4,7 +4,8 @@ and stores it in the drug_indications table.
 Functions
 ---------
 fetch_indications_from_openfda(drug_name) -> dict | None
-upsert_indication(conn, drug_name_key, payload, *, source) -> None
+upsert_indication(conn, drug_name_key, payload, *, source) -> str
+    Returns one of: 'inserted' | 'updated' | 'skipped_manual'
 truncate_indication(text, limit) -> str
 """
 
@@ -51,8 +52,9 @@ def fetch_indications_from_openfda(drug_name: str) -> Optional[dict]:
     dict with keys ``generic_name``, ``pharm_class``, ``indications_text``
     or ``None`` if the drug is not found / the response is empty.
     """
+    escaped_name = drug_name.replace('"', '\\"')
     params = {
-        "search": f'openfda.generic_name:"{drug_name}"',
+        "search": f'openfda.generic_name:"{escaped_name}"',
         "limit": 1,
     }
 
@@ -130,70 +132,46 @@ def upsert_indication(
     *,
     source: str = "openfda",
 ) -> str:
-    """Upsert one row into drug_indications.
+    """Upsert one row into drug_indications atomically.
 
-    If an existing row has ``source='manual'``, the update is skipped and
-    ``'skipped_manual'`` is returned.  Otherwise returns ``'inserted'`` or
-    ``'updated'``.
+    The manual-override guard is enforced in SQL so there is no race window:
+    the ``ON CONFLICT ... DO UPDATE ... WHERE source <> 'manual'`` clause
+    prevents overwriting manual rows even under concurrent writes.
+
+    Returns one of ``'inserted'``, ``'updated'``, or ``'skipped_manual'``.
     """
-    # Check whether a manual-override row already exists
-    existing = conn.execute(
-        text("SELECT source FROM drug_indications WHERE drug_name_key = :key"),
-        {"key": drug_name_key},
+    result = conn.execute(
+        text(
+            """
+            INSERT INTO drug_indications
+                (drug_name_key, generic_name, pharm_class, indications_text, source, fetched_at)
+            VALUES
+                (:key, :generic_name, :pharm_class, :indications_text, :source, NOW())
+            ON CONFLICT (drug_name_key) DO UPDATE
+            SET generic_name     = EXCLUDED.generic_name,
+                pharm_class      = EXCLUDED.pharm_class,
+                indications_text = EXCLUDED.indications_text,
+                fetched_at       = EXCLUDED.fetched_at,
+                source           = EXCLUDED.source
+            WHERE drug_indications.source <> 'manual'
+            RETURNING id, (xmax = 0) AS was_inserted
+            """
+        ),
+        {
+            "key": drug_name_key,
+            "generic_name": payload.get("generic_name"),
+            "pharm_class": payload.get("pharm_class"),
+            "indications_text": payload.get("indications_text"),
+            "source": source,
+        },
     ).fetchone()
 
-    if existing and existing[0] == "manual":
+    if result is None:
+        # ON CONFLICT DO UPDATE WHERE condition was false — manual override row
         logger.info("drug_indications: skipping %r — manual override in place", drug_name_key)
         return "skipped_manual"
 
-    now_sql = "NOW()"
-    if existing:
-        conn.execute(
-            text(
-                """
-                UPDATE drug_indications
-                SET generic_name     = :generic_name,
-                    pharm_class      = :pharm_class,
-                    indications_text = :indications_text,
-                    fetched_at       = NOW(),
-                    source           = :source
-                WHERE drug_name_key = :key
-                """
-            ),
-            {
-                "generic_name": payload.get("generic_name"),
-                "pharm_class": payload.get("pharm_class"),
-                "indications_text": payload.get("indications_text"),
-                "source": source,
-                "key": drug_name_key,
-            },
-        )
-        return "updated"
-    else:
-        conn.execute(
-            text(
-                """
-                INSERT INTO drug_indications
-                    (drug_name_key, generic_name, pharm_class, indications_text, source, fetched_at)
-                VALUES
-                    (:key, :generic_name, :pharm_class, :indications_text, :source, NOW())
-                ON CONFLICT (drug_name_key) DO UPDATE
-                SET generic_name     = EXCLUDED.generic_name,
-                    pharm_class      = EXCLUDED.pharm_class,
-                    indications_text = EXCLUDED.indications_text,
-                    fetched_at       = EXCLUDED.fetched_at,
-                    source           = EXCLUDED.source
-                """
-            ),
-            {
-                "key": drug_name_key,
-                "generic_name": payload.get("generic_name"),
-                "pharm_class": payload.get("pharm_class"),
-                "indications_text": payload.get("indications_text"),
-                "source": source,
-            },
-        )
-        return "inserted"
+    return "inserted" if result[1] else "updated"
 
 
 # ---------------------------------------------------------------------------

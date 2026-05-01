@@ -5,7 +5,7 @@ required in CI.
 """
 
 import os
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -150,22 +150,22 @@ class TestFetchIndicationsFromOpenfda:
 
 
 class TestUpsertIndication:
-    def _make_conn(self, existing_source=None):
-        """Return a mock SQLAlchemy connection."""
-        conn = MagicMock()
-        existing_row = MagicMock()
-        existing_row.__getitem__ = lambda self, idx: existing_source if idx == 0 else None
-        existing_row[0] = existing_source
+    def _make_conn(self, returning_row=None):
+        """Return a mock SQLAlchemy connection.
 
-        if existing_source is not None:
-            conn.execute.return_value.fetchone.return_value = (existing_source,)
-        else:
-            conn.execute.return_value.fetchone.return_value = None
+        *returning_row* is what the single INSERT ... ON CONFLICT ... RETURNING
+        statement returns:
+          - ``None``          → manual override (DO UPDATE WHERE was false)
+          - ``(id, True)``    → newly inserted row
+          - ``(id, False)``   → updated existing row
+        """
+        conn = MagicMock()
+        conn.execute.return_value.fetchone.return_value = returning_row
         return conn
 
     def test_upsert_skips_when_source_manual(self):
-        """When existing row has source='manual', no UPDATE is issued."""
-        conn = self._make_conn(existing_source="manual")
+        """RETURNING nothing → source='manual', return 'skipped_manual'."""
+        conn = self._make_conn(returning_row=None)
         payload = {
             "generic_name": "IBUPROFEN",
             "pharm_class": "NSAID",
@@ -174,12 +174,11 @@ class TestUpsertIndication:
         outcome = upsert_indication(conn, "ibuprofen", payload)
 
         assert outcome == "skipped_manual"
-        # Only the SELECT should have been called (to check source), no INSERT/UPDATE
-        assert conn.execute.call_count == 1
+        assert conn.execute.call_count == 1  # single atomic statement
 
     def test_upsert_inserts_new_row(self):
-        """When no existing row, an INSERT is executed and 'inserted' returned."""
-        conn = self._make_conn(existing_source=None)
+        """RETURNING (id, True) → newly inserted row → 'inserted'."""
+        conn = self._make_conn(returning_row=(1, True))
         payload = {
             "generic_name": "IBUPROFEN",
             "pharm_class": "NSAID",
@@ -188,11 +187,11 @@ class TestUpsertIndication:
         outcome = upsert_indication(conn, "ibuprofen", payload)
 
         assert outcome == "inserted"
-        assert conn.execute.call_count == 2  # SELECT + INSERT
+        assert conn.execute.call_count == 1  # single atomic statement
 
     def test_upsert_updates_existing_openfda_row(self):
-        """When existing row has source='openfda', an UPDATE is executed."""
-        conn = self._make_conn(existing_source="openfda")
+        """RETURNING (id, False) → updated existing row → 'updated'."""
+        conn = self._make_conn(returning_row=(1, False))
         payload = {
             "generic_name": "IBUPROFEN",
             "pharm_class": "NSAID",
@@ -201,4 +200,4 @@ class TestUpsertIndication:
         outcome = upsert_indication(conn, "ibuprofen", payload)
 
         assert outcome == "updated"
-        assert conn.execute.call_count == 2  # SELECT + UPDATE
+        assert conn.execute.call_count == 1  # single atomic statement

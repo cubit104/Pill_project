@@ -24,8 +24,6 @@ import os
 import sys
 import time
 
-from sqlalchemy import text
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -129,7 +127,6 @@ def main(argv=None):
         sys.exit(0)
 
     # Connect to DB (unless dry-run)
-    conn_ctx = None
     if not args.dry_run:
         try:
             import database
@@ -148,16 +145,42 @@ def main(argv=None):
     updated = 0
     skipped_manual = 0
     not_found = 0
-    errors = 0
+    db_errors = 0
 
     for drug_name in drugs:
         total += 1
+
+        # When --force is not set, skip drugs that already have a row in the DB
+        if not args.dry_run and not args.force:
+            try:
+                import database
+                from sqlalchemy import text as _text
+
+                with database.db_engine.connect() as chk:
+                    existing = chk.execute(
+                        _text("SELECT source FROM drug_indications WHERE drug_name_key = :k"),
+                        {"k": drug_name},
+                    ).fetchone()
+                    if existing:
+                        if existing[0] == "manual":
+                            skipped_manual += 1
+                            print(f"↷ {drug_name} — manual override, skipped")
+                        else:
+                            skipped_manual += 1
+                            print(f"↷ {drug_name} — already backfilled, skipped (use --force to refresh)")
+                        continue
+            except Exception as exc:
+                logger.error("DB check failed for %r: %s", drug_name, exc)
+                db_errors += 1
+                print(f"✗ {drug_name} — DB error: {exc}")
+                continue
+
         try:
             payload = fetch_indications_from_openfda(drug_name)
         except Exception as exc:
             logger.error("Unexpected error fetching %r: %s", drug_name, exc)
-            errors += 1
-            print(f"✗ {drug_name} — error: {exc}")
+            not_found += 1
+            print(f"⚠ {drug_name} — fetch error: {exc}")
             time.sleep(_SLEEP_BETWEEN_REQUESTS_S)
             continue
 
@@ -190,7 +213,7 @@ def main(argv=None):
                     print(f"✓ {drug_name} — inserted ({char_count} chars)")
             except Exception as exc:
                 logger.error("DB write failed for %r: %s", drug_name, exc)
-                errors += 1
+                db_errors += 1
                 print(f"✗ {drug_name} — DB error: {exc}")
 
         time.sleep(_SLEEP_BETWEEN_REQUESTS_S)
@@ -202,10 +225,10 @@ def main(argv=None):
         f"Updated: {updated} | "
         f"Skipped: {skipped_manual} | "
         f"Not found: {not_found} | "
-        f"Errors: {errors}"
+        f"Errors: {db_errors}"
     )
 
-    if errors > 0:
+    if db_errors > 0:
         sys.exit(1)
     sys.exit(0)
 
