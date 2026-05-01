@@ -104,7 +104,7 @@ function DrugIndicationSection({ indication }: { indication: import('../../../ty
           aria-expanded={expanded}
           aria-controls={textId}
           onClick={() => setExpanded((v) => !v)}
-          className="mt-2 text-sm text-emerald-700 hover:underline focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded py-1 pr-1 min-h-[40px]"
+          className="mt-2 text-sm text-emerald-700 hover:underline focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded py-1 px-2 min-h-[40px]"
         >
           {expanded ? 'Show less \u25b4' : 'Read more \u25be'}
         </button>
