@@ -1,11 +1,11 @@
-"""Unit tests for services/drug_indications.py.
+"""Unit tests for services/drug_indications.py and services/rxnorm.py.
 
 All network calls and DB connections are mocked — no live Postgres or openFDA
 required in CI.
 """
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -18,6 +18,8 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-key")
 from services.drug_indications import (
     truncate_indication,
     fetch_indications_from_openfda,
+    fetch_indications_by_rxcui,
+    resolve_and_fetch,
     upsert_indication,
 )
 
@@ -201,3 +203,235 @@ class TestUpsertIndication:
 
         assert outcome == "updated"
         assert conn.execute.call_count == 1  # single atomic statement
+
+
+# ---------------------------------------------------------------------------
+# RxNorm / RxNav tests
+# ---------------------------------------------------------------------------
+
+_RXNAV_RXCUI_RESPONSE = {
+    "idGroup": {
+        "name": "lisinopril",
+        "rxnormId": ["29046"],
+    }
+}
+
+_RXNAV_RELATED_INGREDIENT_RESPONSE = {
+    "relatedGroup": {
+        "rxcui": "29046",
+        "conceptGroup": [
+            {
+                "tty": "IN",
+                "conceptProperties": [
+                    {"rxcui": "29046", "name": "lisinopril", "tty": "IN"},
+                ],
+            }
+        ],
+    }
+}
+
+_RXNAV_RELATED_ALREADY_INGREDIENT = {
+    "relatedGroup": {
+        "rxcui": "29046",
+        "conceptGroup": [
+            {
+                "tty": "IN",
+                "conceptProperties": [
+                    {"rxcui": "29046", "name": "lisinopril", "tty": "IN"},
+                ],
+            }
+        ],
+    }
+}
+
+_RXNAV_NDC_RESPONSE = {
+    "idGroup": {
+        "idtype": "NDC",
+        "id": "65162020010",
+        "rxnormId": ["310965"],
+    }
+}
+
+
+def _mock_resp(json_data, status_code=200):
+    mock = MagicMock()
+    mock.status_code = status_code
+    mock.json.return_value = json_data
+    mock.raise_for_status = MagicMock()
+    if status_code >= 400:
+        from requests.exceptions import HTTPError
+        mock.raise_for_status.side_effect = HTTPError(response=mock)
+    return mock
+
+
+class TestRxNavFindIngredientRxcui:
+    def test_rxnav_find_ingredient_simple(self):
+        """name → initial RxCUI → ingredient RxCUI resolved via related.json."""
+        from services.rxnorm import find_ingredient_rxcui
+
+        responses = [
+            _mock_resp(_RXNAV_RXCUI_RESPONSE),
+            _mock_resp(_RXNAV_RELATED_INGREDIENT_RESPONSE),
+        ]
+        with patch("services.rxnorm.requests.get", side_effect=responses):
+            result = find_ingredient_rxcui("lisinopril")
+
+        assert result is not None
+        assert result["rxcui"] == "29046"
+        assert result["name"] == "lisinopril"
+
+    def test_rxnav_find_ingredient_already_ingredient(self):
+        """Input already maps to TTY=IN — returns itself without recursing."""
+        from services.rxnorm import find_ingredient_rxcui
+
+        responses = [
+            _mock_resp(_RXNAV_RXCUI_RESPONSE),
+            _mock_resp(_RXNAV_RELATED_ALREADY_INGREDIENT),
+        ]
+        with patch("services.rxnorm.requests.get", side_effect=responses):
+            result = find_ingredient_rxcui("lisinopril")
+
+        assert result is not None
+        assert result["rxcui"] == "29046"
+
+    def test_rxnav_returns_none_when_not_found(self):
+        """Empty idGroup → None returned, no exception raised."""
+        from services.rxnorm import find_ingredient_rxcui
+
+        empty_response = {"idGroup": {"name": "unknowndrug"}}
+        with patch("services.rxnorm.requests.get", return_value=_mock_resp(empty_response)):
+            result = find_ingredient_rxcui("unknowndrug")
+
+        assert result is None
+
+    def test_rxnav_find_rxcui_by_ndc(self):
+        """NDC lookup returns RxCUI string."""
+        from services.rxnorm import find_rxcui_by_ndc
+
+        with patch("services.rxnorm.requests.get", return_value=_mock_resp(_RXNAV_NDC_RESPONSE)):
+            result = find_rxcui_by_ndc("65162-0200-10")
+
+        assert result == "310965"
+
+
+# ---------------------------------------------------------------------------
+# fetch_indications_by_rxcui tests
+# ---------------------------------------------------------------------------
+
+_OPENFDA_RXCUI_MULTI = {
+    "results": [
+        {
+            "openfda": {
+                "generic_name": ["LISINOPRIL AND HYDROCHLOROTHIAZIDE"],
+                "pharm_class_epc": ["Thiazide Diuretic [EPC]"],
+                "rxcui": ["29046"],
+            },
+            "indications_and_usage": ["Combo indications text."],
+        },
+        {
+            "openfda": {
+                "generic_name": ["LISINOPRIL"],
+                "pharm_class_epc": ["Angiotensin Converting Enzyme Inhibitor [EPC]"],
+                "rxcui": ["29046"],
+            },
+            "indications_and_usage": ["Lisinopril is indicated for hypertension."],
+        },
+    ]
+}
+
+
+class TestFetchIndicationsByRxcui:
+    def test_fetch_indications_by_rxcui_picks_single_ingredient(self):
+        """When results include both combo and single-ingredient, picks the single-ingredient."""
+        with patch("services.drug_indications.requests.get") as mock_get:
+            mock_get.return_value = _mock_resp(_OPENFDA_RXCUI_MULTI)
+            result = fetch_indications_by_rxcui("29046")
+
+        assert result is not None
+        assert result["generic_name"] == "LISINOPRIL"
+        assert "hypertension" in result["indications_text"]
+        assert result["rxcui"] == "29046"
+
+
+# ---------------------------------------------------------------------------
+# resolve_and_fetch tests
+# ---------------------------------------------------------------------------
+
+_OPENFDA_LISINOPRIL_SINGLE = {
+    "results": [
+        {
+            "openfda": {
+                "generic_name": ["LISINOPRIL"],
+                "pharm_class_epc": ["Angiotensin Converting Enzyme Inhibitor [EPC]"],
+                "rxcui": ["29046"],
+            },
+            "indications_and_usage": [
+                "Lisinopril is indicated for the treatment of hypertension."
+            ],
+        }
+    ]
+}
+
+
+class TestResolveAndFetch:
+    def test_resolve_and_fetch_full_chain_ok(self):
+        """End-to-end: lisinopril → rxcui 29046 → correct FDA label."""
+        rxcui_info = {"rxcui": "29046", "name": "lisinopril"}
+        label = {
+            "generic_name": "LISINOPRIL",
+            "pharm_class": "Angiotensin Converting Enzyme Inhibitor [EPC]",
+            "indications_text": "Lisinopril is indicated for hypertension.",
+            "rxcui": "29046",
+        }
+
+        with patch("services.drug_indications.find_ingredient_rxcui", return_value=rxcui_info), \
+             patch("services.drug_indications.fetch_indications_by_rxcui", return_value=label):
+            result = resolve_and_fetch("lisinopril")
+
+        assert result is not None
+        assert result["drug_name_key"] == "lisinopril"
+        assert result["rxcui"] == "29046"
+        assert result["rxcui_name"] == "lisinopril"
+        assert result["generic_name"] == "LISINOPRIL"
+        assert "hypertension" in result["indications_text"]
+
+    def test_resolve_and_fetch_returns_none_when_rxnav_fails(self):
+        """If RxNav returns no RxCUI, resolve_and_fetch propagates None cleanly."""
+        with patch("services.drug_indications.find_ingredient_rxcui", return_value=None):
+            result = resolve_and_fetch("unknowndrug")
+
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# upsert_indication with rxcui columns tests
+# ---------------------------------------------------------------------------
+
+
+class TestUpsertIndicationWithRxcui:
+    def _make_conn(self, returning_row=None):
+        conn = MagicMock()
+        conn.execute.return_value.fetchone.return_value = returning_row
+        return conn
+
+    def test_upsert_persists_rxcui_columns(self):
+        """SQL sent to the DB includes rxcui and rxcui_name bind params."""
+        conn = self._make_conn(returning_row=(1, True))
+        payload = {
+            "generic_name": "LISINOPRIL",
+            "pharm_class": "Angiotensin Converting Enzyme Inhibitor [EPC]",
+            "indications_text": "Lisinopril is indicated for hypertension.",
+            "rxcui": "29046",
+            "rxcui_name": "lisinopril",
+        }
+        outcome = upsert_indication(conn, "lisinopril", payload)
+
+        assert outcome == "inserted"
+        # Verify the call included the rxcui params
+        call_kwargs = conn.execute.call_args
+        params = call_kwargs[0][1]  # second positional arg is the params dict
+        assert params["rxcui"] == "29046"
+        assert params["rxcui_name"] == "lisinopril"
+        # SQL text should reference rxcui column
+        sql_text = str(call_kwargs[0][0])
+        assert "rxcui" in sql_text

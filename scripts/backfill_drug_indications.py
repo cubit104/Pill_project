@@ -1,4 +1,4 @@
-"""CLI script: backfill drug indications from openFDA.
+"""CLI script: backfill drug indications from openFDA via RxCUI.
 
 Usage
 -----
@@ -112,7 +112,7 @@ def _read_seed_file(path: str) -> list:
 def main(argv=None):
     args = _parse_args(argv)
 
-    from services.drug_indications import fetch_indications_from_openfda, upsert_indication
+    from services.drug_indications import resolve_and_fetch, upsert_indication
 
     # Build drug list
     if args.drug:
@@ -176,7 +176,7 @@ def main(argv=None):
                 continue
 
         try:
-            payload = fetch_indications_from_openfda(drug_name)
+            payload = resolve_and_fetch(drug_name)
         except Exception as exc:
             logger.error("Unexpected error fetching %r: %s", drug_name, exc)
             not_found += 1
@@ -185,16 +185,18 @@ def main(argv=None):
             continue
 
         if payload is None:
+            # Distinguish RxNav failure from openFDA failure (logged in service)
             not_found += 1
-            print(f"⚠ {drug_name} — not found on openFDA")
+            print(f"⚠ {drug_name} — could not resolve RxCUI or no FDA label found")
             time.sleep(_SLEEP_BETWEEN_REQUESTS_S)
             continue
 
+        rxcui = payload.get("rxcui") or ""
         ind_text = payload.get("indications_text") or ""
         char_count = len(ind_text)
 
         if args.dry_run:
-            print(f"✓ {drug_name} — {char_count} chars (dry-run, not saved)")
+            print(f"✓ {drug_name} → rxcui {rxcui} — {char_count} chars (dry-run, not saved)")
         else:
             try:
                 import database
@@ -207,10 +209,10 @@ def main(argv=None):
                     print(f"↷ {drug_name} — manual override, skipped")
                 elif outcome == "updated":
                     updated += 1
-                    print(f"✓ {drug_name} — updated ({char_count} chars)")
+                    print(f"✓ {drug_name} → rxcui {rxcui} — updated ({char_count} chars)")
                 else:
                     inserted += 1
-                    print(f"✓ {drug_name} — inserted ({char_count} chars)")
+                    print(f"✓ {drug_name} → rxcui {rxcui} — inserted ({char_count} chars)")
             except Exception as exc:
                 logger.error("DB write failed for %r: %s", drug_name, exc)
                 db_errors += 1
