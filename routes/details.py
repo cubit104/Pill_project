@@ -258,6 +258,39 @@ def get_pill_by_slug(slug: str):
 
             logger.info(f"Slug {slug}: medicine_name={raw_medicine_name!r}, splimprint={raw_splimprint!r}, found {len(image_urls)} images, own_filename={raw_image_filename!r}")
 
+            # Fetch drug indication (patient-friendly text) via rxcui JOIN
+            indication = None
+            try:
+                rxcui_val = str(pill_info.get("rxcui") or "").strip()
+                if rxcui_val and rxcui_val != "0":
+                    ind_result = conn.execute(
+                        text(
+                            """
+                            SELECT plain_text, source_url, source, fetched_at
+                            FROM drug_indications
+                            WHERE rxcui = :rxcui
+                            LIMIT 1
+                            """
+                        ),
+                        {"rxcui": rxcui_val},
+                    )
+                    ind_row = ind_result.fetchone()
+                    if ind_row and ind_row[0]:
+                        indication = {
+                            "plain_text": ind_row[0],
+                            "source_url": ind_row[1],
+                            "source": ind_row[2],
+                            "fetched_at": _to_iso(ind_row[3]),
+                        }
+            except SQLAlchemyError as _e:
+                err_msg = str(_e).lower()
+                if "drug_indications" in err_msg and (
+                    "does not exist" in err_msg or "no such table" in err_msg
+                ):
+                    logger.debug("drug_indications table not yet created: %s", _e)
+                else:
+                    logger.warning("drug_indications lookup failed for %s: %s", slug, _e)
+
             # Fetch additional NDCs from pill_ndcs sibling table
             additional_ndcs = []
             try:
@@ -322,6 +355,7 @@ def get_pill_by_slug(slug: str):
                 ),
                 "additional_ndcs": additional_ndcs,
                 "meta_description": pill_info.get("meta_description") or None,
+                "indication": indication,
             }
 
         return mapped

@@ -15,6 +15,17 @@ export interface PillResult {
   manufacturer?: string
 }
 
+export interface DrugIndication {
+  /** Patient-friendly plain-text description from MedlinePlus. */
+  plain_text: string
+  /** URL to the MedlinePlus drug information page. */
+  source_url: string | null
+  /** Data source identifier (e.g. "medlineplus"). */
+  source: string | null
+  /** ISO 8601 timestamp of when the indication was fetched. */
+  fetched_at: string | null
+}
+
 export interface PillDetail extends PillResult {
   ingredients?: string
   inactive_ingredients?: string
@@ -36,6 +47,8 @@ export interface PillDetail extends PillResult {
   meta_title?: string
   /** Pre-generated SEO meta description stored in the DB. */
   meta_description?: string
+  /** Patient-friendly drug indication from MedlinePlus. Null when no match. */
+  indication?: DrugIndication | null
 }
 
 export interface SimilarPill {

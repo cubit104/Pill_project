@@ -702,3 +702,166 @@ def test_api_pill_similar_image_url_built_from_filename(client):
     assert len(data["similar"]) == 1
     assert data["similar"][0]["image_url"] == f"{IMAGE_BASE}/other.jpg"
 
+
+
+# ---------------------------------------------------------------------------
+# Drug indication field in /api/pill/{slug}
+# ---------------------------------------------------------------------------
+
+def _make_pill_mock(rxcui="215831"):
+    """Return (mock_row, mock_columns) for a basic pillfinder row."""
+    mock_row = (
+        "Lisinopril", "LU 10", "White", "Round", "0069-1540-68", rxcui,
+        "lisinopril10.jpg", "lisinopril-10mg-0069-1540-68", None,
+    )
+    mock_columns = [
+        "medicine_name", "splimprint", "splcolor_text", "splshape_text",
+        "ndc11", "rxcui", "image_filename", "slug", "meta_description",
+    ]
+    return mock_row, mock_columns
+
+
+def test_api_pill_slug_indication_present_when_match(client):
+    """GET /api/pill/{slug} includes indication object when drug_indications JOIN finds a row."""
+    import database as db_module
+
+    mock_row, mock_columns = _make_pill_mock(rxcui="29046")
+    ind_plain = "Lisinopril is used alone or in combination to treat high blood pressure."
+    ind_source_url = "https://medlineplus.gov/druginfo/meds/a692051.html"
+
+    call_count = [0]
+
+    def execute_side_effect(query, params=None):
+        call_count[0] += 1
+        mock_res = MagicMock()
+        if call_count[0] == 1:
+            # First call: SELECT * FROM pillfinder
+            mock_res.fetchone.return_value = mock_row
+            mock_res.keys.return_value = mock_columns
+        elif call_count[0] == 2:
+            # Second call: aggregate image filenames
+            mock_res.__iter__ = MagicMock(return_value=iter([]))
+            mock_res.fetchall.return_value = []
+        elif call_count[0] == 3:
+            # Third call: SELECT from drug_indications
+            mock_res.fetchone.return_value = (ind_plain, ind_source_url, "medlineplus", None)
+        else:
+            # Fourth+ call: pill_ndcs etc
+            mock_res.fetchall.return_value = []
+            mock_res.fetchone.return_value = None
+        return mock_res
+
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = execute_side_effect
+
+    response = client.get("/api/pill/lisinopril-10mg-0069-1540-68")
+    assert response.status_code == 200
+    data = response.json()
+    assert "indication" in data
+    assert data["indication"] is not None
+    assert data["indication"]["plain_text"] == ind_plain
+    assert data["indication"]["source_url"] == ind_source_url
+    assert data["indication"]["source"] == "medlineplus"
+
+
+def test_api_pill_slug_indication_null_when_no_match(client):
+    """GET /api/pill/{slug} returns indication=null when no drug_indications row matches rxcui."""
+    import database as db_module
+
+    mock_row, mock_columns = _make_pill_mock(rxcui="99999")
+
+    call_count = [0]
+
+    def execute_side_effect(query, params=None):
+        call_count[0] += 1
+        mock_res = MagicMock()
+        if call_count[0] == 1:
+            mock_res.fetchone.return_value = mock_row
+            mock_res.keys.return_value = mock_columns
+        elif call_count[0] == 2:
+            mock_res.__iter__ = MagicMock(return_value=iter([]))
+            mock_res.fetchall.return_value = []
+        elif call_count[0] == 3:
+            # No matching row in drug_indications
+            mock_res.fetchone.return_value = None
+        else:
+            mock_res.fetchall.return_value = []
+            mock_res.fetchone.return_value = None
+        return mock_res
+
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = execute_side_effect
+
+    response = client.get("/api/pill/lisinopril-10mg-0069-1540-68")
+    assert response.status_code == 200
+    data = response.json()
+    assert "indication" in data
+    assert data["indication"] is None
+
+
+def test_api_pill_slug_indication_null_when_no_rxcui(client):
+    """GET /api/pill/{slug} returns indication=null when pillfinder row has no rxcui."""
+    import database as db_module
+
+    # rxcui is empty string (no rxcui on this pill)
+    mock_row, mock_columns = _make_pill_mock(rxcui="")
+
+    call_count = [0]
+
+    def execute_side_effect(query, params=None):
+        call_count[0] += 1
+        mock_res = MagicMock()
+        if call_count[0] == 1:
+            mock_res.fetchone.return_value = mock_row
+            mock_res.keys.return_value = mock_columns
+        elif call_count[0] == 2:
+            mock_res.__iter__ = MagicMock(return_value=iter([]))
+            mock_res.fetchall.return_value = []
+        else:
+            mock_res.fetchall.return_value = []
+            mock_res.fetchone.return_value = None
+        return mock_res
+
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = execute_side_effect
+
+    response = client.get("/api/pill/lisinopril-10mg-0069-1540-68")
+    assert response.status_code == 200
+    data = response.json()
+    assert "indication" in data
+    assert data["indication"] is None
+
+
+def test_api_pill_slug_indication_null_when_plain_text_empty(client):
+    """GET /api/pill/{slug} returns indication=null when plain_text is NULL in drug_indications."""
+    import database as db_module
+
+    mock_row, mock_columns = _make_pill_mock(rxcui="29046")
+
+    call_count = [0]
+
+    def execute_side_effect(query, params=None):
+        call_count[0] += 1
+        mock_res = MagicMock()
+        if call_count[0] == 1:
+            mock_res.fetchone.return_value = mock_row
+            mock_res.keys.return_value = mock_columns
+        elif call_count[0] == 2:
+            mock_res.__iter__ = MagicMock(return_value=iter([]))
+            mock_res.fetchall.return_value = []
+        elif call_count[0] == 3:
+            # Row exists but plain_text is NULL
+            mock_res.fetchone.return_value = (None, "https://medlineplus.gov/...", "medlineplus", None)
+        else:
+            mock_res.fetchall.return_value = []
+            mock_res.fetchone.return_value = None
+        return mock_res
+
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = execute_side_effect
+
+    response = client.get("/api/pill/lisinopril-10mg-0069-1540-68")
+    assert response.status_code == 200
+    data = response.json()
+    assert "indication" in data
+    assert data["indication"] is None

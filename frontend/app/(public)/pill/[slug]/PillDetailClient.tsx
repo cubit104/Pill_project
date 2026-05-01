@@ -72,6 +72,61 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
   )
 }
 
+/** Expand/collapse section for patient-friendly drug indication text. */
+function DrugIndicationSection({ indication }: { indication: import('../../../types').DrugIndication }) {
+  const THRESHOLD = 280
+  const fullText = indication.plain_text
+  const needsToggle = fullText.length > THRESHOLD
+
+  // Truncate at last word boundary before THRESHOLD
+  const truncated = (() => {
+    if (!needsToggle) return fullText
+    const cut = fullText.slice(0, THRESHOLD)
+    const lastSpace = cut.lastIndexOf(' ')
+    return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut) + '\u2026'
+  })()
+
+  const [expanded, setExpanded] = useState(false)
+  const textId = 'indication-text'
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+      <h2 className="text-base font-semibold text-slate-800 mb-4">What it&apos;s used for</h2>
+      <p
+        id={textId}
+        className="text-base text-slate-800 leading-relaxed max-w-prose"
+      >
+        {needsToggle && !expanded ? truncated : fullText}
+      </p>
+      {needsToggle && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={textId}
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-2 text-sm text-emerald-700 hover:underline focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded py-1 pr-1 min-h-[40px]"
+        >
+          {expanded ? 'Show less \u25b4' : 'Read more \u25be'}
+        </button>
+      )}
+      {indication.source_url && (
+        <p className="mt-3 text-sm text-slate-500">
+          Source:{' '}
+          <a
+            href={indication.source_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="View source on MedlinePlus (opens in new tab)"
+            className="hover:underline"
+          >
+            MedlinePlus (NIH) ↗
+          </a>
+        </p>
+      )}
+    </div>
+  )
+}
+
 export default function PillDetailClient({
   pill,
   slug,
@@ -381,6 +436,11 @@ export default function PillDetailClient({
               </div>
             </dl>
           </div>
+        )}
+
+        {/* What it's used for — patient-friendly drug indication from MedlinePlus */}
+        {pill.indication && (
+          <DrugIndicationSection indication={pill.indication} />
         )}
 
         {/* Similar-looking Pills (Confusion Risk) */}
