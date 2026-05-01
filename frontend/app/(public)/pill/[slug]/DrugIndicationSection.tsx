@@ -32,6 +32,7 @@ export default function DrugIndicationSection({ indication }: { indication: Drug
       {needsToggle && (
         <button
           type="button"
+          aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
           className="mt-2 text-sm text-emerald-700 hover:underline focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded"
         >
