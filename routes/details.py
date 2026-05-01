@@ -234,8 +234,34 @@ def get_pill_by_slug(slug: str):
 
     try:
         with database.db_engine.connect() as conn:
-            query = text("SELECT * FROM pillfinder WHERE deleted_at IS NULL AND slug = :slug LIMIT 1")
-            result = conn.execute(query, {"slug": slug})
+            # Fetch pill with patient-friendly indication text via a single LEFT JOIN.
+            # Falls back to a plain SELECT if drug_indications doesn't exist yet.
+            try:
+                query = text(
+                    """
+                    SELECT p.*,
+                        di.plain_text   AS indication_plain_text,
+                        di.source_url   AS indication_source_url,
+                        di.source       AS indication_source,
+                        di.fetched_at   AS indication_fetched_at
+                    FROM pillfinder p
+                    LEFT JOIN drug_indications di ON di.rxcui = CAST(p.rxcui AS TEXT)
+                    WHERE p.deleted_at IS NULL AND p.slug = :slug
+                    LIMIT 1
+                    """
+                )
+                result = conn.execute(query, {"slug": slug})
+            except SQLAlchemyError as _join_err:
+                _emsg = str(_join_err).lower()
+                if "drug_indications" in _emsg and (
+                    "does not exist" in _emsg or "no such table" in _emsg
+                ):
+                    logger.debug("drug_indications table not yet created, falling back: %s", _join_err)
+                    query = text("SELECT * FROM pillfinder WHERE deleted_at IS NULL AND slug = :slug LIMIT 1")
+                    result = conn.execute(query, {"slug": slug})
+                else:
+                    raise
+
             row = result.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Pill not found")
@@ -258,38 +284,19 @@ def get_pill_by_slug(slug: str):
 
             logger.info(f"Slug {slug}: medicine_name={raw_medicine_name!r}, splimprint={raw_splimprint!r}, found {len(image_urls)} images, own_filename={raw_image_filename!r}")
 
-            # Fetch drug indication (patient-friendly text) via rxcui JOIN
-            indication = None
-            try:
-                rxcui_val = str(pill_info.get("rxcui") or "").strip()
-                if rxcui_val and rxcui_val != "0":
-                    ind_result = conn.execute(
-                        text(
-                            """
-                            SELECT plain_text, source_url, source, fetched_at
-                            FROM drug_indications
-                            WHERE rxcui = :rxcui
-                            LIMIT 1
-                            """
-                        ),
-                        {"rxcui": rxcui_val},
-                    )
-                    ind_row = ind_result.fetchone()
-                    if ind_row and ind_row[0]:
-                        indication = {
-                            "plain_text": ind_row[0],
-                            "source_url": ind_row[1],
-                            "source": ind_row[2],
-                            "fetched_at": _to_iso(ind_row[3]),
-                        }
-            except SQLAlchemyError as _e:
-                err_msg = str(_e).lower()
-                if "drug_indications" in err_msg and (
-                    "does not exist" in err_msg or "no such table" in err_msg
-                ):
-                    logger.debug("drug_indications table not yet created: %s", _e)
-                else:
-                    logger.warning("drug_indications lookup failed for %s: %s", slug, _e)
+            # Extract indication fields populated by the LEFT JOIN above.
+            # plain_text is NULL when no matching drug_indications row exists.
+            ind_plain_text = pill_info.get("indication_plain_text")
+            indication = (
+                {
+                    "plain_text": ind_plain_text,
+                    "source_url": pill_info.get("indication_source_url"),
+                    "source": pill_info.get("indication_source"),
+                    "fetched_at": _to_iso(pill_info.get("indication_fetched_at")),
+                }
+                if ind_plain_text
+                else None
+            )
 
             # Fetch additional NDCs from pill_ndcs sibling table
             additional_ndcs = []

@@ -722,31 +722,30 @@ def _make_pill_mock(rxcui="215831"):
 
 
 def test_api_pill_slug_indication_present_when_match(client):
-    """GET /api/pill/{slug} includes indication object when drug_indications JOIN finds a row."""
+    """GET /api/pill/{slug} includes indication when LEFT JOIN finds a drug_indications row."""
     import database as db_module
 
     mock_row, mock_columns = _make_pill_mock(rxcui="29046")
     ind_plain = "Lisinopril is used alone or in combination to treat high blood pressure."
     ind_source_url = "https://medlineplus.gov/druginfo/meds/a692051.html"
-
-    call_count = [0]
+    # Columns returned by the LEFT JOIN query (pillfinder + indication aliases)
+    join_columns = list(mock_columns) + [
+        "indication_plain_text", "indication_source_url", "indication_source", "indication_fetched_at"
+    ]
+    join_row = mock_row + (ind_plain, ind_source_url, "medlineplus", None)
 
     def execute_side_effect(query, params=None):
-        call_count[0] += 1
+        sql = str(query).lower()
         mock_res = MagicMock()
-        if call_count[0] == 1:
-            # First call: SELECT * FROM pillfinder
-            mock_res.fetchone.return_value = mock_row
-            mock_res.keys.return_value = mock_columns
-        elif call_count[0] == 2:
-            # Second call: aggregate image filenames
+        if "drug_indications" in sql:
+            # Main LEFT JOIN query
+            mock_res.fetchone.return_value = join_row
+            mock_res.keys.return_value = join_columns
+        elif "image_filename" in sql:
+            # Image aggregate query
             mock_res.__iter__ = MagicMock(return_value=iter([]))
-            mock_res.fetchall.return_value = []
-        elif call_count[0] == 3:
-            # Third call: SELECT from drug_indications
-            mock_res.fetchone.return_value = (ind_plain, ind_source_url, "medlineplus", None)
         else:
-            # Fourth+ call: pill_ndcs etc
+            # pill_ndcs or other queries
             mock_res.fetchall.return_value = []
             mock_res.fetchone.return_value = None
         return mock_res
@@ -765,25 +764,24 @@ def test_api_pill_slug_indication_present_when_match(client):
 
 
 def test_api_pill_slug_indication_null_when_no_match(client):
-    """GET /api/pill/{slug} returns indication=null when no drug_indications row matches rxcui."""
+    """GET /api/pill/{slug} returns indication=null when LEFT JOIN finds no drug_indications row."""
     import database as db_module
 
     mock_row, mock_columns = _make_pill_mock(rxcui="99999")
-
-    call_count = [0]
+    join_columns = list(mock_columns) + [
+        "indication_plain_text", "indication_source_url", "indication_source", "indication_fetched_at"
+    ]
+    # No matching row → all indication columns are NULL from the LEFT JOIN
+    join_row = mock_row + (None, None, None, None)
 
     def execute_side_effect(query, params=None):
-        call_count[0] += 1
+        sql = str(query).lower()
         mock_res = MagicMock()
-        if call_count[0] == 1:
-            mock_res.fetchone.return_value = mock_row
-            mock_res.keys.return_value = mock_columns
-        elif call_count[0] == 2:
+        if "drug_indications" in sql:
+            mock_res.fetchone.return_value = join_row
+            mock_res.keys.return_value = join_columns
+        elif "image_filename" in sql:
             mock_res.__iter__ = MagicMock(return_value=iter([]))
-            mock_res.fetchall.return_value = []
-        elif call_count[0] == 3:
-            # No matching row in drug_indications
-            mock_res.fetchone.return_value = None
         else:
             mock_res.fetchall.return_value = []
             mock_res.fetchone.return_value = None
@@ -803,20 +801,21 @@ def test_api_pill_slug_indication_null_when_no_rxcui(client):
     """GET /api/pill/{slug} returns indication=null when pillfinder row has no rxcui."""
     import database as db_module
 
-    # rxcui is empty string (no rxcui on this pill)
+    # rxcui is empty string (no rxcui on this pill) — LEFT JOIN finds nothing
     mock_row, mock_columns = _make_pill_mock(rxcui="")
-
-    call_count = [0]
+    join_columns = list(mock_columns) + [
+        "indication_plain_text", "indication_source_url", "indication_source", "indication_fetched_at"
+    ]
+    join_row = mock_row + (None, None, None, None)
 
     def execute_side_effect(query, params=None):
-        call_count[0] += 1
+        sql = str(query).lower()
         mock_res = MagicMock()
-        if call_count[0] == 1:
-            mock_res.fetchone.return_value = mock_row
-            mock_res.keys.return_value = mock_columns
-        elif call_count[0] == 2:
+        if "drug_indications" in sql:
+            mock_res.fetchone.return_value = join_row
+            mock_res.keys.return_value = join_columns
+        elif "image_filename" in sql:
             mock_res.__iter__ = MagicMock(return_value=iter([]))
-            mock_res.fetchall.return_value = []
         else:
             mock_res.fetchall.return_value = []
             mock_res.fetchone.return_value = None
@@ -837,21 +836,20 @@ def test_api_pill_slug_indication_null_when_plain_text_empty(client):
     import database as db_module
 
     mock_row, mock_columns = _make_pill_mock(rxcui="29046")
-
-    call_count = [0]
+    join_columns = list(mock_columns) + [
+        "indication_plain_text", "indication_source_url", "indication_source", "indication_fetched_at"
+    ]
+    # Row exists in drug_indications but plain_text is NULL
+    join_row = mock_row + (None, "https://medlineplus.gov/...", "medlineplus", None)
 
     def execute_side_effect(query, params=None):
-        call_count[0] += 1
+        sql = str(query).lower()
         mock_res = MagicMock()
-        if call_count[0] == 1:
-            mock_res.fetchone.return_value = mock_row
-            mock_res.keys.return_value = mock_columns
-        elif call_count[0] == 2:
+        if "drug_indications" in sql:
+            mock_res.fetchone.return_value = join_row
+            mock_res.keys.return_value = join_columns
+        elif "image_filename" in sql:
             mock_res.__iter__ = MagicMock(return_value=iter([]))
-            mock_res.fetchall.return_value = []
-        elif call_count[0] == 3:
-            # Row exists but plain_text is NULL
-            mock_res.fetchone.return_value = (None, "https://medlineplus.gov/...", "medlineplus", None)
         else:
             mock_res.fetchall.return_value = []
             mock_res.fetchone.return_value = None

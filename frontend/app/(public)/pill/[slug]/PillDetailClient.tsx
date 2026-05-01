@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useId } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill } from '../../../types'
@@ -89,7 +89,8 @@ function DrugIndicationSection({ indication }: { indication: import('../../../ty
   })()
 
   const [expanded, setExpanded] = useState(false)
-  const textId = 'indication-text'
+  const baseId = useId()
+  const textId = `${baseId}-indication-text`
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
