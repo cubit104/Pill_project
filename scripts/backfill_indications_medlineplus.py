@@ -37,6 +37,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 _DEFAULT_SLEEP_MS = 200
 
 # Read-only query against pillfinder — never writes to it.
+# Selects rxcuis that need plain_text populated:
+#   - di.rxcui IS NULL                         → no drug_indications row yet
+#   - di.plain_text IS NULL AND non-manual     → row exists but plain_text missing
+#   - --force AND non-manual                   → re-fetch everything (respects manual)
 _RXCUI_SELECT_SQL = """
     SELECT DISTINCT p.rxcui
     FROM pillfinder p
@@ -44,7 +48,27 @@ _RXCUI_SELECT_SQL = """
     WHERE p.deleted_at IS NULL
       AND p.rxcui IS NOT NULL
       AND p.rxcui != ''
-      AND (di.rxcui IS NULL OR (:force AND di.source != 'manual'))
+      AND (
+        di.rxcui IS NULL
+        OR (di.plain_text IS NULL AND di.source != 'manual')
+        OR (:force AND di.source != 'manual')
+      )
+    ORDER BY p.rxcui
+    LIMIT :limit
+"""
+
+_RXCUI_SELECT_NO_LIMIT_SQL = """
+    SELECT DISTINCT p.rxcui
+    FROM pillfinder p
+    LEFT JOIN drug_indications di ON di.rxcui = p.rxcui
+    WHERE p.deleted_at IS NULL
+      AND p.rxcui IS NOT NULL
+      AND p.rxcui != ''
+      AND (
+        di.rxcui IS NULL
+        OR (di.plain_text IS NULL AND di.source != 'manual')
+        OR (:force AND di.source != 'manual')
+      )
     ORDER BY p.rxcui
 """
 
@@ -185,8 +209,6 @@ def main(argv=None):
             print(f"✓ {rxcui} {title} — {char_count} chars (dry-run, not saved)")
         else:
             try:
-                from sqlalchemy import text as _text  # noqa: F401 (needed indirectly)
-
                 with db_engine.begin() as conn:
                     outcome = upsert_from_medlineplus(conn, rxcui, payload)
 
@@ -222,19 +244,23 @@ def main(argv=None):
 
 
 def _fetch_rxcuis(db_engine, *, force: bool, limit=None) -> list:
-    """Return list of rxcuis to process from pillfinder (read-only)."""
+    """Return list of rxcuis to process from pillfinder (read-only).
+
+    The LIMIT is pushed into SQL so the DB returns only the needed rows.
+    """
     from sqlalchemy import text
 
     try:
-        with db_engine.connect() as conn:
-            rows = conn.execute(
-                text(_RXCUI_SELECT_SQL),
-                {"force": force},
-            ).fetchall()
-        rxcuis = [row[0] for row in rows]
         if limit is not None:
-            rxcuis = rxcuis[:limit]
-        return rxcuis
+            sql = _RXCUI_SELECT_SQL
+            params = {"force": force, "limit": limit}
+        else:
+            sql = _RXCUI_SELECT_NO_LIMIT_SQL
+            params = {"force": force}
+
+        with db_engine.connect() as conn:
+            rows = conn.execute(text(sql), params).fetchall()
+        return [row[0] for row in rows]
     except Exception as exc:
         logger.error("Failed to fetch rxcuis from pillfinder: %s", exc)
         sys.exit(1)

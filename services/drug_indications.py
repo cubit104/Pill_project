@@ -179,10 +179,13 @@ def upsert_from_medlineplus(conn, rxcui: str, payload: dict) -> str:
 
     Behavior:
     - If row exists with source='manual': SKIP (return 'skipped_manual'). User edits win.
+      This is enforced atomically in SQL via ``WHERE source <> 'manual'`` so concurrent
+      flips to 'manual' can never be overwritten.
     - Otherwise: INSERT or UPDATE plain_text, source_url, source='medlineplus',
       fetched_at=NOW(), generic_name=payload['title'].
-    - drug_name_key column: if not set on existing row, set it to lower(payload['title']).
-      It's a NOT NULL UNIQUE column from PR #122. For NEW rows, we MUST provide it.
+    - drug_name_key is a NOT NULL UNIQUE column. For NEW rows it is set to
+      lower(payload['title']). For existing rows matched by drug_name_key it is not
+      changed (already set).
     - If a row already exists with that drug_name_key but a DIFFERENT rxcui,
       log and return 'skipped_collision'.
 
@@ -197,13 +200,10 @@ def upsert_from_medlineplus(conn, rxcui: str, payload: dict) -> str:
     ).fetchone()
 
     if row is not None:
-        row_id, source = row[0], row[1]
-        if source == "manual":
-            logger.info(
-                "drug_indications: skipping rxcui=%s — manual override in place", rxcui
-            )
-            return "skipped_manual"
-        conn.execute(
+        row_id = row[0]
+        # Enforce manual-override guard atomically in SQL: only update when
+        # source <> 'manual'.  If 0 rows updated, the row was manual-protected.
+        result = conn.execute(
             text(
                 """
                 UPDATE drug_indications
@@ -213,6 +213,7 @@ def upsert_from_medlineplus(conn, rxcui: str, payload: dict) -> str:
                     fetched_at   = NOW(),
                     generic_name = :generic_name
                 WHERE id = :id
+                  AND source <> 'manual'
                 """
             ),
             {
@@ -222,6 +223,11 @@ def upsert_from_medlineplus(conn, rxcui: str, payload: dict) -> str:
                 "id": row_id,
             },
         )
+        if result.rowcount == 0:
+            logger.info(
+                "drug_indications: skipping rxcui=%s — manual override in place", rxcui
+            )
+            return "skipped_manual"
         return "updated"
 
     # 2. No rxcui match — check for existing row by drug_name_key (collision guard)
@@ -238,13 +244,6 @@ def upsert_from_medlineplus(conn, rxcui: str, payload: dict) -> str:
             name_row[1],
             name_row[2],
         )
-        if existing_source == "manual":
-            logger.info(
-                "drug_indications: skipping rxcui=%s — manual override on drug_name_key=%s",
-                rxcui,
-                drug_name_key,
-            )
-            return "skipped_manual"
         if existing_rxcui is not None and existing_rxcui != rxcui:
             logger.warning(
                 "drug_indications: rxcui collision for drug_name_key=%s "
@@ -254,8 +253,9 @@ def upsert_from_medlineplus(conn, rxcui: str, payload: dict) -> str:
                 rxcui,
             )
             return "skipped_collision"
-        # Existing row has this drug_name_key but no rxcui (or same rxcui) — update it
-        conn.execute(
+        # Existing row has this drug_name_key but no rxcui (or same rxcui) — update it.
+        # Guard against concurrent manual flip atomically.
+        result = conn.execute(
             text(
                 """
                 UPDATE drug_indications
@@ -266,6 +266,7 @@ def upsert_from_medlineplus(conn, rxcui: str, payload: dict) -> str:
                     fetched_at   = NOW(),
                     generic_name = :generic_name
                 WHERE id = :id
+                  AND source <> 'manual'
                 """
             ),
             {
@@ -276,6 +277,13 @@ def upsert_from_medlineplus(conn, rxcui: str, payload: dict) -> str:
                 "id": existing_id,
             },
         )
+        if result.rowcount == 0:
+            logger.info(
+                "drug_indications: skipping rxcui=%s — manual override on drug_name_key=%s",
+                rxcui,
+                drug_name_key,
+            )
+            return "skipped_manual"
         return "updated"
 
     # 3. No existing row — INSERT new

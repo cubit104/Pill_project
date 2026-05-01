@@ -181,65 +181,74 @@ class TestUpsertFromMedlineplus:
         "source_url": "https://medlineplus.gov/druginfo/meds/a692051.html",
     }
 
-    def _make_conn(self, fetchone_side_effects=None):
+    def _make_execute_result(self, fetchone_value=None, rowcount=1):
+        """Return a mock result object with configurable fetchone() and rowcount."""
+        r = MagicMock()
+        r.fetchone.return_value = fetchone_value
+        r.rowcount = rowcount
+        return r
+
+    def _make_conn(self, execute_side_effects):
         """Return a mock SQLAlchemy connection.
 
-        *fetchone_side_effects* is a list of values returned by successive
-        conn.execute(...).fetchone() calls.  If not provided, returns None.
+        *execute_side_effects* is a list of mock result objects returned by
+        successive conn.execute() calls.
         """
         conn = MagicMock()
-        if fetchone_side_effects is not None:
-            conn.execute.return_value.fetchone.side_effect = fetchone_side_effects
-        else:
-            conn.execute.return_value.fetchone.return_value = None
+        conn.execute.side_effect = execute_side_effects
         return conn
 
     def test_upsert_inserts_new_row(self):
         """No existing rows for this rxcui or drug_name_key → INSERT → 'inserted'."""
         from services.drug_indications import upsert_from_medlineplus
 
-        # Both SELECTs return None → new row
-        conn = self._make_conn(fetchone_side_effects=[None, None])
+        conn = self._make_conn([
+            self._make_execute_result(None),   # SELECT by rxcui → not found
+            self._make_execute_result(None),   # SELECT by drug_name_key → not found
+            self._make_execute_result(None),   # INSERT
+        ])
 
         outcome = upsert_from_medlineplus(conn, "29046", self._PAYLOAD)
 
         assert outcome == "inserted"
-        # SELECT by rxcui, SELECT by drug_name_key, INSERT = 3 execute calls
         assert conn.execute.call_count == 3
 
     def test_upsert_skips_manual_rows(self):
-        """Existing row with source='manual' (found by rxcui) → 'skipped_manual', no write."""
+        """Row exists (found by rxcui); atomic UPDATE hits source='manual' guard → 'skipped_manual'."""
         from services.drug_indications import upsert_from_medlineplus
 
-        conn = self._make_conn(fetchone_side_effects=[(1, "manual")])
+        conn = self._make_conn([
+            self._make_execute_result((1, "manual")),    # SELECT by rxcui → manual row
+            self._make_execute_result(rowcount=0),       # UPDATE WHERE source <> 'manual' → 0 rows
+        ])
 
         outcome = upsert_from_medlineplus(conn, "29046", self._PAYLOAD)
 
         assert outcome == "skipped_manual"
-        assert conn.execute.call_count == 1  # only the rxcui SELECT
+        assert conn.execute.call_count == 2  # SELECT + UPDATE
 
     def test_upsert_updates_existing_medlineplus_row(self):
         """Existing row with source='medlineplus' (found by rxcui) → UPDATE → 'updated'."""
         from services.drug_indications import upsert_from_medlineplus
 
-        conn = self._make_conn(fetchone_side_effects=[(1, "medlineplus")])
+        conn = self._make_conn([
+            self._make_execute_result((1, "medlineplus")),  # SELECT by rxcui
+            self._make_execute_result(rowcount=1),          # UPDATE succeeds
+        ])
 
         outcome = upsert_from_medlineplus(conn, "29046", self._PAYLOAD)
 
         assert outcome == "updated"
-        assert conn.execute.call_count == 2  # rxcui SELECT + UPDATE
+        assert conn.execute.call_count == 2  # SELECT + UPDATE
 
     def test_upsert_handles_drug_name_key_collision(self):
         """No rxcui match; drug_name_key exists with a DIFFERENT rxcui → 'skipped_collision'."""
         from services.drug_indications import upsert_from_medlineplus
 
-        # rxcui SELECT → None; drug_name_key SELECT → row with different rxcui
-        conn = self._make_conn(
-            fetchone_side_effects=[
-                None,  # SELECT by rxcui → not found
-                (1, "openfda", "99999"),  # SELECT by drug_name_key → different rxcui
-            ]
-        )
+        conn = self._make_conn([
+            self._make_execute_result(None),                   # SELECT by rxcui → not found
+            self._make_execute_result((1, "openfda", "99999")), # SELECT by drug_name_key → different rxcui
+        ])
 
         outcome = upsert_from_medlineplus(conn, "29046", self._PAYLOAD)
 
@@ -250,18 +259,31 @@ class TestUpsertFromMedlineplus:
         """No rxcui match; drug_name_key row exists with rxcui=None → UPDATE sets rxcui."""
         from services.drug_indications import upsert_from_medlineplus
 
-        # rxcui SELECT → None; drug_name_key SELECT → row with rxcui=None
-        conn = self._make_conn(
-            fetchone_side_effects=[
-                None,  # SELECT by rxcui → not found
-                (5, "openfda", None),  # SELECT by drug_name_key → no rxcui yet
-            ]
-        )
+        conn = self._make_conn([
+            self._make_execute_result(None),             # SELECT by rxcui → not found
+            self._make_execute_result((5, "openfda", None)),  # SELECT by drug_name_key → no rxcui
+            self._make_execute_result(rowcount=1),       # UPDATE succeeds
+        ])
 
         outcome = upsert_from_medlineplus(conn, "29046", self._PAYLOAD)
 
         assert outcome == "updated"
         assert conn.execute.call_count == 3  # two SELECTs + UPDATE
+
+    def test_upsert_skips_manual_via_drug_name_key_atomic_update(self):
+        """No rxcui match; drug_name_key row concurrent flip to 'manual' → 'skipped_manual'."""
+        from services.drug_indications import upsert_from_medlineplus
+
+        conn = self._make_conn([
+            self._make_execute_result(None),              # SELECT by rxcui → not found
+            self._make_execute_result((5, "openfda", None)),  # SELECT by drug_name_key
+            self._make_execute_result(rowcount=0),        # UPDATE WHERE source <> 'manual' → 0 rows
+        ])
+
+        outcome = upsert_from_medlineplus(conn, "29046", self._PAYLOAD)
+
+        assert outcome == "skipped_manual"
+        assert conn.execute.call_count == 3
 
 
 # ---------------------------------------------------------------------------
