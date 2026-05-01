@@ -180,7 +180,6 @@ def main(argv=None):
     inserted = 0
     updated = 0
     skipped_manual = 0
-    skipped_collision = 0
     not_found = 0
     errors = 0
 
@@ -215,9 +214,6 @@ def main(argv=None):
                 if outcome == "skipped_manual":
                     skipped_manual += 1
                     print(f"↪ {rxcui} — skipped (manual)")
-                elif outcome == "skipped_collision":
-                    skipped_collision += 1
-                    print(f"↪ {rxcui} — skipped (drug_name_key collision)")
                 elif outcome == "updated":
                     updated += 1
                     print(f"✓ {rxcui} {title} — {char_count} chars")
@@ -236,7 +232,6 @@ def main(argv=None):
         f"Inserted: {inserted} | "
         f"Updated: {updated} | "
         f"Skipped manual: {skipped_manual} | "
-        f"Skipped collision: {skipped_collision} | "
         f"Not found: {not_found} | "
         f"Errors: {errors}"
     )
