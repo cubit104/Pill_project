@@ -96,9 +96,12 @@ Processed: 5 | Inserted: 0 | Updated: 0 | Skipped manual: 0 | Not found: 1 | Err
 ### What it does
 - Reads distinct `rxcui` values from `pillfinder` (read-only).
 - For each, calls MedlinePlus Connect API (free, no key, NIH/NLM).
-- Upserts into `drug_indications` keyed by `rxcui`.
+- Upserts into `drug_indications` keyed by `rxcui` (one row per RxCUI / per strength).
 - **Skips rows with `source='manual'`** (admin edits are protected).
 - Expected coverage: ~90% (audited on real data).
+
+### Schema
+- `drug_name_key` is no longer UNIQUE (was obsoleted by per-rxcui rows). Migration: `20260501_drug_indications_drop_drug_name_key_unique.sql`.
 
 ### Idempotent
 Re-running only fetches rxcuis not already in `drug_indications`. Use `--force`

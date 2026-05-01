@@ -6,6 +6,8 @@ Functions
 fetch_indications_from_openfda(drug_name) -> dict | None
 upsert_indication(conn, drug_name_key, payload, *, source) -> str
     Returns one of: 'inserted' | 'updated' | 'skipped_manual'
+upsert_from_medlineplus(conn, rxcui, payload) -> str
+    Returns one of: 'inserted' | 'updated' | 'skipped_manual'
 truncate_indication(text, limit) -> str
 """
 
@@ -179,115 +181,30 @@ def upsert_from_medlineplus(conn, rxcui: str, payload: dict) -> str:
 
     Behavior:
     - If row exists with source='manual': SKIP (return 'skipped_manual'). User edits win.
-      This is enforced atomically in SQL via ``WHERE source <> 'manual'`` so concurrent
-      flips to 'manual' can never be overwritten.
-    - Otherwise: INSERT or UPDATE plain_text, source_url, source='medlineplus',
-      fetched_at=NOW(), generic_name=payload['title'].
-    - drug_name_key is a NOT NULL UNIQUE column. For NEW rows it is set to
-      lower(payload['title']). For existing rows matched by drug_name_key it is not
-      changed (already set).
-    - If a row already exists with that drug_name_key but a DIFFERENT rxcui,
-      log and return 'skipped_collision'.
+    - Otherwise: INSERT ... ON CONFLICT (rxcui) DO UPDATE plain_text, source_url,
+      source='medlineplus', fetched_at=NOW(), generic_name, drug_name_key.
+    - drug_name_key is NOT NULL — provided as lower(payload['title']).
+      Duplicate drug_name_key values across different rxcuis are allowed (e.g.
+      different strengths of the same drug share the same drug_name_key).
 
-    Returns: 'inserted' | 'updated' | 'skipped_manual' | 'skipped_collision'
+    Returns: 'inserted' | 'updated' | 'skipped_manual'
     """
     drug_name_key = payload["title"].lower()
 
-    # 1. Check for existing row by rxcui
+    # 1. Check for existing row by rxcui — enforce manual-override guard
     row = conn.execute(
         text("SELECT id, source FROM drug_indications WHERE rxcui = :rxcui"),
         {"rxcui": rxcui},
     ).fetchone()
 
-    if row is not None:
-        row_id = row[0]
-        # Enforce manual-override guard atomically in SQL: only update when
-        # source <> 'manual'.  If 0 rows updated, the row was manual-protected.
-        result = conn.execute(
-            text(
-                """
-                UPDATE drug_indications
-                SET plain_text   = :plain_text,
-                    source_url   = :source_url,
-                    source       = 'medlineplus',
-                    fetched_at   = NOW(),
-                    generic_name = :generic_name
-                WHERE id = :id
-                  AND source <> 'manual'
-                """
-            ),
-            {
-                "plain_text": payload["plain_text"],
-                "source_url": payload["source_url"],
-                "generic_name": payload["title"],
-                "id": row_id,
-            },
+    if row is not None and row[1] == "manual":
+        logger.info(
+            "drug_indications: skipping rxcui=%s — manual override in place", rxcui
         )
-        if result.rowcount == 0:
-            logger.info(
-                "drug_indications: skipping rxcui=%s — manual override in place", rxcui
-            )
-            return "skipped_manual"
-        return "updated"
+        return "skipped_manual"
 
-    # 2. No rxcui match — check for existing row by drug_name_key (collision guard)
-    name_row = conn.execute(
-        text(
-            "SELECT id, source, rxcui FROM drug_indications WHERE drug_name_key = :key"
-        ),
-        {"key": drug_name_key},
-    ).fetchone()
-
-    if name_row is not None:
-        existing_id, existing_source, existing_rxcui = (
-            name_row[0],
-            name_row[1],
-            name_row[2],
-        )
-        if existing_rxcui is not None and existing_rxcui != rxcui:
-            logger.warning(
-                "drug_indications: rxcui collision for drug_name_key=%s "
-                "(existing rxcui=%s, new rxcui=%s) — skipping",
-                drug_name_key,
-                existing_rxcui,
-                rxcui,
-            )
-            return "skipped_collision"
-        # Existing row has this drug_name_key but no rxcui (or same rxcui) — update it.
-        # Guard against concurrent manual flip atomically.
-        result = conn.execute(
-            text(
-                """
-                UPDATE drug_indications
-                SET rxcui        = :rxcui,
-                    plain_text   = :plain_text,
-                    source_url   = :source_url,
-                    source       = 'medlineplus',
-                    fetched_at   = NOW(),
-                    generic_name = :generic_name
-                WHERE id = :id
-                  AND source <> 'manual'
-                """
-            ),
-            {
-                "rxcui": rxcui,
-                "plain_text": payload["plain_text"],
-                "source_url": payload["source_url"],
-                "generic_name": payload["title"],
-                "id": existing_id,
-            },
-        )
-        if result.rowcount == 0:
-            logger.info(
-                "drug_indications: skipping rxcui=%s — manual override on drug_name_key=%s",
-                rxcui,
-                drug_name_key,
-            )
-            return "skipped_manual"
-        return "updated"
-
-    # 3. No existing row — INSERT new
-    conn.execute(
+    # 2. INSERT ... ON CONFLICT (rxcui) DO UPDATE
+    result = conn.execute(
         text(
             """
             INSERT INTO drug_indications
@@ -296,6 +213,15 @@ def upsert_from_medlineplus(conn, rxcui: str, payload: dict) -> str:
             VALUES
                 (:drug_name_key, :rxcui, :generic_name, :plain_text, :source_url,
                  'medlineplus', NOW())
+            ON CONFLICT (rxcui) DO UPDATE
+            SET plain_text   = EXCLUDED.plain_text,
+                source_url   = EXCLUDED.source_url,
+                generic_name = EXCLUDED.generic_name,
+                drug_name_key = EXCLUDED.drug_name_key,
+                source       = 'medlineplus',
+                fetched_at   = NOW()
+            WHERE drug_indications.source <> 'manual'
+            RETURNING (xmax = 0) AS inserted
             """
         ),
         {
@@ -305,8 +231,16 @@ def upsert_from_medlineplus(conn, rxcui: str, payload: dict) -> str:
             "plain_text": payload["plain_text"],
             "source_url": payload["source_url"],
         },
-    )
-    return "inserted"
+    ).fetchone()
+
+    if result is None:
+        # ON CONFLICT DO UPDATE WHERE condition was false — concurrent manual flip
+        logger.info(
+            "drug_indications: skipping rxcui=%s — manual override in place", rxcui
+        )
+        return "skipped_manual"
+
+    return "inserted" if result[0] else "updated"
 
 
 # ---------------------------------------------------------------------------

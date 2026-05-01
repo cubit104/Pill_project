@@ -199,33 +199,31 @@ class TestUpsertFromMedlineplus:
         return conn
 
     def test_upsert_inserts_new_row(self):
-        """No existing rows for this rxcui or drug_name_key → INSERT → 'inserted'."""
+        """No existing row for this rxcui → INSERT → 'inserted'."""
         from services.drug_indications import upsert_from_medlineplus
 
         conn = self._make_conn([
             self._make_execute_result(None),   # SELECT by rxcui → not found
-            self._make_execute_result(None),   # SELECT by drug_name_key → not found
-            self._make_execute_result(None),   # INSERT
+            self._make_execute_result((True,)),  # INSERT ... ON CONFLICT RETURNING inserted=True
         ])
 
         outcome = upsert_from_medlineplus(conn, "29046", self._PAYLOAD)
 
         assert outcome == "inserted"
-        assert conn.execute.call_count == 3
+        assert conn.execute.call_count == 2
 
     def test_upsert_skips_manual_rows(self):
-        """Row exists (found by rxcui); atomic UPDATE hits source='manual' guard → 'skipped_manual'."""
+        """Row exists (found by rxcui) with source='manual' → early return 'skipped_manual'."""
         from services.drug_indications import upsert_from_medlineplus
 
         conn = self._make_conn([
-            self._make_execute_result((1, "manual")),    # SELECT by rxcui → manual row
-            self._make_execute_result(rowcount=0),       # UPDATE WHERE source <> 'manual' → 0 rows
+            self._make_execute_result((1, "manual")),  # SELECT by rxcui → manual row
         ])
 
         outcome = upsert_from_medlineplus(conn, "29046", self._PAYLOAD)
 
         assert outcome == "skipped_manual"
-        assert conn.execute.call_count == 2  # SELECT + UPDATE
+        assert conn.execute.call_count == 1  # only the SELECT
 
     def test_upsert_updates_existing_medlineplus_row(self):
         """Existing row with source='medlineplus' (found by rxcui) → UPDATE → 'updated'."""
@@ -233,57 +231,59 @@ class TestUpsertFromMedlineplus:
 
         conn = self._make_conn([
             self._make_execute_result((1, "medlineplus")),  # SELECT by rxcui
-            self._make_execute_result(rowcount=1),          # UPDATE succeeds
+            self._make_execute_result((False,)),            # INSERT ON CONFLICT RETURNING inserted=False
         ])
 
         outcome = upsert_from_medlineplus(conn, "29046", self._PAYLOAD)
 
         assert outcome == "updated"
-        assert conn.execute.call_count == 2  # SELECT + UPDATE
+        assert conn.execute.call_count == 2  # SELECT + INSERT/UPDATE
 
-    def test_upsert_handles_drug_name_key_collision(self):
-        """No rxcui match; drug_name_key exists with a DIFFERENT rxcui → 'skipped_collision'."""
+    def test_upsert_allows_duplicate_drug_name_key(self):
+        """Two different rxcuis with the same drug_name_key both insert successfully."""
         from services.drug_indications import upsert_from_medlineplus
 
-        conn = self._make_conn([
-            self._make_execute_result(None),                   # SELECT by rxcui → not found
-            self._make_execute_result((1, "openfda", "99999")), # SELECT by drug_name_key → different rxcui
+        payload_1 = {
+            "rxcui": "1011712",
+            "title": "Aliskiren",
+            "plain_text": "Aliskiren is used to treat high blood pressure.",
+            "source_url": "https://medlineplus.gov/druginfo/meds/a608019.html",
+        }
+        payload_2 = {
+            "rxcui": "1011738",
+            "title": "Aliskiren",
+            "plain_text": "Aliskiren is used to treat high blood pressure.",
+            "source_url": "https://medlineplus.gov/druginfo/meds/a608019.html",
+        }
+
+        conn_1 = self._make_conn([
+            self._make_execute_result(None),     # SELECT by rxcui → not found
+            self._make_execute_result((True,)),  # INSERT RETURNING inserted=True
+        ])
+        conn_2 = self._make_conn([
+            self._make_execute_result(None),     # SELECT by rxcui → not found
+            self._make_execute_result((True,)),  # INSERT RETURNING inserted=True
         ])
 
-        outcome = upsert_from_medlineplus(conn, "29046", self._PAYLOAD)
+        outcome_1 = upsert_from_medlineplus(conn_1, "1011712", payload_1)
+        outcome_2 = upsert_from_medlineplus(conn_2, "1011738", payload_2)
 
-        assert outcome == "skipped_collision"
-        assert conn.execute.call_count == 2  # two SELECTs, no write
+        assert outcome_1 == "inserted"
+        assert outcome_2 == "inserted"
 
-    def test_upsert_updates_row_found_by_drug_name_key_without_rxcui(self):
-        """No rxcui match; drug_name_key row exists with rxcui=None → UPDATE sets rxcui."""
+    def test_upsert_skips_manual_via_atomic_on_conflict(self):
+        """Concurrent manual flip causes ON CONFLICT DO UPDATE WHERE to return no row → 'skipped_manual'."""
         from services.drug_indications import upsert_from_medlineplus
 
         conn = self._make_conn([
-            self._make_execute_result(None),             # SELECT by rxcui → not found
-            self._make_execute_result((5, "openfda", None)),  # SELECT by drug_name_key → no rxcui
-            self._make_execute_result(rowcount=1),       # UPDATE succeeds
-        ])
-
-        outcome = upsert_from_medlineplus(conn, "29046", self._PAYLOAD)
-
-        assert outcome == "updated"
-        assert conn.execute.call_count == 3  # two SELECTs + UPDATE
-
-    def test_upsert_skips_manual_via_drug_name_key_atomic_update(self):
-        """No rxcui match; drug_name_key row concurrent flip to 'manual' → 'skipped_manual'."""
-        from services.drug_indications import upsert_from_medlineplus
-
-        conn = self._make_conn([
-            self._make_execute_result(None),              # SELECT by rxcui → not found
-            self._make_execute_result((5, "openfda", None)),  # SELECT by drug_name_key
-            self._make_execute_result(rowcount=0),        # UPDATE WHERE source <> 'manual' → 0 rows
+            self._make_execute_result((1, "medlineplus")),  # SELECT by rxcui → non-manual
+            self._make_execute_result(None),                # INSERT ON CONFLICT → WHERE source<>'manual' false → no row
         ])
 
         outcome = upsert_from_medlineplus(conn, "29046", self._PAYLOAD)
 
         assert outcome == "skipped_manual"
-        assert conn.execute.call_count == 3
+        assert conn.execute.call_count == 2
 
 
 # ---------------------------------------------------------------------------
