@@ -174,6 +174,133 @@ def upsert_indication(
     return "inserted" if result[1] else "updated"
 
 
+def upsert_from_medlineplus(conn, rxcui: str, payload: dict) -> str:
+    """Upsert a drug_indications row keyed by rxcui.
+
+    Behavior:
+    - If row exists with source='manual': SKIP (return 'skipped_manual'). User edits win.
+    - Otherwise: INSERT or UPDATE plain_text, source_url, source='medlineplus',
+      fetched_at=NOW(), generic_name=payload['title'].
+    - drug_name_key column: if not set on existing row, set it to lower(payload['title']).
+      It's a NOT NULL UNIQUE column from PR #122. For NEW rows, we MUST provide it.
+    - If a row already exists with that drug_name_key but a DIFFERENT rxcui,
+      log and return 'skipped_collision'.
+
+    Returns: 'inserted' | 'updated' | 'skipped_manual' | 'skipped_collision'
+    """
+    drug_name_key = payload["title"].lower()
+
+    # 1. Check for existing row by rxcui
+    row = conn.execute(
+        text("SELECT id, source FROM drug_indications WHERE rxcui = :rxcui"),
+        {"rxcui": rxcui},
+    ).fetchone()
+
+    if row is not None:
+        row_id, source = row[0], row[1]
+        if source == "manual":
+            logger.info(
+                "drug_indications: skipping rxcui=%s — manual override in place", rxcui
+            )
+            return "skipped_manual"
+        conn.execute(
+            text(
+                """
+                UPDATE drug_indications
+                SET plain_text   = :plain_text,
+                    source_url   = :source_url,
+                    source       = 'medlineplus',
+                    fetched_at   = NOW(),
+                    generic_name = :generic_name
+                WHERE id = :id
+                """
+            ),
+            {
+                "plain_text": payload["plain_text"],
+                "source_url": payload["source_url"],
+                "generic_name": payload["title"],
+                "id": row_id,
+            },
+        )
+        return "updated"
+
+    # 2. No rxcui match — check for existing row by drug_name_key (collision guard)
+    name_row = conn.execute(
+        text(
+            "SELECT id, source, rxcui FROM drug_indications WHERE drug_name_key = :key"
+        ),
+        {"key": drug_name_key},
+    ).fetchone()
+
+    if name_row is not None:
+        existing_id, existing_source, existing_rxcui = (
+            name_row[0],
+            name_row[1],
+            name_row[2],
+        )
+        if existing_source == "manual":
+            logger.info(
+                "drug_indications: skipping rxcui=%s — manual override on drug_name_key=%s",
+                rxcui,
+                drug_name_key,
+            )
+            return "skipped_manual"
+        if existing_rxcui is not None and existing_rxcui != rxcui:
+            logger.warning(
+                "drug_indications: rxcui collision for drug_name_key=%s "
+                "(existing rxcui=%s, new rxcui=%s) — skipping",
+                drug_name_key,
+                existing_rxcui,
+                rxcui,
+            )
+            return "skipped_collision"
+        # Existing row has this drug_name_key but no rxcui (or same rxcui) — update it
+        conn.execute(
+            text(
+                """
+                UPDATE drug_indications
+                SET rxcui        = :rxcui,
+                    plain_text   = :plain_text,
+                    source_url   = :source_url,
+                    source       = 'medlineplus',
+                    fetched_at   = NOW(),
+                    generic_name = :generic_name
+                WHERE id = :id
+                """
+            ),
+            {
+                "rxcui": rxcui,
+                "plain_text": payload["plain_text"],
+                "source_url": payload["source_url"],
+                "generic_name": payload["title"],
+                "id": existing_id,
+            },
+        )
+        return "updated"
+
+    # 3. No existing row — INSERT new
+    conn.execute(
+        text(
+            """
+            INSERT INTO drug_indications
+                (drug_name_key, rxcui, generic_name, plain_text, source_url,
+                 source, fetched_at)
+            VALUES
+                (:drug_name_key, :rxcui, :generic_name, :plain_text, :source_url,
+                 'medlineplus', NOW())
+            """
+        ),
+        {
+            "drug_name_key": drug_name_key,
+            "rxcui": rxcui,
+            "generic_name": payload["title"],
+            "plain_text": payload["plain_text"],
+            "source_url": payload["source_url"],
+        },
+    )
+    return "inserted"
+
+
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
