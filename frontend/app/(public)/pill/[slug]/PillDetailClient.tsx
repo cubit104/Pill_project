@@ -7,6 +7,7 @@ import type { PillDetail, RelatedDrug, SimilarPill } from '../../../types'
 import type { Reviewer } from '../../../lib/reviewers'
 import { classSlugify, slugifyDrugName } from '../../../lib/slug'
 import { slugifyUrl } from '../../../lib/url-utils'
+import DrugIndicationSection from './DrugIndicationSection'
 
 function PillIconLarge() {
   return (
@@ -297,6 +298,11 @@ export default function PillDetailClient({
             <h2 className="text-base font-semibold text-slate-800 mb-3">Pill Identification</h2>
             <p className="text-sm text-slate-700 leading-relaxed">{identificationSummary}</p>
           </section>
+        )}
+
+        {/* Drug Indication */}
+        {pill.indication && (
+          <DrugIndicationSection indication={pill.indication} />
         )}
 
         {/* Safety Checklist */}

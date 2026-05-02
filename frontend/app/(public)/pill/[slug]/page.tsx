@@ -50,6 +50,7 @@ async function fetchPill(slug: string): Promise<PillDetail | null> {
     spl_set_id: raw.spl_set_id ?? undefined,
     updated_at: raw.updated_at ?? undefined,
     meta_description: raw.meta_description ?? undefined,
+    indication: raw.indication ?? null,
   }
 }
 
