@@ -302,7 +302,11 @@ export default function PillDetailClient({
 
         {/* Drug Indication */}
         {pill.indication && (
-          <DrugIndicationSection indication={pill.indication} />
+          <DrugIndicationSection
+            indication={pill.indication}
+            drugName={pill.drug_name}
+            imprint={pill.imprint}
+          />
         )}
 
         {/* Safety Checklist */}
