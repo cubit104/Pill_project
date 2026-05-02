@@ -71,7 +71,7 @@ def _get_score_buckets() -> dict:
         _score_cache["data"] = data
         _score_cache["expires"] = now + 300.0  # cache 5 minutes
         return data
-    except Exception as e:  # catch all errors so we always log the real reason
+    except (SQLAlchemyError, KeyError, TypeError, AttributeError) as e:
         logger.error(f"_get_score_buckets error: {e}", exc_info=True)
         return {"score_80_90": 0, "score_90_100": 0}
 

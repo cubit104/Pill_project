@@ -787,6 +787,9 @@ function PostHogRetentionGrid({ range = '12w' }: { range?: string }) {
 
 function countryFlag(code: string): string {
   if (!code || code.length !== 2) return '🌐'
+  // 0x1F1E6 is the Unicode regional indicator symbol for 'A' (U+1F1E6).
+  // Subtracting 65 (ASCII for 'A') maps each letter to its regional indicator offset,
+  // producing the two-codepoint flag emoji for any ISO 3166-1 alpha-2 country code.
   return String.fromCodePoint(
     ...code.toUpperCase().split('').map(c => 0x1F1E6 + c.charCodeAt(0) - 65)
   )

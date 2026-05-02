@@ -163,7 +163,7 @@ class TestCleanText:
 
     def test_clean_text_empty_input(self):
         assert _clean_text("") == ""
-        assert _clean_text(None) == ""  # type: ignore[arg-type]
+        assert _clean_text(None) == ""
 
 
 # ---------------------------------------------------------------------------
