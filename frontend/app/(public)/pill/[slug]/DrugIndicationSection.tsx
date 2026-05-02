@@ -29,8 +29,8 @@ function extractGeneric(plainText: string): string {
   // Handle "The combination of X and Y is used..."
   const comboMatch = plainText.match(/^[Tt]he combination of ([A-Za-z][A-Za-z0-9\s\-,]+?) (?:is|are) used/)
   if (comboMatch) return comboMatch[1].trim().toLowerCase()
-  // General: extract everything before " is used" / " are used"
-  const generalMatch = plainText.match(/^([A-Za-z][A-Za-z0-9\s\-,]+?) (?:is|are) used/i)
+  // General: extract everything before " is/are used" (MedlinePlus) or " is/are indicated" (openFDA)
+  const generalMatch = plainText.match(/^([A-Za-z][A-Za-z0-9\s\-,]+?) (?:is|are) (?:used|indicated)/i)
   return generalMatch ? generalMatch[1].trim().toLowerCase() : ''
 }
 
