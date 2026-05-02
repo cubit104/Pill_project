@@ -322,7 +322,42 @@ def get_pill_by_slug(slug: str):
                 ),
                 "additional_ndcs": additional_ndcs,
                 "meta_description": pill_info.get("meta_description") or None,
+                "indication": None,
             }
+
+            # Fetch patient-friendly indication text from drug_indications (keyed by rxcui).
+            rxcui_val = pill_info.get("rxcui")
+            if rxcui_val:
+                try:
+                    ind_result = conn.execute(
+                        text(
+                            """
+                            SELECT plain_text, source_url, source, fetched_at
+                            FROM drug_indications
+                            WHERE rxcui = :rxcui
+                              AND plain_text IS NOT NULL
+                            LIMIT 1
+                            """
+                        ),
+                        {"rxcui": str(rxcui_val)},
+                    )
+                    ind_row = ind_result.fetchone()
+                    if ind_row:
+                        row_map = ind_row._mapping
+                        mapped["indication"] = {
+                            "plain_text": row_map["plain_text"],
+                            "source_url": row_map["source_url"],
+                            "source": row_map["source"],
+                            "fetched_at": _to_iso(row_map["fetched_at"]),
+                        }
+                except SQLAlchemyError as _e:
+                    err_msg = str(_e).lower()
+                    if "drug_indications" in err_msg and (
+                        "does not exist" in err_msg or "no such table" in err_msg
+                    ):
+                        logger.debug("drug_indications table not yet created: %s", _e)
+                    else:
+                        logger.warning("drug_indications lookup failed for rxcui=%s: %s", rxcui_val, _e)
 
         return mapped
 

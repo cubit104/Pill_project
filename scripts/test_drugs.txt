@@ -1,0 +1,11 @@
+# Stage 1 seed list — common drugs for manual QA in Supabase
+ibuprofen
+acetaminophen
+lisinopril
+metformin
+atorvastatin
+amlodipine
+omeprazole
+sertraline
+clopidogrel
+amoxicillin

@@ -15,6 +15,13 @@ export interface PillResult {
   manufacturer?: string
 }
 
+export interface DrugIndication {
+  plain_text: string
+  source_url: string | null
+  source: string
+  fetched_at: string | null
+}
+
 export interface PillDetail extends PillResult {
   ingredients?: string
   inactive_ingredients?: string
@@ -36,6 +43,8 @@ export interface PillDetail extends PillResult {
   meta_title?: string
   /** Pre-generated SEO meta description stored in the DB. */
   meta_description?: string
+  /** Patient-friendly drug indication from drug_indications table. */
+  indication?: DrugIndication | null
 }
 
 export interface SimilarPill {

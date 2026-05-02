@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from routes.admin.auth import get_admin_user
 
@@ -687,3 +687,74 @@ def posthog_visitor_locations(
     except Exception as exc:
         logger.error("PostHog visitor locations error: %s", exc)
         return {"configured": True, "error": "Failed to fetch PostHog visitor locations. Check server logs for details."}
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Live Visitors Endpoint
+# ────────────────────────────────────────────────────────────────────────────
+
+@router.get("/live")
+def posthog_live(response: Response, admin: dict = Depends(get_admin_user)):
+    """Return active users in last 5 minutes and recent live page events."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    api_key, project_id, host = _get_posthog_config()
+    if not api_key:
+        return _not_configured()
+
+    try:
+        # Active users in last 5 minutes
+        active_users = _scalar_count(api_key, project_id, host, """
+            SELECT count(DISTINCT person_id) FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= now() - INTERVAL 5 MINUTE
+        """, "live_active_users")
+
+        # Recent page events (last 30 minutes, up to 100 rows)
+        payload = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": """
+                    SELECT
+                        timestamp,
+                        properties.$pathname AS path,
+                        coalesce(properties.$geoip_country_name, 'Unknown') AS country,
+                        coalesce(properties.$geoip_country_code, '') AS country_code,
+                        coalesce(properties.$geoip_city_name, '') AS city,
+                        properties.$ip AS ip,
+                        coalesce(properties.$device_type, 'Desktop') AS device,
+                        coalesce(properties.$browser, '') AS browser
+                    FROM events
+                    WHERE event = '$pageview'
+                      AND timestamp >= now() - INTERVAL 30 MINUTE
+                    ORDER BY timestamp DESC
+                    LIMIT 100
+                """,
+            }
+        }
+        result = _ph_query(api_key, project_id, host, payload)
+        events = [
+            {
+                "timestamp": str(row[0]) if len(row) > 0 and row[0] else None,
+                "path": (row[1] if len(row) > 1 else None) or "/",
+                "country": (row[2] if len(row) > 2 else None) or "Unknown",
+                "country_code": (row[3] if len(row) > 3 else None) or "",
+                "city": (row[4] if len(row) > 4 else None) or "",
+                "ip": (row[5] if len(row) > 5 else None) or "",
+                "device": (row[6] if len(row) > 6 else None) or "Desktop",
+                "browser": (row[7] if len(row) > 7 else None) or "",
+            }
+            for row in (result.get("results") or [])
+        ]
+
+        return {
+            "configured": True,
+            "active_users": active_users,
+            "events": events,
+            "as_of": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+
+    except Exception as exc:
+        logger.error("PostHog live error: %s", exc)
+        return {"configured": True, "error": "Failed to fetch live data."}

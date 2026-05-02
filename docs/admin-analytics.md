@@ -39,7 +39,7 @@ Add these to your `.env` (local) and to your hosting provider's env settings
 # ── Google Analytics 4 ─────────────────────────────────────────────────────
 GA4_PROPERTY_ID=123456789
 
-# ── Google OAuth2 (GA4 + Search Console) ───────────────────────────────────
+# ── Google OAuth2 (GA4 + Search Console + Indexing API) ────────────────────
 GOOGLE_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
 GOOGLE_OAUTH_REFRESH_TOKEN=your-long-lived-refresh-token
@@ -71,6 +71,7 @@ PAGESPEED_API_KEY=AIzaSy...
 In **APIs & Services → Library**, enable:
 - **Google Analytics Data API** (for GA4)
 - **Google Search Console API** (for GSC)
+- **Web Search Indexing API** (for the Google Indexing API)
 
 ### Step 3 — Find your GA4 Property ID
 
@@ -99,6 +100,11 @@ GOOGLE_OAUTH_REFRESH_TOKEN=1//0g...
 ```
 
 Copy that value — it does not expire unless you explicitly revoke it.
+
+> **Note:** The refresh token covers all three Google integrations (GA4, Search Console,
+> and the Indexing API) because the script requests all three scopes at once:
+> `analytics.readonly`, `webmasters.readonly`, and `indexing`.  A single
+> `GOOGLE_OAUTH_REFRESH_TOKEN` is all you need.
 
 ### Step 5 — Add all values to your environment
 

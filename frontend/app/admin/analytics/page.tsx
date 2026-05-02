@@ -61,6 +61,8 @@ import {
   usePostHogFunnel,
   usePostHogReplays,
   usePostHogRetention,
+  usePostHogLive,
+  useIndexingStats,
   type RangeOption,
 } from './hooks/useAnalytics'
 
@@ -276,6 +278,7 @@ function TrafficTab({ range, onRangeChange, token }: { range: RangeOption; onRan
 
 function SeoTab({ range, onRangeChange }: { range: RangeOption; onRangeChange: (r: RangeOption) => void }) {
   const { data, loading, error, refetch } = useSearchConsoleOverview(range)
+  const indexing = useIndexingStats()
 
   if (error) return <ErrorCard message={error} onRetry={refetch} />
   const sc = data as any
@@ -307,6 +310,71 @@ function SeoTab({ range, onRangeChange }: { range: RangeOption; onRangeChange: (
             <StatCard label="Impressions" value={sc?.summary?.impressions} icon={<Eye className="w-4 h-4" />} delay={0.05} />
             <StatCard label="Avg. CTR" value={sc?.summary?.ctr} format="percent" delay={0.1} />
             <StatCard label="Avg. Position" value={sc?.summary?.position} format="position" icon={<Search className="w-4 h-4" />} delay={0.15} />
+          </div>
+
+          {/* Index Coverage */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-700 mb-4">Index Coverage</h3>
+            {indexing.loading ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+              </div>
+            ) : indexing.error ? (
+              <p className="text-xs text-red-500">{indexing.error}</p>
+            ) : indexing.data?.configured === false ? (
+              <p className="text-xs text-gray-400">{indexing.data.message}</p>
+            ) : indexing.data?.error ? (
+              <p className="text-xs text-red-500">{indexing.data.error}</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-emerald-700">
+                    {indexing.data?.indexed?.toLocaleString() ?? '—'}
+                  </div>
+                  <div className="text-xs text-emerald-600 mt-1 font-medium">✅ Indexed</div>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-red-700">
+                    {indexing.data?.not_indexed?.toLocaleString() ?? '—'}
+                  </div>
+                  <div className="text-xs text-red-600 mt-1 font-medium">🚫 Not Indexed</div>
+                </div>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-gray-700">
+                    {indexing.data?.submitted?.toLocaleString() ?? '—'}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1 font-medium">📋 Submitted</div>
+                </div>
+              </div>
+            )}
+            {indexing.data?.sitemaps?.length > 0 && (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="text-gray-500 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left py-2 pr-4">Sitemap</th>
+                      <th className="text-right py-2 px-2">Submitted</th>
+                      <th className="text-right py-2 px-2">Indexed</th>
+                      <th className="text-right py-2 px-2">Warnings</th>
+                      <th className="text-right py-2 px-2">Errors</th>
+                      <th className="text-right py-2">Last Downloaded</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {indexing.data.sitemaps.map((s: any) => (
+                      <tr key={s.path} className="text-gray-600">
+                        <td className="py-2 pr-4 font-mono truncate max-w-xs">{s.path}</td>
+                        <td className="text-right py-2 px-2">{s.submitted?.toLocaleString()}</td>
+                        <td className="text-right py-2 px-2 text-emerald-600 font-medium">{s.indexed?.toLocaleString()}</td>
+                        <td className="text-right py-2 px-2 text-amber-600">{s.warnings ?? '—'}</td>
+                        <td className="text-right py-2 px-2 text-red-600">{s.errors ?? '—'}</td>
+                        <td className="text-right py-2 text-gray-400">{s.last_downloaded ? new Date(s.last_downloaded).toLocaleDateString() : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -717,6 +785,155 @@ function PostHogRetentionGrid({ range = '12w' }: { range?: string }) {
   )
 }
 
+function countryFlag(code: string): string {
+  if (!code || code.length !== 2) return '🌐'
+  // 0x1F1E6 is the Unicode regional indicator symbol for 'A' (U+1F1E6).
+  // Subtracting 65 (ASCII for 'A') maps each letter to its regional indicator offset,
+  // converting ISO 3166-1 alpha-2 country codes into flag emoji. E.g. 'US' → '🇺🇸', 'GB' → '🇬🇧'.
+  return String.fromCodePoint(
+    ...code.toUpperCase().split('').map(c => 0x1F1E6 + c.charCodeAt(0) - 65)
+  )
+}
+
+function timeAgo(ts: string | null): string {
+  if (!ts) return '—'
+  const diffMs = Date.now() - new Date(ts).getTime()
+  if (!Number.isFinite(diffMs)) return '—'
+  const clampedMs = Math.max(0, diffMs)
+  const diffSec = Math.floor(clampedMs / 1000)
+  if (diffSec < 60) return `${diffSec}s ago`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  return `${diffHr}h ago`
+}
+
+const PAGE_SIZE = 20
+
+function PostHogLiveWidget() {
+  const { data, loading, error, refetch } = usePostHogLive()
+  const live = data as any
+  const [page, setPage] = useState(0)
+
+  useEffect(() => {
+    setPage(0)
+  }, [data])
+
+  if (loading && !live) return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+      <SkeletonTable rows={4} />
+    </div>
+  )
+  if (error) return <ErrorCard message={error} onRetry={refetch} />
+  if (live?.configured === false) return null
+  if (live?.error) return <ErrorCard message={live.error} onRetry={refetch} />
+
+  const activeUsers: number = live?.active_users ?? 0
+  const events: any[] = live?.events ?? []
+  const asOf: string | null = live?.as_of ?? null
+  const lastUpdated = asOf
+    ? new Date(asOf).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null
+
+  const totalPages = Math.ceil(events.length / PAGE_SIZE)
+  const pageStart = page * PAGE_SIZE
+  const pageEnd = Math.min(pageStart + PAGE_SIZE, events.length)
+  const pageRows = events.slice(pageStart, pageEnd)
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+          </span>
+          <span className="text-sm font-semibold text-gray-700">Live Visitors</span>
+        </div>
+        {lastUpdated && (
+          <span className="text-xs text-gray-400">Last updated: {lastUpdated}</span>
+        )}
+      </div>
+
+      {/* Active users count */}
+      {activeUsers === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-2">No active visitors right now</p>
+      ) : (
+        <div className="flex items-baseline gap-2">
+          <span className="text-4xl font-bold text-emerald-600">{activeUsers}</span>
+          <span className="text-sm text-gray-500">user{activeUsers !== 1 ? 's' : ''} active now</span>
+        </div>
+      )}
+
+      {/* Live feed table */}
+      {events.length > 0 && (
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-gray-400 border-b border-gray-100">
+                  <th className="text-left pb-2 font-medium">Time</th>
+                  <th className="text-left pb-2 font-medium">Page</th>
+                  <th className="text-left pb-2 font-medium">Country</th>
+                  <th className="text-left pb-2 font-medium">City</th>
+                  <th className="text-left pb-2 font-medium">IP</th>
+                  <th className="text-left pb-2 font-medium">Device</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {pageRows.map((ev: any, i: number) => (
+                  <tr key={`${ev.timestamp ?? ''}-${ev.path ?? ''}-${pageStart + i}`} className="hover:bg-gray-50 transition-colors">
+                    <td className="py-2 pr-3 text-gray-400 whitespace-nowrap">{timeAgo(ev.timestamp)}</td>
+                    <td className="py-2 pr-3 text-gray-800 font-medium truncate max-w-[180px]">{ev.path || '/'}</td>
+                    <td className="py-2 pr-3 whitespace-nowrap">
+                      <span aria-hidden="true">{countryFlag(ev.country_code)}</span> {ev.country}
+                    </td>
+                    <td className="py-2 pr-3 text-gray-500 whitespace-nowrap">{ev.city || '—'}</td>
+                    <td className="py-2 pr-3 font-mono text-gray-500 whitespace-nowrap">{ev.ip || '—'}</td>
+                    <td className="py-2 text-gray-500 whitespace-nowrap">
+                      {ev.device === 'Mobile' ? (
+                        <Smartphone className="w-3.5 h-3.5 inline text-gray-400" aria-label="Mobile" />
+                      ) : (
+                        <Monitor className="w-3.5 h-3.5 inline text-gray-400" aria-label="Desktop" />
+                      )}
+                      {ev.browser && <span className="ml-1">{ev.browser}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {events.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+              <span className="text-xs text-gray-400">
+                Showing {pageStart + 1}–{pageEnd} of {events.length}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="px-2.5 py-1 rounded text-xs font-medium border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  Prev
+                </button>
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="px-2.5 py-1 rounded text-xs font-medium border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function PostHogReplaysCard({ range }: { range: RangeOption }) {
   const { data, loading, error, refetch } = usePostHogReplays(10, range)
   const ph = data as any
@@ -817,6 +1034,9 @@ function PostHogTab({ range, onRangeChange, token }: { range: RangeOption; onRan
         />
       ) : (
         <>
+          {/* Live Visitors widget — always first */}
+          <PostHogLiveWidget />
+
           {/* Stat cards */}
           {loading ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">

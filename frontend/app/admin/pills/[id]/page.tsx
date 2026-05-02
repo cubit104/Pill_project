@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, useRef, useId } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
-import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink } from 'lucide-react'
 import {
   FIELD_SCHEMA,
   FIELD_SCHEMA_BY_KEY,
@@ -428,6 +428,192 @@ function FieldInput({
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Google Index Status Panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+function IndexStatusPanel({ slug, token }: { slug: string; token: string | null }) {
+  const [result, setResult] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitResult, setSubmitResult] = useState<string | null>(null)
+  const [indexingStats, setIndexingStats] = useState<{ total_submitted: number; this_month: number; unique_pages: number } | null>(null)
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
+
+  useEffect(() => {
+    fetch('/api/admin/analytics/search-console/indexing-stats', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setIndexingStats(d))
+      .catch(() => {})
+  }, [token])
+
+  const check = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/admin/analytics/search-console/inspect-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ url: `${siteUrl}/pill/${slug}` }),
+      })
+      if (!res.ok) {
+        throw new Error(await safeErrorDetail(res, 'Failed to check index status'))
+      }
+      const data = await res.json()
+      setResult(data)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const submitForIndexing = async () => {
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/admin/analytics/search-console/submit-indexing', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ url: `${siteUrl}/pill/${slug}` }),
+      })
+      let data: any = null
+      const contentType = res.headers.get('content-type') || ''
+      if (contentType.includes('application/json')) {
+        try { data = await res.json() } catch { /* ignore parse error */ }
+      }
+      if (!res.ok || !data) {
+        const errText = data ? (data.error || data.detail || data.message || 'Submission failed') : await safeErrorDetail(res, 'Submission failed')
+        setSubmitResult(`Error: ${errText}`)
+      } else if (data.submitted) {
+        setSubmitResult('✅ Submitted to Google for indexing!')
+      } else if (data.configured === false) {
+        setSubmitResult(`⚠️ ${data.message}`)
+      } else {
+        setSubmitResult(`Error: ${data.error || data.detail || data.message || 'Submission failed'}`)
+      }
+    } catch (e: any) {
+      setSubmitResult(`Error: ${e.message}`)
+    } finally {
+      setSubmitting(false)
+      // Always refresh stats so the counter reflects what's stored server-side
+      fetch('/api/admin/analytics/search-console/indexing-stats', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => d && setIndexingStats(d))
+        .catch(() => {})
+    }
+  }
+
+  const verdictColor = result?.verdict === 'PASS'
+    ? 'text-emerald-600'
+    : result?.verdict === 'FAIL'
+    ? 'text-red-600'
+    : 'text-gray-500'
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-gray-700">Google Index Status</h3>
+        <button
+          onClick={check}
+          disabled={loading}
+          className="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {loading ? 'Checking…' : '🔍 Check'}
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-500">{error}</p>}
+      {result?.configured === false && (
+        <p className="text-xs text-gray-400">{result.message || 'Search Console is not configured.'}</p>
+      )}
+      {result && result.configured !== false && !result.error && (
+        <div className="space-y-1 text-xs">
+          <div className="flex justify-between">
+            <span className="text-gray-500">Verdict</span>
+            <span className={`font-bold ${verdictColor}`}>{result.verdict ?? '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Coverage</span>
+            <span className="text-gray-700 text-right max-w-[60%]">{result.coverage_state ?? '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Last Crawled</span>
+            <span className="text-gray-700">{result.last_crawl_time ? new Date(result.last_crawl_time).toLocaleDateString() : '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Indexing State</span>
+            <span className="text-gray-700 text-right max-w-[60%]">{result.indexing_state ?? '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Robots.txt</span>
+            <span className="text-gray-700">{result.robots_txt_state ?? '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Mobile</span>
+            <span className="text-gray-700">{result.mobile_usability_verdict ?? '—'}</span>
+          </div>
+          {result.google_canonical && result.google_canonical !== `${siteUrl}/pill/${slug}` && (
+            <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-amber-700">
+              ⚠️ Google canonical differs from expected URL
+            </div>
+          )}
+          {result.verdict !== 'PASS' && (
+            <button
+              onClick={submitForIndexing}
+              disabled={submitting}
+              className="w-full mt-2 text-xs bg-orange-500 text-white px-3 py-1.5 rounded hover:bg-orange-600 disabled:opacity-50"
+            >
+              {submitting
+                ? 'Submitting…'
+                : submitResult
+                  ? '🔄 Try again'
+                  : '🚀 Submit to Google for Indexing'}
+            </button>
+          )}
+          {submitResult && (
+            <p
+              className={`text-xs font-medium mt-2 ${
+                submitResult.startsWith('Error:')
+                  ? 'text-red-600'
+                  : submitResult.startsWith('⚠️')
+                    ? 'text-amber-600'
+                    : 'text-emerald-600'
+              }`}
+            >
+              {submitResult}
+            </p>
+          )}
+        </div>
+      )}
+      {result?.error && <p className="text-xs text-red-500">{result.error}</p>}
+      {!result && !loading && (
+        <p className="text-xs text-gray-400">Click Check to inspect this URL in Google Search Console.</p>
+      )}
+      {indexingStats && (
+      <div className="mt-3 border-t pt-2 flex flex-col gap-1">
+        <p className="text-sm font-medium">
+          <span className="text-indigo-600">🚀 {indexingStats.total_submitted} total submissions to Google across all users</span>
+        </p>
+        <p className="text-sm font-medium">
+          <span className="text-emerald-600">🗂️ {indexingStats.unique_pages} unique pages submitted</span>
+        </p>
+      </div>
+    )}
+    </div> 
+  )
+}
+
 export default function EditPillPage() {
   const params = useParams()
   const pillId = params.id as string
@@ -447,6 +633,7 @@ export default function EditPillPage() {
   const [completeness, setCompleteness] = useState<CompletenessData | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [resolvedImageUrls, setResolvedImageUrls] = useState<string[]>([])
+  const [justPublished, setJustPublished] = useState(false)
 
   const getSession = useCallback(async () => {
     const supabase = createClient()
@@ -560,6 +747,7 @@ export default function EditPillPage() {
     setErrorDismissed(false)
     setSuccess('Form reset to last saved state.')
     setSuccessDismissed(false)
+    setJustPublished(false)
   }
 
   const handleSave = async () => {
@@ -583,6 +771,7 @@ export default function EditPillPage() {
       if (!res.ok) throw new Error(await safeErrorDetail(res, 'Save failed'))
       setSuccess('Changes saved')
       setSuccessDismissed(false)
+      setJustPublished(false)
       await loadPill(); await fetchCompleteness()
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
@@ -633,6 +822,7 @@ export default function EditPillPage() {
       if (!res.ok) throw new Error(await safeErrorDetail(res, 'Publish failed'))
       setSuccess('Saved & published successfully')
       setSuccessDismissed(false)
+      setJustPublished(true)
       await loadPill(); await fetchCompleteness()
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
@@ -676,6 +866,8 @@ export default function EditPillPage() {
 
       <CompletenessBar completeness={completeness} />
 
+      {pill?.slug && <IndexStatusPanel slug={pill.slug} token={token} />}
+
       {/* Prominent blue banner — visible whenever pending drafts exist */}
       {draftCount > 0 && (
         <div className="bg-blue-50 border border-blue-300 rounded-md px-4 py-3 text-sm text-blue-800 flex items-center justify-between gap-2">
@@ -716,9 +908,22 @@ export default function EditPillPage() {
       {showSuccess && (
         <div className="bg-green-50 text-green-700 px-4 py-2 rounded-md text-sm border border-green-200 flex items-center justify-between gap-2">
           <span>{success}</span>
-          <button onClick={() => setSuccessDismissed(true)} className="shrink-0 text-green-600 hover:text-green-800" aria-label="Dismiss message">
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-3">
+            {justPublished && pill?.slug && (
+              <a
+                href={`${process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'}/pill/${pill.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-green-800 font-semibold underline hover:text-green-900 whitespace-nowrap"
+              >
+                View Live Page →
+              </a>
+            )}
+            <button onClick={() => { setSuccessDismissed(true); setJustPublished(false) }}
+              className="shrink-0 text-green-600 hover:text-green-800" aria-label="Dismiss">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -741,6 +946,16 @@ export default function EditPillPage() {
           title="Discard unsaved changes and reset form to last saved state">
           <RotateCcw className="w-4 h-4" />Discard changes
         </button>
+        {pill?.slug && (
+          <a
+            href={`${process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'}/pill/${pill.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 text-sm font-medium transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" /> View Live Page
+          </a>
+        )}
       </div>
 
       {token && (
