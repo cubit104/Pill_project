@@ -8,8 +8,7 @@ interface ConditionDrug {
   spl_strength?: string | null
   slug?: string | null
   image_filename?: string | null
-  generic_name?: string | null
-  brand_name?: string | null
+  brand_names?: string | null
   rxcui?: string | null
 }
 
@@ -48,9 +47,6 @@ function DrugCardContent({ drug }: { drug: ConditionDrug }) {
           {drug.spl_strength}
         </span>
       )}
-      {drug.generic_name && drug.generic_name !== drug.medicine_name && (
-        <div className="text-xs text-slate-500 mt-1">{drug.generic_name}</div>
-      )}
     </>
   )
 }
@@ -68,8 +64,6 @@ export default function ConditionPageClient({ drugs, conditionTitle }: Condition
 
   const cardClass =
     'block p-4 bg-white border border-slate-200 rounded-xl hover:border-emerald-300 hover:shadow-sm transition-all'
-  const staticCardClass =
-    'p-4 bg-white border border-slate-200 rounded-xl'
 
   return (
     <div>
@@ -92,22 +86,15 @@ export default function ConditionPageClient({ drugs, conditionTitle }: Condition
               </Link>
             )
           }
-          if (drug.generic_name) {
-            return (
-              <Link
-                key={key}
-                href={`/drug/${slugifyDrugName(drug.generic_name)}`}
-                className={cardClass}
-              >
-                <DrugCardContent drug={drug} />
-              </Link>
-            )
-          }
-          // No slug and no generic_name — render as non-clickable card.
+          // No slug — link by medicine_name (which is the generic name).
           return (
-            <div key={key} className={staticCardClass}>
+            <Link
+              key={key}
+              href={`/drug/${slugifyDrugName(drug.medicine_name)}`}
+              className={cardClass}
+            >
               <DrugCardContent drug={drug} />
-            </div>
+            </Link>
           )
         })}
       </div>

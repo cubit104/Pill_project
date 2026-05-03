@@ -8,9 +8,10 @@ Covers:
   5. Slug normalization (uppercase input)
   6. /api/conditions list endpoint
   7. Drug deduplication — one row per rxcui
-  8. Drug with no slug but has generic_name still appears in result
+  8. Drug with no slug still appears in result (links via medicine_name)
   9. Drug list ordering is alphabetical by medicine_name
   10. Response includes rxcui per drug
+  11. SQL does not reference non-existent columns generic_name or brand_name (singular)
 """
 
 import os
@@ -48,13 +49,13 @@ def client():
             yield c
 
 
-def _make_drug_row(medicine_name, spl_strength, slug, image_filename, generic_name, brand_name, rxcui):
-    """Return a tuple matching the new SELECT column order:
-    medicine_name, spl_strength, slug, image_filename, generic_name, brand_name, rxcui
+def _make_drug_row(medicine_name, spl_strength, slug, image_filename, brand_names, rxcui):
+    """Return a tuple matching the fixed SELECT column order:
+    medicine_name, spl_strength, slug, image_filename, brand_names, rxcui
     """
     row = MagicMock()
     row.__getitem__ = lambda self, i: (
-        medicine_name, spl_strength, slug, image_filename, generic_name, brand_name, rxcui
+        medicine_name, spl_strength, slug, image_filename, brand_names, rxcui
     )[i]
     return row
 
@@ -81,9 +82,9 @@ def client_with_drugs():
         mock_conn.__exit__ = MagicMock(return_value=False)
 
         rows = [
-            _make_drug_row("Aspirin", "81 mg", "aspirin-81mg", "aspirin.jpg", "aspirin", "Bayer", "111"),
-            _make_drug_row("Carvedilol", "6.25 mg", None, None, "carvedilol", "Coreg", "222"),
-            _make_drug_row("Metoprolol", "50 mg", "metoprolol-50mg", None, "metoprolol succinate", "Toprol", "333"),
+            _make_drug_row("Aspirin", "81 mg", "aspirin-81mg", "aspirin.jpg", "Bayer", "111"),
+            _make_drug_row("Carvedilol", "6.25 mg", None, None, "Coreg", "222"),
+            _make_drug_row("Metoprolol", "50 mg", "metoprolol-50mg", None, "Toprol", "333"),
         ]
         mock_result = MagicMock()
         mock_result.fetchall.return_value = rows
@@ -279,17 +280,17 @@ class TestConditionDrugDeduplication:
         assert len(data["drugs"]) == 3
 
     def test_drug_with_no_slug_still_included(self, client_with_drugs):
-        """Carvedilol has no slug but a generic_name — it must still appear."""
+        """Carvedilol has no slug — it must still appear in the drug list."""
         data = client_with_drugs.get("/api/condition/heart-failure").json()
         names = [d["medicine_name"] for d in data["drugs"]]
         assert "Carvedilol" in names
 
-    def test_drug_with_no_slug_has_generic_name(self, client_with_drugs):
-        """The slug-less drug has generic_name populated for frontend fallback."""
+    def test_drug_with_no_slug_has_medicine_name(self, client_with_drugs):
+        """The slug-less drug has medicine_name populated (used as frontend fallback link)."""
         data = client_with_drugs.get("/api/condition/heart-failure").json()
         carvedilol = next((d for d in data["drugs"] if d["medicine_name"] == "Carvedilol"), None)
         assert carvedilol is not None, "Carvedilol not found in drug list"
-        assert carvedilol["generic_name"] == "carvedilol"
+        assert carvedilol["medicine_name"] == "Carvedilol"
         assert not carvedilol["slug"]
 
     def test_drug_list_ordered_alphabetically(self, client_with_drugs):
@@ -384,3 +385,16 @@ class TestConditionDrugQueryShape:
         """rxcui must be in the SELECT so it appears in the API response."""
         sql = self._get_executed_sql(client)
         assert "rxcui" in sql.lower()
+
+    def test_sql_does_not_reference_generic_name(self, client):
+        """generic_name does not exist in pillfinder — query must not reference it."""
+        sql = self._get_executed_sql(client)
+        assert "generic_name" not in sql.lower()
+
+    def test_sql_does_not_reference_brand_name_singular(self, client):
+        """brand_name (singular) does not exist in pillfinder — query must use brand_names."""
+        sql = self._get_executed_sql(client)
+        # brand_names (plural) is fine; brand_name without trailing 's' is the bug
+        # Strip 'brand_names' occurrences first then check for bare 'brand_name'
+        sql_without_plural = sql.lower().replace("brand_names", "")
+        assert "brand_name" not in sql_without_plural
