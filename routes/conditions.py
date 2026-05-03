@@ -88,9 +88,9 @@ def get_condition(slug: str, request: Request, background_tasks: BackgroundTasks
 
     # Fetch drugs for this condition tag.
     # Uses a window function to deduplicate by rxcui — pick the "best" representative row:
-    # prefer rows that have a slug, then an image, then a generic_name, then alphabetical.
+    # prefer rows that have a slug, then an image, then alphabetical by medicine_name.
     # JOIN uses TRIM/cast to handle rxcui type or whitespace mismatches.
-    # Rows without a slug are still included so the frontend can fall back to /drug/{generic_name}.
+    # Rows without a slug are still included so the frontend can fall back to /drug/{medicine_name}.
     drugs: list[dict] = []
     if database.db_engine:
         try:
@@ -104,14 +104,12 @@ def get_condition(slug: str, request: Request, background_tasks: BackgroundTasks
                                 p.spl_strength,
                                 p.slug,
                                 p.image_filename,
-                                p.generic_name,
-                                p.brand_name,
+                                p.brand_names,
                                 ROW_NUMBER() OVER (
                                     PARTITION BY dct.rxcui
                                     ORDER BY
                                         (p.slug IS NOT NULL AND p.slug != '') DESC,
                                         (p.image_filename IS NOT NULL AND p.image_filename != '') DESC,
-                                        (p.generic_name IS NOT NULL AND p.generic_name != '') DESC,
                                         p.medicine_name ASC,
                                         p.id ASC
                                 ) AS rn
@@ -122,7 +120,7 @@ def get_condition(slug: str, request: Request, background_tasks: BackgroundTasks
                               AND p.deleted_at IS NULL
                         )
                         SELECT medicine_name, spl_strength, slug, image_filename,
-                               generic_name, brand_name, rxcui
+                               brand_names, rxcui
                         FROM ranked
                         WHERE rn = 1
                         ORDER BY medicine_name ASC
@@ -136,9 +134,8 @@ def get_condition(slug: str, request: Request, background_tasks: BackgroundTasks
                         "spl_strength": row[1],
                         "slug": row[2],
                         "image_filename": row[3],
-                        "generic_name": row[4],
-                        "brand_name": row[5],
-                        "rxcui": row[6],
+                        "brand_names": row[4],
+                        "rxcui": row[5],
                     })
         except SQLAlchemyError as exc:
             logger.error("DB error fetching condition drugs for %r: %s", tag, exc, exc_info=True)
