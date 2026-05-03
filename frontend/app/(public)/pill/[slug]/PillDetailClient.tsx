@@ -471,9 +471,9 @@ export default function PillDetailClient({
                       <div className="font-medium text-slate-900 truncate">{d.drug_name}</div>
                       {d.strength && <div className="text-xs text-slate-500">{d.strength}</div>}
                       <div className="flex flex-wrap gap-1 mt-0.5">
-                        {d.shared_tags.map(tag => (
-                          <span key={tag} className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-full">
-                            {tag}
+                        {d.shared_tags.map(sharedTag => (
+                          <span key={sharedTag} className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                            {sharedTag}
                           </span>
                         ))}
                       </div>
