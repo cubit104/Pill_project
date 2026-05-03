@@ -8,6 +8,7 @@ interface ConditionDrug {
   spl_strength?: string | null
   slug?: string | null
   image_filename?: string | null
+  image_url?: string | null
   brand_names?: string | null
   rxcui?: string | null
 }
@@ -15,6 +16,7 @@ interface ConditionDrug {
 interface ConditionPageClientProps {
   drugs: ConditionDrug[]
   conditionTitle: string
+  totalCount?: number
 }
 
 const IMAGE_BASE = process.env.NEXT_PUBLIC_IMAGE_BASE_URL || 'https://pillseek.com/images'
@@ -27,7 +29,7 @@ function drugImageUrl(imageFilename: string | null | undefined): string | null {
 }
 
 function DrugCardContent({ drug }: { drug: ConditionDrug }) {
-  const imgUrl = drugImageUrl(drug.image_filename)
+  const imgUrl = drug.image_url ?? drugImageUrl(drug.image_filename)
   return (
     <>
       {imgUrl && (
@@ -51,7 +53,7 @@ function DrugCardContent({ drug }: { drug: ConditionDrug }) {
   )
 }
 
-export default function ConditionPageClient({ drugs, conditionTitle }: ConditionPageClientProps) {
+export default function ConditionPageClient({ drugs, conditionTitle, totalCount }: ConditionPageClientProps) {
   if (drugs.length === 0) {
     return (
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 text-center">
@@ -65,10 +67,12 @@ export default function ConditionPageClient({ drugs, conditionTitle }: Condition
   const cardClass =
     'block p-4 bg-white border border-slate-200 rounded-xl hover:border-emerald-300 hover:shadow-sm transition-all'
 
+  const displayCount = totalCount ?? drugs.length
+
   return (
     <div>
       <p className="text-slate-500 text-sm mb-4">
-        {drugs.length} medication{drugs.length !== 1 ? 's' : ''} found for{' '}
+        {displayCount} medication{displayCount !== 1 ? 's' : ''} found for{' '}
         <strong>{conditionTitle}</strong>
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
