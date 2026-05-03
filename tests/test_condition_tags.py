@@ -280,7 +280,8 @@ class TestBackfillConditionTags:
                 inserted_tags.append(call_str)
         # kidney and insomnia must NOT appear in any INSERT call
         all_calls_str = " ".join(str(c) for c in conn.execute.call_args_list)
-        assert "kidney" not in all_calls_str or "high blood pressure" in all_calls_str
+        assert "kidney" not in all_calls_str
+        assert "insomnia" not in all_calls_str
 
 
 # ---------------------------------------------------------------------------

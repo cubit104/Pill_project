@@ -37,7 +37,7 @@ _INTENT_PATTERN = re.compile(
     r'\btreatment of\b|'
     r'\bprevention of\b|'
     r'\bmanagement of\b|'
-    r'reduce (?:the )?risk of|'
+    r'reduces? (?:the )?risk of|'
     r'help(?:s)? (?:treat|prevent|manage|control|lower|reduce)|'
     r'prescribed (?:for|to)|'
     r'approved (?:for|to)|'
