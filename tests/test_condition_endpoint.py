@@ -7,11 +7,16 @@ Covers:
   4. Empty drug list still returns 200 with intro paragraphs
   5. Slug normalization (uppercase input)
   6. /api/conditions list endpoint
-  7. Drug deduplication — one row per rxcui
+  7. Drug deduplication — one row per medicine_name
   8. Drug with no slug still appears in result (links via medicine_name)
   9. Drug list ordering is alphabetical by medicine_name
   10. Response includes rxcui per drug
   11. SQL does not reference non-existent columns generic_name or brand_name (singular)
+  12. SQL uses PARTITION BY LOWER(TRIM(p.medicine_name)) for medicine-name deduplication
+  13. SQL includes LIMIT :limit OFFSET :offset for pagination
+  14. Response includes total_count, limit, offset, has_more pagination fields
+  15. Each drug in response includes image_url field
+  16. Pagination query params are forwarded correctly
 """
 
 import os
@@ -38,9 +43,10 @@ def client():
         mock_conn = MagicMock()
         mock_conn.__enter__ = MagicMock(return_value=mock_conn)
         mock_conn.__exit__ = MagicMock(return_value=False)
-        # Return empty result set for drug queries
+        # Return empty result set for drug queries; 0 for count query
         mock_result = MagicMock()
         mock_result.fetchall.return_value = []
+        mock_result.scalar.return_value = 0
         mock_conn.execute.return_value = mock_result
         mock_engine.connect.return_value = mock_conn
         db_module.db_engine = mock_engine
@@ -64,11 +70,13 @@ def _make_drug_row(medicine_name, spl_strength, slug, image_filename, brand_name
 def client_with_drugs():
     """Test client whose DB returns a realistic multi-drug result set.
 
-    Simulates the deduplicated output of the new window-function query:
-      - Aspirin (rxcui=111, has slug)
-      - Carvedilol (rxcui=222, no slug but has generic_name)
+    Simulates the deduplicated output of the window-function query (PARTITION BY
+    LOWER(TRIM(p.medicine_name))):
+      - Aspirin (rxcui=111, has slug and image)
+      - Carvedilol (rxcui=222, no slug, no image)
       - Metoprolol (rxcui=333, has slug)
     Returned pre-sorted alphabetically (as the real query ORDER BY medicine_name does).
+    The count query returns 3 (distinct medicine names).
     """
     with patch("main.connect_to_database", return_value=True), \
          patch("main.warmup_system", return_value=None):
@@ -86,9 +94,20 @@ def client_with_drugs():
             _make_drug_row("Carvedilol", "6.25 mg", None, None, "Coreg", "222"),
             _make_drug_row("Metoprolol", "50 mg", "metoprolol-50mg", None, "Toprol", "333"),
         ]
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = rows
-        mock_conn.execute.return_value = mock_result
+
+        count_result = MagicMock()
+        count_result.scalar.return_value = 3
+        drug_result = MagicMock()
+        drug_result.fetchall.return_value = rows
+
+        def _execute_side_effect(sql, params=None):
+            """Return count_result for COUNT queries, drug_result for main query."""
+            sql_upper = str(sql).upper()
+            if "COUNT(DISTINCT" in sql_upper:
+                return count_result
+            return drug_result
+
+        mock_conn.execute.side_effect = _execute_side_effect
         mock_engine.connect.return_value = mock_conn
         db_module.db_engine = mock_engine
 
@@ -215,6 +234,18 @@ class TestConditionEndpointAlias:
         assert data.get("redirect") is True
         assert data["canonical_slug"] == "seizures"
 
+    def test_alias_url_preserves_pagination_when_non_default_offset(self, client):
+        """Alias redirect url must include pagination params when offset > 0."""
+        data = client.get("/api/condition/hypertension?limit=20&offset=40").json()
+        assert data.get("redirect") is True
+        assert "offset=40" in data["url"]
+
+    def test_alias_url_omits_pagination_at_default_offset(self, client):
+        """Alias redirect url must NOT include query params when offset=0 and limit=20."""
+        data = client.get("/api/condition/hypertension").json()
+        assert data.get("redirect") is True
+        assert "?" not in data["url"]
+
 
 class TestConditionEndpointEmptyDrugs:
     """Empty drug list → 200 with intro paragraphs still present."""
@@ -271,10 +302,10 @@ class TestConditionsListEndpoint:
 
 
 class TestConditionDrugDeduplication:
-    """Drug query deduplication, slug-fallback, ordering, and rxcui in response."""
+    """Drug query deduplication, slug-fallback, ordering, rxcui, image_url, and pagination."""
 
     def test_drug_list_returns_expected_count(self, client_with_drugs):
-        """Three distinct rxcuis → three drugs in response."""
+        """Three distinct medicine_names → three drugs in response."""
         data = client_with_drugs.get("/api/condition/heart-failure").json()
         assert data["drug_count"] == 3
         assert len(data["drugs"]) == 3
@@ -306,7 +337,7 @@ class TestConditionDrugDeduplication:
             assert "rxcui" in drug
 
     def test_drug_rxcui_values_are_distinct(self, client_with_drugs):
-        """One row per rxcui — no duplicates."""
+        """Mock data has one row per medicine_name with distinct rxcuis — no duplicates."""
         data = client_with_drugs.get("/api/condition/heart-failure").json()
         rxcuis = [d["rxcui"] for d in data["drugs"]]
         assert len(rxcuis) == len(set(rxcuis))
@@ -318,18 +349,80 @@ class TestConditionDrugDeduplication:
         assert aspirin is not None, "Aspirin not found in drug list"
         assert aspirin["slug"] == "aspirin-81mg"
 
+    def test_each_drug_has_image_url_field(self, client_with_drugs):
+        """Every drug in the response includes the image_url field (string or null)."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        for drug in data["drugs"]:
+            assert "image_url" in drug
+
+    def test_drug_with_image_filename_has_image_url(self, client_with_drugs):
+        """Aspirin has an image_filename — its image_url must be a non-empty string."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        aspirin = next((d for d in data["drugs"] if d["medicine_name"] == "Aspirin"), None)
+        assert aspirin is not None
+        assert aspirin["image_url"] is not None
+        assert "aspirin.jpg" in aspirin["image_url"]
+
+    def test_drug_without_image_filename_has_null_image_url(self, client_with_drugs):
+        """Carvedilol has no image_filename — its image_url must be null."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        carvedilol = next((d for d in data["drugs"] if d["medicine_name"] == "Carvedilol"), None)
+        assert carvedilol is not None
+        assert carvedilol["image_url"] is None
+
+    def test_response_includes_total_count(self, client_with_drugs):
+        """Response must include total_count from the COUNT query."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        assert "total_count" in data
+        assert data["total_count"] == 3
+
+    def test_response_includes_limit(self, client_with_drugs):
+        """Response must include the limit used."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        assert "limit" in data
+        assert data["limit"] == 20  # default
+
+    def test_response_includes_offset(self, client_with_drugs):
+        """Response must include the offset used."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        assert "offset" in data
+        assert data["offset"] == 0  # default
+
+    def test_response_includes_has_more(self, client_with_drugs):
+        """Response must include has_more (False when drug_count < limit)."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        assert "has_more" in data
+        assert data["has_more"] is False  # 3 drugs, total_count=3, not more
+
+    def test_custom_limit_is_respected(self, client_with_drugs):
+        """?limit=5 should appear in the response's limit field."""
+        data = client_with_drugs.get("/api/condition/heart-failure?limit=5").json()
+        assert data["limit"] == 5
+
+    def test_custom_offset_is_respected(self, client_with_drugs):
+        """?offset=10 should appear in the response's offset field."""
+        data = client_with_drugs.get("/api/condition/heart-failure?offset=10").json()
+        assert data["offset"] == 10
+
 
 class TestConditionDrugQueryShape:
     """Verify that the drug-fetch SQL sent to the DB has the correct critical properties.
 
     These tests capture the actual SQL text passed to conn.execute() and assert the
-    key behaviors introduced in this PR — normalized JOIN, no slug filter, and
-    deduplication via PARTITION BY. They would catch regressions that reintroduce
+    key behaviors introduced in this PR — normalized JOIN, no slug filter,
+    deduplication via PARTITION BY LOWER(TRIM(p.medicine_name)), and pagination via
+    LIMIT :limit OFFSET :offset. They would catch regressions that reintroduce
     the old broken query even if the mocked response fixture still returns rows.
     """
 
     def _get_executed_sql(self, client) -> str:
-        """Make one condition request and return the SQL text that was executed."""
+        """Make one condition request and return the drug query SQL text that was executed.
+
+        After pagination was added, conn.execute is called twice per request:
+          1. The COUNT query (scalar())
+          2. The main drug query (fetchall())
+        We return the drug query SQL (the last call = call_args).
+        """
         import database as db_module
         from unittest.mock import MagicMock
 
@@ -337,17 +430,57 @@ class TestConditionDrugQueryShape:
         mock_conn = MagicMock()
         mock_conn.__enter__ = MagicMock(return_value=mock_conn)
         mock_conn.__exit__ = MagicMock(return_value=False)
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = []
-        mock_conn.execute.return_value = mock_result
+        count_result = MagicMock()
+        count_result.scalar.return_value = 0
+        drug_result = MagicMock()
+        drug_result.fetchall.return_value = []
+
+        def _execute_side_effect(sql, params=None):
+            sql_upper = str(sql).upper()
+            if "COUNT(DISTINCT" in sql_upper:
+                return count_result
+            return drug_result
+
+        mock_conn.execute.side_effect = _execute_side_effect
         mock_engine.connect.return_value = mock_conn
         db_module.db_engine = mock_engine
 
         client.get("/api/condition/diabetes")
 
-        # Retrieve the SQL text passed to conn.execute(text(...), params)
+        # Retrieve the SQL text of the last execute call (the drug query).
         call_args = mock_conn.execute.call_args
         sql_arg = call_args[0][0]  # first positional arg = sqlalchemy text()
+        return str(sql_arg)
+
+    def _get_count_sql(self, client) -> str:
+        """Make one condition request and return the COUNT query SQL text."""
+        import database as db_module
+        from unittest.mock import MagicMock
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        count_result = MagicMock()
+        count_result.scalar.return_value = 0
+        drug_result = MagicMock()
+        drug_result.fetchall.return_value = []
+
+        def _execute_side_effect(sql, params=None):
+            sql_upper = str(sql).upper()
+            if "COUNT(DISTINCT" in sql_upper:
+                return count_result
+            return drug_result
+
+        mock_conn.execute.side_effect = _execute_side_effect
+        mock_engine.connect.return_value = mock_conn
+        db_module.db_engine = mock_engine
+
+        client.get("/api/condition/diabetes")
+
+        # Retrieve the SQL text of the first execute call (the count query).
+        first_call_args = mock_conn.execute.call_args_list[0]
+        sql_arg = first_call_args[0][0]
         return str(sql_arg)
 
     def test_sql_uses_trim_cast_join(self, client):
@@ -356,15 +489,23 @@ class TestConditionDrugQueryShape:
         assert "TRIM" in sql.upper()
         assert "::text" in sql.lower() or "::TEXT" in sql
 
-    def test_sql_has_partition_by_rxcui(self, client):
-        """Window function must partition by rxcui for per-drug deduplication."""
+    def test_sql_has_partition_by_medicine_name(self, client):
+        """Window function must partition by LOWER(TRIM(p.medicine_name)) for per-drug dedup."""
         sql = self._get_executed_sql(client)
         assert "PARTITION BY" in sql.upper()
+        assert "lower(trim(p.medicine_name))" in sql.lower()
 
     def test_sql_has_row_number(self, client):
         """ROW_NUMBER window function must be present."""
         sql = self._get_executed_sql(client)
         assert "ROW_NUMBER" in sql.upper()
+
+    def test_sql_has_limit_and_offset(self, client):
+        """Drug query must include LIMIT :limit OFFSET :offset for pagination."""
+        sql = self._get_executed_sql(client)
+        sql_lower = sql.lower()
+        assert "limit :limit" in sql_lower
+        assert "offset :offset" in sql_lower
 
     def test_sql_does_not_filter_out_slugless_rows(self, client):
         """The old WHERE-clause slug filter must NOT appear in the query.
@@ -398,3 +539,10 @@ class TestConditionDrugQueryShape:
         # Strip 'brand_names' occurrences first then check for bare 'brand_name'
         sql_without_plural = sql.lower().replace("brand_names", "")
         assert "brand_name" not in sql_without_plural
+
+    def test_count_sql_uses_distinct_medicine_name(self, client):
+        """COUNT query must use COUNT(DISTINCT LOWER(TRIM(p.medicine_name)))."""
+        sql = self._get_count_sql(client)
+        sql_upper = sql.upper()
+        assert "COUNT(DISTINCT" in sql_upper
+        assert "lower(trim(p.medicine_name))" in sql.lower()
