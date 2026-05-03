@@ -1,6 +1,6 @@
 # Condition Page Intros — Draft for Review
 
-This file contains draft 2-paragraph introductions for each condition tag in `services/condition_tags.py` `CONDITION_KEYWORDS`. These will power the `/condition/[tag]` SEO landing pages.
+This file contains draft 2-paragraph introductions for each condition tag in the agreed 32-tag list (see PR description). These will power the `/condition/[tag]` SEO landing pages. When `services/condition_tags.py` is created with a `CONDITION_KEYWORDS` definition, the entries here should match it exactly.
 
 **Format per entry:**
 - Paragraph 1: Etiology + signs and symptoms
@@ -8,7 +8,7 @@ This file contains draft 2-paragraph introductions for each condition tag in `se
 
 **Review instructions:**
 - Edit copy directly in this file.
-- Once approved, a follow-up PR will convert this content into `backend/data/condition_descriptions.py` and wire up the backend endpoint + Next.js page.
+- Once approved, a follow-up PR will convert this content into `data/condition_descriptions.py` and wire up the backend endpoint + Next.js page.
 - Sources used for medical accuracy: MedlinePlus, CDC, NIH, Mayo Clinic public materials. Information is general and patient-facing — not medical advice.
 
 **Last drafted:** 2026-05-03
