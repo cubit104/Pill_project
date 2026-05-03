@@ -51,16 +51,13 @@ _INTENT_PATTERN = re.compile(
 )
 
 # ---------------------------------------------------------------------------
-# Fix 1 — "talking about other drugs" exclusion pattern.
+# Gate 2 — "talking about other drugs" exclusion pattern.
 #
 # MedlinePlus drug pages frequently contain sentences like:
 #   "Some medications used to treat HIV, such as ritonavir, may reduce
 #    the effectiveness of this medication."
 # That sentence has treatment intent + an HIV keyword, but it is describing
 # OTHER drugs that interact with this one — not what THIS drug treats.
-#
-# Any intent-containing sentence that also matches this pattern is skipped
-# entirely before condition keywords are checked.
 # ---------------------------------------------------------------------------
 _OTHER_DRUG_EXCLUSION = re.compile(
     r'\b('
@@ -77,20 +74,51 @@ _OTHER_DRUG_EXCLUSION = re.compile(
 )
 
 # ---------------------------------------------------------------------------
-# Per-tag sentence-level exclusion patterns.
+# Gate 3 — Negation exclusion pattern.
+#
+# Birth control / condom-warning sentences read:
+#   "This medication does not prevent HIV infection or other sexually
+#    transmitted diseases."
+# "does not prevent" + "hiv infection" would normally match, but the intent
+# is explicitly negated — this drug does NOT treat/prevent the condition.
+#
+# Catches constructions like:
+#   "does not prevent/treat/protect …"
+#   "do not prevent/treat …"
+#   "will not prevent …"
+#   "cannot prevent …"
+# Allows up to 3 intervening words so it catches e.g.
+#   "does not, however, prevent …"
+# ---------------------------------------------------------------------------
+_NEGATION_EXCLUSION = re.compile(
+    r'\b(?:does?\s+not|do\s+not|did\s+not|will\s+not|won\'t|cannot|can\'t|doesn\'t|don\'t)'
+    r'(?:\s+\w+){0,3}\s+'
+    r'(?:treat|prevent|protect|reduce|manage|lower|control)',
+    re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
+# Per-tag sentence-level exclusion patterns (Gate 4).
 #
 # If a sentence matches the exclusion pattern for a given tag the tag is NOT
 # applied, even when treatment intent + keyword are both present.
 #
-# Fix 3 — Nausea: MedlinePlus triptans text reads
+# "nausea" — MedlinePlus triptans text:
 #   "Sumatriptan is used to treat migraine headaches (severe, throbbing
 #    headaches accompanied by nausea and vomiting)."
-# "nausea and vomiting" appears inside a parenthetical describing migraine
-# symptoms — the drug doesn't treat nausea, it treats migraine.
-# Exclude the nausea tag when "migraine" appears in the same sentence.
+#   Nausea is a migraine symptom in parentheses, not what the drug treats.
+#
+# "hiv" — belt-and-suspenders on top of the negation gate:
+#   Sentences mentioning STDs / protection / condoms in the same breath as
+#   "hiv infection" are almost always the contraceptive-warning boilerplate,
+#   not a treatment claim.
 # ---------------------------------------------------------------------------
 _TAG_EXCLUSIONS: dict[str, re.Pattern] = {
     "nausea": re.compile(r'\bmigraine\b', re.IGNORECASE),
+    "hiv": re.compile(
+        r'\b(sexually transmitted|std\b|condom|protect(?:ion)?|birth control|contraceptive)\b',
+        re.IGNORECASE,
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -247,13 +275,8 @@ CONDITION_KEYWORDS: dict[str, list[str]] = {
         "alzheimer disease",
         "dementia",
     ],
-    # Fix 2 — HIV: removed bare "hiv" and "antiretroviral".
-    # Bare "hiv" was too broad — caught interaction-warning sentences like
-    # "medications used to treat HIV such as ritonavir may reduce …".
-    # "antiretroviral" is a drug-class term that appears in interaction
-    # sentences even for non-HIV drugs.
-    # Only require "hiv infection" or the full "human immunodeficiency virus"
-    # phrase, both of which are unambiguously about treating this condition.
+    # Bare "hiv" and "antiretroviral" removed — too broad, caught interaction
+    # warnings and STD-boilerplate sentences on non-HIV drugs.
     "hiv": [
         "hiv infection",
         "human immunodeficiency virus",
@@ -308,14 +331,17 @@ def extract_tags(plain_text: str) -> list[str]:
     1. The sentence contains a treatment-intent anchor (e.g. "used to treat").
     2. The sentence does NOT match the other-drug exclusion pattern
        (i.e. it is NOT describing what other/certain medications do).
-    3. The sentence contains a condition keyword phrase.
-    4. The sentence does NOT match the per-tag exclusion pattern (if any).
+    3. The sentence does NOT contain a negated intent verb
+       (e.g. "does not prevent", "cannot treat").
+    4. The sentence contains a condition keyword phrase.
+    5. The sentence does NOT match the per-tag exclusion pattern (if any).
 
-    This prevents side-effect sentences ("may cause insomnia"),
-    warning sentences ("do not take if you have kidney disease"),
-    interaction sentences ("medications used to treat HIV such as ritonavir…"),
-    and parenthetical symptom mentions ("migraine … accompanied by nausea")
-    from generating false-positive tags.
+    This prevents:
+    - Side-effect sentences ("may cause insomnia")
+    - Warning sentences ("do not take if you have kidney disease")
+    - Interaction sentences ("medications used to treat HIV such as ritonavir…")
+    - Negated-intent sentences ("does not prevent HIV infection or STDs")
+    - Parenthetical symptom mentions ("migraine … accompanied by nausea")
     """
     if not plain_text or not plain_text.strip():
         return []
@@ -329,10 +355,13 @@ def extract_tags(plain_text: str) -> list[str]:
             # Gate 1: only consider sentences with treatment intent
             if not _INTENT_PATTERN.search(sentence):
                 continue
-            # Gate 2: skip sentences that are talking about OTHER drugs
+            # Gate 2: skip sentences talking about OTHER drugs
             if _OTHER_DRUG_EXCLUSION.search(sentence):
                 continue
-            # Gate 3: skip sentences that match this tag's exclusion pattern
+            # Gate 3: skip sentences where the intent verb is negated
+            if _NEGATION_EXCLUSION.search(sentence):
+                continue
+            # Gate 4: skip sentences matching this tag's specific exclusion
             if tag_exclusion and tag_exclusion.search(sentence):
                 continue
             # Check if any condition phrase matches in this intent sentence
