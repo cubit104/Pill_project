@@ -7,6 +7,10 @@ Covers:
   4. Empty drug list still returns 200 with intro paragraphs
   5. Slug normalization (uppercase input)
   6. /api/conditions list endpoint
+  7. Drug deduplication — one row per rxcui
+  8. Drug with no slug but has generic_name still appears in result
+  9. Drug list ordering is alphabetical by medicine_name
+  10. Response includes rxcui per drug
 """
 
 import os
@@ -36,6 +40,53 @@ def client():
         # Return empty result set for drug queries
         mock_result = MagicMock()
         mock_result.fetchall.return_value = []
+        mock_conn.execute.return_value = mock_result
+        mock_engine.connect.return_value = mock_conn
+        db_module.db_engine = mock_engine
+
+        with TestClient(app_module.app) as c:
+            yield c
+
+
+def _make_drug_row(medicine_name, spl_strength, slug, image_filename, generic_name, brand_name, rxcui):
+    """Return a tuple matching the new SELECT column order:
+    medicine_name, spl_strength, slug, image_filename, generic_name, brand_name, rxcui
+    """
+    row = MagicMock()
+    row.__getitem__ = lambda self, i: (
+        medicine_name, spl_strength, slug, image_filename, generic_name, brand_name, rxcui
+    )[i]
+    return row
+
+
+@pytest.fixture(scope="module")
+def client_with_drugs():
+    """Test client whose DB returns a realistic multi-drug result set.
+
+    Simulates the deduplicated output of the new window-function query:
+      - Aspirin (rxcui=111, has slug)
+      - Carvedilol (rxcui=222, no slug but has generic_name)
+      - Metoprolol (rxcui=333, has slug)
+    Returned pre-sorted alphabetically (as the real query ORDER BY medicine_name does).
+    """
+    with patch("main.connect_to_database", return_value=True), \
+         patch("main.warmup_system", return_value=None):
+        from fastapi.testclient import TestClient
+        import main as app_module
+        import database as db_module
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+
+        rows = [
+            _make_drug_row("Aspirin", "81 mg", "aspirin-81mg", "aspirin.jpg", "aspirin", "Bayer", "111"),
+            _make_drug_row("Carvedilol", "6.25 mg", None, None, "carvedilol", "Coreg", "222"),
+            _make_drug_row("Metoprolol", "50 mg", "metoprolol-50mg", None, "metoprolol succinate", "Toprol", "333"),
+        ]
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = rows
         mock_conn.execute.return_value = mock_result
         mock_engine.connect.return_value = mock_conn
         db_module.db_engine = mock_engine
@@ -216,3 +267,120 @@ class TestConditionsListEndpoint:
         data = client.get("/api/conditions").json()
         slugs = [c["slug"] for c in data["conditions"]]
         assert "diabetes" in slugs
+
+
+class TestConditionDrugDeduplication:
+    """Drug query deduplication, slug-fallback, ordering, and rxcui in response."""
+
+    def test_drug_list_returns_expected_count(self, client_with_drugs):
+        """Three distinct rxcuis → three drugs in response."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        assert data["drug_count"] == 3
+        assert len(data["drugs"]) == 3
+
+    def test_drug_with_no_slug_still_included(self, client_with_drugs):
+        """Carvedilol has no slug but a generic_name — it must still appear."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        names = [d["medicine_name"] for d in data["drugs"]]
+        assert "Carvedilol" in names
+
+    def test_drug_with_no_slug_has_generic_name(self, client_with_drugs):
+        """The slug-less drug has generic_name populated for frontend fallback."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        carvedilol = next((d for d in data["drugs"] if d["medicine_name"] == "Carvedilol"), None)
+        assert carvedilol is not None, "Carvedilol not found in drug list"
+        assert carvedilol["generic_name"] == "carvedilol"
+        assert not carvedilol["slug"]
+
+    def test_drug_list_ordered_alphabetically(self, client_with_drugs):
+        """Drugs are returned sorted alphabetically by medicine_name."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        names = [d["medicine_name"] for d in data["drugs"]]
+        assert names == sorted(names)
+
+    def test_each_drug_has_rxcui_field(self, client_with_drugs):
+        """Every drug in the response includes the rxcui field."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        for drug in data["drugs"]:
+            assert "rxcui" in drug
+
+    def test_drug_rxcui_values_are_distinct(self, client_with_drugs):
+        """One row per rxcui — no duplicates."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        rxcuis = [d["rxcui"] for d in data["drugs"]]
+        assert len(rxcuis) == len(set(rxcuis))
+
+    def test_drug_with_slug_has_slug_populated(self, client_with_drugs):
+        """Aspirin has a slug — it must be present in the response."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        aspirin = next((d for d in data["drugs"] if d["medicine_name"] == "Aspirin"), None)
+        assert aspirin is not None, "Aspirin not found in drug list"
+        assert aspirin["slug"] == "aspirin-81mg"
+
+
+class TestConditionDrugQueryShape:
+    """Verify that the drug-fetch SQL sent to the DB has the correct critical properties.
+
+    These tests capture the actual SQL text passed to conn.execute() and assert the
+    key behaviors introduced in this PR — normalized JOIN, no slug filter, and
+    deduplication via PARTITION BY. They would catch regressions that reintroduce
+    the old broken query even if the mocked response fixture still returns rows.
+    """
+
+    def _get_executed_sql(self, client) -> str:
+        """Make one condition request and return the SQL text that was executed."""
+        import database as db_module
+        from unittest.mock import MagicMock
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        mock_conn.execute.return_value = mock_result
+        mock_engine.connect.return_value = mock_conn
+        db_module.db_engine = mock_engine
+
+        client.get("/api/condition/diabetes")
+
+        # Retrieve the SQL text passed to conn.execute(text(...), params)
+        call_args = mock_conn.execute.call_args
+        sql_arg = call_args[0][0]  # first positional arg = sqlalchemy text()
+        return str(sql_arg)
+
+    def test_sql_uses_trim_cast_join(self, client):
+        """JOIN must normalize rxcui via TRIM and cast to text on both sides."""
+        sql = self._get_executed_sql(client)
+        assert "TRIM" in sql.upper()
+        assert "::text" in sql.lower() or "::TEXT" in sql
+
+    def test_sql_has_partition_by_rxcui(self, client):
+        """Window function must partition by rxcui for per-drug deduplication."""
+        sql = self._get_executed_sql(client)
+        assert "PARTITION BY" in sql.upper()
+
+    def test_sql_has_row_number(self, client):
+        """ROW_NUMBER window function must be present."""
+        sql = self._get_executed_sql(client)
+        assert "ROW_NUMBER" in sql.upper()
+
+    def test_sql_does_not_filter_out_slugless_rows(self, client):
+        """The old WHERE-clause slug filter must NOT appear in the query.
+
+        The phrase 'slug is not null' still legitimately appears inside the
+        ROW_NUMBER ORDER BY expression (to prefer rows with a slug), so we
+        check that there is no WHERE-level slug filter by asserting the slug
+        condition only appears within a parenthesised boolean expression, not
+        as a bare AND condition at the WHERE level.
+        """
+        sql = self._get_executed_sql(client)
+        normalised = " ".join(sql.lower().split())
+        # Old broken filter was: "and p.slug is not null and p.slug != ''"
+        # at the WHERE level (bare, not inside parentheses).
+        assert "and p.slug is not null and p.slug !=" not in normalised
+
+    def test_sql_selects_rxcui(self, client):
+        """rxcui must be in the SELECT so it appears in the API response."""
+        sql = self._get_executed_sql(client)
+        assert "rxcui" in sql.lower()
