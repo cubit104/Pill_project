@@ -112,7 +112,8 @@ def get_condition(slug: str, request: Request, background_tasks: BackgroundTasks
                                         (p.slug IS NOT NULL AND p.slug != '') DESC,
                                         (p.image_filename IS NOT NULL AND p.image_filename != '') DESC,
                                         (p.generic_name IS NOT NULL AND p.generic_name != '') DESC,
-                                        p.medicine_name ASC
+                                        p.medicine_name ASC,
+                                        p.id ASC
                                 ) AS rn
                             FROM drug_condition_tags dct
                             JOIN pillfinder p

@@ -316,3 +316,71 @@ class TestConditionDrugDeduplication:
         aspirin = next((d for d in data["drugs"] if d["medicine_name"] == "Aspirin"), None)
         assert aspirin is not None, "Aspirin not found in drug list"
         assert aspirin["slug"] == "aspirin-81mg"
+
+
+class TestConditionDrugQueryShape:
+    """Verify that the drug-fetch SQL sent to the DB has the correct critical properties.
+
+    These tests capture the actual SQL text passed to conn.execute() and assert the
+    key behaviors introduced in this PR — normalized JOIN, no slug filter, and
+    deduplication via PARTITION BY. They would catch regressions that reintroduce
+    the old broken query even if the mocked response fixture still returns rows.
+    """
+
+    def _get_executed_sql(self, client) -> str:
+        """Make one condition request and return the SQL text that was executed."""
+        import database as db_module
+        from unittest.mock import MagicMock
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        mock_conn.execute.return_value = mock_result
+        mock_engine.connect.return_value = mock_conn
+        db_module.db_engine = mock_engine
+
+        client.get("/api/condition/diabetes")
+
+        # Retrieve the SQL text passed to conn.execute(text(...), params)
+        call_args = mock_conn.execute.call_args
+        sql_arg = call_args[0][0]  # first positional arg = sqlalchemy text()
+        return str(sql_arg)
+
+    def test_sql_uses_trim_cast_join(self, client):
+        """JOIN must normalize rxcui via TRIM and cast to text on both sides."""
+        sql = self._get_executed_sql(client)
+        assert "TRIM" in sql.upper()
+        assert "::text" in sql.lower() or "::TEXT" in sql
+
+    def test_sql_has_partition_by_rxcui(self, client):
+        """Window function must partition by rxcui for per-drug deduplication."""
+        sql = self._get_executed_sql(client)
+        assert "PARTITION BY" in sql.upper()
+
+    def test_sql_has_row_number(self, client):
+        """ROW_NUMBER window function must be present."""
+        sql = self._get_executed_sql(client)
+        assert "ROW_NUMBER" in sql.upper()
+
+    def test_sql_does_not_filter_out_slugless_rows(self, client):
+        """The old WHERE-clause slug filter must NOT appear in the query.
+
+        The phrase 'slug is not null' still legitimately appears inside the
+        ROW_NUMBER ORDER BY expression (to prefer rows with a slug), so we
+        check that there is no WHERE-level slug filter by asserting the slug
+        condition only appears within a parenthesised boolean expression, not
+        as a bare AND condition at the WHERE level.
+        """
+        sql = self._get_executed_sql(client)
+        normalised = " ".join(sql.lower().split())
+        # Old broken filter was: "and p.slug is not null and p.slug != ''"
+        # at the WHERE level (bare, not inside parentheses).
+        assert "and p.slug is not null and p.slug !=" not in normalised
+
+    def test_sql_selects_rxcui(self, client):
+        """rxcui must be in the SELECT so it appears in the API response."""
+        sql = self._get_executed_sql(client)
+        assert "rxcui" in sql.lower()

@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { slugifyDrugName } from '../../../lib/slug'
 
 interface ConditionDrug {
   medicine_name: string
@@ -95,7 +96,7 @@ export default function ConditionPageClient({ drugs, conditionTitle }: Condition
             return (
               <Link
                 key={key}
-                href={`/drug/${encodeURIComponent(drug.generic_name)}`}
+                href={`/drug/${slugifyDrugName(drug.generic_name)}`}
                 className={cardClass}
               >
                 <DrugCardContent drug={drug} />
