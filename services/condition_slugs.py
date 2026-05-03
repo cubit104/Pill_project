@@ -1,14 +1,17 @@
 """Condition slug normalization helpers.
 
 Slug rules (must match frontend condition-utils.ts):
+  - Strip leading/trailing whitespace
   - Lowercase
-  - Spaces → hyphens
   - Apostrophes stripped (NOT replaced with hyphen)
+  - Runs of whitespace → single hyphen
   - Examples:
       "heart attack"       → "heart-attack"
       "parkinson's disease"→ "parkinsons-disease"
       "adhd"               → "adhd"
 """
+
+import re
 
 from services.condition_tags import CONDITION_KEYWORDS
 
@@ -19,11 +22,7 @@ _TAG_TO_SLUG: dict[str, str] = {}
 
 def slug_from_tag(tag: str) -> str:
     """Return the URL slug for a canonical condition tag string."""
-    return (
-        tag.lower()
-        .replace("'", "")   # strip apostrophes before hyphenating
-        .replace(" ", "-")
-    )
+    return re.sub(r"\s+", "-", tag.strip().lower().replace("'", ""))
 
 
 def tag_from_slug(slug: str) -> str | None:

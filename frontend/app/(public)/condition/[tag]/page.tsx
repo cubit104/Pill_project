@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { breadcrumbSchema, safeJsonLd } from '../../../lib/structured-data'
 import ConditionPageClient from './ConditionPageClient'
 
@@ -111,9 +111,10 @@ export default async function ConditionPage(
   const { tag } = await params
   const data = await fetchCondition(tag)
 
-  // If the API says this is an alias, notFound so Next.js renders not-found.tsx.
-  // The canonical URL will be served at its own slug.
-  if (!data || data.redirect) notFound()
+  // If the API says this is an alias, redirect to the canonical slug (301-equivalent).
+  if (data?.redirect && data.canonical_slug) redirect(`/condition/${data.canonical_slug}`)
+  // Truly missing or error
+  if (!data) notFound()
 
   const { title, paragraphs, last_reviewed, drugs, related, slug } = data
 

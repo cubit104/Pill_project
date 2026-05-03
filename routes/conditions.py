@@ -4,12 +4,12 @@ GET /api/condition/{slug}
   - Resolves aliases (returns redirect info)
   - Returns condition description + drug list + related conditions
   - 404 with available slugs if condition not found
-  - Logs unknown slugs to unknown_condition_requests (fire-and-forget)
+  - Logs unknown slugs to unknown_condition_requests (background task)
 """
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -29,14 +29,12 @@ _ALL_VALID_SLUGS: list[str] = sorted(
 )
 
 
-def _log_unknown_slug(slug: str, request: Request) -> None:
-    """Fire-and-forget insert/upsert into unknown_condition_requests.
+def _log_unknown_slug(slug: str, ua: str, referrer: str) -> None:
+    """Background task: upsert into unknown_condition_requests.
     Failures must not propagate to the caller."""
     try:
         if not database.db_engine:
             return
-        ua = request.headers.get("user-agent", "")[:512]
-        referrer = request.headers.get("referer", "")[:512]
         with database.db_engine.connect() as conn:
             conn.execute(
                 text("""
@@ -55,7 +53,7 @@ def _log_unknown_slug(slug: str, request: Request) -> None:
 
 
 @router.get("/api/condition/{slug}")
-def get_condition(slug: str, request: Request):
+def get_condition(slug: str, request: Request, background_tasks: BackgroundTasks):
     """Return condition description and associated drugs for a given slug."""
     slug = slug.lower().strip()
 
@@ -75,7 +73,9 @@ def get_condition(slug: str, request: Request):
     # Look up the canonical tag.
     tag = tag_from_slug(slug)
     if tag is None or tag not in CONDITION_DESCRIPTIONS:
-        _log_unknown_slug(slug, request)
+        ua = request.headers.get("user-agent", "")[:512]
+        referrer = request.headers.get("referer", "")[:512]
+        background_tasks.add_task(_log_unknown_slug, slug, ua, referrer)
         raise HTTPException(
             status_code=404,
             detail={

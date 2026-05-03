@@ -20,7 +20,7 @@ const IMAGE_BASE = process.env.NEXT_PUBLIC_IMAGE_BASE_URL || 'https://pillseek.c
 
 function drugImageUrl(imageFilename: string | null | undefined): string | null {
   if (!imageFilename) return null
-  const filenames = imageFilename.split(';').map((f) => f.trim()).filter(Boolean)
+  const filenames = imageFilename.split(',').map((f) => f.trim()).filter(Boolean)
   if (filenames.length === 0) return null
   return `${IMAGE_BASE}/${filenames[0]}`
 }
