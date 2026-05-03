@@ -83,6 +83,18 @@ class TestExtractTags:
         result = extract_tags(text)
         assert "infection" in result
 
+    def test_extract_tags_no_false_positive_clotrimazole(self):
+        """'Clotrimazole' (a drug name) must NOT match the 'blood clot' tag."""
+        text = "Clotrimazole is used to treat fungal infections."
+        result = extract_tags(text)
+        assert "blood clot" not in result
+
+    def test_extract_tags_no_false_positive_adrenal(self):
+        """'adrenal' must NOT match the 'kidney' tag via 'renal'."""
+        text = "This medication affects adrenal function and cortisol secretion."
+        result = extract_tags(text)
+        assert "kidney" not in result
+
 
 # ---------------------------------------------------------------------------
 # backfill_condition_tags tests
@@ -175,8 +187,8 @@ def api_client():
 
 
 class TestConditionDrugsEndpoint:
-    def test_returns_empty_when_slug_not_found(self, api_client):
-        """GET /api/pill/{slug}/condition-drugs returns empty result when slug not in DB."""
+    def test_returns_404_when_slug_not_found(self, api_client):
+        """GET /api/pill/{slug}/condition-drugs returns 404 when slug not in DB."""
         import database as db_module
 
         mock_result = MagicMock()
@@ -185,9 +197,7 @@ class TestConditionDrugsEndpoint:
         db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
 
         resp = api_client.get("/api/pill/unknown-slug-xyz/condition-drugs")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data == {"tags": [], "drugs": []}
+        assert resp.status_code == 404
 
     def test_returns_empty_when_no_tags(self, api_client):
         """GET returns empty when pill exists but drug_condition_tags has no rows."""
@@ -199,8 +209,8 @@ class TestConditionDrugsEndpoint:
             result = MagicMock()
             call_count[0] += 1
             if call_count[0] == 1:
-                # First call: pillfinder lookup → return rxcui
-                result.fetchone.return_value = ("12345",)
+                # First call: pillfinder lookup → return (rxcui, medicine_name)
+                result.fetchone.return_value = ("12345", "some pill")
                 result.fetchall.return_value = []
             else:
                 # Second call: drug_condition_tags → no tags
@@ -225,8 +235,8 @@ class TestConditionDrugsEndpoint:
             result = MagicMock()
             call_count[0] += 1
             if call_count[0] == 1:
-                # pillfinder lookup → rxcui
-                result.fetchone.return_value = ("99999",)
+                # pillfinder lookup → (rxcui, medicine_name)
+                result.fetchone.return_value = ("99999", "plavix")
                 result.fetchall.return_value = []
             elif call_count[0] == 2:
                 # drug_condition_tags tags lookup

@@ -146,10 +146,10 @@ Processed: 3 | Tagged: 2 | No-match: 1 | Skipped (dup rxcui): 0
 
 ### What it does
 - Joins `drug_indications` (for `plain_text`) with `pillfinder` (for `rxcui` / `medicine_name`).
-- Runs simple case-insensitive keyword matching (~30 medical conditions defined in `services/condition_tags.py`).
-- Upserts matched tags into `drug_condition_tags` using `INSERT ... ON CONFLICT DO NOTHING`.
+- Runs word-boundary keyword matching (~30 medical conditions defined in `services/condition_tags.py`).
+- For each rxcui, **removes stale tags** that no longer match the current `plain_text`, then inserts new ones.
 - Processes each `rxcui` only once (multiple strength rows sharing the same RxCUI are deduplicated).
 
-### Idempotent
-Re-running the script is safe — `ON CONFLICT DO NOTHING` means existing rows are never overwritten.
-New rxcuis added after the initial run are picked up automatically on the next run.
+### Idempotent / self-healing
+Re-running is safe and recommended whenever `drug_indications.plain_text` is updated.  Stale
+tags from a previous run are automatically deleted; new tags are added with `ON CONFLICT DO NOTHING`.

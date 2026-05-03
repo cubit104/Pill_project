@@ -117,7 +117,8 @@ def main(argv=None):
     print(
         f"\nProcessed: {summary['processed']} | "
         f"Tagged: {summary['tagged']} | "
-        f"Skipped/no-match: {summary['skipped']}"
+        f"No-match: {summary['processed'] - summary['tagged']} | "
+        f"Skipped (dup rxcui): {summary['skipped']}"
     )
 
 

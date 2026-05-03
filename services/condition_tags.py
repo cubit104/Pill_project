@@ -1,24 +1,33 @@
 """Condition tag extraction service.
 
 Extracts medical condition tags from drug indication plain_text using
-simple keyword matching, then populates the drug_condition_tags table.
+word-boundary keyword matching, then populates the drug_condition_tags table.
 
 Functions
 ---------
 extract_tags(plain_text: str) -> list[str]
-    Returns list of matching tag names for a given plain_text (case-insensitive).
+    Returns list of matching tag names for a given plain_text (case-insensitive,
+    word-boundary aware to avoid false positives like 'clot' in 'Clotrimazole').
 
 backfill_condition_tags(conn) -> dict
-    Reads drug_indications, extracts tags, upserts into drug_condition_tags.
+    Reads drug_indications, extracts tags, upserts into drug_condition_tags and
+    removes stale tags that no longer match.
     Returns {"processed": N, "tagged": N, "skipped": N}.
+
+Note: Only drug_indications rows with a non-null rxcui are processed, since tags
+are keyed by rxcui.  Pills backed solely by openFDA drug_name_key rows (no rxcui)
+will not receive condition tags.
 """
 
 import logging
+import re
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-# Maps a tag name to phrases to search for in plain_text (case-insensitive)
+# Maps a tag name to phrases to search for in plain_text (case-insensitive,
+# matched as whole words/phrases via \b word-boundary anchors to avoid false
+# positives such as "clot" matching "Clotrimazole" or "renal" matching "adrenal").
 CONDITION_KEYWORDS: dict[str, list[str]] = {
     "heart attack": ["heart attack", "myocardial infarction"],
     "stroke": ["stroke"],
@@ -52,11 +61,20 @@ CONDITION_KEYWORDS: dict[str, list[str]] = {
     "viral infection": ["viral", "antiviral"],
 }
 
+# Pre-compile word-boundary patterns for all phrases (keyed by phrase string)
+_PHRASE_PATTERNS: dict[str, re.Pattern] = {
+    phrase: re.compile(r"\b" + re.escape(phrase) + r"\b")
+    for phrases in CONDITION_KEYWORDS.values()
+    for phrase in phrases
+}
+
 
 def extract_tags(plain_text: str) -> list[str]:
     """Return list of matching condition tag names for a given plain_text.
 
-    Performs case-insensitive substring matching against CONDITION_KEYWORDS.
+    Uses word-boundary regex matching (case-insensitive) to avoid false
+    positives from substrings (e.g. 'clot' will not match 'Clotrimazole',
+    'renal' will not match 'adrenal').
     """
     if not plain_text:
         return []
@@ -64,17 +82,21 @@ def extract_tags(plain_text: str) -> list[str]:
     matched: list[str] = []
     for tag, phrases in CONDITION_KEYWORDS.items():
         for phrase in phrases:
-            if phrase in lowered:
+            if _PHRASE_PATTERNS[phrase].search(lowered):
                 matched.append(tag)
                 break
     return matched
 
 
 def backfill_condition_tags(conn) -> dict:
-    """Read all drug_indications rows with plain_text, extract tags, upsert into
-    drug_condition_tags.
+    """Read all drug_indications rows with plain_text, extract tags, and sync
+    drug_condition_tags so that stale tags are removed and new ones are added.
 
-    Uses INSERT ... ON CONFLICT DO NOTHING for idempotency.
+    For each processed rxcui:
+    - Extracts the current tag set from plain_text.
+    - Deletes any existing drug_condition_tags rows whose tag is no longer in
+      the current set (removes stale tags when plain_text changes).
+    - Inserts new tags with ON CONFLICT DO NOTHING.
 
     Returns
     -------
@@ -112,7 +134,23 @@ def backfill_condition_tags(conn) -> dict:
         processed += 1
         tags = extract_tags(plain_text)
 
-        if not tags:
+        # Remove stale tags that are no longer in the current tag set
+        if tags:
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM drug_condition_tags
+                    WHERE rxcui = :rxcui AND tag != ALL(:tags)
+                    """
+                ),
+                {"rxcui": rxcui, "tags": tags},
+            )
+        else:
+            # No tags matched — remove all existing tags for this rxcui
+            conn.execute(
+                text("DELETE FROM drug_condition_tags WHERE rxcui = :rxcui"),
+                {"rxcui": rxcui},
+            )
             continue
 
         for tag in tags:
@@ -131,3 +169,4 @@ def backfill_condition_tags(conn) -> dict:
 
     conn.commit()
     return {"processed": processed, "tagged": tagged, "skipped": skipped}
+

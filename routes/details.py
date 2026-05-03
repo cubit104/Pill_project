@@ -545,6 +545,7 @@ def get_condition_drugs(slug: str):
     medicine_name) that share at least one tag.  Each returned drug
     includes which tags it shares.
 
+    Returns 404 if the slug is not found.
     If drug_condition_tags does not exist yet, or no tags are found,
     returns {"tags": [], "drugs": []}.
     """
@@ -556,15 +557,19 @@ def get_condition_drugs(slug: str):
 
     try:
         with database.db_engine.connect() as conn:
-            # 1. Resolve rxcui for the given slug
+            # 1. Resolve rxcui and medicine_name for the given slug
             row = conn.execute(
-                text("SELECT rxcui FROM pillfinder WHERE deleted_at IS NULL AND slug = :slug LIMIT 1"),
+                text("SELECT rxcui, medicine_name FROM pillfinder WHERE deleted_at IS NULL AND slug = :slug LIMIT 1"),
                 {"slug": slug},
             ).fetchone()
-            if not row or not row[0]:
-                return _EMPTY
+            if not row:
+                raise HTTPException(status_code=404, detail="Pill not found")
 
-            rxcui_val = str(row[0]).strip()
+            rxcui_val = str(row[0]).strip() if row[0] else ""
+            own_medicine_name = (row[1] or "").strip().lower()
+
+            if not rxcui_val:
+                return _EMPTY
 
             # 2. Get all condition tags for this rxcui
             try:
@@ -578,16 +583,16 @@ def get_condition_drugs(slug: str):
                     "does not exist" in err_msg or "no such table" in err_msg
                 ):
                     logger.debug("drug_condition_tags table not yet created: %s", _e)
-                else:
-                    logger.warning("drug_condition_tags lookup failed for rxcui=%s: %s", rxcui_val, _e)
-                return _EMPTY
+                    return _EMPTY
+                raise
 
             tags = [r[0] for r in tag_rows]
             if not tags:
                 return _EMPTY
 
-            # 3. For each tag, find up to 4 OTHER pills sharing that tag
-            # Collect (medicine_name -> {slug, strength, image_url, shared_tags})
+            # 3. For each tag, find up to 4 OTHER pills sharing that tag.
+            # Exclude both the current rxcui AND any pill with the same medicine_name
+            # (different strengths of the same drug should not appear as recommendations).
             drug_map: dict[str, dict] = {}  # keyed by lower(medicine_name)
 
             try:
@@ -606,10 +611,11 @@ def get_condition_drugs(slug: str):
                              AND p.slug IS NOT NULL AND p.slug != ''
                             WHERE dct.tag = :tag
                               AND dct.rxcui != :rxcui
+                              AND LOWER(p.medicine_name) != :own_medicine_name
                             ORDER BY p.medicine_name, p.slug
                             LIMIT 4
                         """),
-                        {"tag": tag, "rxcui": rxcui_val},
+                        {"tag": tag, "rxcui": rxcui_val, "own_medicine_name": own_medicine_name},
                     ).fetchall()
 
                     for r in cross_rows:
@@ -644,7 +650,12 @@ def get_condition_drugs(slug: str):
             # 4. Cap at 8 drugs total
             drugs = list(drug_map.values())[:8]
 
-            return {"tags": tags, "drugs": drugs}
+            # 5. Only surface the tags actually represented by the returned drug cards
+            represented_tags = list(
+                dict.fromkeys(t for d in drugs for t in d["shared_tags"])
+            )
+
+            return {"tags": represented_tags, "drugs": drugs}
 
     except HTTPException:
         raise
