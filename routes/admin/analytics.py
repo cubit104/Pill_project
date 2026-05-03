@@ -767,7 +767,7 @@ def _record_indexing_submission(
     response_raw: dict,
 ) -> None:
     """Insert a row into google_indexing_submissions. Silently ignores errors."""
-    import json as _json
+    import json
 
     try:
         if not database.db_engine:
@@ -786,7 +786,7 @@ def _record_indexing_submission(
                     "url": url,
                     "submitted_by": submitted_by,
                     "response_status": response_status,
-                    "response_raw": _json.dumps(response_raw),
+                    "response_raw": json.dumps(response_raw),
                 },
             )
             conn.commit()

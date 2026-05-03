@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import PillDetailClient from './PillDetailClient'
-import type { PillDetail, RelatedDrug, SimilarPill } from '../../../types'
+import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
 import {
   breadcrumbSchema,
   buildIdentificationSummary,
@@ -76,6 +76,18 @@ async function fetchSimilar(slug: string): Promise<SimilarPill[]> {
     return Array.isArray(data.similar) ? data.similar : []
   } catch {
     return []
+  }
+}
+
+async function fetchConditionDrugs(slug: string): Promise<{ tags: string[]; drugs: ConditionDrug[] }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}/condition-drugs`, {
+      next: { revalidate: 3600 },
+    })
+    if (!res.ok) return { tags: [], drugs: [] }
+    return await res.json()
+  } catch {
+    return { tags: [], drugs: [] }
   }
 }
 
@@ -212,10 +224,11 @@ export default async function PillDetailPage(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params
-  const [pill, relatedData, similarPills] = await Promise.all([
+  const [pill, relatedData, similarPills, conditionData] = await Promise.all([
     fetchPill(slug),
     fetchRelated(slug),
     fetchSimilar(slug),
+    fetchConditionDrugs(slug),
   ])
   if (!pill) notFound()
 
@@ -288,6 +301,8 @@ export default async function PillDetailPage(
         related={relatedData.related}
         pharmaClass={relatedData.pharma_class ?? undefined}
         similar={similarPills}
+        conditionDrugs={conditionData.drugs}
+        conditionTags={conditionData.tags}
         faqItems={faqItems}
         identificationSummary={identificationSummary}
       />

@@ -534,3 +534,134 @@ def get_class_drugs(class_slug: str, limit: int = Query(default=100, ge=1, le=50
     except SQLAlchemyError as e:
         logger.error(f"Database error in get_class_drugs: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.get("/api/pill/{slug}/condition-drugs")
+def get_condition_drugs(slug: str):
+    """Return other pills that share condition tags with the given pill.
+
+    Looks up the pill's rxcui, fetches its condition tags from
+    drug_condition_tags, then finds up to 8 other pills (deduped by
+    medicine_name) that share at least one tag.  Each returned drug
+    includes which tags it shares.
+
+    Returns 404 if the slug is not found.
+    If drug_condition_tags does not exist yet, or no tags are found,
+    returns {"tags": [], "drugs": []}.
+    """
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    _EMPTY = {"tags": [], "drugs": []}
+
+    try:
+        with database.db_engine.connect() as conn:
+            # 1. Resolve rxcui and medicine_name for the given slug
+            row = conn.execute(
+                text("SELECT rxcui, medicine_name FROM pillfinder WHERE deleted_at IS NULL AND slug = :slug LIMIT 1"),
+                {"slug": slug},
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            rxcui_val = str(row[0]).strip() if row[0] else ""
+            own_medicine_name = (row[1] or "").strip().lower()
+
+            if not rxcui_val:
+                return _EMPTY
+
+            # 2. Get all condition tags for this rxcui
+            try:
+                tag_rows = conn.execute(
+                    text("SELECT tag FROM drug_condition_tags WHERE rxcui = :rxcui"),
+                    {"rxcui": rxcui_val},
+                ).fetchall()
+            except SQLAlchemyError as _e:
+                err_msg = str(_e).lower()
+                if "drug_condition_tags" in err_msg and (
+                    "does not exist" in err_msg or "no such table" in err_msg
+                ):
+                    logger.debug("drug_condition_tags table not yet created: %s", _e)
+                    return _EMPTY
+                raise
+
+            tags = [r[0] for r in tag_rows]
+            if not tags:
+                return _EMPTY
+
+            # 3. For each tag, find up to 4 OTHER pills sharing that tag.
+            # Exclude both the current rxcui AND any pill with the same medicine_name
+            # (different strengths of the same drug should not appear as recommendations).
+            drug_map: dict[str, dict] = {}  # keyed by lower(medicine_name)
+
+            try:
+                for tag in tags:
+                    cross_rows = conn.execute(
+                        text("""
+                            SELECT DISTINCT ON (p.medicine_name)
+                                p.medicine_name,
+                                p.spl_strength,
+                                p.slug,
+                                p.image_filename
+                            FROM drug_condition_tags dct
+                            JOIN pillfinder p
+                              ON p.rxcui = dct.rxcui
+                             AND p.deleted_at IS NULL
+                             AND p.slug IS NOT NULL AND p.slug != ''
+                            WHERE dct.tag = :tag
+                              AND dct.rxcui != :rxcui
+                              AND LOWER(p.medicine_name) != :own_medicine_name
+                            ORDER BY p.medicine_name, p.slug
+                            LIMIT 4
+                        """),
+                        {"tag": tag, "rxcui": rxcui_val, "own_medicine_name": own_medicine_name},
+                    ).fetchall()
+
+                    for r in cross_rows:
+                        med_name = (r[0] or "").strip()
+                        key = med_name.lower()
+                        if key not in drug_map:
+                            image_url = None
+                            if r[3]:
+                                first_filename = str(r[3]).split(",")[0].strip()
+                                if first_filename:
+                                    from utils import IMAGE_BASE
+                                    image_url = f"{IMAGE_BASE}/{first_filename}"
+                            drug_map[key] = {
+                                "drug_name": med_name,
+                                "strength": r[1] or None,
+                                "slug": r[2],
+                                "image_url": image_url,
+                                "shared_tags": [tag],
+                            }
+                        else:
+                            if tag not in drug_map[key]["shared_tags"]:
+                                drug_map[key]["shared_tags"].append(tag)
+            except SQLAlchemyError as _e:
+                err_msg = str(_e).lower()
+                if "drug_condition_tags" in err_msg and (
+                    "does not exist" in err_msg or "no such table" in err_msg
+                ):
+                    logger.debug("drug_condition_tags table not yet created: %s", _e)
+                    return _EMPTY
+                raise
+
+            # 4. Cap at 8 drugs total
+            drugs = list(drug_map.values())[:8]
+
+            # 5. Only surface the tags actually represented by the returned drug cards
+            represented_tags = list(
+                dict.fromkeys(t for d in drugs for t in d["shared_tags"])
+            )
+
+            return {"tags": represented_tags, "drugs": drugs}
+
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_condition_drugs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in get_condition_drugs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

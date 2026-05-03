@@ -125,7 +125,7 @@ def _strip_utm(url: str) -> str:
     return urlunparse(parsed._replace(query=""))
 
 
-def _clean_text(s: str) -> str:
+def _clean_text(s: Optional[str]) -> str:
     """Collapse whitespace, strip basic HTML tags, trim."""
     if not s:
         return ""

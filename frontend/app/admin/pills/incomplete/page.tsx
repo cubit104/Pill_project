@@ -101,11 +101,14 @@ function IncompletePillsInner() {
     ? `Pills with SEO completeness score between ${scoreMin ?? '0'}% and ${scoreMax ?? '100'}%`
     : null
 
-  const summaryText = loading
-    ? 'Loading\u2026'
-    : scoreRangeMode
-      ? `${total.toLocaleString()} pills in this score range`
-      : `${total.toLocaleString()} pills need attention`
+  let summaryText: string
+  if (loading) {
+    summaryText = 'Loading\u2026'
+  } else if (scoreRangeMode) {
+    summaryText = `${total.toLocaleString()} pills in this score range`
+  } else {
+    summaryText = `${total.toLocaleString()} pills need attention`
+  }
 
   return (
     <div className="space-y-4">

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import type { PillDetail, RelatedDrug, SimilarPill } from '../../../types'
+import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
 import type { Reviewer } from '../../../lib/reviewers'
 import { classSlugify, slugifyDrugName } from '../../../lib/slug'
 import { slugifyUrl } from '../../../lib/url-utils'
@@ -82,6 +82,8 @@ export default function PillDetailClient({
   related,
   pharmaClass,
   similar,
+  conditionDrugs,
+  conditionTags,
   faqItems,
   identificationSummary,
 }: {
@@ -93,6 +95,8 @@ export default function PillDetailClient({
   related?: RelatedDrug[]
   pharmaClass?: string
   similar?: SimilarPill[]
+  conditionDrugs?: ConditionDrug[]
+  conditionTags?: string[]
   faqItems?: Array<{ question: string; answer: string }>
   identificationSummary?: string
 }) {
@@ -416,6 +420,62 @@ export default function PillDetailClient({
             </ul>
           </section>
         )}
+
+        {/* Other medications for the same condition */}
+        {conditionDrugs && conditionDrugs.length >= 2 && (() => {
+          // Only show tags that are actually represented by the rendered drug cards
+          const displayedTags = Array.from(
+            new Set(conditionDrugs.flatMap(d => d.shared_tags))
+          )
+          return (
+            <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+              <h2 className="text-base font-semibold text-slate-800 mb-1">
+                Other medications used for the same condition
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                These medications are used to treat similar conditions:{' '}
+                {displayedTags.map((tag, i) => (
+                  <span key={tag}>
+                    <span className="font-medium text-emerald-700">{tag}</span>
+                    {i < displayedTags.length - 1 ? ', ' : ''}
+                  </span>
+                ))}
+              </p>
+              <ul className="grid sm:grid-cols-2 gap-3">
+                {conditionDrugs.map((d) => (
+                  <li key={d.slug}>
+                    <Link
+                      href={`/pill/${encodeURIComponent(d.slug)}`}
+                      className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                    >
+                      {d.image_url && (
+                        <img
+                          src={d.image_url}
+                          alt={`${d.drug_name}${d.strength ? ` ${d.strength}` : ''}`}
+                          className="w-12 h-12 object-contain rounded bg-slate-50 shrink-0"
+                          width={48}
+                          height={48}
+                          loading="lazy"
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-medium text-slate-900 truncate">{d.drug_name}</div>
+                        {d.strength && <div className="text-xs text-slate-500">{d.strength}</div>}
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {d.shared_tags.map(sharedTag => (
+                            <span key={sharedTag} className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                              {sharedTag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )
+        })()}
 
         {/* Related Medications */}
         {related && related.length > 0 && pharmaClass && (

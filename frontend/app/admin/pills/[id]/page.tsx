@@ -609,12 +609,10 @@ function IndexStatusPanel({ slug, token }: { slug: string; token: string | null 
       {indexingStats && (
       <div className="mt-3 border-t pt-2 flex flex-col gap-1">
         <p className="text-sm font-medium">
-          <span className="text-indigo-600">🚀 {indexingStats.total_submitted} total submissions</span>
-          <span className="text-indigo-600"> submitted to Google across all users</span>
+          <span className="text-indigo-600">🚀 {indexingStats.total_submitted} total submissions to Google across all users</span>
         </p>
         <p className="text-sm font-medium">
-          <span className="text-emerald-600">🗂️ {indexingStats.unique_pages} unique pages</span>
-          <span className="text-emerald-600">submitted</span>
+          <span className="text-emerald-600">🗂️ {indexingStats.unique_pages} unique pages submitted</span>
         </p>
       </div>
     )}

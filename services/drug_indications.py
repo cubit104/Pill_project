@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 OPENFDA_LABEL_URL = "https://api.fda.gov/drug/label.json"
 _MAX_RETRIES = 2
 _RETRY_BACKOFF_S = 1.0
+# Minimum character position before a sentence/word boundary truncation is preferred
+_MIN_BOUNDARY_POS = 150
 
 
 # ---------------------------------------------------------------------------
@@ -38,10 +40,10 @@ def truncate_indication(text: str, limit: int = 300) -> str:
         return text or ""
     truncated = text[:limit]
     last_period = truncated.rfind('.')
-    if last_period > 150:
+    if last_period > _MIN_BOUNDARY_POS:
         return truncated[:last_period + 1]
     last_space = truncated.rfind(' ')
-    if last_space > 150:
+    if last_space > _MIN_BOUNDARY_POS:
         return truncated[:last_space] + '\u2026'
     return truncated + '\u2026'
 
