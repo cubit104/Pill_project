@@ -15,7 +15,10 @@ extract_tags(plain_text: str) -> list[str]
     Returns list of matching tag names (case-insensitive, sentence-scoped).
 
 backfill_condition_tags(conn) -> dict
-    Reads drug_indications, extracts tags, upserts into drug_condition_tags.
+    Syncs drug_condition_tags for all rxcuis that have plain_text in
+    drug_indications. For each rxcui, extracts the current tag set, deletes
+    any stale tags no longer in the current set (or all tags when none match),
+    then inserts new tags with ON CONFLICT DO NOTHING.
     Returns {"processed": N, "tagged": N, "skipped": N}.
 """
 

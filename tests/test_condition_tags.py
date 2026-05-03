@@ -269,16 +269,7 @@ class TestBackfillConditionTags:
         )]
         conn = self._make_conn(rows)
         backfill_condition_tags(conn)
-        # Verify the INSERT calls — only 'high blood pressure' should be inserted
-        insert_calls = [
-            str(call) for call in conn.execute.call_args_list
-            if "INSERT INTO drug_condition_tags" in str(call)
-        ]
-        inserted_tags = []
-        for call_str in insert_calls:
-            if "'tag'" in call_str or '"tag"' in call_str:
-                inserted_tags.append(call_str)
-        # kidney and insomnia must NOT appear in any INSERT call
+        # kidney and insomnia must NOT appear in any execute call (INSERT or DELETE)
         all_calls_str = " ".join(str(c) for c in conn.execute.call_args_list)
         assert "kidney" not in all_calls_str
         assert "insomnia" not in all_calls_str
