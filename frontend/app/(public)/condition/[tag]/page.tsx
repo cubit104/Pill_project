@@ -14,10 +14,11 @@ const SITE_URL = (
 interface ConditionDrug {
   medicine_name: string
   spl_strength?: string | null
-  slug: string
+  slug?: string | null
   image_filename?: string | null
   generic_name?: string | null
   brand_name?: string | null
+  rxcui?: string | null
 }
 
 interface RelatedCondition {
@@ -118,9 +119,6 @@ export default async function ConditionPage(
 
   const { title, paragraphs, last_reviewed, drugs, related, slug } = data
 
-  // Derive a MedlinePlus search URL for the condition.
-  const medlinePlusUrl = `https://medlineplus.gov/search/?query=${encodeURIComponent(data.tag)}`
-
   // Condition name for MedicalCondition schema (strip "Medications for " prefix).
   const conditionName = title.replace(/^Medications for\s+/i, '')
 
@@ -201,21 +199,6 @@ export default async function ConditionPage(
             </div>
           </section>
         )}
-
-        {/* Learn more */}
-        <div className="bg-sky-50 border border-sky-200 rounded-xl p-5 mb-6">
-          <p className="text-sky-800 text-sm">
-            <strong>Learn more:</strong>{' '}
-            <a
-              href={medlinePlusUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-sky-900"
-            >
-              {conditionName} on MedlinePlus (NIH) ↗
-            </a>
-          </p>
-        </div>
 
         {/* Disclaimer */}
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">

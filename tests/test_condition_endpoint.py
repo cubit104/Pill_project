@@ -7,6 +7,10 @@ Covers:
   4. Empty drug list still returns 200 with intro paragraphs
   5. Slug normalization (uppercase input)
   6. /api/conditions list endpoint
+  7. Drug deduplication — one row per rxcui
+  8. Drug with no slug but has generic_name still appears in result
+  9. Drug list ordering is alphabetical by medicine_name
+  10. Response includes rxcui per drug
 """
 
 import os
@@ -36,6 +40,53 @@ def client():
         # Return empty result set for drug queries
         mock_result = MagicMock()
         mock_result.fetchall.return_value = []
+        mock_conn.execute.return_value = mock_result
+        mock_engine.connect.return_value = mock_conn
+        db_module.db_engine = mock_engine
+
+        with TestClient(app_module.app) as c:
+            yield c
+
+
+def _make_drug_row(medicine_name, spl_strength, slug, image_filename, generic_name, brand_name, rxcui):
+    """Return a tuple matching the new SELECT column order:
+    medicine_name, spl_strength, slug, image_filename, generic_name, brand_name, rxcui
+    """
+    row = MagicMock()
+    row.__getitem__ = lambda self, i: (
+        medicine_name, spl_strength, slug, image_filename, generic_name, brand_name, rxcui
+    )[i]
+    return row
+
+
+@pytest.fixture(scope="module")
+def client_with_drugs():
+    """Test client whose DB returns a realistic multi-drug result set.
+
+    Simulates the deduplicated output of the new window-function query:
+      - Aspirin (rxcui=111, has slug)
+      - Carvedilol (rxcui=222, no slug but has generic_name)
+      - Metoprolol (rxcui=333, has slug)
+    Returned pre-sorted alphabetically (as the real query ORDER BY medicine_name does).
+    """
+    with patch("main.connect_to_database", return_value=True), \
+         patch("main.warmup_system", return_value=None):
+        from fastapi.testclient import TestClient
+        import main as app_module
+        import database as db_module
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+
+        rows = [
+            _make_drug_row("Aspirin", "81 mg", "aspirin-81mg", "aspirin.jpg", "aspirin", "Bayer", "111"),
+            _make_drug_row("Carvedilol", "6.25 mg", None, None, "carvedilol", "Coreg", "222"),
+            _make_drug_row("Metoprolol", "50 mg", "metoprolol-50mg", None, "metoprolol succinate", "Toprol", "333"),
+        ]
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = rows
         mock_conn.execute.return_value = mock_result
         mock_engine.connect.return_value = mock_conn
         db_module.db_engine = mock_engine
@@ -216,3 +267,52 @@ class TestConditionsListEndpoint:
         data = client.get("/api/conditions").json()
         slugs = [c["slug"] for c in data["conditions"]]
         assert "diabetes" in slugs
+
+
+class TestConditionDrugDeduplication:
+    """Drug query deduplication, slug-fallback, ordering, and rxcui in response."""
+
+    def test_drug_list_returns_expected_count(self, client_with_drugs):
+        """Three distinct rxcuis → three drugs in response."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        assert data["drug_count"] == 3
+        assert len(data["drugs"]) == 3
+
+    def test_drug_with_no_slug_still_included(self, client_with_drugs):
+        """Carvedilol has no slug but a generic_name — it must still appear."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        names = [d["medicine_name"] for d in data["drugs"]]
+        assert "Carvedilol" in names
+
+    def test_drug_with_no_slug_has_generic_name(self, client_with_drugs):
+        """The slug-less drug has generic_name populated for frontend fallback."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        carvedilol = next((d for d in data["drugs"] if d["medicine_name"] == "Carvedilol"), None)
+        assert carvedilol is not None, "Carvedilol not found in drug list"
+        assert carvedilol["generic_name"] == "carvedilol"
+        assert not carvedilol["slug"]
+
+    def test_drug_list_ordered_alphabetically(self, client_with_drugs):
+        """Drugs are returned sorted alphabetically by medicine_name."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        names = [d["medicine_name"] for d in data["drugs"]]
+        assert names == sorted(names)
+
+    def test_each_drug_has_rxcui_field(self, client_with_drugs):
+        """Every drug in the response includes the rxcui field."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        for drug in data["drugs"]:
+            assert "rxcui" in drug
+
+    def test_drug_rxcui_values_are_distinct(self, client_with_drugs):
+        """One row per rxcui — no duplicates."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        rxcuis = [d["rxcui"] for d in data["drugs"]]
+        assert len(rxcuis) == len(set(rxcuis))
+
+    def test_drug_with_slug_has_slug_populated(self, client_with_drugs):
+        """Aspirin has a slug — it must be present in the response."""
+        data = client_with_drugs.get("/api/condition/heart-failure").json()
+        aspirin = next((d for d in data["drugs"] if d["medicine_name"] == "Aspirin"), None)
+        assert aspirin is not None, "Aspirin not found in drug list"
+        assert aspirin["slug"] == "aspirin-81mg"

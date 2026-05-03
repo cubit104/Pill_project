@@ -87,25 +87,44 @@ def get_condition(slug: str, request: Request, background_tasks: BackgroundTasks
     description = CONDITION_DESCRIPTIONS[tag]
 
     # Fetch drugs for this condition tag.
+    # Uses a window function to deduplicate by rxcui — pick the "best" representative row:
+    # prefer rows that have a slug, then an image, then a generic_name, then alphabetical.
+    # JOIN uses TRIM/cast to handle rxcui type or whitespace mismatches.
+    # Rows without a slug are still included so the frontend can fall back to /drug/{generic_name}.
     drugs: list[dict] = []
     if database.db_engine:
         try:
             with database.db_engine.connect() as conn:
                 rows = conn.execute(
                     text("""
-                        SELECT
-                            p.medicine_name,
-                            p.spl_strength,
-                            p.slug,
-                            p.image_filename,
-                            p.generic_name,
-                            p.brand_name
-                        FROM drug_condition_tags dct
-                        JOIN pillfinder p ON p.rxcui = dct.rxcui
-                        WHERE dct.tag = :tag
-                          AND p.deleted_at IS NULL
-                          AND p.slug IS NOT NULL AND p.slug != ''
-                        ORDER BY p.medicine_name ASC
+                        WITH ranked AS (
+                            SELECT
+                                dct.rxcui,
+                                p.medicine_name,
+                                p.spl_strength,
+                                p.slug,
+                                p.image_filename,
+                                p.generic_name,
+                                p.brand_name,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY dct.rxcui
+                                    ORDER BY
+                                        (p.slug IS NOT NULL AND p.slug != '') DESC,
+                                        (p.image_filename IS NOT NULL AND p.image_filename != '') DESC,
+                                        (p.generic_name IS NOT NULL AND p.generic_name != '') DESC,
+                                        p.medicine_name ASC
+                                ) AS rn
+                            FROM drug_condition_tags dct
+                            JOIN pillfinder p
+                                ON TRIM(p.rxcui::text) = TRIM(dct.rxcui::text)
+                            WHERE dct.tag = :tag
+                              AND p.deleted_at IS NULL
+                        )
+                        SELECT medicine_name, spl_strength, slug, image_filename,
+                               generic_name, brand_name, rxcui
+                        FROM ranked
+                        WHERE rn = 1
+                        ORDER BY medicine_name ASC
                     """),
                     {"tag": tag},
                 ).fetchall()
@@ -118,6 +137,7 @@ def get_condition(slug: str, request: Request, background_tasks: BackgroundTasks
                         "image_filename": row[3],
                         "generic_name": row[4],
                         "brand_name": row[5],
+                        "rxcui": row[6],
                     })
         except SQLAlchemyError as exc:
             logger.error("DB error fetching condition drugs for %r: %s", tag, exc, exc_info=True)
