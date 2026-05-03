@@ -51,6 +51,49 @@ _INTENT_PATTERN = re.compile(
 )
 
 # ---------------------------------------------------------------------------
+# Fix 1 — "talking about other drugs" exclusion pattern.
+#
+# MedlinePlus drug pages frequently contain sentences like:
+#   "Some medications used to treat HIV, such as ritonavir, may reduce
+#    the effectiveness of this medication."
+# That sentence has treatment intent + an HIV keyword, but it is describing
+# OTHER drugs that interact with this one — not what THIS drug treats.
+#
+# Any intent-containing sentence that also matches this pattern is skipped
+# entirely before condition keywords are checked.
+# ---------------------------------------------------------------------------
+_OTHER_DRUG_EXCLUSION = re.compile(
+    r'\b('
+    r'other medications?|'
+    r'other medicines?|'
+    r'certain medications?|'
+    r'certain medicines?|'
+    r'medications? (?:such as|including|like|used to)|'
+    r'medicines? (?:such as|including|like|used to)|'
+    r'drugs? (?:such as|including|like|used to)|'
+    r'if you (?:take|are taking|use)\b'
+    r')',
+    re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
+# Per-tag sentence-level exclusion patterns.
+#
+# If a sentence matches the exclusion pattern for a given tag the tag is NOT
+# applied, even when treatment intent + keyword are both present.
+#
+# Fix 3 — Nausea: MedlinePlus triptans text reads
+#   "Sumatriptan is used to treat migraine headaches (severe, throbbing
+#    headaches accompanied by nausea and vomiting)."
+# "nausea and vomiting" appears inside a parenthetical describing migraine
+# symptoms — the drug doesn't treat nausea, it treats migraine.
+# Exclude the nausea tag when "migraine" appears in the same sentence.
+# ---------------------------------------------------------------------------
+_TAG_EXCLUSIONS: dict[str, re.Pattern] = {
+    "nausea": re.compile(r'\bmigraine\b', re.IGNORECASE),
+}
+
+# ---------------------------------------------------------------------------
 # Condition keywords: {tag: [exact_phrases]}
 # Phrases are matched with \b word-boundary anchors (case-insensitive).
 # Use specific multi-word phrases wherever possible to avoid over-matching.
@@ -204,11 +247,16 @@ CONDITION_KEYWORDS: dict[str, list[str]] = {
         "alzheimer disease",
         "dementia",
     ],
+    # Fix 2 — HIV: removed bare "hiv" and "antiretroviral".
+    # Bare "hiv" was too broad — caught interaction-warning sentences like
+    # "medications used to treat HIV such as ritonavir may reduce …".
+    # "antiretroviral" is a drug-class term that appears in interaction
+    # sentences even for non-HIV drugs.
+    # Only require "hiv infection" or the full "human immunodeficiency virus"
+    # phrase, both of which are unambiguously about treating this condition.
     "hiv": [
         "hiv infection",
         "human immunodeficiency virus",
-        "hiv",
-        "antiretroviral",
     ],
     "hepatitis": [
         "hepatitis b",
@@ -256,13 +304,18 @@ def _split_sentences(text: str) -> list[str]:
 def extract_tags(plain_text: str) -> list[str]:
     """Return list of matching condition tag names for a given plain_text.
 
-    A tag is only applied when BOTH conditions hold in the same sentence:
+    A tag is only applied when ALL of the following hold in the same sentence:
     1. The sentence contains a treatment-intent anchor (e.g. "used to treat").
-    2. The sentence contains a condition keyword phrase.
+    2. The sentence does NOT match the other-drug exclusion pattern
+       (i.e. it is NOT describing what other/certain medications do).
+    3. The sentence contains a condition keyword phrase.
+    4. The sentence does NOT match the per-tag exclusion pattern (if any).
 
     This prevents side-effect sentences ("may cause insomnia"),
     warning sentences ("do not take if you have kidney disease"),
-    and incidental mentions from generating false-positive tags.
+    interaction sentences ("medications used to treat HIV such as ritonavir…"),
+    and parenthetical symptom mentions ("migraine … accompanied by nausea")
+    from generating false-positive tags.
     """
     if not plain_text or not plain_text.strip():
         return []
@@ -271,9 +324,16 @@ def extract_tags(plain_text: str) -> list[str]:
     matched: list[str] = []
 
     for tag, phrases in CONDITION_KEYWORDS.items():
+        tag_exclusion = _TAG_EXCLUSIONS.get(tag)
         for sentence in sentences:
-            # Gate: only consider sentences with treatment intent
+            # Gate 1: only consider sentences with treatment intent
             if not _INTENT_PATTERN.search(sentence):
+                continue
+            # Gate 2: skip sentences that are talking about OTHER drugs
+            if _OTHER_DRUG_EXCLUSION.search(sentence):
+                continue
+            # Gate 3: skip sentences that match this tag's exclusion pattern
+            if tag_exclusion and tag_exclusion.search(sentence):
                 continue
             # Check if any condition phrase matches in this intent sentence
             for phrase in phrases:
@@ -368,4 +428,3 @@ def backfill_condition_tags(conn) -> dict:
 
     conn.commit()
     return {"processed": processed, "tagged": tagged, "skipped": skipped}
-
