@@ -1364,10 +1364,8 @@ def test_get_pill_indication_returns_nulls_when_no_rxcui(client):
             # profiles auth lookup — return profile row so role is resolved
             result.fetchone.return_value = FAKE_ADMIN_PROFILE
         else:
-            # pillfinder row with rxcui = None
-            pill_row = MagicMock()
-            pill_row.__getitem__ = lambda self, i: None
-            result.fetchone.return_value = pill_row
+            # pillfinder row with rxcui = None — use a real tuple so [0] returns None
+            result.fetchone.return_value = (None,)
         result.fetchall.return_value = []
         result.scalar.return_value = 0
         return result
@@ -1410,10 +1408,8 @@ def test_get_pill_indication_returns_data_when_found(client):
             # profiles auth lookup
             result.fetchone.return_value = FAKE_ADMIN_PROFILE
         elif "pillfinder" in sql_str:
-            # pill row with rxcui
-            pill_row = MagicMock()
-            pill_row.__getitem__ = lambda self, i: "123456" if i == 0 else None
-            result.fetchone.return_value = pill_row
+            # pill row with rxcui — use a real tuple so [0] returns the rxcui string
+            result.fetchone.return_value = ("123456",)
         else:
             # drug_indications row: plain_text, source, source_url, rxcui
             result.fetchone.return_value = ("Used for pain.", "medlineplus", None, "123456")
@@ -1502,9 +1498,8 @@ def test_put_pill_indication_saves_with_manual_source(client):
             # profiles auth lookup — return superuser profile
             result.fetchone.return_value = FAKE_ADMIN_PROFILE
         elif "pillfinder" in sql_str:
-            pill_row = MagicMock()
-            pill_row.__getitem__ = lambda self, i: "123456" if i == 0 else "Aspirin"
-            result.fetchone.return_value = pill_row
+            # real tuple: rxcui at index 0, medicine_name at index 1
+            result.fetchone.return_value = ("123456", "Aspirin")
         else:
             result.fetchone.return_value = None
         result.fetchall.return_value = []
@@ -1552,9 +1547,8 @@ def test_put_pill_indication_returns_400_when_no_rxcui(client):
             # profiles auth lookup
             result.fetchone.return_value = FAKE_ADMIN_PROFILE
         elif "pillfinder" in sql_str:
-            pill_row = MagicMock()
-            pill_row.__getitem__ = lambda self, i: None  # rxcui is None
-            result.fetchone.return_value = pill_row
+            # real tuple: rxcui is None at index 0, medicine_name at index 1
+            result.fetchone.return_value = (None, "Aspirin")
         else:
             result.fetchone.return_value = None
         result.fetchall.return_value = []

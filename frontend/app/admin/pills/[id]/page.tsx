@@ -878,7 +878,7 @@ export default function EditPillPage() {
   const handleSaveIndication = async () => {
     setIndicationSaving(true); setIndicationError(''); setIndicationSuccess('')
     const session = await getSession()
-    if (!session) return
+    if (!session) { setIndicationSaving(false); return }
     try {
       const res = await fetch(`/api/admin/pills/${pillId}/indication`, {
         method: 'PUT',
@@ -887,7 +887,7 @@ export default function EditPillPage() {
       })
       if (!res.ok) throw new Error(await safeErrorDetail(res, 'Failed to save indication'))
       setIndicationSuccess('Indication saved successfully')
-      setIndication({ plain_text: indicationText, source: 'manual', source_url: indication?.source_url ?? null, rxcui: indication?.rxcui ?? null })
+      setIndication({ plain_text: indicationText, source: 'manual', source_url: indication?.source_url ?? null, rxcui: pill?.rxcui ?? indication?.rxcui ?? null })
     } catch (e) { setIndicationError(String(e)) } finally { setIndicationSaving(false) }
   }
 
