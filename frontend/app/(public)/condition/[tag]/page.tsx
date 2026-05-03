@@ -16,6 +16,7 @@ interface ConditionDrug {
   spl_strength?: string | null
   slug?: string | null
   image_filename?: string | null
+  image_url?: string | null
   brand_names?: string | null
   rxcui?: string | null
 }
@@ -33,6 +34,10 @@ interface ConditionData {
   last_reviewed: string
   drugs: ConditionDrug[]
   drug_count: number
+  total_count: number
+  limit: number
+  offset: number
+  has_more: boolean
   related: RelatedCondition[]
   redirect?: boolean
   canonical_slug?: string
@@ -44,10 +49,14 @@ interface ConditionListItem {
   tag: string
 }
 
-async function fetchCondition(slug: string): Promise<ConditionData | null> {
+async function fetchCondition(
+  slug: string,
+  limit = 20,
+  offset = 0,
+): Promise<ConditionData | null> {
   try {
     const res = await fetch(
-      `${API_BASE}/api/condition/${encodeURIComponent(slug)}`,
+      `${API_BASE}/api/condition/${encodeURIComponent(slug)}?limit=${limit}&offset=${offset}`,
       { next: { revalidate } }
     )
     if (res.status === 404) return null
@@ -106,17 +115,26 @@ export async function generateMetadata(
 }
 
 export default async function ConditionPage(
-  { params }: { params: Promise<{ tag: string }> }
+  { params, searchParams }: {
+    params: Promise<{ tag: string }>
+    searchParams: Promise<{ page?: string }>
+  }
 ) {
   const { tag } = await params
-  const data = await fetchCondition(tag)
+  const { page: pageParam } = await searchParams
+  const page = Math.max(1, parseInt(pageParam ?? '1', 10) || 1)
+  const limit = 20
+  const offset = (page - 1) * limit
+
+  const data = await fetchCondition(tag, limit, offset)
 
   // If the API says this is an alias, redirect to the canonical slug (301-equivalent).
   if (data?.redirect && data.canonical_slug) redirect(`/condition/${data.canonical_slug}`)
   // Truly missing or error
   if (!data) notFound()
 
-  const { title, paragraphs, last_reviewed, drugs, related, slug } = data
+  const { title, paragraphs, last_reviewed, drugs, related, slug, total_count } = data
+  const totalPages = total_count > 0 ? Math.ceil(total_count / limit) : 1
 
   // Condition name for MedicalCondition schema (strip "Medications for " prefix).
   const conditionName = title.replace(/^Medications for\s+/i, '')
@@ -137,6 +155,10 @@ export default async function ConditionPage(
     specialty: 'Pharmacology',
     description: paragraphs[0]?.slice(0, 300) ?? '',
   }
+
+  const showPagination = total_count > limit
+  const rangeStart = offset + 1
+  const rangeEnd = Math.min(offset + drugs.length, total_count)
 
   return (
     <>
@@ -176,7 +198,34 @@ export default async function ConditionPage(
           <h2 id="drug-list-heading" className="text-xl font-semibold text-slate-800 mb-4">
             Medications
           </h2>
-          <ConditionPageClient drugs={drugs} conditionTitle={title} />
+          <ConditionPageClient drugs={drugs} conditionTitle={title} totalCount={total_count} />
+
+          {/* Pagination controls */}
+          {showPagination && (
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <p className="text-sm text-slate-500">
+                Showing {rangeStart}–{rangeEnd} of {total_count}
+              </p>
+              <div className="flex gap-2">
+                {page > 1 && (
+                  <Link
+                    href={`/condition/${slug}?page=${page - 1}`}
+                    className="px-4 py-2 text-sm bg-white border border-slate-200 rounded-lg text-slate-700 hover:border-emerald-300 hover:text-emerald-700 transition-colors"
+                  >
+                    ← Previous
+                  </Link>
+                )}
+                {page < totalPages && (
+                  <Link
+                    href={`/condition/${slug}?page=${page + 1}`}
+                    className="px-4 py-2 text-sm bg-white border border-slate-200 rounded-lg text-slate-700 hover:border-emerald-300 hover:text-emerald-700 transition-colors"
+                  >
+                    Next →
+                  </Link>
+                )}
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Related conditions */}
