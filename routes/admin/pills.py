@@ -892,6 +892,122 @@ def get_pill_completeness(pill_id: str, admin: dict = Depends(get_admin_user)):
         raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
+class IndicationUpdate(BaseModel):
+    plain_text: str
+
+
+@router.get("/{pill_id}/indication")
+def get_pill_indication(pill_id: str, admin: dict = Depends(get_admin_user)):
+    """Return the drug indication for a pill (any admin role including readonly)."""
+    if not database.db_engine:
+        database.connect_to_database()
+    try:
+        with database.db_engine.connect() as conn:
+            pill_row = conn.execute(
+                text("SELECT rxcui FROM pillfinder WHERE id = :id LIMIT 1"),
+                {"id": pill_id},
+            ).fetchone()
+            if not pill_row:
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            rxcui = pill_row[0]
+            if not rxcui:
+                return {"plain_text": None, "source": None, "source_url": None, "rxcui": None}
+
+            ind_row = conn.execute(
+                text(
+                    "SELECT plain_text, source, source_url, rxcui"
+                    " FROM drug_indications WHERE rxcui = :rxcui LIMIT 1"
+                ),
+                {"rxcui": rxcui},
+            ).fetchone()
+            if not ind_row:
+                return {"plain_text": None, "source": None, "source_url": None, "rxcui": rxcui}
+
+            return {
+                "plain_text": ind_row[0],
+                "source": ind_row[1],
+                "source_url": ind_row[2],
+                "rxcui": ind_row[3],
+            }
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"get_pill_indication DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
+@router.put("/{pill_id}/indication")
+def update_pill_indication(
+    request: Request,
+    pill_id: str,
+    body: IndicationUpdate,
+    admin: dict = Depends(get_admin_user),
+):
+    """Upsert drug indication plain_text with source='manual' (editor role or higher)."""
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+
+    if not database.db_engine:
+        database.connect_to_database()
+    try:
+        with database.db_engine.begin() as conn:
+            pill_row = conn.execute(
+                text("SELECT rxcui, medicine_name FROM pillfinder WHERE id = :id LIMIT 1"),
+                {"id": pill_id},
+            ).fetchone()
+            if not pill_row:
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            rxcui = pill_row[0]
+            medicine_name = pill_row[1]
+            if not rxcui:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This pill has no RxCUI — cannot save indication",
+                )
+
+            drug_name_key = (medicine_name or "").lower().strip()
+
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO drug_indications (drug_name_key, rxcui, plain_text, source, fetched_at)
+                    VALUES (:drug_name_key, :rxcui, :plain_text, 'manual', NOW())
+                    ON CONFLICT (rxcui) DO UPDATE
+                    SET plain_text = EXCLUDED.plain_text,
+                        source = 'manual',
+                        fetched_at = NOW()
+                    """
+                ),
+                {
+                    "drug_name_key": drug_name_key,
+                    "rxcui": rxcui,
+                    "plain_text": body.plain_text,
+                },
+            )
+
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action="update_indication",
+                entity_type="drug_indication",
+                entity_id=str(rxcui),
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+
+        return {"saved": True, "source": "manual"}
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"update_pill_indication DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
 @router.post("", status_code=201)
 def create_pill(
     request: Request,

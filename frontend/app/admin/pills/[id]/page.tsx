@@ -636,6 +636,11 @@ export default function EditPillPage() {
   const [token, setToken] = useState<string | null>(null)
   const [resolvedImageUrls, setResolvedImageUrls] = useState<string[]>([])
   const [justPublished, setJustPublished] = useState(false)
+  const [indication, setIndication] = useState<{ plain_text: string | null; source: string | null; rxcui: string | null } | null>(null)
+  const [indicationText, setIndicationText] = useState('')
+  const [indicationSaving, setIndicationSaving] = useState(false)
+  const [indicationSuccess, setIndicationSuccess] = useState('')
+  const [indicationError, setIndicationError] = useState('')
 
   const getSession = useCallback(async () => {
     const supabase = createClient()
@@ -674,6 +679,18 @@ export default function EditPillPage() {
       })
       formData['has_image'] = data['has_image'] ?? ''
       setForm(formData)
+
+      // Fetch indication alongside pill
+      try {
+        const indRes = await fetch(`/api/admin/pills/${pillId}/indication`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+        if (indRes.ok) {
+          const indData = await indRes.json()
+          setIndication(indData)
+          setIndicationText(indData.plain_text ?? '')
+        }
+      } catch { /* silently fail — indication is optional */ }
     } catch (e) {
       setError(String(e))
     } finally {
@@ -852,6 +869,22 @@ export default function EditPillPage() {
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
 
+  const handleSaveIndication = async () => {
+    setIndicationSaving(true); setIndicationError(''); setIndicationSuccess('')
+    const session = await getSession()
+    if (!session) return
+    try {
+      const res = await fetch(`/api/admin/pills/${pillId}/indication`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plain_text: indicationText }),
+      })
+      if (!res.ok) throw new Error(await safeErrorDetail(res, 'Failed to save indication'))
+      setIndicationSuccess('Indication saved successfully')
+      setIndication((prev) => ({ ...prev, plain_text: indicationText, source: 'manual', rxcui: prev?.rxcui ?? null }))
+    } catch (e) { setIndicationError(String(e)) } finally { setIndicationSaving(false) }
+  }
+
   if (loading) return <div className="p-4 text-gray-500">Loading pill…</div>
 
   const showError = error && !errorDismissed
@@ -993,6 +1026,47 @@ export default function EditPillPage() {
           </div>
         )
       })}
+
+      {/* Drug Indication section */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+        <h2 className="font-semibold text-gray-900 mb-1">Drug Indication (What it&apos;s used for)</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Shown on the public pill page. Source: <span className="font-medium">{indication?.source ?? 'none'}</span>.
+          {' '}Editing sets source to &apos;manual&apos; — backfill scripts will never overwrite it.
+        </p>
+        {!pill?.rxcui ? (
+          <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-md px-3 py-2">
+            No RxCUI on this pill — save an RxCUI first to enable indication editing.
+          </p>
+        ) : (
+          <>
+            <textarea
+              rows={6}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y"
+              value={indicationText}
+              onChange={(e) => setIndicationText(e.target.value)}
+              placeholder="Enter patient-friendly indication text from MedlinePlus or custom..."
+            />
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                onClick={handleSaveIndication}
+                disabled={indicationSaving || !pill?.rxcui}
+                title={!pill?.rxcui ? 'No RxCUI' : undefined}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium transition-colors"
+              >
+                <Save className="w-4 h-4" />
+                {indicationSaving ? 'Saving…' : 'Save Indication'}
+              </button>
+              {indicationSuccess && (
+                <span className="text-green-700 text-sm">{indicationSuccess}</span>
+              )}
+              {indicationError && (
+                <span className="text-red-600 text-sm">{indicationError}</span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
 
       {draftCount > 0 && (
         <div className="bg-white rounded-lg shadow border-2 border-blue-200" id="pending-drafts">

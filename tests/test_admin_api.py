@@ -1343,3 +1343,260 @@ def test_stats_no_image_count_uses_image_filename(client):
     assert "has_image IS NULL OR has_image != 'TRUE'" not in combined, (
         "stats must not use the has_image column for no_image count"
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/pills/{pill_id}/indication
+# ---------------------------------------------------------------------------
+
+def test_get_pill_indication_returns_nulls_when_no_rxcui(client):
+    """GET indication returns all-null payload when pill has no rxcui."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            # profiles auth lookup — return profile row so role is resolved
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        else:
+            # pillfinder row with rxcui = None
+            pill_row = MagicMock()
+            pill_row.__getitem__ = lambda self, i: None
+            result.fetchone.return_value = pill_row
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/pills/some-pill-id/indication",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["plain_text"] is None
+    assert data["rxcui"] is None
+    assert data["source"] is None
+
+
+def test_get_pill_indication_returns_data_when_found(client):
+    """GET indication returns plain_text and source when drug_indications row exists."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            # profiles auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "pillfinder" in sql_str:
+            # pill row with rxcui
+            pill_row = MagicMock()
+            pill_row.__getitem__ = lambda self, i: "123456" if i == 0 else None
+            result.fetchone.return_value = pill_row
+        else:
+            # drug_indications row: plain_text, source, source_url, rxcui
+            result.fetchone.return_value = ("Used for pain.", "medlineplus", None, "123456")
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/pills/some-pill-id/indication",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["plain_text"] == "Used for pain."
+    assert data["source"] == "medlineplus"
+    assert data["rxcui"] == "123456"
+
+
+def test_get_pill_indication_returns_404_for_missing_pill(client):
+    """GET indication returns 404 when pill is not found."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/pills/nonexistent/indication",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/admin/pills/{pill_id}/indication
+# ---------------------------------------------------------------------------
+
+def test_put_pill_indication_saves_with_manual_source(client):
+    """PUT indication upserts the row and returns saved=True, source='manual'."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    executed_sqls: list = []
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        executed_sqls.append(sql_str)
+        if call_count[0] == 1:
+            # profiles auth lookup — return superuser profile
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "pillfinder" in sql_str:
+            pill_row = MagicMock()
+            pill_row.__getitem__ = lambda self, i: "123456" if i == 0 else "Aspirin"
+            result.fetchone.return_value = pill_row
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.put(
+            "/api/admin/pills/some-pill-id/indication",
+            json={"plain_text": "Aspirin is used for pain."},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["saved"] is True
+    assert data["source"] == "manual"
+    # Confirm the upsert SQL included 'manual' source
+    assert any("manual" in sql for sql in executed_sqls), "Upsert must set source='manual'"
+    assert any("drug_indications" in sql for sql in executed_sqls), "Must write to drug_indications"
+
+
+def test_put_pill_indication_returns_400_when_no_rxcui(client):
+    """PUT indication returns 400 when the pill has no rxcui."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            # profiles auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "pillfinder" in sql_str:
+            pill_row = MagicMock()
+            pill_row.__getitem__ = lambda self, i: None  # rxcui is None
+            result.fetchone.return_value = pill_row
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.put(
+            "/api/admin/pills/some-pill-id/indication",
+            json={"plain_text": "some text"},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 400
+    assert "RxCUI" in resp.json()["detail"]
+
+
+def test_put_pill_indication_requires_editor_or_higher(client):
+    """PUT indication returns 403 for readonly users."""
+    mock_engine, _ = _make_mock_engine(
+        admin_row=FAKE_READONLY_ROW,
+        profile_row=None,  # readonly has no profile row → falls back to admin_users
+    )
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_READONLY_ROW[0]}):
+        resp = client.put(
+            "/api/admin/pills/some-pill-id/indication",
+            json={"plain_text": "some text"},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 403
+
