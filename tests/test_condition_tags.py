@@ -106,13 +106,13 @@ class TestBackfillConditionTags:
         assert summary == {"processed": 0, "tagged": 0, "skipped": 0}
 
     def test_backfill_single_row_no_match(self):
-        """A row whose plain_text has no keywords is counted as skipped."""
+        """A row whose plain_text has no keywords: processed=1, tagged=0, skipped=0."""
         rows = [("12345", "widgetol", "This treats nothing recognizable in the keyword list.")]
         conn = _make_mock_conn(rows)
         summary = backfill_condition_tags(conn)
         assert summary["processed"] == 1
         assert summary["tagged"] == 0
-        assert summary["skipped"] == 1
+        assert summary["skipped"] == 0
 
     def test_backfill_single_row_with_tags(self):
         """A row with matching plain_text is tagged and committed."""

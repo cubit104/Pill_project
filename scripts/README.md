@@ -141,7 +141,7 @@ python scripts/backfill_condition_tags.py
 ✓ 5640 ibuprofen — ['pain', 'arthritis'] (dry-run, not saved)
 ⚠ 99999 someDrug — no tags matched
 
-Processed: 3 | Tagged: 2 | Skipped/no-match: 1
+Processed: 3 | Tagged: 2 | No-match: 1 | Skipped (dup rxcui): 0
 ```
 
 ### What it does

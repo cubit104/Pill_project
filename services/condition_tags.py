@@ -113,7 +113,6 @@ def backfill_condition_tags(conn) -> dict:
         tags = extract_tags(plain_text)
 
         if not tags:
-            skipped += 1
             continue
 
         for tag in tags:

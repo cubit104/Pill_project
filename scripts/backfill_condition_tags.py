@@ -92,11 +92,10 @@ def main(argv=None):
                     tagged += 1
                     print(f"✓ {rxcui} {medicine_name} — {tags} (dry-run, not saved)")
                 else:
-                    skipped += 1
                     print(f"⚠ {rxcui} {medicine_name} — no tags matched")
 
         print(
-            f"\nProcessed: {processed} | Tagged: {tagged} | Skipped/no-match: {skipped}"
+            f"\nProcessed: {processed} | Tagged: {tagged} | No-match: {processed - tagged} | Skipped (dup rxcui): {skipped}"
         )
         return
 
