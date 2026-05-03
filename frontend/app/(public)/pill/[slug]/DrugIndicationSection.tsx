@@ -1,9 +1,94 @@
 'use client'
 
 import React, { useState } from 'react'
+import Link from 'next/link'
 import type { DrugIndication } from '../../../types'
+import { slugifyUrl } from '../../../lib/url-utils'
 
 const COLLAPSE_THRESHOLD = 280
+
+const FRONTEND_KEYWORD_MAP: Record<string, string[]> = {
+  "heart attack":              ["heart attack", "myocardial infarction"],
+  "stroke":                    ["stroke"],
+  "high blood pressure":       ["high blood pressure", "hypertension", "elevated blood pressure"],
+  "diabetes":                  ["type 2 diabetes", "type 1 diabetes", "diabetes mellitus", "diabetes", "blood glucose", "blood sugar"],
+  "pain":                      ["moderate to severe pain", "mild to moderate pain", "chronic pain", "acute pain", "musculoskeletal pain", "neuropathic pain", "cancer pain"],
+  "bacterial infection":       ["bacterial infections", "bacterial infection", "bacterial pneumonia", "bacterial sinusitis", "bacterial meningitis"],
+  "high cholesterol":          ["high cholesterol", "elevated cholesterol", "hyperlipidemia", "hypercholesterolemia", "low-density lipoprotein", "ldl cholesterol", "triglycerides"],
+  "anxiety":                   ["anxiety disorder", "generalized anxiety disorder", "panic disorder", "social anxiety disorder", "anxiety"],
+  "depression":                ["major depressive disorder", "major depression", "depression"],
+  "seizures":                  ["seizures", "epilepsy", "epileptic"],
+  "blood clots":               ["blood clots", "deep vein thrombosis", "pulmonary embolism", "thrombosis", "dvt", "clotting", "clot"],
+  "acid reflux":               ["acid reflux", "gastroesophageal reflux disease", "gerd", "heartburn", "stomach acid"],
+  "allergies":                 ["seasonal allergies", "allergic rhinitis", "hay fever", "allergic reactions", "allergies", "allergy"],
+  "asthma":                    ["asthma", "bronchospasm"],
+  "thyroid disease":           ["hypothyroidism", "hyperthyroidism", "thyroid disease", "thyroid disorder"],
+  "kidney disease":            ["chronic kidney disease", "kidney disease", "renal failure", "renal disease", "end-stage renal disease"],
+  "osteoporosis":              ["osteoporosis", "bone loss"],
+  "rheumatoid arthritis":      ["rheumatoid arthritis"],
+  "osteoarthritis":            ["osteoarthritis"],
+  "nausea":                    ["nausea and vomiting", "chemotherapy-induced nausea", "postoperative nausea", "nausea"],
+  "insomnia":                  ["insomnia", "sleep disorder", "difficulty sleeping"],
+  "adhd":                      ["attention deficit hyperactivity disorder", "adhd", "attention deficit disorder"],
+  "bipolar disorder":          ["bipolar disorder", "manic episodes", "manic depression"],
+  "schizophrenia":             ["schizophrenia", "schizoaffective disorder"],
+  "parkinson's disease":       ["parkinson's disease", "parkinson disease", "parkinsonian symptoms"],
+  "alzheimer's disease":       ["alzheimer's disease", "alzheimer disease", "dementia"],
+  "hiv":                       ["hiv infection", "human immunodeficiency virus"],
+  "hepatitis":                 ["hepatitis b", "hepatitis c", "chronic hepatitis"],
+  "fungal infections":         ["fungal infections", "yeast infections", "candidiasis", "tinea"],
+  "heart failure":             ["heart failure", "congestive heart failure", "cardiac failure"],
+  "atrial fibrillation":       ["atrial fibrillation", "irregular heartbeat", "abnormal heart rhythm", "arrhythmia"],
+  "peripheral artery disease": ["peripheral arterial disease", "peripheral artery disease", "poor blood flow"],
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function highlightText(text: string, conditionTags: string[]): React.ReactNode {
+  // Collect all phrases for active tags, tracking which tag each phrase belongs to
+  const phraseToTag: Map<string, string> = new Map()
+  for (const tag of conditionTags) {
+    const phrases = FRONTEND_KEYWORD_MAP[tag] ?? []
+    for (const phrase of phrases) {
+      if (!phraseToTag.has(phrase.toLowerCase())) {
+        phraseToTag.set(phrase.toLowerCase(), tag)
+      }
+    }
+  }
+
+  const phrases = Array.from(phraseToTag.keys())
+  if (phrases.length === 0) return text
+
+  // Sort longest-first to prevent shorter phrases matching before longer ones
+  phrases.sort((a, b) => b.length - a.length)
+
+  const regex = new RegExp('\\b(' + phrases.map(escapeRegex).join('|') + ')\\b', 'gi')
+  const parts = text.split(regex)
+
+  return (
+    <>
+      {parts.map((part, i) => {
+        const tag = phraseToTag.get(part.toLowerCase())
+        if (tag) {
+          const conditionSlug = slugifyUrl(tag)
+          return (
+            <Link
+              key={i}
+              href={`/condition/${conditionSlug}`}
+              className="font-semibold text-emerald-700 hover:underline"
+              aria-label={`See other medications for ${tag}`}
+            >
+              {part}
+            </Link>
+          )
+        }
+        return <React.Fragment key={i}>{part}</React.Fragment>
+      })}
+    </>
+  )
+}
 
 function getSourceLabel(source: string): string {
   switch (source) {
@@ -18,6 +103,7 @@ interface DrugIndicationSectionProps {
   indication: DrugIndication
   drugName?: string
   imprint?: string
+  conditionTags?: string[]
 }
 
 /**
@@ -74,7 +160,7 @@ function buildLeadIn(drugName: string | undefined, imprint: string | undefined, 
   return <>This medication, <strong>{brand}</strong>, contains {generic}.</>
 }
 
-export default function DrugIndicationSection({ indication, drugName, imprint }: DrugIndicationSectionProps) {
+export default function DrugIndicationSection({ indication, drugName, imprint, conditionTags }: DrugIndicationSectionProps) {
   const [expanded, setExpanded] = useState(false)
   const needsToggle = indication.plain_text.length > COLLAPSE_THRESHOLD
   const displayText =
@@ -94,7 +180,11 @@ export default function DrugIndicationSection({ indication, drugName, imprint }:
       {leadIn && (
         <p className="text-sm text-slate-700 leading-relaxed mb-2">{leadIn}</p>
       )}
-      <p className="text-sm text-slate-700 leading-relaxed">{displayText}</p>
+      <p className="text-sm text-slate-700 leading-relaxed">
+        {conditionTags && conditionTags.length > 0
+          ? highlightText(displayText, conditionTags)
+          : displayText}
+      </p>
       {needsToggle && (
         <button
           type="button"

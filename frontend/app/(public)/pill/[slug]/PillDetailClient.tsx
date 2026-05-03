@@ -310,6 +310,7 @@ export default function PillDetailClient({
             indication={pill.indication}
             drugName={pill.drug_name}
             imprint={pill.imprint}
+            conditionTags={conditionTags}
           />
         )}
 
