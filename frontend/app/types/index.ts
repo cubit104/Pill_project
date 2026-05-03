@@ -67,6 +67,14 @@ export interface RelatedDrug {
   image_url?: string
 }
 
+export interface ConditionDrug {
+  drug_name: string
+  strength?: string
+  slug: string
+  image_url?: string
+  shared_tags: string[]
+}
+
 export interface FilterOption {
   name: string
   hex?: string

@@ -73,7 +73,7 @@ except Exception as e:
 
 # Include all route modules
 from routes import search, details, filters, ndc, sitemap, health, similar  # noqa: E402
-from routes import pill_images  # noqa: E402
+from routes import pill_images, conditions  # noqa: E402
 from routes.admin import pills as admin_pills, drafts as admin_drafts, images as admin_images  # noqa: E402
 from routes.admin import audit as admin_audit, users as admin_users, stats as admin_stats  # noqa: E402
 from routes.admin import duplicates as admin_duplicates  # noqa: E402
@@ -89,6 +89,7 @@ app.include_router(sitemap.router)
 app.include_router(health.router)
 app.include_router(similar.router)
 app.include_router(pill_images.router)
+app.include_router(conditions.router)
 app.include_router(admin_pills.router)
 app.include_router(admin_drafts.router)
 app.include_router(admin_images.router)
