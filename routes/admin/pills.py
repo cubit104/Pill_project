@@ -896,6 +896,10 @@ class IndicationUpdate(BaseModel):
     plain_text: str
 
 
+def _empty_indication(rxcui=None) -> dict:
+    return {"plain_text": None, "source": None, "source_url": None, "rxcui": rxcui}
+
+
 @router.get("/{pill_id}/indication")
 def get_pill_indication(pill_id: str, admin: dict = Depends(get_admin_user)):
     """Return the drug indication for a pill (any admin role including readonly)."""
@@ -912,7 +916,7 @@ def get_pill_indication(pill_id: str, admin: dict = Depends(get_admin_user)):
 
             rxcui = pill_row[0]
             if not rxcui:
-                return {"plain_text": None, "source": None, "source_url": None, "rxcui": None}
+                return _empty_indication()
 
             ind_row = conn.execute(
                 text(
@@ -922,7 +926,7 @@ def get_pill_indication(pill_id: str, admin: dict = Depends(get_admin_user)):
                 {"rxcui": rxcui},
             ).fetchone()
             if not ind_row:
-                return {"plain_text": None, "source": None, "source_url": None, "rxcui": rxcui}
+                return _empty_indication(rxcui)
 
             return {
                 "plain_text": ind_row[0],

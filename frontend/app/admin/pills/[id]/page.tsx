@@ -44,6 +44,12 @@ interface CompletenessData {
   needs_na_confirmation: string[]
   optional_empty: string[]
 }
+interface IndicationData {
+  plain_text: string | null
+  source: string | null
+  source_url?: string | null
+  rxcui: string | null
+}
 
 /**
  * Extract a human-readable error message from a failed fetch response.
@@ -636,7 +642,7 @@ export default function EditPillPage() {
   const [token, setToken] = useState<string | null>(null)
   const [resolvedImageUrls, setResolvedImageUrls] = useState<string[]>([])
   const [justPublished, setJustPublished] = useState(false)
-  const [indication, setIndication] = useState<{ plain_text: string | null; source: string | null; rxcui: string | null } | null>(null)
+  const [indication, setIndication] = useState<IndicationData | null>(null)
   const [indicationText, setIndicationText] = useState('')
   const [indicationSaving, setIndicationSaving] = useState(false)
   const [indicationSuccess, setIndicationSuccess] = useState('')
@@ -690,7 +696,7 @@ export default function EditPillPage() {
           setIndication(indData)
           setIndicationText(indData.plain_text ?? '')
         }
-      } catch { /* silently fail — indication is optional */ }
+      } catch (e) { console.error('[loadPill] indication fetch failed:', e) /* indication is optional */ }
     } catch (e) {
       setError(String(e))
     } finally {
@@ -881,7 +887,7 @@ export default function EditPillPage() {
       })
       if (!res.ok) throw new Error(await safeErrorDetail(res, 'Failed to save indication'))
       setIndicationSuccess('Indication saved successfully')
-      setIndication((prev) => ({ ...prev, plain_text: indicationText, source: 'manual', rxcui: prev?.rxcui ?? null }))
+      setIndication({ plain_text: indicationText, source: 'manual', source_url: indication?.source_url ?? null, rxcui: indication?.rxcui ?? null })
     } catch (e) { setIndicationError(String(e)) } finally { setIndicationSaving(false) }
   }
 
