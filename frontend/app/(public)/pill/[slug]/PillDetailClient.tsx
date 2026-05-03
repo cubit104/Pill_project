@@ -346,7 +346,7 @@ export default function PillDetailClient({
         {/* Pill Specs */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-base font-semibold text-slate-800 mb-4">Pill Specs</h2>
-          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8">
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1 [&>div]:border-0 [&>div]:py-1.5">
             <DetailRow label="Imprint" value={pill.imprint} />
             <DetailRow label="Strength" value={pill.strength} />
             <DetailRow label="Color" value={pill.color} />
@@ -364,7 +364,7 @@ export default function PillDetailClient({
               }
             />
             {pill.pharma_class && (
-              <div className="col-span-full py-3 border-b border-slate-100 last:border-0 flex flex-col sm:flex-row sm:items-start gap-1">
+              <div className="col-span-full py-1.5 flex flex-col sm:flex-row sm:items-start gap-1">
                 <dt className="text-sm font-medium text-slate-500 sm:w-44 shrink-0">Pharmacologic Class</dt>
                 <dd className="text-sm text-slate-800 sm:flex-1">
                   <Link
