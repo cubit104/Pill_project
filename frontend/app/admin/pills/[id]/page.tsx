@@ -696,7 +696,7 @@ export default function EditPillPage() {
           setIndication(indData)
           setIndicationText(indData.plain_text ?? '')
         }
-      } catch (e) { console.error('[loadPill] indication fetch failed:', e) /* indication is optional */ }
+      } catch (e) { console.error(`[loadPill] pill=${pillId} indication fetch failed:`, e) /* indication is optional */ }
     } catch (e) {
       setError(String(e))
     } finally {
@@ -1038,7 +1038,7 @@ export default function EditPillPage() {
         <h2 className="font-semibold text-gray-900 mb-1">Drug Indication (What it&apos;s used for)</h2>
         <p className="text-xs text-gray-500 mb-4">
           Shown on the public pill page. Source: <span className="font-medium">{indication?.source ?? 'none'}</span>.
-          {' '}Editing sets source to &apos;manual&apos; — backfill scripts will never overwrite it.
+          {' '}Once edited, the source becomes &apos;manual&apos; and automated backfill scripts will preserve your changes.
         </p>
         {!pill?.rxcui ? (
           <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-md px-3 py-2">
