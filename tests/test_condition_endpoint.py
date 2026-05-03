@@ -234,6 +234,18 @@ class TestConditionEndpointAlias:
         assert data.get("redirect") is True
         assert data["canonical_slug"] == "seizures"
 
+    def test_alias_url_preserves_pagination_when_non_default_offset(self, client):
+        """Alias redirect url must include pagination params when offset > 0."""
+        data = client.get("/api/condition/hypertension?limit=20&offset=40").json()
+        assert data.get("redirect") is True
+        assert "offset=40" in data["url"]
+
+    def test_alias_url_omits_pagination_at_default_offset(self, client):
+        """Alias redirect url must NOT include query params when offset=0 and limit=20."""
+        data = client.get("/api/condition/hypertension").json()
+        assert data.get("redirect") is True
+        assert "?" not in data["url"]
+
 
 class TestConditionEndpointEmptyDrugs:
     """Empty drug list → 200 with intro paragraphs still present."""

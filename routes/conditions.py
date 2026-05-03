@@ -73,12 +73,16 @@ def get_condition(
     # Resolve aliases — return canonical redirect info.
     if slug in CONDITION_ALIASES:
         canonical = CONDITION_ALIASES[slug]
+        # Preserve pagination state so API consumers / the frontend can forward it.
+        canonical_url = f"/condition/{canonical}"
+        if offset > 0 or limit != 20:
+            canonical_url = f"{canonical_url}?limit={limit}&offset={offset}"
         return JSONResponse(
             status_code=200,
             content={
                 "redirect": True,
                 "canonical_slug": canonical,
-                "url": f"/condition/{canonical}",
+                "url": canonical_url,
             },
             headers={"Cache-Control": "public, max-age=3600, stale-while-revalidate=86400"},
         )

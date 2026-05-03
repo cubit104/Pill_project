@@ -128,13 +128,23 @@ export default async function ConditionPage(
 
   const data = await fetchCondition(tag, limit, offset)
 
-  // If the API says this is an alias, redirect to the canonical slug (301-equivalent).
-  if (data?.redirect && data.canonical_slug) redirect(`/condition/${data.canonical_slug}`)
+  // If the API says this is an alias, redirect to the canonical slug (301-equivalent),
+  // preserving the current page number so deep links on alias URLs still work.
+  if (data?.redirect && data.canonical_slug) {
+    const pageQuery = page > 1 ? `?page=${page}` : ''
+    redirect(`/condition/${data.canonical_slug}${pageQuery}`)
+  }
   // Truly missing or error
   if (!data) notFound()
 
   const { title, paragraphs, last_reviewed, drugs, related, slug, total_count } = data
   const totalPages = total_count > 0 ? Math.ceil(total_count / limit) : 1
+
+  // If the requested page is beyond the last valid page (e.g. ?page=999), redirect
+  // to the last valid page so the user lands on real results, not an empty state.
+  if (total_count > 0 && page > totalPages) {
+    redirect(`/condition/${slug}?page=${totalPages}`)
+  }
 
   // Condition name for MedicalCondition schema (strip "Medications for " prefix).
   const conditionName = title.replace(/^Medications for\s+/i, '')
