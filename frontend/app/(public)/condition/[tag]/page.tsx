@@ -16,8 +16,7 @@ interface ConditionDrug {
   spl_strength?: string | null
   slug?: string | null
   image_filename?: string | null
-  generic_name?: string | null
-  brand_name?: string | null
+  brand_names?: string | null
   rxcui?: string | null
 }
 
