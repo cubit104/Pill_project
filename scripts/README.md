@@ -114,3 +114,42 @@ run by the user directly in Supabase SQL Editor. After merge, run:
 python scripts/backfill_indications_medlineplus.py --limit 10 --dry-run
 ```
 then proceed with the full live run once the dry-run output looks correct.
+
+---
+
+## Condition Tags Backfill
+
+Populates the `drug_condition_tags` table by running keyword matching against
+`drug_indications.plain_text`.  This powers the **"Other medications used for
+the same condition"** section on public pill detail pages.
+
+### Schema (run once in Supabase SQL Editor)
+File: `supabase/migrations/20260503_drug_condition_tags.sql`
+
+### Run backfill (Render Web Shell)
+```bash
+# Preview tags without writing to DB
+python scripts/backfill_condition_tags.py --dry-run
+
+# Live run — idempotent, safe to re-run
+python scripts/backfill_condition_tags.py
+```
+
+### Sample dry-run output
+```
+✓ 749198 clopidogrel — ['blood clot', 'heart attack', 'stroke'] (dry-run, not saved)
+✓ 5640 ibuprofen — ['pain', 'arthritis'] (dry-run, not saved)
+⚠ 99999 someDrug — no tags matched
+
+Processed: 3 | Tagged: 2 | Skipped/no-match: 1
+```
+
+### What it does
+- Joins `drug_indications` (for `plain_text`) with `pillfinder` (for `rxcui` / `medicine_name`).
+- Runs simple case-insensitive keyword matching (~30 medical conditions defined in `services/condition_tags.py`).
+- Upserts matched tags into `drug_condition_tags` using `INSERT ... ON CONFLICT DO NOTHING`.
+- Processes each `rxcui` only once (multiple strength rows sharing the same RxCUI are deduplicated).
+
+### Idempotent
+Re-running the script is safe — `ON CONFLICT DO NOTHING` means existing rows are never overwritten.
+New rxcuis added after the initial run are picked up automatically on the next run.
