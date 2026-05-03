@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import type { DrugIndication } from '../../../types'
+import { slugifyUrl } from '../../../lib/url-utils'
 
 const COLLAPSE_THRESHOLD = 280
 
@@ -12,33 +13,33 @@ const FRONTEND_KEYWORD_MAP: Record<string, string[]> = {
   "high blood pressure":       ["high blood pressure", "hypertension", "elevated blood pressure"],
   "diabetes":                  ["type 2 diabetes", "type 1 diabetes", "diabetes mellitus", "diabetes", "blood glucose", "blood sugar"],
   "pain":                      ["moderate to severe pain", "mild to moderate pain", "chronic pain", "acute pain", "musculoskeletal pain", "neuropathic pain", "cancer pain"],
-  "bacterial infection":       ["bacterial infections", "bacterial infection"],
-  "high cholesterol":          ["high cholesterol", "elevated cholesterol", "hyperlipidemia", "hypercholesterolemia", "ldl cholesterol", "triglycerides"],
+  "bacterial infection":       ["bacterial infections", "bacterial infection", "bacterial pneumonia", "bacterial sinusitis", "bacterial meningitis"],
+  "high cholesterol":          ["high cholesterol", "elevated cholesterol", "hyperlipidemia", "hypercholesterolemia", "low-density lipoprotein", "ldl cholesterol", "triglycerides"],
   "anxiety":                   ["anxiety disorder", "generalized anxiety disorder", "panic disorder", "social anxiety disorder", "anxiety"],
   "depression":                ["major depressive disorder", "major depression", "depression"],
-  "seizures":                  ["seizures", "epilepsy"],
-  "blood clots":               ["blood clots", "deep vein thrombosis", "pulmonary embolism", "thrombosis"],
-  "acid reflux":               ["acid reflux", "gastroesophageal reflux disease", "gerd", "heartburn"],
-  "allergies":                 ["seasonal allergies", "allergic rhinitis", "hay fever", "allergies", "allergy"],
+  "seizures":                  ["seizures", "epilepsy", "epileptic"],
+  "blood clots":               ["blood clots", "deep vein thrombosis", "pulmonary embolism", "thrombosis", "dvt", "clotting", "clot"],
+  "acid reflux":               ["acid reflux", "gastroesophageal reflux disease", "gerd", "heartburn", "stomach acid"],
+  "allergies":                 ["seasonal allergies", "allergic rhinitis", "hay fever", "allergic reactions", "allergies", "allergy"],
   "asthma":                    ["asthma", "bronchospasm"],
-  "thyroid disease":           ["hypothyroidism", "hyperthyroidism", "thyroid disease"],
-  "kidney disease":            ["chronic kidney disease", "kidney disease", "renal failure"],
+  "thyroid disease":           ["hypothyroidism", "hyperthyroidism", "thyroid disease", "thyroid disorder"],
+  "kidney disease":            ["chronic kidney disease", "kidney disease", "renal failure", "renal disease", "end-stage renal disease"],
   "osteoporosis":              ["osteoporosis", "bone loss"],
   "rheumatoid arthritis":      ["rheumatoid arthritis"],
   "osteoarthritis":            ["osteoarthritis"],
   "nausea":                    ["nausea and vomiting", "chemotherapy-induced nausea", "postoperative nausea", "nausea"],
   "insomnia":                  ["insomnia", "sleep disorder", "difficulty sleeping"],
   "adhd":                      ["attention deficit hyperactivity disorder", "adhd", "attention deficit disorder"],
-  "bipolar disorder":          ["bipolar disorder", "manic episodes"],
+  "bipolar disorder":          ["bipolar disorder", "manic episodes", "manic depression"],
   "schizophrenia":             ["schizophrenia", "schizoaffective disorder"],
-  "parkinson's disease":       ["parkinson's disease", "parkinson disease"],
+  "parkinson's disease":       ["parkinson's disease", "parkinson disease", "parkinsonian symptoms"],
   "alzheimer's disease":       ["alzheimer's disease", "alzheimer disease", "dementia"],
   "hiv":                       ["hiv infection", "human immunodeficiency virus"],
   "hepatitis":                 ["hepatitis b", "hepatitis c", "chronic hepatitis"],
-  "fungal infections":         ["fungal infections", "yeast infections", "candidiasis"],
-  "heart failure":             ["heart failure", "congestive heart failure"],
-  "atrial fibrillation":       ["atrial fibrillation", "irregular heartbeat", "arrhythmia"],
-  "peripheral artery disease": ["peripheral arterial disease", "peripheral artery disease"],
+  "fungal infections":         ["fungal infections", "yeast infections", "candidiasis", "tinea"],
+  "heart failure":             ["heart failure", "congestive heart failure", "cardiac failure"],
+  "atrial fibrillation":       ["atrial fibrillation", "irregular heartbeat", "abnormal heart rhythm", "arrhythmia"],
+  "peripheral artery disease": ["peripheral arterial disease", "peripheral artery disease", "poor blood flow"],
 }
 
 function escapeRegex(s: string): string {
@@ -71,7 +72,7 @@ function highlightText(text: string, conditionTags: string[]): React.ReactNode {
       {parts.map((part, i) => {
         const tag = phraseToTag.get(part.toLowerCase())
         if (tag) {
-          const conditionSlug = tag.replace(/\s+/g, '-')
+          const conditionSlug = slugifyUrl(tag)
           return (
             <Link
               key={i}
