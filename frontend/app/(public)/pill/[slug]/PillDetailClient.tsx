@@ -424,7 +424,6 @@ export default function PillDetailClient({
 
         {/* Other medications for the same condition */}
         {conditionDrugs && conditionDrugs.length >= 2 && (() => {
-          // Only show tags that are actually represented by the rendered drug cards
           const displayedTags = Array.from(
             new Set(conditionDrugs.flatMap(d => d.shared_tags))
           )
@@ -478,10 +477,10 @@ export default function PillDetailClient({
           )
         })()}
 
-        {/* Related Medications */}
+        {/* Related Medications — capped at 6, same card layout as condition drugs */}
         {related && related.length > 0 && pharmaClass && (
           <section className="mt-0 mb-6 bg-white border border-slate-200 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-slate-900 mb-1">Related Medications</h2>
+            <h2 className="text-base font-semibold text-slate-800 mb-1">Related Medications</h2>
             <p className="text-sm text-slate-500 mb-4">
               Other drugs in the same class:{' '}
               <Link
@@ -491,18 +490,32 @@ export default function PillDetailClient({
                 {pharmaClass}
               </Link>
             </p>
-            <ul className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {related.map((r) => (
+            <ul className="grid sm:grid-cols-2 gap-3">
+              {related.slice(0, 6).map((r) => (
                 <li key={r.slug}>
                   <Link
                     href={`/pill/${encodeURIComponent(r.slug)}`}
-                    className="block p-3 border border-slate-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50"
+                    className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
                   >
-                    <div className="font-medium text-slate-900">{r.drug_name}</div>
-                    {r.strength && <div className="text-xs text-slate-500">{r.strength}</div>}
-                    {(r.color || r.shape) && (
-                      <div className="text-xs text-slate-400 mt-0.5">{[r.color, r.shape].filter(Boolean).join(' • ')}</div>
+                    {r.image_url && (
+                      <img
+                        src={r.image_url}
+                        alt={`${r.drug_name}${r.strength ? ` ${r.strength}` : ''}`}
+                        className="w-12 h-12 object-contain rounded bg-slate-50 shrink-0"
+                        width={48}
+                        height={48}
+                        loading="lazy"
+                      />
                     )}
+                    <div className="min-w-0">
+                      <div className="font-medium text-slate-900 truncate">{r.drug_name}</div>
+                      {r.strength && <div className="text-xs text-slate-500">{r.strength}</div>}
+                      {(r.color || r.shape) && (
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          {[r.color, r.shape].filter(Boolean).join(' • ')}
+                        </div>
+                      )}
+                    </div>
                   </Link>
                 </li>
               ))}
@@ -607,4 +620,3 @@ export default function PillDetailClient({
     </>
   )
 }
-
