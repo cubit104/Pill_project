@@ -102,7 +102,8 @@ def get_condition(
     # Fetch drugs for this condition tag.
     # Deduplicates by medicine_name (one card per drug, regardless of strength) using
     # a window function — picks the "best" representative row per medicine_name:
-    # prefer rows that have a slug, then an image, then alphabetical by spl_strength.
+    # prefer rows that have a slug, then an image, then by spl_strength ASC (lowest
+    # strength first as a stable tiebreaker), then by id ASC.
     # JOIN uses TRIM/cast to handle rxcui type or whitespace mismatches.
     drugs: list[dict] = []
     total_count: int = 0

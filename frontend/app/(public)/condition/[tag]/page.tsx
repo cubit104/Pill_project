@@ -157,7 +157,7 @@ export default async function ConditionPage(
   }
 
   const showPagination = total_count > limit
-  const rangeStart = offset + 1
+  const rangeStart = drugs.length > 0 ? offset + 1 : 0
   const rangeEnd = Math.min(offset + drugs.length, total_count)
 
   return (
