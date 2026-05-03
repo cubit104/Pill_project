@@ -126,8 +126,8 @@ def backfill_condition_tags(conn) -> dict:
                 ),
                 {"rxcui": rxcui, "drug_name": medicine_name, "tag": tag},
             )
-        conn.commit()
         tagged += 1
         logger.debug("Tagged rxcui=%s (%s): %s", rxcui, medicine_name, tags)
 
+    conn.commit()
     return {"processed": processed, "tagged": tagged, "skipped": skipped}

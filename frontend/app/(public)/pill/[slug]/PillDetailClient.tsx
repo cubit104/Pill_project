@@ -486,7 +486,8 @@ export default function PillDetailClient({
         )}
 
         {/* Related Medications */}
-        {related && related.length > 0 && pharmaClass && (          <section className="mt-0 mb-6 bg-white border border-slate-200 rounded-xl p-6">
+        {related && related.length > 0 && pharmaClass && (
+          <section className="mt-0 mb-6 bg-white border border-slate-200 rounded-xl p-6">
             <h2 className="text-lg font-semibold text-slate-900 mb-1">Related Medications</h2>
             <p className="text-sm text-slate-500 mb-4">
               Other drugs in the same class:{' '}
