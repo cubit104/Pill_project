@@ -44,20 +44,20 @@ def main(argv=None):
 
     from services.condition_tags import extract_tags, backfill_condition_tags
 
+    # Connect to DB (required for both dry-run and live run — we need pillfinder)
+    try:
+        import database
+        from sqlalchemy import text
+
+        if not database.db_engine:
+            if not database.connect_to_database():
+                logger.error("Cannot connect to database. Aborting.")
+                sys.exit(1)
+    except Exception as exc:
+        logger.error("DB setup failed: %s", exc)
+        sys.exit(1)
+
     if args.dry_run:
-        # Dry run: connect read-only and just print extracted tags
-        try:
-            import database
-            from sqlalchemy import text
-
-            if not database.db_engine:
-                if not database.connect_to_database():
-                    logger.error("Cannot connect to database. Aborting.")
-                    sys.exit(1)
-        except Exception as exc:
-            logger.error("DB setup failed: %s", exc)
-            sys.exit(1)
-
         processed = 0
         tagged = 0
         skipped = 0
@@ -75,43 +75,33 @@ def main(argv=None):
                 )
             ).fetchall()
 
-            seen: set[str] = set()
-            for row in rows:
-                rxcui = str(row[0]).strip()
-                medicine_name = row[1] or ""
-                plain_text = row[2] or ""
+        seen: set[str] = set()
+        for row in rows:
+            rxcui = str(row[0]).strip()
+            medicine_name = row[1] or ""
+            plain_text = row[2] or ""
 
-                if rxcui in seen:
-                    skipped += 1
-                    continue
-                seen.add(rxcui)
+            if rxcui in seen:
+                skipped += 1
+                continue
+            seen.add(rxcui)
 
-                processed += 1
-                tags = extract_tags(plain_text)
-                if tags:
-                    tagged += 1
-                    print(f"✓ {rxcui} {medicine_name} — {tags} (dry-run, not saved)")
-                else:
-                    print(f"⚠ {rxcui} {medicine_name} — no tags matched")
+            processed += 1
+            tags = extract_tags(plain_text)
+            if tags:
+                tagged += 1
+                print(f"\u2713 {rxcui} {medicine_name} \u2014 {tags} (dry-run, not saved)")
+            else:
+                print(f"\u26a0 {rxcui} {medicine_name} \u2014 no tags matched")
 
         print(
             f"\nProcessed: {processed} | Tagged: {tagged} | No-match: {processed - tagged} | Skipped (dup rxcui): {skipped}"
         )
         return
 
-    # Live run
-    try:
-        import database
-
-        if not database.db_engine:
-            if not database.connect_to_database():
-                logger.error("Cannot connect to database. Aborting.")
-                sys.exit(1)
-    except Exception as exc:
-        logger.error("DB setup failed: %s", exc)
-        sys.exit(1)
-
-    with database.db_engine.connect() as conn:
+    # Live run — use engine.begin() so the transaction commits automatically
+    # on clean exit and rolls back on any exception.
+    with database.db_engine.begin() as conn:
         summary = backfill_condition_tags(conn)
 
     print(

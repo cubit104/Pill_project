@@ -20,6 +20,7 @@ backfill_condition_tags(conn) -> dict
     any stale tags no longer in the current set (or all tags when none match),
     then inserts new tags with ON CONFLICT DO NOTHING.
     Returns {"processed": N, "tagged": N, "skipped": N}.
+    The caller is responsible for committing the transaction.
 """
 
 import logging
@@ -386,6 +387,9 @@ def backfill_condition_tags(conn) -> dict:
       the current set (removes stale tags when plain_text changes).
     - Inserts new tags with ON CONFLICT DO NOTHING.
 
+    The caller owns the transaction — use engine.begin() so changes are
+    committed automatically on clean exit, or handle commit/rollback manually.
+
     Returns
     -------
     dict with keys "processed", "tagged", "skipped"
@@ -455,5 +459,4 @@ def backfill_condition_tags(conn) -> dict:
         tagged += 1
         logger.debug("Tagged rxcui=%s (%s): %s", rxcui, medicine_name, tags)
 
-    conn.commit()
     return {"processed": processed, "tagged": tagged, "skipped": skipped}
