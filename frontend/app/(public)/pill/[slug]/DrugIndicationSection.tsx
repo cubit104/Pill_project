@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import type { DrugIndication } from '../../../types'
-import { slugifyUrl } from '../../../lib/url-utils'
+import { slugFromTag } from '../../../lib/condition-utils'
 
 const COLLAPSE_THRESHOLD = 280
 
@@ -72,7 +72,7 @@ function highlightText(text: string, conditionTags: string[]): React.ReactNode {
       {parts.map((part, i) => {
         const tag = phraseToTag.get(part.toLowerCase())
         if (tag) {
-          const conditionSlug = slugifyUrl(tag)
+          const conditionSlug = slugFromTag(tag)
           return (
             <Link
               key={i}
