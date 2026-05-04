@@ -4,7 +4,6 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
-import { slugifyDrugName } from '../../lib/slug'
 import {
   FIELD_SCHEMA,
   computeCompleteness,
@@ -22,7 +21,7 @@ import {
   ArrowRight,
 } from 'lucide-react'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────────────
 
 type ParsedRow = Record<string, string>
 
@@ -51,7 +50,7 @@ const CSV_EXAMPLE: Record<string, string> = {
   splimprint: 'BAYER',
   splcolor_text: 'White',
   splshape_text: 'Round',
-  slug: 'aspirin-500mg-bayer',
+  slug: 'aspirin-500-mg',
   ndc9: '12345678',
   ndc11: '12345678901',
   dosage_form: 'Tablet',
@@ -70,6 +69,22 @@ const CSV_EXAMPLE: Record<string, string> = {
   rxcui_1: '',
   imprint_status: 'Engraved',
   tags: 'pain relief',
+}
+
+/**
+ * Convert a drug name + strength to a URL-safe slug.
+ * Lowercases, strips diacritics, replaces any non-[a-z0-9] run with a single '-',
+ * and trims leading/trailing dashes.
+ */
+function generateSlug(medicineName: string, strength: string): string {
+  const combined = [medicineName, strength].filter(Boolean).join(' ')
+  if (!combined) return ''
+  return combined
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '') // strip diacritics
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
 }
 
 /**
@@ -145,11 +160,6 @@ function parseCSV(text: string): { rows: ParsedRow[]; errors: string[] } {
   }
 
   return { rows, errors: [] }
-}
-
-function generateSlug(medicineName: string, strength: string): string {
-  const combined = [medicineName, strength].filter(Boolean).join(' ')
-  return slugifyDrugName(combined)
 }
 
 function computeRowMeta(row: ParsedRow): RowMeta {
@@ -249,14 +259,14 @@ export default function BulkUploadPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const zipInputRef = useRef<HTMLInputElement>(null)
 
-  // ── Derived state ──────────────────────────────────────────────────────────
+  // ── Derived state ─────────────────────────────────────────────────────────
 
   const rowMetas: RowMeta[] = rows.map(computeRowMeta)
   const readyCount = rowMetas.filter((m) => m.status === 'ready').length
   const warningCount = rowMetas.filter((m) => m.status === 'warning').length
   const errorCount = rowMetas.filter((m) => m.status === 'error').length
 
-  // ── Handlers ───────────────────────────────────────────────────────────────
+  // ── Handlers ──────────────────────────────────────────────────────────────
 
   const getSession = useCallback(async () => {
     const supabase = createClient()
@@ -282,20 +292,20 @@ export default function BulkUploadPage() {
       const { rows: parsed, errors } = parseCSV(text)
       if (errors.length > 0) {
         setParseError(errors.join(' '))
-        setRows([]) // clear any previously loaded batch
+        setRows([])
         return
       }
       if (parsed.length === 0) {
         setParseError('No data rows found in the CSV file.')
-        setRows([]) // clear any previously loaded batch
+        setRows([])
         return
       }
       // Auto-generate slugs for rows that don't have one, with duplicate disambiguation
       const usedSlugs = new Set<string>()
-      // First pass: register all existing slugs (normalized) to detect collisions
+      // First pass: register all existing slugs to detect collisions
       for (const row of parsed) {
         if (row.slug && row.slug.trim() !== '') {
-          usedSlugs.add(slugifyDrugName(row.slug.trim()))
+          usedSlugs.add(row.slug.trim().toLowerCase())
         }
       }
       // Second pass: auto-generate missing slugs
@@ -348,10 +358,6 @@ export default function BulkUploadPage() {
       setUploadError('')
       setUploadResults(null)
 
-      // Always send all rows — the backend handles skipping invalid rows when
-      // publish=true, and returns the original row index in each result so the
-      // results table correctly identifies which CSV rows succeeded or failed.
-
       try {
         setUploadProgress(30)
         const res = await fetch('/api/admin/pills/bulk', {
@@ -390,6 +396,7 @@ export default function BulkUploadPage() {
           <p className="text-sm text-gray-500">
             Select a <code className="bg-gray-100 px-1 rounded">.csv</code> file with up to 500 drug rows.
             Column headers must match the field keys (download the template below).
+            Slugs are auto-generated from drug name + strength if not provided.
           </p>
         </div>
 
@@ -449,7 +456,7 @@ export default function BulkUploadPage() {
           <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center gap-2 text-sm text-green-700">
             <CheckCircle className="w-4 h-4 shrink-0" />
             <span>
-              <strong>{rows.length}</strong> row{rows.length !== 1 ? 's' : ''} parsed successfully. Click "Next" to preview.
+              <strong>{rows.length}</strong> row{rows.length !== 1 ? 's' : ''} parsed successfully. Click &quot;Next&quot; to preview.
             </span>
           </div>
         )}
@@ -613,7 +620,7 @@ export default function BulkUploadPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-1">Upload Images <span className="text-sm font-normal text-gray-400">(Optional)</span></h2>
           <p className="text-sm text-gray-500">
             Optionally upload a ZIP file containing pill images. Name images to match the drug
-            slug or NDC — e.g. <code className="bg-gray-100 px-1 rounded">aspirin-500mg.jpg</code> or{' '}
+            slug or NDC — e.g. <code className="bg-gray-100 px-1 rounded">aspirin-500-mg.jpg</code> or{' '}
             <code className="bg-gray-100 px-1 rounded">12345678901.jpg</code>.
           </p>
         </div>
@@ -624,14 +631,12 @@ export default function BulkUploadPage() {
             <p className="text-sm font-medium text-amber-800">Bulk image upload — coming soon</p>
             <p className="text-xs text-amber-700 mt-1">
               ZIP image processing is not yet available. You can skip this step and upload images
-              individually from each pill's edit page after import.
+              individually from each pill&apos;s edit page after import.
             </p>
           </div>
         </div>
 
-        <div
-          className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center opacity-50 cursor-not-allowed"
-        >
+        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center opacity-50 cursor-not-allowed">
           <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
           <p className="text-sm font-medium text-gray-700">ZIP file upload (coming soon)</p>
           <p className="text-xs text-gray-400 mt-1">Accept .zip files containing pill images</p>
