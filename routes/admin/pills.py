@@ -131,6 +131,11 @@ class BulkDeleteRequest(BaseModel):
     ids: list[str]
 
 
+class BulkCreateRequest(BaseModel):
+    pills: list[PillCreate]
+    publish: bool = False
+
+
 @router.get("")
 def list_pills(
     request: Request,
@@ -780,6 +785,113 @@ def bulk_delete(
         logger.error(f"bulk_delete DB error: {e}", exc_info=True)
         root = getattr(e, "orig", None) or e
         raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
+@router.post("/bulk", status_code=200)
+def bulk_create_pills(
+    request: Request,
+    body: BulkCreateRequest,
+    admin: dict = Depends(get_admin_user),
+):
+    """Bulk-create pills from a CSV import. Returns per-row results."""
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+
+    if len(body.pills) > 500:
+        raise HTTPException(status_code=400, detail="Maximum 500 pills per request")
+
+    if not database.db_engine:
+        database.connect_to_database()
+
+    results = []
+    succeeded = 0
+    failed = 0
+
+    for i, pill_model in enumerate(body.pills):
+        drug_name = pill_model.medicine_name or f"Row {i + 1}"
+
+        # Sanitize all provided fields
+        raw = pill_model.model_dump(exclude={"idempotency_key"})
+        data = {k: _sanitize(v) for k, v in raw.items() if v is not None}
+
+        # Derive has_image from image_filename so the two columns stay in sync
+        if "image_filename" in data:
+            data["has_image"] = "TRUE" if data["image_filename"] else "FALSE"
+
+        if not data:
+            failed += 1
+            results.append({
+                "index": i,
+                "success": False,
+                "drug_name": drug_name,
+                "error": "No data provided for this row",
+            })
+            continue
+
+        # When publishing, skip rows that fail tier-1 validation
+        if body.publish:
+            errors = validate_pill(data, strict=True)
+            if errors:
+                failed += 1
+                error_msg = "; ".join(e["message"] for e in errors)
+                results.append({
+                    "index": i,
+                    "success": False,
+                    "drug_name": drug_name,
+                    "error": error_msg,
+                })
+                continue
+
+        try:
+            with database.db_engine.begin() as conn:
+                cols = ", ".join(data.keys())
+                vals = ", ".join(f":{k}" for k in data.keys())
+                insert_result = conn.execute(
+                    text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
+                    data,
+                )
+                new_id = insert_result.scalar()
+
+                log_audit(
+                    conn,
+                    actor_id=admin["id"],
+                    actor_email=admin["email"],
+                    action="bulk_create",
+                    entity_type="pill",
+                    entity_id=str(new_id),
+                    diff={"after": {k: str(v) if v is not None else None for k, v in data.items()}, "publish": body.publish},
+                    ip_address=request.client.host if request.client else None,
+                    user_agent=request.headers.get("user-agent"),
+                )
+
+            succeeded += 1
+            results.append({
+                "index": i,
+                "success": True,
+                "id": str(new_id),
+                "drug_name": drug_name,
+            })
+        except SQLAlchemyError as e:
+            failed += 1
+            root = getattr(e, "orig", None) or e
+            results.append({
+                "index": i,
+                "success": False,
+                "drug_name": drug_name,
+                "error": str(root),
+            })
+            logger.error(f"bulk_create row {i} DB error: {e}", exc_info=True)
+
+    logger.info(
+        "bulk_create by %s: total=%d succeeded=%d failed=%d publish=%s",
+        admin["email"], len(body.pills), succeeded, failed, body.publish,
+    )
+    return {
+        "results": results,
+        "total": len(body.pills),
+        "succeeded": succeeded,
+        "failed": failed,
+    }
 
 
 @router.get("/{pill_id}")

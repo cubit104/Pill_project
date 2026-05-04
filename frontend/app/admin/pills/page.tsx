@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../lib/supabase'
-import { Search, Plus, Trash2, RotateCcw, Download } from 'lucide-react'
+import { Search, Plus, Trash2, RotateCcw, Download, Upload } from 'lucide-react'
 
 interface Pill {
   id: string
@@ -343,6 +343,12 @@ function PillsListInner() {
           >
             <Download className="w-4 h-4" /> Export CSV
           </button>
+          <Link
+            href="/admin/pills/bulk-upload"
+            className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700 text-sm font-medium transition-colors"
+          >
+            <Upload className="w-4 h-4" /> Bulk Upload
+          </Link>
           <Link
             href="/admin/pills/missing-images"
             className="flex items-center gap-2 bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 text-sm font-medium transition-colors"
