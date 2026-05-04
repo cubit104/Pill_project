@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
+import { slugifyDrugName } from '../../lib/slug'
 import {
   FIELD_SCHEMA,
   computeCompleteness,
@@ -148,11 +149,7 @@ function parseCSV(text: string): { rows: ParsedRow[]; errors: string[] } {
 
 function generateSlug(medicineName: string, strength: string): string {
   const combined = [medicineName, strength].filter(Boolean).join(' ')
-  return combined
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
+  return slugifyDrugName(combined)
 }
 
 function computeRowMeta(row: ParsedRow): RowMeta {
@@ -295,10 +292,10 @@ export default function BulkUploadPage() {
       }
       // Auto-generate slugs for rows that don't have one, with duplicate disambiguation
       const usedSlugs = new Set<string>()
-      // First pass: register all existing slugs
+      // First pass: register all existing slugs (normalized) to detect collisions
       for (const row of parsed) {
         if (row.slug && row.slug.trim() !== '') {
-          usedSlugs.add(row.slug.trim())
+          usedSlugs.add(slugifyDrugName(row.slug.trim()))
         }
       }
       // Second pass: auto-generate missing slugs
