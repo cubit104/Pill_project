@@ -1,4 +1,30 @@
-"""CLI script: backfill missing rxcui and ndc11 values using the free RxNorm API.
+"""CLI script: backfill missing rxcui values using openFDA + RxNorm properties API.
+
+Strategy (proven from live API testing)
+----------------------------------------
+Step 1 — openFDA by brand_name + strength:
+  GET https://api.fda.gov/drug/ndc.json
+      ?search=brand_name:"{name}"+AND+active_ingredients.strength:"{strength}"&limit=5
+
+  Returns openfda.rxcui[] — a list of candidate rxcuis.
+  Fallback chain if NOT_FOUND:
+    1. Retry without strength filter: search=brand_name:"{name}"
+    2. Try generic_name:"{name}" with strength
+    3. Try generic_name:"{name}" without strength
+
+Step 2 — RxNorm properties to pick the correct rxcui:
+  GET https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/properties.json
+  Response contains properties.tty and properties.name.
+
+  Priority order for picking the best rxcui:
+    1. tty=SCD AND strength in name matches spl_strength  (best)
+    2. tty=SBD AND strength in name matches spl_strength  (good)
+    3. tty=SCD without strength match                     (fallback)
+    4. tty=SBD without strength match                     (fallback)
+    5. Any other tty — skip
+
+NOTE: ndc11 is never updated by this script.  These are old/discontinued drugs
+whose original NDC labeler has changed; only rxcui is safe to backfill.
 
 Usage
 -----
@@ -12,7 +38,7 @@ Flags
 --dry-run              Fetch and print results, write nothing to DB.
 --limit N              Process at most N rows (default: 10).
 --offset N             Skip first N rows (default: 0).
---sleep-ms N           Milliseconds between API calls (default: 300).
+--sleep-ms N           Milliseconds between rows (default: 300).
 --skip-discontinued    Skip rows where drug is likely discontinued
                        (ndc9 has < 6 significant digits before zero-padding).
 --confidence LEVEL     Only write rows at or above this confidence level.
@@ -23,6 +49,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import time
 from typing import Dict, List, Optional, Tuple
@@ -38,11 +65,11 @@ logger = logging.getLogger("backfill_rxcui_and_ndc11")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # ---------------------------------------------------------------------------
-# RxNorm API endpoints (free, no key required)
+# API endpoints
 # ---------------------------------------------------------------------------
 
-RXNORM_RXCUI_URL = "https://rxnav.nlm.nih.gov/REST/rxcui.json"
-RXNORM_ALLNDCS_URL = "https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/allndcs.json"
+OPENFDA_NDC_URL = "https://api.fda.gov/drug/ndc.json"
+RXNORM_PROPERTIES_URL = "https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/properties.json"
 
 # ---------------------------------------------------------------------------
 # SQL statements
@@ -93,14 +120,6 @@ _UPDATE_RXCUI_SQL = """
         updated_at = NOW()
     WHERE id = :pill_id
       AND (rxcui IS NULL OR TRIM(rxcui) = '')
-"""
-
-_UPDATE_NDC11_SQL = """
-    UPDATE pillfinder
-    SET ndc11 = :ndc11,
-        updated_at = NOW()
-    WHERE id = :pill_id
-      AND (ndc11 IS NULL OR TRIM(ndc11) = '')
 """
 
 # Confidence level ordering (higher index = higher confidence)
@@ -224,77 +243,161 @@ def _fetch_json(
     return None
 
 
-def fetch_rxcui_by_ndc(ndc: str, client: Optional["httpx.Client"] = None) -> Optional[str]:
-    """Look up RxCUI for a given NDC string via RxNorm. Returns rxcui or None."""
-    data = _fetch_json(RXNORM_RXCUI_URL, params={"idtype": "NDC", "id": ndc}, client=client)
-    if not data:
+def _parse_strength_str(spl_strength: str) -> Optional[str]:
+    """Extract 'N unit' from spl_strength for the openFDA active_ingredients.strength search.
+
+    Examples:
+      'METHYLPREDNISOLONE 2 mg;'        → '2 mg'
+      'MONTELUKAST SODIUM 10 mg/1'      → '10 mg'
+      'IBUPROFEN 200 MG'                → '200 mg'
+      'FLUTICASONE PROPIONATE 0.05 %'   → '0.05 %'
+    Returns None if no numeric+unit pattern found.
+    """
+    if not spl_strength:
         return None
-    ids = data.get("idGroup", {}).get("rxnormId", [])
-    return ids[0] if ids else None
+    m = re.search(
+        r'(\d+(?:\.\d+)?)\s*(mg|mcg|g\b|ml\b|%|IU|units?)',
+        spl_strength,
+        re.IGNORECASE,
+    )
+    if m:
+        return f"{m.group(1)} {m.group(2).lower()}"
+    return None
 
 
-def fetch_all_ndcs_for_rxcui(rxcui: str, client: Optional["httpx.Client"] = None) -> List[str]:
-    """Return all NDC-11s for a given RxCUI via RxNorm allndcs endpoint."""
-    url = RXNORM_ALLNDCS_URL.format(rxcui=rxcui)
+def _extract_strength_num(spl_strength: str) -> Optional[str]:
+    """Extract just the numeric value from spl_strength for RxNorm name matching.
+
+    'METHYLPREDNISOLONE 2 mg;' → '2'
+    'MONTELUKAST SODIUM 10 mg/1' → '10'
+    """
+    if not spl_strength:
+        return None
+    m = re.search(r'(\d+(?:\.\d+)?)\s*(?:mg|mcg|g\b|ml\b|%|IU|units?)', spl_strength, re.IGNORECASE)
+    return m.group(1) if m else None
+
+
+def fetch_openfda_candidates(
+    name: str,
+    strength_str: Optional[str] = None,
+    name_field: str = "brand_name",
+    limit: int = 5,
+    client: Optional["httpx.Client"] = None,
+) -> Optional[List[str]]:
+    """Search openFDA for a drug by name (+ optional strength).
+
+    Returns:
+      - list of rxcui strings (may be empty) if openFDA returns results
+      - None if openFDA returns NOT_FOUND (HTTP 404 / error body)
+    """
+    if strength_str:
+        search = f'{name_field}:"{name}"+AND+active_ingredients.strength:"{strength_str}"'
+    else:
+        search = f'{name_field}:"{name}"'
+    data = _fetch_json(OPENFDA_NDC_URL, params={"search": search, "limit": limit}, client=client)
+    if data is None:
+        # HTTP 404 (NOT_FOUND) or network error
+        return None
+    if "error" in data:
+        return None
+
+    rxcuis: List[str] = []
+    for result in data.get("results", []):
+        for rxcui in result.get("openfda", {}).get("rxcui", []):
+            if rxcui not in rxcuis:
+                rxcuis.append(rxcui)
+    return rxcuis
+
+
+def fetch_rxnorm_properties(
+    rxcui: str, client: Optional["httpx.Client"] = None
+) -> Optional[Dict]:
+    """Fetch RxNorm properties (tty, name) for a single rxcui.
+
+    Returns the 'properties' dict, e.g.
+      {"rxcui": "200224", "name": "montelukast 10 MG Oral Tablet", "tty": "SCD", ...}
+    or None on failure.
+    """
+    url = RXNORM_PROPERTIES_URL.format(rxcui=rxcui)
     data = _fetch_json(url, client=client)
     if not data:
-        return []
-    # Response: {"ndcGroup": {"ndcList": {"ndc": ["00006-0117-31", ...]}}}
-    try:
-        ndc_list = data.get("ndcGroup", {}).get("ndcList", {}).get("ndc", [])
-        return ndc_list if isinstance(ndc_list, list) else []
-    except Exception:
-        return []
+        return None
+    return data.get("properties") or None
 
 
-# ---------------------------------------------------------------------------
-# NDC-11 selection + confidence logic
-# ---------------------------------------------------------------------------
+def _pick_best_rxcui(
+    candidates: List[str],
+    strength_num: Optional[str],
+    client: Optional["httpx.Client"] = None,
+) -> Tuple[Optional[str], str, str]:
+    """Pick the best rxcui from a list of candidates using RxNorm properties.
 
+    Priority order:
+      1. tty=SCD AND strength_num appears in name  → HIGH (1 match) or MEDIUM (multiple)
+      2. tty=SBD AND strength_num appears in name  → HIGH (1 match) or MEDIUM (multiple)
+      3. tty=SCD without strength match             → LOW confidence
+      4. tty=SBD without strength match             → LOW confidence
+      5. Any other tty                              → skipped
 
-def _strip_dashes(ndc: str) -> str:
-    return ndc.replace("-", "")
-
-
-def select_ndc11_with_confidence(
-    padded_ndc9: str, all_ndcs: List[str]
-) -> Tuple[Optional[str], str]:
-    """Pick the best NDC-11 from the RxNorm list and return (ndc11, confidence).
-
-    Confidence tiers:
-      HIGH   — exactly 1 NDC-11 matching our labeler prefix (first 5 digits of padded_ndc9)
-      MEDIUM — multiple NDC-11s, same labeler, same product code (digits 6-9 of padded_ndc9)
-      LOW    — RxNorm matched but NDC-11 selection is ambiguous (different labeler or product)
+    Returns (rxcui, confidence, notes).
     """
-    if not all_ndcs:
-        return None, "LOW"
+    scd_strength: List[str] = []
+    sbd_strength: List[str] = []
+    scd_any: List[str] = []
+    sbd_any: List[str] = []
 
-    labeler_prefix = padded_ndc9[:5]  # first 5 digits
-    product_code = padded_ndc9[5:9]   # next 4 digits (product)
+    for rxcui in candidates:
+        props = fetch_rxnorm_properties(rxcui, client=client)
+        if props is None:
+            continue
+        tty = props.get("tty", "")
+        name = props.get("name", "")
+        if tty not in ("SCD", "SBD"):
+            continue
 
-    # Normalise all returned NDC-11s (strip dashes, keep raw for return)
-    normalised = [(ndc, _strip_dashes(ndc)) for ndc in all_ndcs]
+        strength_matches = False
+        if strength_num:
+            # Case-insensitive: strength number followed by a space + unit
+            # e.g. "10" matches "montelukast 10 MG Oral Tablet"
+            strength_matches = bool(
+                re.search(
+                    r'\b' + re.escape(strength_num) + r'\s+(?:MG|MCG|G\b|ML\b|%|IU)',
+                    name,
+                    re.IGNORECASE,
+                )
+            )
 
-    # Filter by labeler prefix (first 5 digits of the 11-digit NDC)
-    labeler_matches = [(raw, stripped) for raw, stripped in normalised if stripped[:5] == labeler_prefix]
+        if tty == "SCD":
+            if strength_matches:
+                scd_strength.append(rxcui)
+            else:
+                scd_any.append(rxcui)
+        else:  # SBD
+            if strength_matches:
+                sbd_strength.append(rxcui)
+            else:
+                sbd_any.append(rxcui)
 
-    if len(labeler_matches) == 1:
-        return labeler_matches[0][0], "HIGH"
+    # Priority 1 & 2: strength match
+    strength_matches_all = scd_strength + sbd_strength
+    if len(strength_matches_all) == 1:
+        chosen = strength_matches_all[0]
+        tty_label = "SCD" if chosen in scd_strength else "SBD"
+        return chosen, "HIGH", f"tty={tty_label} strength match"
+    if len(strength_matches_all) > 1:
+        # Prefer SCD over SBD when both match
+        chosen = (scd_strength or sbd_strength)[0]
+        tty_label = "SCD" if chosen in scd_strength else "SBD"
+        return chosen, "MEDIUM", f"tty={tty_label} strength match ({len(strength_matches_all)} candidates)"
 
-    if len(labeler_matches) > 1:
-        # Further filter by product code (digits 5-9 of the 11-digit NDC)
-        product_matches = [
-            (raw, stripped)
-            for raw, stripped in labeler_matches
-            if stripped[5:9] == product_code
-        ]
-        if product_matches:
-            return product_matches[0][0], "MEDIUM"
-        # Same labeler but different product — still MEDIUM (labeler confirmed)
-        return labeler_matches[0][0], "MEDIUM"
+    # Priority 3 & 4: tty match without strength
+    tty_fallback = scd_any + sbd_any
+    if tty_fallback:
+        chosen = tty_fallback[0]
+        tty_label = "SCD" if chosen in scd_any else "SBD"
+        return chosen, "LOW", f"tty={tty_label} no strength match"
 
-    # No labeler match — LOW confidence, pick first returned NDC-11
-    return all_ndcs[0], "LOW"
+    return None, "SKIPPED", "no SCD/SBD tty found in candidates"
 
 
 # ---------------------------------------------------------------------------
@@ -303,99 +406,142 @@ def select_ndc11_with_confidence(
 
 
 def _process_row(row, *, sleep_s: float, skip_discontinued: bool, client: Optional["httpx.Client"] = None) -> Dict:
-    """Fetch rxcui and ndc11 for a single pillfinder row.
+    """Fetch rxcui for a single pillfinder row using openFDA + RxNorm properties.
 
     Returns a result dict with keys:
         pill_id, medicine_name, padded_ndc9, rxcui, ndc11, confidence, outcome, notes
+
+    ndc11 is always None — this script never updates ndc11.
     """
     pill_id = str(row.id)
     medicine_name = row.medicine_name or ""
     raw_ndc9 = (row.ndc9 or "").strip()
     existing_ndc11 = (row.ndc11 or "").strip()
-    existing_rxcui = (row.rxcui or "").strip()
+    spl_strength = (row.spl_strength or "").strip()
 
-    result = {
+    result: Dict = {
         "pill_id": pill_id,
         "medicine_name": medicine_name,
         "padded_ndc9": None,
-        "rxcui": existing_rxcui or None,
-        "ndc11": existing_ndc11 or None,
+        "rxcui": None,
+        "ndc11": None,  # never updated
         "confidence": None,
         "outcome": None,
         "notes": None,
     }
 
-    # Determine which NDC to use for the lookup
+    # Record padded_ndc9 for audit log / skip_discontinued check
     if raw_ndc9:
         padded = pad_ndc9(raw_ndc9)
         result["padded_ndc9"] = padded
         sig_digits = _significant_digits(raw_ndc9)
 
-        # --skip-discontinued: skip if < 6 significant digits
         if skip_discontinued and sig_digits < 6:
             result["confidence"] = "SKIPPED"
             result["outcome"] = "skipped_discontinued"
             result["notes"] = f"ndc9={raw_ndc9!r} has {sig_digits} significant digits (likely discontinued)"
             return result
-
-        lookup_ndc = padded
     elif existing_ndc11:
-        # Has ndc11 but no ndc9 — use ndc11 directly for lookup
-        lookup_ndc = _strip_dashes(existing_ndc11)
-        result["padded_ndc9"] = lookup_ndc  # record what we used
+        result["padded_ndc9"] = existing_ndc11.replace("-", "")
     else:
         result["confidence"] = "SKIPPED"
         result["outcome"] = "skipped_no_ndc"
         result["notes"] = "no usable NDC"
         return result
 
-    # --- Step 1: NDC → RxCUI ---
+    if not medicine_name.strip():
+        result["confidence"] = "SKIPPED"
+        result["outcome"] = "no_match"
+        result["notes"] = "empty medicine_name, cannot search openFDA"
+        return result
+
+    # Parse strength for openFDA search and RxNorm name matching
+    strength_str = _parse_strength_str(spl_strength)   # e.g. "10 mg"
+    strength_num = _extract_strength_num(spl_strength)  # e.g. "10"
+
+    # --- Step 1: openFDA search with fallback chain ---
+    # Attempts (in order): brand+strength, brand, generic+strength, generic
+    candidates: Optional[List[str]] = None
+    search_notes: List[str] = []
+
     try:
-        rxcui = fetch_rxcui_by_ndc(lookup_ndc, client=client)
-        time.sleep(sleep_s)
+        # 1a. brand_name + strength
+        if strength_str:
+            candidates = fetch_openfda_candidates(
+                medicine_name, strength_str=strength_str, name_field="brand_name", client=client
+            )
+            if candidates is None:
+                search_notes.append("brand+strength=NOT_FOUND")
+            else:
+                search_notes.append(f"brand+strength={len(candidates)} rxcuis")
+
+        # 1b. brand_name without strength
+        if candidates is None:
+            candidates = fetch_openfda_candidates(
+                medicine_name, strength_str=None, name_field="brand_name", client=client
+            )
+            if candidates is None:
+                search_notes.append("brand=NOT_FOUND")
+            else:
+                search_notes.append(f"brand={len(candidates)} rxcuis")
+
+        # 1c. generic_name + strength
+        if candidates is None and strength_str:
+            candidates = fetch_openfda_candidates(
+                medicine_name, strength_str=strength_str, name_field="generic_name", client=client
+            )
+            if candidates is None:
+                search_notes.append("generic+strength=NOT_FOUND")
+            else:
+                search_notes.append(f"generic+strength={len(candidates)} rxcuis")
+
+        # 1d. generic_name without strength
+        if candidates is None:
+            candidates = fetch_openfda_candidates(
+                medicine_name, strength_str=None, name_field="generic_name", client=client
+            )
+            if candidates is None:
+                search_notes.append("generic=NOT_FOUND")
+            else:
+                search_notes.append(f"generic={len(candidates)} rxcuis")
+
     except Exception as exc:
         result["confidence"] = "ERROR"
         result["outcome"] = "api_error"
-        result["notes"] = f"rxcui lookup failed: {exc}"
+        result["notes"] = f"openFDA search failed: {exc}"
         return result
-
-    if not rxcui:
-        result["confidence"] = "LOW"
-        result["outcome"] = "no_match"
-        result["notes"] = f"RxNorm returned no rxcui for NDC={lookup_ndc!r}"
-        return result
-
-    result["rxcui"] = rxcui
-
-    # --- Step 2: RxCUI → NDC-11s (only if ndc11 is missing) ---
-    if existing_ndc11:
-        # Already have an ndc11 — just needed the rxcui
-        result["ndc11"] = existing_ndc11
-        result["confidence"] = "HIGH"
-        result["outcome"] = "pending"
-        return result
-
-    try:
-        all_ndcs = fetch_all_ndcs_for_rxcui(rxcui, client=client)
+    finally:
         time.sleep(sleep_s)
+
+    if candidates is None or len(candidates) == 0:
+        result["confidence"] = "SKIPPED"
+        result["outcome"] = "no_match"
+        result["notes"] = "; ".join(search_notes) or "openFDA returned no results"
+        return result
+
+    # --- Step 2: pick best rxcui from candidates via RxNorm properties ---
+    try:
+        chosen_rxcui, confidence, pick_notes = _pick_best_rxcui(
+            candidates, strength_num, client=client
+        )
     except Exception as exc:
-        # We have rxcui but couldn't get ndc11 — still record rxcui
-        result["confidence"] = "LOW"
-        result["outcome"] = "pending"
-        result["notes"] = f"allndcs lookup failed: {exc}"
+        result["confidence"] = "ERROR"
+        result["outcome"] = "api_error"
+        result["notes"] = f"RxNorm properties lookup failed: {exc}"
         return result
 
-    if not all_ndcs:
-        result["confidence"] = "LOW"
-        result["outcome"] = "pending"
-        result["notes"] = "RxNorm returned no NDC-11s for rxcui"
+    notes = "; ".join(filter(None, ["; ".join(search_notes), pick_notes]))
+
+    if chosen_rxcui is None:
+        result["confidence"] = "SKIPPED"
+        result["outcome"] = "no_match"
+        result["notes"] = notes
         return result
 
-    padded_ndc9 = result["padded_ndc9"] or lookup_ndc
-    chosen_ndc11, confidence = select_ndc11_with_confidence(padded_ndc9, all_ndcs)
-    result["ndc11"] = chosen_ndc11
+    result["rxcui"] = chosen_rxcui
     result["confidence"] = confidence
     result["outcome"] = "pending"
+    result["notes"] = notes
     return result
 
 
@@ -600,11 +746,8 @@ def main(argv=None):
                                 text(_UPDATE_RXCUI_SQL),
                                 {"rxcui": new_rxcui, "pill_id": pill_id},
                             )
-                        if new_ndc11 and new_ndc11 != old_ndc11 and not old_ndc11:
-                            conn.execute(
-                                text(_UPDATE_NDC11_SQL),
-                                {"ndc11": new_ndc11, "pill_id": pill_id},
-                            )
+                        # ndc11 is intentionally NOT updated — these are old drugs whose
+                        # original NDC labeler has changed; only rxcui is safe to backfill.
                         _write_log(
                             conn,
                             pill_id=pill_id,
@@ -612,7 +755,7 @@ def main(argv=None):
                             old_rxcui=old_rxcui,
                             new_rxcui=new_rxcui,
                             old_ndc11=old_ndc11,
-                            new_ndc11=new_ndc11,
+                            new_ndc11=None,
                             padded_ndc9=padded_ndc9,
                             confidence=confidence,
                             outcome=final_outcome,
@@ -620,11 +763,10 @@ def main(argv=None):
                         )
                     counters["written"] += 1
                     logger.info(
-                        "✓ %s (%s) rxcui=%s ndc11=%s [%s]",
+                        "✓ %s (%s) rxcui=%s [%s]",
                         medicine_name,
                         pill_id,
                         new_rxcui,
-                        new_ndc11,
                         confidence,
                     )
                 except Exception as exc:
@@ -640,7 +782,7 @@ def main(argv=None):
                                 old_rxcui=old_rxcui,
                                 new_rxcui=new_rxcui,
                                 old_ndc11=old_ndc11,
-                                new_ndc11=new_ndc11,
+                                new_ndc11=None,
                                 padded_ndc9=padded_ndc9,
                                 confidence="ERROR",
                                 outcome="api_error",
@@ -659,7 +801,7 @@ def main(argv=None):
                             old_rxcui=old_rxcui,
                             new_rxcui=new_rxcui,
                             old_ndc11=old_ndc11,
-                            new_ndc11=new_ndc11,
+                            new_ndc11=None,
                             padded_ndc9=padded_ndc9,
                             confidence=confidence,
                             outcome=final_outcome,
@@ -675,7 +817,6 @@ def main(argv=None):
                     "medicine_name": medicine_name,
                     "padded_ndc9": padded_ndc9,
                     "rxcui": new_rxcui,
-                    "ndc11": new_ndc11,
                     "confidence": confidence,
                     "outcome": final_outcome,
                 }
