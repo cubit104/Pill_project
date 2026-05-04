@@ -91,6 +91,29 @@ async function fetchConditionDrugs(slug: string): Promise<{ tags: string[]; drug
   }
 }
 
+/**
+ * Normalise a raw DEA schedule DB value into a canonical result:
+ *   '1'–'5'         → controlled schedule number (string)
+ *   'not-controlled' → known non-controlled keyword
+ *   'no-data'        → empty / null / unrecognised
+ */
+function classifyDeaSchedule(raw: string | null | undefined): '1' | '2' | '3' | '4' | '5' | 'not-controlled' | 'no-data' {
+  if (!raw || !raw.trim()) return 'no-data'
+  const v = raw.trim().toLowerCase()
+  const lookup: Record<string, '1' | '2' | '3' | '4' | '5'> = {
+    // C-prefix roman numeral (standard DEA notation)
+    'ci': '1', 'cii': '2', 'ciii': '3', 'civ': '4', 'cv': '5',
+    // Plain roman numeral
+    'i': '1', 'ii': '2', 'iii': '3', 'iv': '4', 'v': '5',
+    // Arabic digit
+    '1': '1', '2': '2', '3': '3', '4': '4', '5': '5',
+  }
+  if (lookup[v]) return lookup[v]
+  const notControlled = ['na', 'n/a', 'none', 'unscheduled', '0', 'not applicable']
+  if (notControlled.includes(v)) return 'not-controlled'
+  return 'no-data'
+}
+
 /** Build FAQ items from real DB fields for both visible UI and FAQPage JSON-LD. */
 function buildFaqItems(pill: PillDetail): Array<{ question: string; answer: string }> {
   const items: Array<{ question: string; answer: string }> = []
@@ -127,7 +150,7 @@ function buildFaqItems(pill: PillDetail): Array<{ question: string; answer: stri
     })
   }
 
-  if (pill.dea_schedule) {
+  {
     const scheduleLabels: Record<string, string> = {
       '1': 'a Schedule I controlled substance with high abuse potential and no accepted medical use',
       '2': 'a Schedule II controlled substance with high abuse potential and severe dependence risk',
@@ -135,9 +158,19 @@ function buildFaqItems(pill: PillDetail): Array<{ question: string; answer: stri
       '4': 'a Schedule IV controlled substance with low abuse potential',
       '5': 'a Schedule V controlled substance — the lowest abuse potential among controlled substances',
     }
+    const deaResult = classifyDeaSchedule(pill.dea_schedule)
+    const drugLabel = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : 'this medication'
+    let deaAnswer: string
+    if (deaResult === 'no-data') {
+      deaAnswer = 'No data available.'
+    } else if (deaResult === 'not-controlled') {
+      deaAnswer = `No, ${drugLabel} is not a controlled substance.`
+    } else {
+      deaAnswer = `Yes, ${drugLabel} is classified as ${scheduleLabels[deaResult]}.`
+    }
     items.push({
       question: 'Is this medication a controlled substance?',
-      answer: `Yes, ${pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : 'this medication'} is classified as ${scheduleLabels[pill.dea_schedule] ?? `a DEA Schedule ${pill.dea_schedule} controlled substance`}.`,
+      answer: deaAnswer,
     })
   }
 
