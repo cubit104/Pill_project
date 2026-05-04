@@ -388,9 +388,9 @@ export default function BulkUploadPage() {
 
   function Step2() {
     const statusIcon = (status: RowMeta['status']) => {
-      if (status === 'ready') return <span title="All required fields filled" className="text-green-500">✅</span>
-      if (status === 'warning') return <span title="Required-or-N/A fields missing" className="text-yellow-500">⚠️</span>
-      return <span title="Tier-1 required fields missing" className="text-red-500">❌</span>
+      if (status === 'ready') return <span aria-label="Ready: all required fields filled" role="img" className="text-green-500">✅</span>
+      if (status === 'warning') return <span aria-label="Warning: required-or-N/A fields missing" role="img" className="text-yellow-500">⚠️</span>
+      return <span aria-label="Error: required fields missing" role="img" className="text-red-500">❌</span>
     }
 
     return (
@@ -404,9 +404,9 @@ export default function BulkUploadPage() {
 
         {/* Summary bar */}
         <div className="flex gap-4 text-sm bg-white border border-gray-200 rounded-lg px-4 py-3">
-          <span className="text-green-600 font-medium">✅ {readyCount} ready</span>
-          <span className="text-yellow-600 font-medium">⚠️ {warningCount} warnings</span>
-          <span className="text-red-600 font-medium">❌ {errorCount} errors</span>
+          <span className="text-green-600 font-medium"><span role="img" aria-label="Ready">✅</span> {readyCount} ready</span>
+          <span className="text-yellow-600 font-medium"><span role="img" aria-label="Warning">⚠️</span> {warningCount} warnings</span>
+          <span className="text-red-600 font-medium"><span role="img" aria-label="Error">❌</span> {errorCount} errors</span>
           <span className="text-gray-500 ml-auto">{rows.length} total rows</span>
         </div>
 
@@ -671,8 +671,8 @@ export default function BulkUploadPage() {
         {uploadResults && uploadSummary && (
           <div className="space-y-4">
             <div className="flex gap-4 text-sm bg-white border border-gray-200 rounded-lg px-4 py-3">
-              <span className="text-green-600 font-medium">✅ {uploadSummary.succeeded} saved</span>
-              <span className="text-red-600 font-medium">❌ {uploadSummary.failed} failed</span>
+              <span className="text-green-600 font-medium"><span role="img" aria-label="Success">✅</span> {uploadSummary.succeeded} saved</span>
+              <span className="text-red-600 font-medium"><span role="img" aria-label="Failed">❌</span> {uploadSummary.failed} failed</span>
               <span className="text-gray-500 ml-auto">{uploadSummary.total} total</span>
             </div>
 

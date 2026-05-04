@@ -873,7 +873,6 @@ def bulk_create_pills(
             })
         except SQLAlchemyError as e:
             failed += 1
-            root = getattr(e, "orig", None) or e
             logger.error(f"bulk_create row {i} DB error: {e}", exc_info=True)
             results.append({
                 "index": i,
