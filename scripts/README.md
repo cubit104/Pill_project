@@ -153,3 +153,117 @@ Processed: 3 | Tagged: 2 | No-match: 1 | Skipped (dup rxcui): 0
 ### Idempotent / self-healing
 Re-running is safe and recommended whenever `drug_indications.plain_text` is updated.  Stale
 tags from a previous run are automatically deleted; new tags are added with `ON CONFLICT DO NOTHING`.
+
+---
+
+## RxCUI + NDC-11 Backfill
+
+Backfills missing `rxcui` and `ndc11` values on the `pillfinder` table using
+the **free RxNorm API** (no API key needed).  Handles ~1,711 rows that have
+`rxcui IS NULL` but a valid `ndc9` or `ndc11`.
+
+### What it does
+1. Selects rows from `pillfinder` where `rxcui IS NULL` and a valid NDC exists.
+2. Zero-pads `ndc9` to 9 digits (`LPAD(ndc9, 9, '0')`) to recover stripped leading zeros.
+3. Calls `GET https://rxnav.nlm.nih.gov/REST/rxcui.json?idtype=NDC&id={padded_ndc}` to get the exact clinical drug RxCUI.
+4. Calls `GET https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/allndcs.json` to get all NDC-11s and picks the best match using labeler-prefix matching.
+5. Assigns a **confidence tier** (HIGH / MEDIUM / LOW) based on match quality.
+6. Writes `rxcui` and `ndc11` back to `pillfinder` only for rows at or above the configured confidence threshold.
+7. Logs every processed row to `rxcui_backfill_log` regardless of outcome — including errors, low-confidence rows, and dry-run rows (written with `outcome='dry_run'`).
+
+### Confidence tiers
+
+| Confidence | Condition |
+|---|---|
+| **HIGH** | RxNorm returns exactly 1 NDC-11 matching our labeler prefix (first 5 digits of padded ndc9) |
+| **MEDIUM** | Multiple NDC-11s returned, same labeler, same or closest product code |
+| **LOW** | RxNorm matched but NDC-11 selection is ambiguous (different labeler or product) |
+
+Only HIGH and MEDIUM rows are written by default (`--confidence MEDIUM`).
+LOW confidence rows are logged to `rxcui_backfill_log` only.
+
+### Schema (run once in Supabase SQL Editor)
+
+The audit log table is created automatically at script startup:
+
+```sql
+CREATE TABLE IF NOT EXISTS rxcui_backfill_log (
+  id SERIAL PRIMARY KEY,
+  pill_id UUID NOT NULL,
+  medicine_name TEXT,
+  old_rxcui TEXT,
+  new_rxcui TEXT,
+  old_ndc11 TEXT,
+  new_ndc11 TEXT,
+  padded_ndc9 TEXT,
+  confidence TEXT,  -- HIGH / MEDIUM / LOW / SKIPPED / ERROR
+  outcome TEXT,     -- written / skipped_confidence / skipped_discontinued / skipped_no_ndc / no_match / api_error / dry_run
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### Step-by-step usage (Render Web Shell)
+
+```bash
+# Step 1 — Always dry-run first, review output before writing anything
+python scripts/backfill_rxcui_and_ndc11.py --dry-run --limit 10
+
+# Step 2 — Run in batches of 200 (be polite to RxNorm, default 300ms sleep)
+python scripts/backfill_rxcui_and_ndc11.py --limit 200 --sleep-ms 300
+
+# Step 3 — Continue until done (~1,711 rows, ~30–45 min total at 300ms/row)
+python scripts/backfill_rxcui_and_ndc11.py --limit 200 --offset 200 --sleep-ms 300
+python scripts/backfill_rxcui_and_ndc11.py --limit 200 --offset 400 --sleep-ms 300
+# ... etc.
+
+# Only write HIGH-confidence rows (most conservative)
+python scripts/backfill_rxcui_and_ndc11.py --limit 200 --confidence HIGH
+
+# Skip likely-discontinued drugs (< 6 significant ndc9 digits)
+python scripts/backfill_rxcui_and_ndc11.py --limit 200 --skip-discontinued
+```
+
+### Sample dry-run output
+
+```json
+{"pill_id": "624b575e-...", "medicine_name": "SINGULAIR", "padded_ndc9": "000060117", "rxcui": "203150", "ndc11": "00006-0117-31", "confidence": "HIGH", "outcome": "dry_run"}
+{"pill_id": "9abb5578-...", "medicine_name": "EC-Naprosyn", "padded_ndc9": "000046416", "rxcui": "596526", "ndc11": "00046-0416-81", "confidence": "MEDIUM", "outcome": "dry_run"}
+{"processed": 10, "written": 0, "skipped_confidence": 0, "no_match": 1, "api_error": 0, "dry_run": true}
+```
+
+### Reading the audit log
+
+```sql
+-- See all changes from the most recent run
+SELECT pill_id, medicine_name, old_rxcui, new_rxcui, old_ndc11, new_ndc11,
+       padded_ndc9, confidence, outcome, notes, created_at
+FROM rxcui_backfill_log
+ORDER BY created_at DESC
+LIMIT 50;
+
+-- Count outcomes from last run
+SELECT outcome, confidence, COUNT(*) AS n
+FROM rxcui_backfill_log
+WHERE created_at > NOW() - INTERVAL '1 hour'
+GROUP BY outcome, confidence
+ORDER BY n DESC;
+
+-- Find all low-confidence rows needing manual review
+SELECT * FROM rxcui_backfill_log
+WHERE confidence = 'LOW'
+ORDER BY created_at DESC;
+```
+
+### How to roll back if needed
+
+```sql
+-- Roll back all changes from a specific run (replace the timestamp with the
+-- start time of the run you want to undo, e.g. '2026-05-04 12:00:00')
+UPDATE pillfinder p
+SET rxcui = l.old_rxcui, ndc11 = l.old_ndc11
+FROM rxcui_backfill_log l
+WHERE p.id = l.pill_id
+  AND l.outcome = 'written'
+  AND l.created_at > '<YYYY-MM-DD HH:MM:SS>';
+```
