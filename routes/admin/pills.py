@@ -874,13 +874,13 @@ def bulk_create_pills(
         except SQLAlchemyError as e:
             failed += 1
             root = getattr(e, "orig", None) or e
+            logger.error(f"bulk_create row {i} DB error: {e}", exc_info=True)
             results.append({
                 "index": i,
                 "success": False,
                 "drug_name": drug_name,
-                "error": str(root),
+                "error": "Database error — row could not be saved",
             })
-            logger.error(f"bulk_create row {i} DB error: {e}", exc_info=True)
 
     logger.info(
         "bulk_create by %s: total=%d succeeded=%d failed=%d publish=%s",

@@ -328,7 +328,7 @@ export default function BulkUploadPage() {
           <div className="flex-1">
             <p className="text-sm font-medium text-indigo-800">Need a template?</p>
             <p className="text-xs text-indigo-600 mt-0.5">
-              Download a pre-filled CSV with all 25 field headers and one example row.
+              Download a pre-filled CSV with all {FIELD_SCHEMA.length} field headers and one example row.
             </p>
           </div>
           <button
