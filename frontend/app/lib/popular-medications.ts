@@ -22,9 +22,9 @@ export const POPULAR_MEDICATIONS: PopularMed[] = [
   // Diabetes
   { name: 'Metformin', slug: 'metformin', category: 'Diabetes' },
   { name: 'Glipizide', slug: 'glipizide', category: 'Diabetes' },
-  { name: 'Januvia', slug: 'januvia', category: 'Diabetes' },
-  { name: 'Ozempic', slug: 'ozempic', category: 'Diabetes' },
-  { name: 'Jardiance', slug: 'jardiance', category: 'Diabetes' },
+  { name: 'Sitagliptin', slug: 'sitagliptin', category: 'Diabetes' },
+  { name: 'Semaglutide', slug: 'semaglutide', category: 'Diabetes' },
+  { name: 'Empagliflozin', slug: 'empagliflozin', category: 'Diabetes' },
 
   // Cholesterol
   { name: 'Atorvastatin', slug: 'atorvastatin', category: 'Cholesterol' },

@@ -23,16 +23,16 @@ export default function PopularMedications() {
         </p>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {Object.entries(grouped).map(([category, meds]) => (
-            <div key={category}>
+            <div key={category} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
               <h3 className="font-semibold text-emerald-700 text-sm uppercase tracking-wide mb-3">
                 {category}
               </h3>
-              <ul className="space-y-1.5">
+              <ul className="space-y-0.5">
                 {meds.map((m) => (
                   <li key={m.slug}>
                     <Link
                       href={`/drug/${m.slug}`}
-                      className="text-slate-700 hover:text-emerald-700 hover:underline text-sm"
+                      className="block text-slate-700 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg px-2 py-1 text-sm transition-colors -mx-2"
                     >
                       {m.name}
                     </Link>
