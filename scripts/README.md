@@ -169,7 +169,7 @@ the **free RxNorm API** (no API key needed).  Handles ~1,711 rows that have
 4. Calls `GET https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/allndcs.json` to get all NDC-11s and picks the best match using labeler-prefix matching.
 5. Assigns a **confidence tier** (HIGH / MEDIUM / LOW) based on match quality.
 6. Writes `rxcui` and `ndc11` back to `pillfinder` only for rows at or above the configured confidence threshold.
-7. Logs every processed row to `rxcui_backfill_log` regardless of outcome — including dry-run skips, errors, and low-confidence rows.
+7. Logs every processed row to `rxcui_backfill_log` regardless of outcome — including errors, low-confidence rows, and dry-run rows (written with `outcome='dry_run'`).
 
 ### Confidence tiers
 
@@ -197,7 +197,7 @@ CREATE TABLE IF NOT EXISTS rxcui_backfill_log (
   new_ndc11 TEXT,
   padded_ndc9 TEXT,
   confidence TEXT,  -- HIGH / MEDIUM / LOW / SKIPPED / ERROR
-  outcome TEXT,     -- written / skipped_confidence / skipped_discontinued / no_match / api_error / dry_run
+  outcome TEXT,     -- written / skipped_confidence / skipped_discontinued / skipped_no_ndc / no_match / api_error / dry_run
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -258,11 +258,12 @@ ORDER BY created_at DESC;
 ### How to roll back if needed
 
 ```sql
--- Roll back all changes from a specific run
+-- Roll back all changes from a specific run (replace the timestamp with the
+-- start time of the run you want to undo, e.g. '2026-05-04 12:00:00')
 UPDATE pillfinder p
 SET rxcui = l.old_rxcui, ndc11 = l.old_ndc11
 FROM rxcui_backfill_log l
 WHERE p.id = l.pill_id
   AND l.outcome = 'written'
-  AND l.created_at > '2026-05-04 00:00:00';
+  AND l.created_at > '<YYYY-MM-DD HH:MM:SS>';
 ```

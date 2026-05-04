@@ -14,7 +14,7 @@ Flags
 --offset N             Skip first N rows (default: 0).
 --sleep-ms N           Milliseconds between API calls (default: 300).
 --skip-discontinued    Skip rows where drug is likely discontinued
-                       (ndc9 after padding has < 6 significant digits).
+                       (ndc9 has < 6 significant digits before zero-padding).
 --confidence LEVEL     Only write rows at or above this confidence level.
                        Choices: HIGH, MEDIUM, LOW, ALL (default: MEDIUM).
 """
@@ -185,43 +185,58 @@ def _significant_digits(raw: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _fetch_json(url: str, params: Optional[Dict] = None, timeout: int = 15) -> Optional[Dict]:
-    """GET url with one retry on 5xx / timeout. Returns parsed JSON or None."""
+def _fetch_json(
+    url: str,
+    params: Optional[Dict] = None,
+    timeout: int = 15,
+    client: Optional["httpx.Client"] = None,
+) -> Optional[Dict]:
+    """GET url with one retry on 5xx / timeout. Returns parsed JSON or None.
+
+    If *client* is provided it is reused (connection pooling); otherwise a
+    temporary client is created per call.
+    """
     import httpx
 
-    for attempt in range(2):
-        try:
-            with httpx.Client(timeout=timeout) as client:
+    _close = client is None
+    if _close:
+        client = httpx.Client(timeout=timeout)
+    try:
+        for attempt in range(2):
+            try:
                 resp = client.get(url, params=params)
-            if resp.status_code == 200:
-                return resp.json()
-            if resp.status_code >= 500 and attempt == 0:
-                time.sleep(1)
-                continue
-            logger.debug("HTTP %s from %s", resp.status_code, url)
-            return None
-        except Exception as exc:
-            if attempt == 0:
-                time.sleep(1)
-                continue
-            logger.warning("HTTP error fetching %s: %s", url, exc)
-            return None
+                if resp.status_code == 200:
+                    return resp.json()
+                if resp.status_code >= 500 and attempt == 0:
+                    time.sleep(1)
+                    continue
+                logger.debug("HTTP %s from %s", resp.status_code, url)
+                return None
+            except Exception as exc:
+                if attempt == 0:
+                    time.sleep(1)
+                    continue
+                logger.warning("HTTP error fetching %s: %s", url, exc)
+                return None
+    finally:
+        if _close:
+            client.close()
     return None
 
 
-def fetch_rxcui_by_ndc(ndc: str) -> Optional[str]:
+def fetch_rxcui_by_ndc(ndc: str, client: Optional["httpx.Client"] = None) -> Optional[str]:
     """Look up RxCUI for a given NDC string via RxNorm. Returns rxcui or None."""
-    data = _fetch_json(RXNORM_RXCUI_URL, params={"idtype": "NDC", "id": ndc})
+    data = _fetch_json(RXNORM_RXCUI_URL, params={"idtype": "NDC", "id": ndc}, client=client)
     if not data:
         return None
     ids = data.get("idGroup", {}).get("rxnormId", [])
     return ids[0] if ids else None
 
 
-def fetch_all_ndcs_for_rxcui(rxcui: str) -> List[str]:
+def fetch_all_ndcs_for_rxcui(rxcui: str, client: Optional["httpx.Client"] = None) -> List[str]:
     """Return all NDC-11s for a given RxCUI via RxNorm allndcs endpoint."""
     url = RXNORM_ALLNDCS_URL.format(rxcui=rxcui)
-    data = _fetch_json(url)
+    data = _fetch_json(url, client=client)
     if not data:
         return []
     # Response: {"ndcGroup": {"ndcList": {"ndc": ["00006-0117-31", ...]}}}
@@ -287,7 +302,7 @@ def select_ndc11_with_confidence(
 # ---------------------------------------------------------------------------
 
 
-def _process_row(row, *, sleep_s: float, skip_discontinued: bool) -> Dict:
+def _process_row(row, *, sleep_s: float, skip_discontinued: bool, client: Optional["httpx.Client"] = None) -> Dict:
     """Fetch rxcui and ndc11 for a single pillfinder row.
 
     Returns a result dict with keys:
@@ -330,13 +345,13 @@ def _process_row(row, *, sleep_s: float, skip_discontinued: bool) -> Dict:
         result["padded_ndc9"] = lookup_ndc  # record what we used
     else:
         result["confidence"] = "SKIPPED"
-        result["outcome"] = "skipped_discontinued"
+        result["outcome"] = "skipped_no_ndc"
         result["notes"] = "no usable NDC"
         return result
 
     # --- Step 1: NDC → RxCUI ---
     try:
-        rxcui = fetch_rxcui_by_ndc(lookup_ndc)
+        rxcui = fetch_rxcui_by_ndc(lookup_ndc, client=client)
         time.sleep(sleep_s)
     except Exception as exc:
         result["confidence"] = "ERROR"
@@ -361,7 +376,7 @@ def _process_row(row, *, sleep_s: float, skip_discontinued: bool) -> Dict:
         return result
 
     try:
-        all_ndcs = fetch_all_ndcs_for_rxcui(rxcui)
+        all_ndcs = fetch_all_ndcs_for_rxcui(rxcui, client=client)
         time.sleep(sleep_s)
     except Exception as exc:
         # We have rxcui but couldn't get ndc11 — still record rxcui
@@ -512,108 +527,84 @@ def main(argv=None):
         "api_error": 0,
     }
 
-    for row in rows:
-        counters["processed"] += 1
-        pill_id = str(row.id)
-        medicine_name = row.medicine_name or ""
-        old_rxcui = (row.rxcui or "").strip() or None
-        old_ndc11 = (row.ndc11 or "").strip() or None
+    import httpx
 
-        try:
-            result = _process_row(
-                row,
-                sleep_s=sleep_s,
-                skip_discontinued=args.skip_discontinued,
-            )
-        except Exception as exc:
-            logger.error("Unexpected error processing pill_id=%s: %s", pill_id, exc)
-            result = {
-                "pill_id": pill_id,
-                "medicine_name": medicine_name,
-                "padded_ndc9": None,
-                "rxcui": None,
-                "ndc11": None,
-                "confidence": "ERROR",
-                "outcome": "api_error",
-                "notes": str(exc),
-            }
+    with httpx.Client(timeout=15) as http_client:
+        for row in rows:
+            counters["processed"] += 1
+            pill_id = str(row.id)
+            medicine_name = row.medicine_name or ""
+            old_rxcui = (row.rxcui or "").strip() or None
+            old_ndc11 = (row.ndc11 or "").strip() or None
 
-        confidence = result.get("confidence")
-        outcome = result.get("outcome")
-        new_rxcui = result.get("rxcui")
-        new_ndc11 = result.get("ndc11")
-        padded_ndc9 = result.get("padded_ndc9")
-
-        # Map internal outcomes
-        if outcome == "api_error":
-            counters["api_error"] += 1
-        elif outcome == "no_match":
-            counters["no_match"] += 1
-        elif outcome == "skipped_discontinued":
-            counters["skipped_confidence"] += 1
-
-        # Determine final write outcome
-        should_write = (
-            outcome == "pending"
-            and not args.dry_run
-            and confidence in ("HIGH", "MEDIUM", "LOW")
-            and _confidence_meets_threshold(confidence, args.confidence)
-        )
-
-        if args.dry_run:
-            final_outcome = "dry_run"
-        elif outcome in ("api_error", "no_match", "skipped_discontinued"):
-            final_outcome = outcome
-        elif outcome == "pending" and not _confidence_meets_threshold(confidence, args.confidence):
-            final_outcome = "skipped_confidence"
-            counters["skipped_confidence"] += 1
-        elif should_write:
-            final_outcome = "written"
-        else:
-            final_outcome = outcome or "skipped_confidence"
-
-        # --- DB writes (live mode only) ---
-        if should_write:
             try:
-                with db_engine.begin() as conn:
-                    if new_rxcui and new_rxcui != old_rxcui:
-                        conn.execute(
-                            text(_UPDATE_RXCUI_SQL),
-                            {"rxcui": new_rxcui, "pill_id": pill_id},
-                        )
-                    if new_ndc11 and new_ndc11 != old_ndc11 and not old_ndc11:
-                        conn.execute(
-                            text(_UPDATE_NDC11_SQL),
-                            {"ndc11": new_ndc11, "pill_id": pill_id},
-                        )
-                    _write_log(
-                        conn,
-                        pill_id=pill_id,
-                        medicine_name=medicine_name,
-                        old_rxcui=old_rxcui,
-                        new_rxcui=new_rxcui,
-                        old_ndc11=old_ndc11,
-                        new_ndc11=new_ndc11,
-                        padded_ndc9=padded_ndc9,
-                        confidence=confidence,
-                        outcome=final_outcome,
-                        notes=result.get("notes"),
-                    )
-                counters["written"] += 1
-                logger.info(
-                    "✓ %s (%s) rxcui=%s ndc11=%s [%s]",
-                    medicine_name,
-                    pill_id,
-                    new_rxcui,
-                    new_ndc11,
-                    confidence,
+                result = _process_row(
+                    row,
+                    sleep_s=sleep_s,
+                    skip_discontinued=args.skip_discontinued,
+                    client=http_client,
                 )
             except Exception as exc:
-                logger.error("DB write failed for pill_id=%s: %s", pill_id, exc)
+                logger.error("Unexpected error processing pill_id=%s: %s", pill_id, exc)
+                result = {
+                    "pill_id": pill_id,
+                    "medicine_name": medicine_name,
+                    "padded_ndc9": None,
+                    "rxcui": None,
+                    "ndc11": None,
+                    "confidence": "ERROR",
+                    "outcome": "api_error",
+                    "notes": str(exc),
+                }
+
+            confidence = result.get("confidence")
+            outcome = result.get("outcome")
+            new_rxcui = result.get("rxcui")
+            new_ndc11 = result.get("ndc11")
+            padded_ndc9 = result.get("padded_ndc9")
+
+            # Map internal outcomes to counters
+            if outcome == "api_error":
                 counters["api_error"] += 1
-                # Attempt to log the error
+            elif outcome == "no_match":
+                counters["no_match"] += 1
+            elif outcome in ("skipped_discontinued", "skipped_no_ndc"):
+                counters["skipped_confidence"] += 1
+
+            # Determine final write outcome
+            should_write = (
+                outcome == "pending"
+                and not args.dry_run
+                and confidence in ("HIGH", "MEDIUM", "LOW")
+                and _confidence_meets_threshold(confidence, args.confidence)
+            )
+
+            if args.dry_run:
+                final_outcome = "dry_run"
+            elif outcome in ("api_error", "no_match", "skipped_discontinued", "skipped_no_ndc"):
+                final_outcome = outcome
+            elif outcome == "pending" and not _confidence_meets_threshold(confidence, args.confidence):
+                final_outcome = "skipped_confidence"
+                counters["skipped_confidence"] += 1
+            elif should_write:
+                final_outcome = "written"
+            else:
+                final_outcome = outcome or "skipped_confidence"
+
+            # --- DB writes (live mode only) ---
+            if should_write:
                 try:
                     with db_engine.begin() as conn:
+                        if new_rxcui and new_rxcui != old_rxcui:
+                            conn.execute(
+                                text(_UPDATE_RXCUI_SQL),
+                                {"rxcui": new_rxcui, "pill_id": pill_id},
+                            )
+                        if new_ndc11 and new_ndc11 != old_ndc11 and not old_ndc11:
+                            conn.execute(
+                                text(_UPDATE_NDC11_SQL),
+                                {"ndc11": new_ndc11, "pill_id": pill_id},
+                            )
                         _write_log(
                             conn,
                             pill_id=pill_id,
@@ -623,15 +614,42 @@ def main(argv=None):
                             old_ndc11=old_ndc11,
                             new_ndc11=new_ndc11,
                             padded_ndc9=padded_ndc9,
-                            confidence="ERROR",
-                            outcome="api_error",
-                            notes=f"DB write failed: {exc}",
+                            confidence=confidence,
+                            outcome=final_outcome,
+                            notes=result.get("notes"),
                         )
-                except Exception:
-                    pass
-        else:
-            # Log-only (dry-run, skipped, errors, no_match)
-            if not args.dry_run:
+                    counters["written"] += 1
+                    logger.info(
+                        "✓ %s (%s) rxcui=%s ndc11=%s [%s]",
+                        medicine_name,
+                        pill_id,
+                        new_rxcui,
+                        new_ndc11,
+                        confidence,
+                    )
+                except Exception as exc:
+                    logger.error("DB write failed for pill_id=%s: %s", pill_id, exc)
+                    counters["api_error"] += 1
+                    # Attempt to log the error
+                    try:
+                        with db_engine.begin() as conn:
+                            _write_log(
+                                conn,
+                                pill_id=pill_id,
+                                medicine_name=medicine_name,
+                                old_rxcui=old_rxcui,
+                                new_rxcui=new_rxcui,
+                                old_ndc11=old_ndc11,
+                                new_ndc11=new_ndc11,
+                                padded_ndc9=padded_ndc9,
+                                confidence="ERROR",
+                                outcome="api_error",
+                                notes=f"DB write failed: {exc}",
+                            )
+                    except Exception:
+                        pass
+            else:
+                # Log every non-written row (dry-run, skipped, errors, no_match)
                 try:
                     with db_engine.begin() as conn:
                         _write_log(
@@ -650,28 +668,28 @@ def main(argv=None):
                 except Exception as exc:
                     logger.warning("Failed to write audit log for pill_id=%s: %s", pill_id, exc)
 
-        # Print per-row JSON in dry-run mode
-        if args.dry_run:
-            row_out = {
-                "pill_id": pill_id,
-                "medicine_name": medicine_name,
-                "padded_ndc9": padded_ndc9,
-                "rxcui": new_rxcui,
-                "ndc11": new_ndc11,
-                "confidence": confidence,
-                "outcome": final_outcome,
-            }
-            print(json.dumps(row_out))
-        else:
-            if final_outcome not in ("written",):
-                logger.info(
-                    "↪ %s (%s) outcome=%s confidence=%s notes=%s",
-                    medicine_name,
-                    pill_id,
-                    final_outcome,
-                    confidence,
-                    result.get("notes"),
-                )
+            # Print per-row JSON in dry-run mode
+            if args.dry_run:
+                row_out = {
+                    "pill_id": pill_id,
+                    "medicine_name": medicine_name,
+                    "padded_ndc9": padded_ndc9,
+                    "rxcui": new_rxcui,
+                    "ndc11": new_ndc11,
+                    "confidence": confidence,
+                    "outcome": final_outcome,
+                }
+                print(json.dumps(row_out))
+            else:
+                if final_outcome not in ("written",):
+                    logger.info(
+                        "↪ %s (%s) outcome=%s confidence=%s notes=%s",
+                        medicine_name,
+                        pill_id,
+                        final_outcome,
+                        confidence,
+                        result.get("notes"),
+                    )
 
     # --- Summary ---
     summary = {
