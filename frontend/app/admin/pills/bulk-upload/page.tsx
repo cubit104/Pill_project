@@ -146,6 +146,15 @@ function parseCSV(text: string): { rows: ParsedRow[]; errors: string[] } {
   return { rows, errors: [] }
 }
 
+function generateSlug(medicineName: string, strength: string): string {
+  const combined = [medicineName, strength].filter(Boolean).join(' ')
+  return combined
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
 function computeRowMeta(row: ParsedRow): RowMeta {
   const comp = computeCompleteness(row)
   const hasTier1Errors = comp.missing_required.length > 0
@@ -283,6 +292,29 @@ export default function BulkUploadPage() {
         setParseError('No data rows found in the CSV file.')
         setRows([]) // clear any previously loaded batch
         return
+      }
+      // Auto-generate slugs for rows that don't have one, with duplicate disambiguation
+      const usedSlugs = new Set<string>()
+      // First pass: register all existing slugs
+      for (const row of parsed) {
+        if (row.slug && row.slug.trim() !== '') {
+          usedSlugs.add(row.slug.trim())
+        }
+      }
+      // Second pass: auto-generate missing slugs
+      for (const row of parsed) {
+        if (!row.slug || row.slug.trim() === '') {
+          const base = generateSlug(row.medicine_name || '', row.spl_strength || '')
+          if (!base) continue // skip if both fields are empty
+          let candidate = base
+          let counter = 2
+          while (usedSlugs.has(candidate)) {
+            candidate = `${base}-${counter}`
+            counter++
+          }
+          usedSlugs.add(candidate)
+          row.slug = candidate
+        }
       }
       setRows(parsed)
     }
