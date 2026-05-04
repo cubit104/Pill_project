@@ -127,7 +127,7 @@ function buildFaqItems(pill: PillDetail): Array<{ question: string; answer: stri
     })
   }
 
-  if (pill.dea_schedule) {
+  {
     const scheduleLabels: Record<string, string> = {
       '1': 'a Schedule I controlled substance with high abuse potential and no accepted medical use',
       '2': 'a Schedule II controlled substance with high abuse potential and severe dependence risk',
@@ -135,9 +135,29 @@ function buildFaqItems(pill: PillDetail): Array<{ question: string; answer: stri
       '4': 'a Schedule IV controlled substance with low abuse potential',
       '5': 'a Schedule V controlled substance — the lowest abuse potential among controlled substances',
     }
+    const romanToArabic: Record<string, string> = {
+      'i': '1', 'ii': '2', 'iii': '3', 'iv': '4', 'v': '5',
+    }
+    const NON_CONTROLLED = new Set(['na', 'n/a', 'none', 'not applicable', 'unscheduled', '0', 'no'])
+    const drugName = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : 'this medication'
+    const raw = pill.dea_schedule
+    let controlledAnswer: string
+    if (!raw || raw.trim() === '') {
+      controlledAnswer = 'No data available.'
+    } else {
+      const normalised = raw.trim().toLowerCase()
+      const arabicKey = romanToArabic[normalised] ?? normalised
+      if (NON_CONTROLLED.has(normalised)) {
+        controlledAnswer = `No, ${drugName} is not a controlled substance.`
+      } else if (scheduleLabels[arabicKey]) {
+        controlledAnswer = `Yes, ${drugName} is classified as ${scheduleLabels[arabicKey]}.`
+      } else {
+        controlledAnswer = 'No data available.'
+      }
+    }
     items.push({
       question: 'Is this medication a controlled substance?',
-      answer: `Yes, ${pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : 'this medication'} is classified as ${scheduleLabels[pill.dea_schedule] ?? `a DEA Schedule ${pill.dea_schedule} controlled substance`}.`,
+      answer: controlledAnswer,
     })
   }
 
