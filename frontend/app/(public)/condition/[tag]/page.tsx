@@ -181,7 +181,7 @@ export default async function ConditionPage(
         dangerouslySetInnerHTML={{ __html: safeJsonLd(medicalWebPage) }}
       />
 
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Breadcrumb */}
         <nav aria-label="Breadcrumb" className="mb-6">
           <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
@@ -197,50 +197,52 @@ export default async function ConditionPage(
         <h1 className="text-3xl font-bold text-slate-900 mb-6">{title}</h1>
 
         {/* Intro paragraphs */}
-        <div className="prose prose-slate max-w-3xl mb-8">
+        <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-6 mb-8">
           {paragraphs.map((para, i) => (
-            <p key={i} className="text-slate-700 leading-relaxed mb-4">{para}</p>
+            <p key={i} className="text-slate-700 leading-relaxed mb-4 last:mb-0">{para}</p>
           ))}
         </div>
 
         {/* Drug grid */}
-        <section aria-labelledby="drug-list-heading" className="mb-10">
-          <h2 id="drug-list-heading" className="text-xl font-semibold text-slate-800 mb-4">
-            Medications
-          </h2>
-          <ConditionPageClient drugs={drugs} conditionTitle={title} totalCount={total_count} />
+        <section aria-labelledby="drug-list-heading" className="mb-8">
+          <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-6">
+            <h2 id="drug-list-heading" className="text-xl font-semibold text-slate-800 mb-4">
+              Medications
+            </h2>
+            <ConditionPageClient drugs={drugs} conditionTitle={title} totalCount={total_count} />
 
-          {/* Pagination controls */}
-          {showPagination && (
-            <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <p className="text-sm text-slate-500">
-                Showing {rangeStart}–{rangeEnd} of {total_count}
-              </p>
-              <div className="flex gap-2">
-                {page > 1 && (
-                  <Link
-                    href={`/condition/${slug}?page=${page - 1}`}
-                    className="px-4 py-2 text-sm bg-white border border-slate-200 rounded-lg text-slate-700 hover:border-emerald-300 hover:text-emerald-700 transition-colors"
-                  >
-                    ← Previous
-                  </Link>
-                )}
-                {page < totalPages && (
-                  <Link
-                    href={`/condition/${slug}?page=${page + 1}`}
-                    className="px-4 py-2 text-sm bg-white border border-slate-200 rounded-lg text-slate-700 hover:border-emerald-300 hover:text-emerald-700 transition-colors"
-                  >
-                    Next →
-                  </Link>
-                )}
+            {/* Pagination controls */}
+            {showPagination && (
+              <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <p className="text-sm text-slate-500">
+                  Showing {rangeStart}–{rangeEnd} of {total_count}
+                </p>
+                <div className="flex gap-2">
+                  {page > 1 && (
+                    <Link
+                      href={`/condition/${slug}?page=${page - 1}`}
+                      className="px-4 py-2 text-sm bg-white border border-slate-200 rounded-lg text-slate-700 hover:border-emerald-300 hover:text-emerald-700 transition-colors"
+                    >
+                      ← Previous
+                    </Link>
+                  )}
+                  {page < totalPages && (
+                    <Link
+                      href={`/condition/${slug}?page=${page + 1}`}
+                      className="px-4 py-2 text-sm bg-white border border-slate-200 rounded-lg text-slate-700 hover:border-emerald-300 hover:text-emerald-700 transition-colors"
+                    >
+                      Next →
+                    </Link>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </section>
 
         {/* Related conditions */}
         {related.length > 0 && (
-          <section aria-labelledby="related-conditions-heading" className="mb-10">
+          <section aria-labelledby="related-conditions-heading" className="mb-8">
             <h2 id="related-conditions-heading" className="text-xl font-semibold text-slate-800 mb-3">
               Related Conditions
             </h2>
