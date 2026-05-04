@@ -156,31 +156,49 @@ tags from a previous run are automatically deleted; new tags are added with `ON 
 
 ---
 
-## RxCUI + NDC-11 Backfill
+## RxCUI Backfill
 
-Backfills missing `rxcui` and `ndc11` values on the `pillfinder` table using
-the **free RxNorm API** (no API key needed).  Handles ~1,711 rows that have
+Backfills missing `rxcui` values on the `pillfinder` table using
+**openFDA** (brand/generic name + strength search) and the **free RxNorm
+properties API** (no API key needed).  Handles ~1,711 rows that have
 `rxcui IS NULL` but a valid `ndc9` or `ndc11`.
+
+> **Why not NDC-based RxNorm lookup?**
+> These are old/discontinued drugs whose NDCs are no longer in the active
+> registry.  `rxcui.json?idtype=NDC&id=…` returns `{"idGroup":{}}` for all
+> of them.  The name + strength approach works reliably instead.
 
 ### What it does
 1. Selects rows from `pillfinder` where `rxcui IS NULL` and a valid NDC exists.
-2. Zero-pads `ndc9` to 9 digits (`LPAD(ndc9, 9, '0')`) to recover stripped leading zeros.
-3. Calls `GET https://rxnav.nlm.nih.gov/REST/rxcui.json?idtype=NDC&id={padded_ndc}` to get the exact clinical drug RxCUI.
-4. Calls `GET https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/allndcs.json` to get all NDC-11s and picks the best match using labeler-prefix matching.
-5. Assigns a **confidence tier** (HIGH / MEDIUM / LOW) based on match quality.
-6. Writes `rxcui` and `ndc11` back to `pillfinder` only for rows at or above the configured confidence threshold.
-7. Logs every processed row to `rxcui_backfill_log` regardless of outcome — including errors, low-confidence rows, and dry-run rows (written with `outcome='dry_run'`).
+2. Searches **openFDA** by `brand_name` + `active_ingredients.strength`.
+   Fallback chain if NOT_FOUND:
+   1. Retry brand_name without strength
+   2. Try `generic_name` + strength
+   3. Try `generic_name` without strength
+3. For each rxcui candidate returned by openFDA, calls
+   **RxNorm `properties.json`** to inspect `tty` and `name`.
+4. Picks the best rxcui using priority:
+   - `tty=SCD` AND strength matches `spl_strength` → **HIGH**
+   - `tty=SBD` AND strength matches → **HIGH** (or **MEDIUM** if multiple)
+   - `tty=SCD` without strength match → **LOW**
+   - `tty=SBD` without strength match → **LOW**
+   - Only other tty / NOT_FOUND → **SKIPPED** (`outcome=no_match`)
+5. Writes only `rxcui` back to `pillfinder`.
+   **`ndc11` is never updated** — the original NDC labeler has changed for
+   these old drugs; overwriting ndc11 with a different manufacturer's NDC
+   would be incorrect.
+6. Logs every processed row to `rxcui_backfill_log`.
 
 ### Confidence tiers
 
 | Confidence | Condition |
 |---|---|
-| **HIGH** | RxNorm returns exactly 1 NDC-11 matching our labeler prefix (first 5 digits of padded ndc9) |
-| **MEDIUM** | Multiple NDC-11s returned, same labeler, same or closest product code |
-| **LOW** | RxNorm matched but NDC-11 selection is ambiguous (different labeler or product) |
+| **HIGH** | openFDA returns results, exactly 1 SCD/SBD rxcui matches strength |
+| **MEDIUM** | openFDA returns results, multiple SCD/SBD match, picked best by strength+form |
+| **LOW** | openFDA returns results but no strength match, picked SCD/SBD by tty only |
+| **SKIPPED** | NOT_FOUND or no SCD/SBD tty found |
 
 Only HIGH and MEDIUM rows are written by default (`--confidence MEDIUM`).
-LOW confidence rows are logged to `rxcui_backfill_log` only.
 
 ### Schema (run once in Supabase SQL Editor)
 
@@ -209,10 +227,10 @@ CREATE TABLE IF NOT EXISTS rxcui_backfill_log (
 # Step 1 — Always dry-run first, review output before writing anything
 python scripts/backfill_rxcui_and_ndc11.py --dry-run --limit 10
 
-# Step 2 — Run in batches of 200 (be polite to RxNorm, default 300ms sleep)
+# Step 2 — Run in batches of 200 (default 300ms sleep between rows)
 python scripts/backfill_rxcui_and_ndc11.py --limit 200 --sleep-ms 300
 
-# Step 3 — Continue until done (~1,711 rows, ~30–45 min total at 300ms/row)
+# Step 3 — Continue until done (~1,711 rows)
 python scripts/backfill_rxcui_and_ndc11.py --limit 200 --offset 200 --sleep-ms 300
 python scripts/backfill_rxcui_and_ndc11.py --limit 200 --offset 400 --sleep-ms 300
 # ... etc.
@@ -227,8 +245,8 @@ python scripts/backfill_rxcui_and_ndc11.py --limit 200 --skip-discontinued
 ### Sample dry-run output
 
 ```json
-{"pill_id": "624b575e-...", "medicine_name": "SINGULAIR", "padded_ndc9": "000060117", "rxcui": "203150", "ndc11": "00006-0117-31", "confidence": "HIGH", "outcome": "dry_run"}
-{"pill_id": "9abb5578-...", "medicine_name": "EC-Naprosyn", "padded_ndc9": "000046416", "rxcui": "596526", "ndc11": "00046-0416-81", "confidence": "MEDIUM", "outcome": "dry_run"}
+{"pill_id": "624b575e-...", "medicine_name": "SINGULAIR", "padded_ndc9": "000060117", "rxcui": "200224", "confidence": "HIGH", "outcome": "dry_run"}
+{"pill_id": "057af4a0-...", "medicine_name": "Reprexain", "padded_ndc9": "637170901", "rxcui": null, "confidence": "SKIPPED", "outcome": "no_match"}
 {"processed": 10, "written": 0, "skipped_confidence": 0, "no_match": 1, "api_error": 0, "dry_run": true}
 ```
 
@@ -236,7 +254,7 @@ python scripts/backfill_rxcui_and_ndc11.py --limit 200 --skip-discontinued
 
 ```sql
 -- See all changes from the most recent run
-SELECT pill_id, medicine_name, old_rxcui, new_rxcui, old_ndc11, new_ndc11,
+SELECT pill_id, medicine_name, old_rxcui, new_rxcui,
        padded_ndc9, confidence, outcome, notes, created_at
 FROM rxcui_backfill_log
 ORDER BY created_at DESC
@@ -261,7 +279,7 @@ ORDER BY created_at DESC;
 -- Roll back all changes from a specific run (replace the timestamp with the
 -- start time of the run you want to undo, e.g. '2026-05-04 12:00:00')
 UPDATE pillfinder p
-SET rxcui = l.old_rxcui, ndc11 = l.old_ndc11
+SET rxcui = l.old_rxcui
 FROM rxcui_backfill_log l
 WHERE p.id = l.pill_id
   AND l.outcome = 'written'
