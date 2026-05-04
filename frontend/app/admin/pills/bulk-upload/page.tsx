@@ -389,7 +389,7 @@ export default function BulkUploadPage() {
               : 'border-gray-300 hover:border-indigo-400'
           }`}
           onClick={() => fileInputRef.current?.click()}
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+          onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => {
             e.preventDefault()

@@ -807,6 +807,11 @@ def bulk_create_pills(
     succeeded = 0
     failed = 0
 
+    def _has_no_pill_data(data: dict) -> bool:
+        """Return True when data contains no clinical fields (only idempotency_key or nothing)."""
+        meaningful_keys = {k for k in data if k != "idempotency_key"}
+        return len(meaningful_keys) == 0
+
     for i, pill_model in enumerate(body.pills):
         drug_name = pill_model.medicine_name or f"Row {i + 1}"
         idempotency_key = pill_model.idempotency_key
@@ -823,7 +828,7 @@ def bulk_create_pills(
         if "image_filename" in data:
             data["has_image"] = "TRUE" if data["image_filename"] else "FALSE"
 
-        if not data or (len(data) == 1 and "idempotency_key" in data):
+        if _has_no_pill_data(data):
             failed += 1
             results.append({
                 "index": i,
