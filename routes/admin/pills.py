@@ -809,16 +809,21 @@ def bulk_create_pills(
 
     for i, pill_model in enumerate(body.pills):
         drug_name = pill_model.medicine_name or f"Row {i + 1}"
+        idempotency_key = pill_model.idempotency_key
 
-        # Sanitize all provided fields
+        # Sanitize all provided fields (exclude idempotency_key for now)
         raw = pill_model.model_dump(exclude={"idempotency_key"})
         data = {k: _sanitize(v) for k, v in raw.items() if v is not None}
+
+        # Include idempotency_key in insert data if provided
+        if idempotency_key:
+            data["idempotency_key"] = idempotency_key
 
         # Derive has_image from image_filename so the two columns stay in sync
         if "image_filename" in data:
             data["has_image"] = "TRUE" if data["image_filename"] else "FALSE"
 
-        if not data:
+        if not data or (len(data) == 1 and "idempotency_key" in data):
             failed += 1
             results.append({
                 "index": i,
@@ -844,6 +849,23 @@ def bulk_create_pills(
 
         try:
             with database.db_engine.begin() as conn:
+                # Idempotency: if a row with this key already exists, return it
+                # instead of inserting a duplicate (safe for client retries).
+                if idempotency_key:
+                    existing = conn.execute(
+                        text("SELECT id FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
+                        {"key": idempotency_key},
+                    ).fetchone()
+                    if existing:
+                        succeeded += 1
+                        results.append({
+                            "index": i,
+                            "success": True,
+                            "id": str(existing[0]),
+                            "drug_name": drug_name,
+                        })
+                        continue
+
                 cols = ", ".join(data.keys())
                 vals = ", ".join(f":{k}" for k in data.keys())
                 insert_result = conn.execute(

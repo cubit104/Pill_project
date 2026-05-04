@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
 import {
@@ -70,45 +71,71 @@ const CSV_EXAMPLE: Record<string, string> = {
   tags: 'pain relief',
 }
 
-function parseCSVLine(line: string): string[] {
-  const fields: string[] = []
-  let current = ''
+/**
+ * Parse a full CSV text into rows. Handles:
+ * - UTF-8 BOM (Excel/Google Sheets export artifact)
+ * - Quoted fields that may contain embedded commas, double-quotes, or newlines
+ * - Windows (\r\n), Unix (\n), and legacy Mac (\r) line endings
+ */
+function parseCSV(text: string): { rows: ParsedRow[]; errors: string[] } {
+  // Strip UTF-8 BOM if present (common in Excel/Google Sheets exports)
+  const content = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+
+  const allRows: string[][] = []
+  let currentRow: string[] = []
+  let currentField = ''
   let inQuotes = false
 
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i]
+    const next = content[i + 1]
+
     if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"'
+      if (inQuotes && next === '"') {
+        // Escaped double-quote inside a quoted field
+        currentField += '"'
         i++
       } else {
         inQuotes = !inQuotes
       }
     } else if (ch === ',' && !inQuotes) {
-      fields.push(current)
-      current = ''
+      currentRow.push(currentField)
+      currentField = ''
+    } else if (ch === '\r' && next === '\n' && !inQuotes) {
+      // Windows \r\n line ending
+      currentRow.push(currentField)
+      currentField = ''
+      allRows.push(currentRow)
+      currentRow = []
+      i++ // skip the \n
+    } else if ((ch === '\n' || ch === '\r') && !inQuotes) {
+      // Unix \n or legacy Mac \r line ending
+      currentRow.push(currentField)
+      currentField = ''
+      allRows.push(currentRow)
+      currentRow = []
     } else {
-      current += ch
+      // Regular character (including newlines inside quoted fields)
+      currentField += ch
     }
   }
-  fields.push(current)
-  return fields
-}
 
-function parseCSV(text: string): { rows: ParsedRow[]; errors: string[] } {
-  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
-  const errors: string[] = []
-  if (lines.length < 2) {
+  // Handle final field/row when file has no trailing newline
+  currentRow.push(currentField)
+  if (currentRow.some((f) => f.trim() !== '')) {
+    allRows.push(currentRow)
+  }
+
+  if (allRows.length < 2) {
     return { rows: [], errors: ['CSV file appears to be empty or has no data rows.'] }
   }
 
-  const headers = parseCSVLine(lines[0]).map((h) => h.trim().toLowerCase())
+  const headers = allRows[0].map((h) => h.trim().toLowerCase())
   const rows: ParsedRow[] = []
 
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line) continue
-    const values = parseCSVLine(line)
+  for (let i = 1; i < allRows.length; i++) {
+    const values = allRows[i]
+    if (values.every((v) => v.trim() === '')) continue // skip blank rows
     const row: ParsedRow = {}
     headers.forEach((h, idx) => {
       row[h] = (values[idx] ?? '').trim()
@@ -116,7 +143,7 @@ function parseCSV(text: string): { rows: ParsedRow[]; errors: string[] } {
     rows.push(row)
   }
 
-  return { rows, errors }
+  return { rows, errors: [] }
 }
 
 function computeRowMeta(row: ParsedRow): RowMeta {
@@ -200,9 +227,11 @@ function Stepper({ current }: { current: number }) {
 // ── Main page component ───────────────────────────────────────────────────────
 
 export default function BulkUploadPage() {
+  const router = useRouter()
   const [step, setStep] = useState(1)
   const [rows, setRows] = useState<ParsedRow[]>([])
   const [parseError, setParseError] = useState('')
+  const [dragOver, setDragOver] = useState(false)
   const [zipFile, setZipFile] = useState<File | null>(null)
   const [uploadResults, setUploadResults] = useState<BulkResult[] | null>(null)
   const [uploadSummary, setUploadSummary] = useState<{ total: number; succeeded: number; failed: number } | null>(null)
@@ -223,9 +252,23 @@ export default function BulkUploadPage() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const getSession = useCallback(async () => {
+    const supabase = createClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    return session
+  }, [])
+
+  // Auth guard: redirect to /admin/login on mount if no session
+  useEffect(() => {
+    getSession().then((session) => {
+      if (!session) router.push('/admin/login')
+    })
+  }, [getSession, router])
+
+  // Shared file-parsing logic used by both the input change handler and drop handler
+  const handleFileParsing = useCallback((file: File) => {
     setParseError('')
     const reader = new FileReader()
     reader.onload = (evt) => {
@@ -233,16 +276,24 @@ export default function BulkUploadPage() {
       const { rows: parsed, errors } = parseCSV(text)
       if (errors.length > 0) {
         setParseError(errors.join(' '))
+        setRows([]) // clear any previously loaded batch
         return
       }
       if (parsed.length === 0) {
         setParseError('No data rows found in the CSV file.')
+        setRows([]) // clear any previously loaded batch
         return
       }
       setRows(parsed)
     }
     reader.readAsText(file)
   }, [])
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    handleFileParsing(file)
+  }, [handleFileParsing])
 
   const handleCellEdit = useCallback(
     (rowIdx: number, key: string, value: string) => {
@@ -254,14 +305,6 @@ export default function BulkUploadPage() {
     },
     []
   )
-
-  const getSession = useCallback(async () => {
-    const supabase = createClient()
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-    return session
-  }, [])
 
   const handleBulkSave = useCallback(
     async (publish: boolean) => {
@@ -276,10 +319,9 @@ export default function BulkUploadPage() {
       setUploadError('')
       setUploadResults(null)
 
-      // When publishing, only submit rows that are not tier-1 errors
-      const pillsToSend = publish
-        ? rows.filter((_, i) => rowMetas[i].status !== 'error')
-        : rows
+      // Always send all rows — the backend handles skipping invalid rows when
+      // publish=true, and returns the original row index in each result so the
+      // results table correctly identifies which CSV rows succeeded or failed.
 
       try {
         setUploadProgress(30)
@@ -289,7 +331,7 @@ export default function BulkUploadPage() {
             Authorization: `Bearer ${session.access_token}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ pills: pillsToSend, publish }),
+          body: JSON.stringify({ pills: rows, publish }),
         })
         setUploadProgress(80)
         const data = await res.json()
@@ -306,7 +348,7 @@ export default function BulkUploadPage() {
         setUploading(false)
       }
     },
-    [rows, rowMetas, getSession]
+    [rows, getSession]
   )
 
   // ── Step 1: Upload CSV ────────────────────────────────────────────────────
@@ -339,14 +381,26 @@ export default function BulkUploadPage() {
           </button>
         </div>
 
-        {/* File picker */}
+        {/* File picker / dropzone */}
         <div
-          className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-indigo-400 transition-colors cursor-pointer"
+          className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+            dragOver
+              ? 'border-indigo-500 bg-indigo-50'
+              : 'border-gray-300 hover:border-indigo-400'
+          }`}
           onClick={() => fileInputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragOver(false)
+            const file = e.dataTransfer.files?.[0]
+            if (file) handleFileParsing(file)
+          }}
         >
           <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-          <p className="text-sm font-medium text-gray-700">Click to select a CSV file</p>
-          <p className="text-xs text-gray-400 mt-1">or drag and drop</p>
+          <p className="text-sm font-medium text-gray-700">Click or drag a CSV file here</p>
+          <p className="text-xs text-gray-400 mt-1">Supports .csv files</p>
           <input
             ref={fileInputRef}
             type="file"
