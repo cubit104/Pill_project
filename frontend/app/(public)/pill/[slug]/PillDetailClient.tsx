@@ -298,7 +298,8 @@ export default function PillDetailClient({
 
         {/* Share this page */}
         {(() => {
-          const pageUrl = typeof window !== 'undefined' ? window.location.href : ''
+          const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com').replace(/\/$/, '')
+          const pageUrl = `${siteUrl}/pill/${slug ?? pill.slug}`
           const shareText = `Identified a pill on PillSeek: ${pill.drug_name}${pill.strength ? ' ' + pill.strength : ''} — check it out!`
           const twitterUrl = `https://x.com/intent/tweet?url=${encodeURIComponent(pageUrl)}&text=${encodeURIComponent(shareText)}`
           const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`
