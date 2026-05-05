@@ -855,19 +855,35 @@ export default function EditPillPage() {
     const session = await getSession()
     if (!session) return
     try {
-      const res = await fetch(`/api/admin/pills/${pillId}/drafts`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft_data: form, status: 'draft' }),
-      })
-      if (!res.ok) {
-        throw new Error(await safeErrorDetail(res, 'Draft creation failed'))
+      // If an existing 'draft' status draft already exists, update it in place
+      // instead of creating a duplicate.
+      const existingDraft = drafts.find((d) => d.status === 'draft')
+      let res: Response
+      if (existingDraft) {
+        res = await fetch(`/api/admin/drafts/${existingDraft.id}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draft_data: form }),
+        })
+        if (!res.ok) {
+          throw new Error(await safeErrorDetail(res, 'Draft update failed'))
+        }
+        setSuccess(`Workflow draft updated: #${existingDraft.id.slice(0, 8)} — view all drafts at /admin/drafts`)
+      } else {
+        res = await fetch(`/api/admin/pills/${pillId}/drafts`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draft_data: form, status: 'draft' }),
+        })
+        if (!res.ok) {
+          throw new Error(await safeErrorDetail(res, 'Draft creation failed'))
+        }
+        const data = await res.json()
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[handleSaveDraft] draft created:', data.id)
+        }
+        setSuccess(`Workflow draft created: #${data.id.slice(0, 8)} — view all drafts at /admin/drafts`)
       }
-      const data = await res.json()
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[handleSaveDraft] draft created:', data.id)
-      }
-      setSuccess(`Workflow draft created: #${data.id.slice(0, 8)} — view all drafts at /admin/drafts`)
       setSuccessDismissed(false)
       await loadPill()
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }

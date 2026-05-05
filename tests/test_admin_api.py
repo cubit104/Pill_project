@@ -123,6 +123,8 @@ ADMIN_ENDPOINTS = [
     ("GET", "/api/admin/users"),
     ("GET", "/api/admin/me"),
     ("GET", "/api/admin/drafts"),
+    ("GET", "/api/admin/drafts/some-draft-id"),
+    ("PATCH", "/api/admin/drafts/some-draft-id"),
 ]
 
 

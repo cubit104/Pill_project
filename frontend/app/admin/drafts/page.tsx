@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '../lib/supabase'
-import { CheckCircle, XCircle, Clock, Send } from 'lucide-react'
+import { CheckCircle, XCircle, Clock, Send, Pencil, X } from 'lucide-react'
 
 interface Draft {
   id: string
@@ -17,6 +17,10 @@ interface Draft {
   created_by: string | null
 }
 
+interface DraftDetail extends Draft {
+  draft_data: Record<string, string>
+}
+
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
   pending_review: 'bg-yellow-100 text-yellow-700',
@@ -24,6 +28,29 @@ const STATUS_COLORS: Record<string, string> = {
   published: 'bg-blue-100 text-blue-700',
   rejected: 'bg-red-100 text-red-600',
 }
+
+// Key fields to show in the inline edit form (most important first)
+const EDIT_FORM_FIELDS = [
+  { key: 'medicine_name', label: 'Drug Name' },
+  { key: 'spl_strength', label: 'Strength' },
+  { key: 'splimprint', label: 'Imprint' },
+  { key: 'splcolor_text', label: 'Color' },
+  { key: 'splshape_text', label: 'Shape' },
+  { key: 'author', label: 'Manufacturer' },
+  { key: 'dosage_form', label: 'Dosage Form' },
+  { key: 'route', label: 'Route' },
+  { key: 'ndc9', label: 'NDC-9' },
+  { key: 'ndc11', label: 'NDC-11' },
+  { key: 'status_rx_otc', label: 'Rx/OTC Status' },
+  { key: 'dea_schedule_name', label: 'DEA Schedule' },
+  { key: 'spl_ingredients', label: 'Active Ingredients', multiline: true },
+  { key: 'spl_inactive_ing', label: 'Inactive Ingredients', multiline: true },
+  { key: 'tags', label: 'Tags (comma-separated)' },
+  { key: 'slug', label: 'Slug' },
+  { key: 'meta_description', label: 'Meta Description', multiline: true },
+  { key: 'brand_names', label: 'Brand Names' },
+  { key: 'image_alt_text', label: 'Image Alt Text' },
+]
 
 function DraftsListInner() {
   const router = useRouter()
@@ -35,6 +62,12 @@ function DraftsListInner() {
   const [error, setError] = useState('')
   const [actioning, setActioning] = useState<string | null>(null)
   const [role, setRole] = useState<string | null>(null)
+
+  // Edit modal state
+  const [editingDraft, setEditingDraft] = useState<DraftDetail | null>(null)
+  const [editForm, setEditForm] = useState<Record<string, string>>({})
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
 
   const fetchDrafts = useCallback(async () => {
     const supabase = createClient()
@@ -100,6 +133,64 @@ function DraftsListInner() {
       setError(String(e))
     } finally {
       setActioning(null)
+    }
+  }
+
+  const startEditDraft = async (draftId: string) => {
+    const supabase = createClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (!session) return
+
+    try {
+      const res = await fetch(`/api/admin/drafts/${draftId}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        setError(err.detail || 'Failed to load draft')
+        return
+      }
+      const data: DraftDetail = await res.json()
+      setEditingDraft(data)
+      setEditForm(data.draft_data || {})
+      setEditError('')
+    } catch (e) {
+      setError(String(e))
+    }
+  }
+
+  const handleEditSave = async () => {
+    if (!editingDraft) return
+    const supabase = createClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (!session) return
+
+    setEditSaving(true)
+    setEditError('')
+    try {
+      const res = await fetch(`/api/admin/drafts/${editingDraft.id}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ draft_data: editForm }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        setEditError(err.detail || 'Save failed')
+        return
+      }
+      setEditingDraft(null)
+      fetchDrafts()
+    } catch (e) {
+      setEditError(String(e))
+    } finally {
+      setEditSaving(false)
     }
   }
 
@@ -183,6 +274,15 @@ function DraftsListInner() {
                   <div className="flex gap-2 items-center">
                     {draft.status === 'draft' && (
                       <button
+                        onClick={() => startEditDraft(draft.id)}
+                        disabled={actioning === draft.id}
+                        className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 disabled:opacity-50"
+                      >
+                        <Pencil className="w-3 h-3" /> Edit
+                      </button>
+                    )}
+                    {draft.status === 'draft' && (
+                      <button
                         onClick={() => action(draft.id, 'submit')}
                         disabled={actioning === draft.id}
                         className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
@@ -224,6 +324,72 @@ function DraftsListInner() {
           </tbody>
         </table>
       </div>
+
+      {/* Edit Draft Modal */}
+      {editingDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Edit Draft</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  #{editingDraft.id.slice(0, 8)} — {editingDraft.medicine_name || '(new pill)'}
+                </p>
+              </div>
+              <button
+                onClick={() => setEditingDraft(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-6 py-4 space-y-4">
+              {editError && (
+                <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{editError}</div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {EDIT_FORM_FIELDS.map(({ key, label, multiline }) => (
+                  <div key={key} className={multiline ? 'sm:col-span-2' : ''}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+                    {multiline ? (
+                      <textarea
+                        value={editForm[key] ?? ''}
+                        onChange={(e) => setEditForm({ ...editForm, [key]: e.target.value })}
+                        rows={3}
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={editForm[key] ?? ''}
+                        onChange={(e) => setEditForm({ ...editForm, [key]: e.target.value })}
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => setEditingDraft(null)}
+                className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditSave}
+                disabled={editSaving}
+                className="px-4 py-2 text-sm text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {editSaving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -235,3 +401,4 @@ export default function AdminDraftsPage() {
     </Suspense>
   )
 }
+
