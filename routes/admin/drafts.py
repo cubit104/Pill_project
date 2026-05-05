@@ -266,19 +266,20 @@ def get_draft(draft_id: str, admin: dict = Depends(get_admin_user)):
         if not row:
             raise HTTPException(status_code=404, detail="Draft not found")
 
-        draft_data = row[8]
+        r = row._mapping
+        draft_data = r["draft_data"]
         if isinstance(draft_data, str):
             draft_data = json.loads(draft_data)
 
         return {
-            "id": str(row[0]),
-            "pill_id": str(row[1]) if row[1] else None,
-            "status": row[2],
-            "created_at": row[3].isoformat() if row[3] else None,
-            "updated_at": row[4].isoformat() if row[4] else None,
-            "review_notes": row[5],
-            "medicine_name": row[6],
-            "created_by": str(row[7]) if row[7] else None,
+            "id": str(r["id"]),
+            "pill_id": str(r["pill_id"]) if r["pill_id"] else None,
+            "status": r["status"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+            "review_notes": r["review_notes"],
+            "medicine_name": r["medicine_name"],
+            "created_by": str(r["created_by"]) if r["created_by"] else None,
             "draft_data": draft_data or {},
         }
     except HTTPException:
