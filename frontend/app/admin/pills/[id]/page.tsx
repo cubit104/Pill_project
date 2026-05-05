@@ -1129,7 +1129,9 @@ export default function EditPillPage() {
             </Link>
           </div>
           <div className="divide-y divide-gray-100">
-            {drafts.map((draft) => (
+            {drafts.map((draft) => {
+              const canManageDrafts = role === 'superuser' || role === 'superadmin' || role === 'editor'
+              return (
               <div key={draft.id} className="px-4 py-3 flex items-center justify-between text-sm gap-2 flex-wrap">
                 <span className="text-gray-700 font-medium">#{draft.id.slice(0, 8)}</span>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -1153,7 +1155,7 @@ export default function EditPillPage() {
                       <Send className="w-3 h-3" /> Submit
                     </button>
                   )}
-                  {draft.status === 'pending_review' && (role === 'superuser' || role === 'superadmin' || role === 'editor') && (
+                  {draft.status === 'pending_review' && canManageDrafts && (
                     <>
                       <button
                         onClick={() => handleDraftAction(draft.id, 'approve')}
@@ -1171,7 +1173,7 @@ export default function EditPillPage() {
                       </button>
                     </>
                   )}
-                  {draft.status === 'approved' && (role === 'superuser' || role === 'superadmin' || role === 'editor') && (
+                  {draft.status === 'approved' && canManageDrafts && (
                     <button
                       onClick={() => handleDraftAction(draft.id, 'publish')}
                       disabled={draftActioning === draft.id}
@@ -1182,7 +1184,8 @@ export default function EditPillPage() {
                   )}
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}

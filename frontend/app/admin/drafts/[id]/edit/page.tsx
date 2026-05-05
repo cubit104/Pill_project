@@ -190,7 +190,7 @@ function DraftEditInner() {
 
       {!isEditable && (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-md text-sm">
-          This draft is in <strong>{draft?.status}</strong> status and cannot be edited. Only drafts with status &quot;draft&quot; can be modified.
+          This draft is in <strong>{draft?.status}</strong> status and cannot be edited. Only drafts with status &apos;draft&apos; can be modified.
         </div>
       )}
 
