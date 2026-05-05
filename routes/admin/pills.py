@@ -894,39 +894,34 @@ def bulk_create_pills(
                         user_agent=request.headers.get("user-agent"),
                     )
                 else:
-                    # Save as draft: insert into pill_drafts with pill_id=NULL
-                    # (new pill — not yet in pillfinder)
-                    # Idempotency: if a draft with this key already exists, return it.
+                    # Save as draft: insert directly into pillfinder with published=false.
+                    # This mirrors the publish path so all drafts are accessible via the
+                    # existing /admin/pills/{id} edit page — no pill_drafts row needed.
                     if idempotency_key:
-                        existing_draft = conn.execute(
+                        existing = conn.execute(
                             text("""
-                                SELECT id FROM pill_drafts
-                                WHERE created_by = :created_by
-                                  AND draft_data->>'idempotency_key' = :key
+                                SELECT id FROM pillfinder
+                                WHERE idempotency_key = :key AND published = false
                                 LIMIT 1
                             """),
-                            {"created_by": str(admin["id"]), "key": idempotency_key},
+                            {"key": idempotency_key},
                         ).fetchone()
-                        if existing_draft:
+                        if existing:
                             succeeded += 1
                             results.append({
                                 "index": i,
                                 "success": True,
-                                "id": str(existing_draft[0]),
+                                "id": str(existing[0]),
                                 "drug_name": drug_name,
                             })
                             continue
 
+                    draft_data = {**data, "published": False}
+                    cols = ", ".join(draft_data.keys())
+                    vals = ", ".join(f":{k}" for k in draft_data.keys())
                     draft_result = conn.execute(
-                        text("""
-                            INSERT INTO pill_drafts (pill_id, draft_data, status, created_by)
-                            VALUES (NULL, CAST(:draft_data AS jsonb), 'draft', :created_by)
-                            RETURNING id
-                        """),
-                        {
-                            "draft_data": json.dumps({k: str(v) if v is not None else None for k, v in data.items()}),
-                            "created_by": str(admin["id"]),
-                        },
+                        text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
+                        draft_data,
                     )
                     new_id = draft_result.scalar()
 
@@ -935,7 +930,7 @@ def bulk_create_pills(
                         actor_id=admin["id"],
                         actor_email=admin["email"],
                         action="bulk_create_draft",
-                        entity_type="draft",
+                        entity_type="pill",
                         entity_id=str(new_id),
                         diff={"after": {k: str(v) if v is not None else None for k, v in data.items()}, "publish": False},
                         ip_address=request.client.host if request.client else None,

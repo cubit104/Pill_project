@@ -803,7 +803,7 @@ export default function BulkUploadPage() {
                       <td className="px-4 py-2 text-xs">
                         {r.success && r.id && (
                           <Link
-                            href={lastPublishMode ? `/admin/pills/${r.id}` : `/admin/drafts/${r.id}`}
+                            href={`/admin/pills/${r.id}`}
                             className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium"
                           >
                             <FileText className="w-3 h-3" /> Edit
