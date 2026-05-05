@@ -93,7 +93,7 @@ export default function AdminDashboard() {
     { label: 'Total Pills',    value: stats?.total_pills    ?? 0, color: 'bg-blue-50 text-blue-700 border-blue-200',     href: null },
     { label: 'Unique Drugs',   value: stats?.unique_drugs   ?? 0, color: 'bg-green-50 text-green-700 border-green-200',   href: null },
     { label: 'Missing Images', value: stats?.missing_images ?? 0, color: 'bg-yellow-50 text-yellow-700 border-yellow-200', href: '/admin/pills/missing-images' },
-    { label: 'Pending Drafts', value: stats?.pending_drafts ?? 0, color: 'bg-purple-50 text-purple-700 border-purple-200', href: null },
+    { label: 'Pending Drafts', value: stats?.pending_drafts ?? 0, color: 'bg-purple-50 text-purple-700 border-purple-200', href: '/admin/drafts' },
     {
       label: 'Score 80–90',
       value: stats?.score_80_90 ?? 0,

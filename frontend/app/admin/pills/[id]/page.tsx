@@ -1086,8 +1086,8 @@ export default function EditPillPage() {
                   : draft.status === 'approved' ? 'bg-green-100 text-green-700'
                   : 'bg-gray-100 text-gray-600'}`}>{draft.status}</span>
                 <span className="text-gray-400 text-xs">{new Date(draft.created_at).toLocaleDateString()}</span>
-                <Link href="/admin/drafts" className="text-blue-600 text-xs hover:text-blue-800 hover:underline">
-                  View in Drafts →
+                <Link href={draft.status === 'draft' ? `/admin/drafts/${draft.id}` : `/admin/drafts?pill_id=${pillId}`} className="text-blue-600 text-xs hover:text-blue-800 hover:underline">
+                  {draft.status === 'draft' ? 'Edit Draft →' : 'View in Drafts →'}
                 </Link>
               </div>
             ))}
