@@ -1462,17 +1462,24 @@ def update_pill(
 
             # Fix B: when publishing, close out any active pill_drafts workflow rows
             # for this pill in the same transaction so they leave the unified drafts list.
+            # Use a CTE to capture each row's prior status before the UPDATE.
             if publish:
                 closed_drafts = conn.execute(
                     text("""
-                        UPDATE pill_drafts
+                        WITH prior AS (
+                            SELECT id, status AS prior_status
+                            FROM pill_drafts
+                            WHERE pill_id = :pill_id
+                              AND status NOT IN ('published', 'rejected')
+                        )
+                        UPDATE pill_drafts pd
                         SET status = 'published',
                             published_at = now(),
                             published_by = :admin_id,
                             updated_at = now()
-                        WHERE pill_id = :pill_id
-                          AND status NOT IN ('published', 'rejected')
-                        RETURNING id, status
+                        FROM prior
+                        WHERE pd.id = prior.id
+                        RETURNING pd.id, prior.prior_status
                     """),
                     {"admin_id": str(admin["id"]), "pill_id": pill_id},
                 ).fetchall()

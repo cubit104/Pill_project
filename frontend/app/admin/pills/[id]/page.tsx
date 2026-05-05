@@ -855,7 +855,9 @@ export default function EditPillPage() {
     const session = await getSession()
     if (!session) return
     try {
-      if (pill !== null && (pill as Record<string, unknown>).published === false) {
+      // pill.published is a boolean from the API response; PillData types it as string|null
+      const pillPublished: unknown = pill?.['published']
+      if (pillPublished === false) {
         // Pill IS already a pillfinder-source draft (published=false).
         // Update the existing pillfinder row in place via PUT — no pill_drafts row needed.
         const changedFields = getChangedFields()
@@ -876,7 +878,7 @@ export default function EditPillPage() {
         setSuccessDismissed(false)
         await loadPill()
       } else {
-        // Pill is published (or status unknown) → create/update a pill_drafts workflow row.
+        // Pill is published (or pill not yet loaded) → create/update a pill_drafts workflow row.
         const res = await fetch(`/api/admin/pills/${pillId}/drafts`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
