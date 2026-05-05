@@ -28,7 +28,6 @@ def _sanitize(value: object) -> Optional[str]:
         return None
     return bleach.clean(s, tags=_BLEACH_ALLOWED_TAGS, strip=True)
 
-router = APIRouter(prefix="/api/admin", tags=["admin-drafts"])
 
 PUBLISHABLE_FIELDS = [
     "medicine_name", "author", "brand_names", "splimprint", "splcolor_text", "splshape_text",
