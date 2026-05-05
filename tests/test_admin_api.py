@@ -1596,3 +1596,244 @@ def test_put_pill_indication_requires_editor_or_higher(client):
 
     assert resp.status_code == 403
 
+
+
+# ---------------------------------------------------------------------------
+# Bulk create — POST /api/admin/pills/bulk
+# ---------------------------------------------------------------------------
+
+def test_bulk_create_draft_inserts_all_rows(client):
+    """POST /api/admin/pills/bulk with publish=false inserts all rows as drafts."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            # profiles auth lookup — return ("superuser",) so role resolves correctly
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "idempotency_key" in sql_str and "select" in sql_str:
+            result.fetchone.return_value = None  # no existing row
+        elif "insert into pillfinder" in sql_str:
+            result.scalar.return_value = f"bulk-id-{call_count[0]}"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    pills = [
+        {"medicine_name": "Aspirin", "slug": "aspirin"},
+        {"medicine_name": "Ibuprofen", "slug": "ibuprofen"},
+    ]
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": pills, "publish": False},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 2
+    assert data["succeeded"] == 2
+    assert data["failed"] == 0
+    assert all(r["success"] is True for r in data["results"])
+
+
+def test_bulk_create_publish_skips_invalid_rows(client):
+    """POST /api/admin/pills/bulk with publish=true skips rows missing required fields."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "idempotency_key" in sql_str and "select" in sql_str:
+            result.fetchone.return_value = None
+        elif "insert into pillfinder" in sql_str:
+            result.scalar.return_value = f"new-id-{call_count[0]}"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    # Valid row has all tier-1 required fields; invalid row is missing them
+    valid_pill = {
+        "medicine_name": "Aspirin",
+        "author": "Bayer",
+        "spl_strength": "500 mg",
+        "splimprint": "BAYER",
+        "splcolor_text": "White",
+        "splshape_text": "Round",
+        "slug": "aspirin-bayer",
+        "ndc9": "12345678",
+        "ndc11": "12345678901",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "spl_ingredients": "Aspirin 500 mg",
+        "spl_inactive_ing": "Starch",
+        "dea_schedule_name": "N/A",
+        "status_rx_otc": "OTC",
+    }
+    invalid_pill = {"medicine_name": "Ibuprofen"}  # missing all required fields
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": [valid_pill, invalid_pill], "publish": True},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 2
+    assert data["succeeded"] == 1
+    assert data["failed"] == 1
+
+    results_by_index = {r["index"]: r for r in data["results"]}
+    assert results_by_index[0]["success"] is True   # valid row was inserted
+    assert results_by_index[1]["success"] is False  # invalid row was skipped
+    assert results_by_index[1].get("error"), "failed row must include an error message"
+
+
+def test_bulk_create_partial_db_failure(client):
+    """POST /api/admin/pills/bulk continues when one row hits a DB error."""
+    from sqlalchemy.exc import SQLAlchemyError as SAError
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    insert_call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+            return result
+        if "idempotency_key" in sql_str and "select" in sql_str:
+            result.fetchone.return_value = None
+            return result
+        if "insert into pillfinder" in sql_str:
+            insert_call_count[0] += 1
+            if insert_call_count[0] == 1:
+                raise SAError("unique constraint violation")
+            result.scalar.return_value = f"ok-id-{insert_call_count[0]}"
+            return result
+        result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    pills = [
+        {"medicine_name": "Row1"},
+        {"medicine_name": "Row2"},
+    ]
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": pills, "publish": False},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 2
+    assert data["failed"] == 1
+    assert data["succeeded"] == 1
+
+    results_by_index = {r["index"]: r for r in data["results"]}
+    assert results_by_index[0]["success"] is False
+    assert results_by_index[1]["success"] is True
+
+
+def test_bulk_create_idempotency_key_prevents_duplicate(client):
+    """Retrying POST /api/admin/pills/bulk with an existing idempotency_key returns the existing row."""
+    EXISTING_ID = "existing-pill-uuid"
+    IDEM_KEY = "import-batch-row-42"
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    insert_called = [False]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "idempotency_key" in sql_str and "select" in sql_str:
+            # Return the existing row — simulates a retry after a previous success
+            result.fetchone.return_value = (EXISTING_ID,)
+        elif "insert into pillfinder" in sql_str:
+            insert_called[0] = True
+            result.scalar.return_value = "should-not-be-called"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    pills = [{"medicine_name": "Aspirin", "idempotency_key": IDEM_KEY}]
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": pills, "publish": False},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["succeeded"] == 1
+    assert data["failed"] == 0
+
+    result = data["results"][0]
+    assert result["success"] is True
+    assert result["id"] == EXISTING_ID, "idempotency must return existing row id"
+    assert insert_called[0] is False, "INSERT must not be called when idempotency key matches"
+
+
+def test_bulk_create_requires_auth(client):
+    """POST /api/admin/pills/bulk returns 401 without a token."""
+    with patch("routes.admin.auth._verify_jwt", return_value=None):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": [], "publish": False},
+        )
+    assert resp.status_code == 401
