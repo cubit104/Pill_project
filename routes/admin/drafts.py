@@ -301,7 +301,7 @@ def list_drafts(
                     LEFT JOIN pillfinder p ON p.id = d.pill_id
                     WHERE 1=1{pd_extra}
                     ORDER BY d.updated_at DESC NULLS LAST, d.created_at DESC NULLS LAST
-                    LIMIT 200
+                    LIMIT 100
                 """),
                 pd_params,
             ).fetchall()
@@ -319,11 +319,14 @@ def list_drafts(
                         FROM pillfinder
                         WHERE published = false AND deleted_at IS NULL
                         ORDER BY updated_at DESC NULLS LAST
-                        LIMIT 200
+                        LIMIT 100
                     """),
                 ).fetchall()
 
         # Merge and sort by updated_at DESC, then created_at DESC (None sorts last).
+        # ISO-format strings compare correctly to one another; "" < any date string,
+        # so None values (represented as "") sort last when reverse=True — correct
+        # for the intended NULLS LAST behaviour.
         combined = list(pd_rows) + list(pf_rows)
 
         def _sort_key(r: tuple) -> tuple:
@@ -553,28 +556,28 @@ def delete_draft(
                     user_agent=request.headers.get("user-agent"),
                 )
 
-                conn.execute(text("DELETE FROM pill_drafts WHERE id = :id"), {"id": draft_id})
+                conn.execute(text("DELETE FROM pill_drafts WHERE id = :draft_id"), {"draft_id": draft_id})
 
                 # If the draft had a linked pill, optionally soft-delete the pillfinder row.
                 # Conditions: pillfinder.published=false AND no other drafts still reference it.
                 if pill_id:
                     pill_row = conn.execute(
-                        text("SELECT id, published FROM pillfinder WHERE id = :pid AND deleted_at IS NULL LIMIT 1"),
-                        {"pid": pill_id},
+                        text("SELECT id, published FROM pillfinder WHERE id = :pill_id AND deleted_at IS NULL LIMIT 1"),
+                        {"pill_id": pill_id},
                     ).fetchone()
                     if pill_row and pill_row[1] is False:
                         other_drafts = conn.execute(
-                            text("SELECT COUNT(*) FROM pill_drafts WHERE pill_id = :pid"),
-                            {"pid": pill_id},
+                            text("SELECT COUNT(*) FROM pill_drafts WHERE pill_id = :pill_id"),
+                            {"pill_id": pill_id},
                         ).scalar() or 0
                         if int(other_drafts) == 0:
                             conn.execute(
                                 text("""
                                     UPDATE pillfinder
-                                    SET deleted_at = now(), deleted_by = :aid
-                                    WHERE id = :pid AND deleted_at IS NULL
+                                    SET deleted_at = now(), deleted_by = :admin_id
+                                    WHERE id = :pill_id AND deleted_at IS NULL
                                 """),
-                                {"pid": pill_id, "aid": str(admin["id"])},
+                                {"pill_id": pill_id, "admin_id": str(admin["id"])},
                             )
 
                 return {"deleted": True, "source": source}
