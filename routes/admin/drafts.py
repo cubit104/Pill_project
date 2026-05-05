@@ -124,19 +124,29 @@ def create_draft(
 
 @router.get("/drafts/count")
 def get_draft_count(admin: dict = Depends(get_admin_user)):
-    """Return the count of unpublished draft pills (pillfinder.published = false)."""
+    """Return the unified count of active drafts from both pill_drafts and pillfinder."""
     if not database.db_engine:
         database.connect_to_database()
 
     try:
         with database.db_engine.connect() as conn:
-            count = conn.execute(
+            # pill_drafts rows in active workflow states (not yet published or rejected)
+            pd_count = conn.execute(
+                text("""
+                    SELECT COUNT(*) FROM pill_drafts
+                    WHERE status NOT IN ('published', 'rejected')
+                """),
+            ).scalar() or 0
+
+            # pillfinder rows that are unpublished drafts (bulk-upload / single-pill published=false)
+            pf_count = conn.execute(
                 text("""
                     SELECT COUNT(*) FROM pillfinder
                     WHERE published = false AND deleted_at IS NULL
                 """),
             ).scalar() or 0
-        return {"count": int(count)}
+
+        return {"count": int(pd_count) + int(pf_count)}
     except SQLAlchemyError as e:
         logger.error(f"get_draft_count DB error: {e}", exc_info=True)
         root = getattr(e, "orig", None) or e
@@ -262,45 +272,86 @@ def list_drafts(
     status: Optional[str] = Query(None),
     admin: dict = Depends(get_admin_user),
 ):
-    """List all unpublished draft pills from pillfinder (published = false).
+    """List drafts from BOTH pill_drafts (review workflow) and pillfinder.published=false.
 
-    Bulk-upload drafts and any other unpublished pills are stored here.
-    Each row's id is the pillfinder.id — Edit links go to /admin/pills/{id}.
-    Optional ?status= filter: all rows have status='draft', so filtering by
-    'draft' returns everything and any other value returns an empty list.
+    pill_drafts rows have real statuses (draft/pending_review/approved/published/rejected).
+    pillfinder rows always get synthetic status='draft' and source='pillfinder'.
+    Optional ?status= filter: pillfinder rows are only included when status is 'draft' or unset.
     """
     if not database.db_engine:
         database.connect_to_database()
 
-    # All pillfinder-based draft rows have a synthetic status of 'draft'.
-    # Filtering by any other status returns no results (correct — those don't exist here).
-    if status and status != "draft":
-        return []
-
     try:
         with database.db_engine.connect() as conn:
-            rows = conn.execute(
-                text("""
-                    SELECT id, medicine_name, updated_at
-                    FROM pillfinder
-                    WHERE published = false AND deleted_at IS NULL
-                    ORDER BY updated_at DESC NULLS LAST
+            # ── Source 1: pill_drafts (full review-workflow rows) ─────────────────
+            pd_extra = ""
+            pd_params: dict = {}
+            if status:
+                pd_extra = " AND d.status = :pd_status"
+                pd_params["pd_status"] = status
+
+            pd_rows = conn.execute(
+                text(f"""
+                    SELECT d.id, d.pill_id, d.status, d.created_at, d.updated_at,
+                           d.review_notes,
+                           COALESCE(p.medicine_name, d.draft_data->>'medicine_name') AS medicine_name,
+                           d.created_by,
+                           'pill_drafts'::text AS source
+                    FROM pill_drafts d
+                    LEFT JOIN pillfinder p ON p.id = d.pill_id
+                    WHERE 1=1{pd_extra}
+                    ORDER BY d.updated_at DESC NULLS LAST, d.created_at DESC NULLS LAST
                     LIMIT 100
                 """),
+                pd_params,
             ).fetchall()
+
+            # ── Source 2: pillfinder rows with published=false (bulk-draft path) ──
+            # These always have synthetic status='draft'; omit when filtering by other statuses.
+            pf_rows: list = []
+            if not status or status == "draft":
+                pf_rows = conn.execute(
+                    text("""
+                        SELECT id::text, id::text AS pill_id, 'draft'::text AS status,
+                               NULL::timestamptz AS created_at, updated_at,
+                               NULL::text AS review_notes, medicine_name,
+                               NULL::text AS created_by, 'pillfinder'::text AS source
+                        FROM pillfinder
+                        WHERE published = false AND deleted_at IS NULL
+                        ORDER BY updated_at DESC NULLS LAST
+                        LIMIT 100
+                    """),
+                ).fetchall()
+
+        # Merge and sort by updated_at DESC, then created_at DESC (None sorts last).
+        # ISO-format strings compare correctly to one another; "" < any date string,
+        # so None values (represented as "") sort last when reverse=True — correct
+        # for the intended NULLS LAST behaviour.
+        combined = list(pd_rows) + list(pf_rows)
+
+        def _sort_key(r: tuple) -> tuple:
+            updated = r[4]
+            created = r[3]
+            u = updated.isoformat() if updated is not None else ""
+            c = created.isoformat() if created is not None else ""
+            return (u, c)
+
+        combined.sort(key=_sort_key, reverse=True)
+        combined = combined[:200]
 
         return [
             {
                 "id": str(r[0]),
-                "pill_id": str(r[0]),  # same id — Edit links go to /admin/pills/{pill_id}
-                "status": "draft",
-                "created_at": None,  # pillfinder has no created_at column
-                "updated_at": r[2].isoformat() if r[2] else None,
-                "review_notes": None,
-                "medicine_name": r[1],
-                "created_by": None,
+                "pill_id": str(r[1]) if r[1] else None,
+                "status": r[2],
+                "created_at": r[3].isoformat() if r[3] else None,
+                "updated_at": r[4].isoformat() if r[4] else None,
+                "review_notes": r[5],
+                "medicine_name": r[6],
+                "created_by": str(r[7]) if r[7] else None,
+                "source": r[8],
             }
-            for r in rows
+            for r in combined
         ]
     except SQLAlchemyError as e:
         logger.error(f"list_drafts DB error: {e}", exc_info=True)
@@ -454,49 +505,100 @@ def delete_draft(
     draft_id: str,
     admin: dict = Depends(get_admin_user),
 ):
-    """Delete a draft (and optionally its paired pillfinder row).
+    """Delete a draft from either pill_drafts or pillfinder (published=false).
+
+    Lookup order: pill_drafts first, then pillfinder.
 
     Role gating:
     - draft / rejected  → editor, reviewer, superuser
     - pending_review / approved / published → superuser only
+    - pillfinder-source rows (always synthetic 'draft') → editor, reviewer, superuser
 
-    If the draft has a linked pill_id whose pillfinder row has published=false
-    AND there is no other living draft for that pill, the pillfinder row is also
-    deleted (unified-drafts model clean-up).
+    pill_drafts rows are hard-deleted; pillfinder rows are soft-deleted (deleted_at).
     """
     if not database.db_engine:
         database.connect_to_database()
 
     try:
         with database.db_engine.begin() as conn:
+            # ── Try pill_drafts first ──────────────────────────────────────────────
             row = conn.execute(
+                text("SELECT id, pill_id, status FROM pill_drafts WHERE id = :id LIMIT 1"),
+                {"id": draft_id},
+            ).fetchone()
+
+            if row:
+                draft_status = row[2]
+                pill_id = str(row[1]) if row[1] else None
+                source = "pill_drafts"
+
+                # Role gating
+                restricted_statuses = {"pending_review", "approved", "published"}
+                if draft_status in restricted_statuses:
+                    if admin["role"] != "superuser":
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Only superusers can delete drafts with status '{draft_status}'",
+                        )
+                else:
+                    if admin["role"] not in ("superuser", "editor", "reviewer"):
+                        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+
+                log_audit(
+                    conn,
+                    actor_id=admin["id"],
+                    actor_email=admin["email"],
+                    action="delete_draft",
+                    entity_type="draft",
+                    entity_id=draft_id,
+                    metadata={"pill_id": pill_id, "status_before": draft_status, "source": source},
+                    ip_address=request.client.host if request.client else None,
+                    user_agent=request.headers.get("user-agent"),
+                )
+
+                conn.execute(text("DELETE FROM pill_drafts WHERE id = :draft_id"), {"draft_id": draft_id})
+
+                # If the draft had a linked pill, optionally soft-delete the pillfinder row.
+                # Conditions: pillfinder.published=false AND no other drafts still reference it.
+                if pill_id:
+                    pill_row = conn.execute(
+                        text("SELECT id, published FROM pillfinder WHERE id = :pill_id AND deleted_at IS NULL LIMIT 1"),
+                        {"pill_id": pill_id},
+                    ).fetchone()
+                    if pill_row and pill_row[1] is False:
+                        other_drafts = conn.execute(
+                            text("SELECT COUNT(*) FROM pill_drafts WHERE pill_id = :pill_id"),
+                            {"pill_id": pill_id},
+                        ).scalar() or 0
+                        if int(other_drafts) == 0:
+                            conn.execute(
+                                text("""
+                                    UPDATE pillfinder
+                                    SET deleted_at = now(), deleted_by = :admin_id
+                                    WHERE id = :pill_id AND deleted_at IS NULL
+                                """),
+                                {"pill_id": pill_id, "admin_id": str(admin["id"])},
+                            )
+
+                return {"deleted": True, "source": source}
+
+            # ── Try pillfinder (published=false) ────────────────────────────────────
+            pf_row = conn.execute(
                 text("""
-                    SELECT id, pill_id, status
-                    FROM pill_drafts
-                    WHERE id = :id
+                    SELECT id FROM pillfinder
+                    WHERE id = :id AND published = false AND deleted_at IS NULL
                     LIMIT 1
                 """),
                 {"id": draft_id},
             ).fetchone()
-            if not row:
+
+            if not pf_row:
                 raise HTTPException(status_code=404, detail="Draft not found")
 
-            draft_status = row[2]
-            pill_id = str(row[1]) if row[1] else None
+            # pillfinder-source rows are always treated as 'draft' status
+            if admin["role"] not in ("superuser", "editor", "reviewer"):
+                raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
-            # Role gating
-            restricted_statuses = {"pending_review", "approved", "published"}
-            if draft_status in restricted_statuses:
-                if admin["role"] != "superuser":
-                    raise HTTPException(
-                        status_code=403,
-                        detail=f"Only superusers can delete drafts with status '{draft_status}'",
-                    )
-            else:
-                if admin["role"] not in ("superuser", "editor", "reviewer"):
-                    raise HTTPException(status_code=403, detail="Requires editor role or higher")
-
-            # Write audit log before deleting so entity still exists in spirit
             log_audit(
                 conn,
                 actor_id=admin["id"],
@@ -504,44 +606,21 @@ def delete_draft(
                 action="delete_draft",
                 entity_type="draft",
                 entity_id=draft_id,
-                metadata={"pill_id": pill_id, "status_before": draft_status},
+                metadata={"pill_id": draft_id, "status_before": "draft", "source": "pillfinder"},
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
 
-            # Delete the draft row
-            conn.execute(text("DELETE FROM pill_drafts WHERE id = :id"), {"id": draft_id})
+            conn.execute(
+                text("""
+                    UPDATE pillfinder
+                    SET deleted_at = now(), deleted_by = :aid
+                    WHERE id = :id AND deleted_at IS NULL
+                """),
+                {"id": draft_id, "aid": str(admin["id"])},
+            )
 
-            # If the draft had a linked pill, check whether to also soft-delete the
-            # pillfinder row.  Conditions:
-            #   1. pillfinder.published = false (unpublished / bulk-draft path)
-            #   2. No other living draft (non-deleted) still references this pill
-            # We use soft-delete to stay consistent with the rest of the admin codebase
-            # (hard-delete of pillfinder rows is superuser-only via a separate endpoint).
-            if pill_id:
-                pill_row = conn.execute(
-                    text("SELECT id, published FROM pillfinder WHERE id = :pill_id AND deleted_at IS NULL LIMIT 1"),
-                    {"pill_id": pill_id},
-                ).fetchone()
-                if pill_row and pill_row[1] is False:
-                    other_drafts = conn.execute(
-                        text("""
-                            SELECT COUNT(*) FROM pill_drafts
-                            WHERE pill_id = :pill_id
-                        """),
-                        {"pill_id": pill_id},
-                    ).scalar() or 0
-                    if int(other_drafts) == 0:
-                        conn.execute(
-                            text("""
-                                UPDATE pillfinder
-                                SET deleted_at = now(), deleted_by = :admin_id
-                                WHERE id = :pill_id AND deleted_at IS NULL
-                            """),
-                            {"pill_id": pill_id, "admin_id": str(admin["id"])},
-                        )
-
-        return {"deleted": True}
+        return {"deleted": True, "source": "pillfinder"}
     except HTTPException:
         raise
     except SQLAlchemyError as e:
@@ -600,6 +679,23 @@ def _transition_draft(
                     {"id": draft_id},
                 ).fetchone()
                 if not exists:
+                    # Check if it's a pillfinder-source draft (no review workflow)
+                    pf_exists = conn.execute(
+                        text("""
+                            SELECT id FROM pillfinder
+                            WHERE id = :id AND published = false AND deleted_at IS NULL
+                            LIMIT 1
+                        """),
+                        {"id": draft_id},
+                    ).fetchone()
+                    if pf_exists:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                "This draft does not use the review workflow. "
+                                "Edit the pill row and toggle 'published' to publish."
+                            ),
+                        )
                     raise HTTPException(status_code=404, detail="Draft not found")
                 raise HTTPException(
                     status_code=409,
