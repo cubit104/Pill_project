@@ -865,17 +865,18 @@ def bulk_create_pills(
                             {"key": idempotency_key},
                         ).fetchone()
                         if existing:
-                            if not existing[1]:
+                            existing_id, existing_published = existing
+                            if not existing_published:
                                 # Row exists but was saved as draft — transition to published
                                 conn.execute(
                                     text("UPDATE pillfinder SET published = true WHERE id = :id"),
-                                    {"id": existing[0]},
+                                    {"id": existing_id},
                                 )
                             succeeded += 1
                             results.append({
                                 "index": i,
                                 "success": True,
-                                "id": str(existing[0]),
+                                "id": str(existing_id),
                                 "drug_name": drug_name,
                             })
                             continue

@@ -2159,7 +2159,9 @@ def test_list_drafts_returns_unpublished_pillfinder_rows(client):
     data = resp.json()
     assert isinstance(data, list)
     assert len(data) == 1
+    # Both 'id' and 'pill_id' are the same pillfinder.id — pill_id is included
+    # for backward compatibility with callers that expect the old pill_drafts shape.
     assert data[0]["id"] == pill_id
-    assert data[0]["pill_id"] == pill_id
+    assert data[0]["pill_id"] == pill_id  # same as id — no separate draft id
     assert data[0]["status"] == "draft"
     assert data[0]["medicine_name"] == "Ibuprofen"
