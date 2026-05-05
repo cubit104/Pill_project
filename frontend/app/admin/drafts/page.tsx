@@ -104,6 +104,7 @@ function DraftsListInner() {
         setError(err.detail || 'Action failed')
       } else {
         fetchDrafts()
+        window.dispatchEvent(new Event('draft-count-changed'))
       }
     } catch (e) {
       setError(String(e))
