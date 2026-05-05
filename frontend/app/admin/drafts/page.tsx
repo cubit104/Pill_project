@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../lib/supabase'
-import { CheckCircle, XCircle, Clock, Send, Pencil } from 'lucide-react'
+import { CheckCircle, XCircle, Send, Pencil, Upload, Trash2 } from 'lucide-react'
 
 interface Draft {
   id: string
@@ -118,6 +118,34 @@ function DraftsListInner() {
     }
   }
 
+  const deleteDraft = async (draftId: string) => {
+    if (!confirm('Delete this draft? This action cannot be undone.')) return
+    const supabase = createClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (!session) return
+
+    setActioning(draftId)
+    try {
+      const res = await fetch(`/api/admin/drafts/${draftId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        setError(err.detail || 'Delete failed')
+      } else {
+        fetchDrafts()
+        window.dispatchEvent(new Event('draft-count-changed'))
+      }
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setActioning(null)
+    }
+  }
+
   const STATUSES = ['', 'draft', 'pending_review', 'approved', 'published', 'rejected']
 
   return (
@@ -193,7 +221,15 @@ function DraftsListInner() {
                     `#${draft.id.slice(0, 8)}`
                   )}
                 </td>
-                <td className="px-4 py-3 text-gray-700">{draft.medicine_name || '(new pill)'}</td>
+                <td className="px-4 py-3 text-gray-700">
+                  {draft.pill_id ? (
+                    <Link href={`/admin/pills/${draft.pill_id}`} className="hover:text-indigo-600 hover:underline">
+                      {draft.medicine_name || '(new pill)'}
+                    </Link>
+                  ) : (
+                    draft.medicine_name || '(new pill)'
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <span
                     className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[draft.status] || 'bg-gray-100 text-gray-600'}`}
@@ -209,9 +245,9 @@ function DraftsListInner() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-2 items-center">
-                    {draft.status === 'draft' && (
+                    {(draft.status === 'draft' || draft.status === 'rejected' || draft.status === 'published') && draft.pill_id && (
                       <Link
-                        href={`/admin/drafts/${draft.id}`}
+                        href={`/admin/pills/${draft.pill_id}`}
                         className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
                       >
                         <Pencil className="w-3 h-3" /> Edit
@@ -250,7 +286,22 @@ function DraftsListInner() {
                         disabled={actioning === draft.id}
                         className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
                       >
-                        <Clock className="w-3 h-3" /> Publish
+                        <Upload className="w-3 h-3" /> Publish
+                      </button>
+                    )}
+                    {/* Delete button — role-gated */}
+                    {(
+                      (draft.status === 'draft' || draft.status === 'rejected') ||
+                      ((draft.status === 'pending_review' || draft.status === 'approved' || draft.status === 'published') &&
+                        (role === 'superuser' || role === 'superadmin'))
+                    ) && (
+                      <button
+                        onClick={() => deleteDraft(draft.id)}
+                        disabled={actioning === draft.id}
+                        className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+                        title="Delete draft"
+                      >
+                        <Trash2 className="w-3 h-3" /> Delete
                       </button>
                     )}
                   </div>
