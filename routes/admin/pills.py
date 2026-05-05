@@ -896,6 +896,27 @@ def bulk_create_pills(
                 else:
                     # Save as draft: insert into pill_drafts with pill_id=NULL
                     # (new pill — not yet in pillfinder)
+                    # Idempotency: if a draft with this key already exists, return it.
+                    if idempotency_key:
+                        existing_draft = conn.execute(
+                            text("""
+                                SELECT id FROM pill_drafts
+                                WHERE created_by = :created_by
+                                  AND draft_data->>'idempotency_key' = :key
+                                LIMIT 1
+                            """),
+                            {"created_by": str(admin["id"]), "key": idempotency_key},
+                        ).fetchone()
+                        if existing_draft:
+                            succeeded += 1
+                            results.append({
+                                "index": i,
+                                "success": True,
+                                "id": str(existing_draft[0]),
+                                "drug_name": drug_name,
+                            })
+                            continue
+
                     draft_result = conn.execute(
                         text("""
                             INSERT INTO pill_drafts (pill_id, draft_data, status, created_by)
@@ -971,11 +992,11 @@ def get_pill(pill_id: str, admin: dict = Depends(get_admin_user)):
                 else:
                     pill[k] = v
 
-            # Include pending drafts (no LIMIT so draft_count is exact)
+            # Include active (non-published, non-rejected) drafts
             drafts = conn.execute(
                 text("""
                     SELECT id, status, created_at, updated_at, review_notes
-                    FROM pill_drafts WHERE pill_id = :id AND status != 'published'
+                    FROM pill_drafts WHERE pill_id = :id AND status IN ('draft', 'pending_review', 'approved')
                     ORDER BY created_at DESC
                 """),
                 {"id": pill_id},

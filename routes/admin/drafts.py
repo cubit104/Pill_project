@@ -3,6 +3,7 @@ import json
 import logging
 from typing import Optional
 
+import bleach
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -15,11 +16,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin-drafts"])
 
+_BLEACH_ALLOWED_TAGS: list = []  # strip all HTML
+
+
+def _sanitize(value: object) -> Optional[str]:
+    """Sanitize a draft_data value: None/empty → None, else HTML-strip to string."""
+    if value is None:
+        return None
+    s = str(value)
+    if s == "":
+        return None
+    return bleach.clean(s, tags=_BLEACH_ALLOWED_TAGS, strip=True)
+
+router = APIRouter(prefix="/api/admin", tags=["admin-drafts"])
+
 PUBLISHABLE_FIELDS = [
-    "medicine_name", "brand_names", "splimprint", "splcolor_text", "splshape_text",
+    "medicine_name", "author", "brand_names", "splimprint", "splcolor_text", "splshape_text",
     "splsize", "spl_strength", "spl_ingredients", "spl_inactive_ing", "dosage_form",
     "route", "dea_schedule_name", "pharmclass_fda_epc", "ndc9", "ndc11", "rxcui",
-    "rxcui_1", "status_rx_otc", "imprint_status", "slug", "meta_description",
+    "rxcui_1", "status_rx_otc", "imprint_status", "slug", "meta_title", "meta_description",
     "image_filename", "has_image", "image_alt_text", "tags",
 ]
 
@@ -212,47 +227,52 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
             pill_id_raw = draft[1]
             draft_data = draft[2] if isinstance(draft[2], dict) else json.loads(draft[2])
 
+            # Sanitize all values the same way the admin pill routes do
+            sanitized = {k: _sanitize(v) for k, v in draft_data.items()} if draft_data else {}
+
             if pill_id_raw is None:
                 # Draft for a brand-new pill (e.g. from bulk upload). Insert into pillfinder.
-                if draft_data:
-                    insert_data = {k: v for k, v in draft_data.items() if k in PUBLISHABLE_FIELDS}
-                    insert_data["published"] = True
-                    insert_data["updated_by"] = str(admin["id"])
-                    cols = ", ".join(insert_data.keys())
-                    vals = ", ".join(f":{k}" for k in insert_data.keys())
-                    new_pill = conn.execute(
-                        text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
-                        insert_data,
-                    ).fetchone()
-                    pill_id = str(new_pill[0]) if new_pill else None
-                    # Link the draft back to the newly created pill
-                    if pill_id:
-                        conn.execute(
-                            text("UPDATE pill_drafts SET pill_id = :pill_id WHERE id = :id"),
-                            {"pill_id": pill_id, "id": draft_id},
-                        )
-                else:
-                    pill_id = None
+                insert_data = {k: v for k, v in sanitized.items() if k in PUBLISHABLE_FIELDS}
+                if not insert_data:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Draft contains no publishable fields. Cannot create a pill row.",
+                    )
+                insert_data["published"] = True
+                insert_data["updated_by"] = str(admin["id"])
+                cols = ", ".join(insert_data.keys())
+                vals = ", ".join(f":{k}" for k in insert_data.keys())
+                new_pill = conn.execute(
+                    text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
+                    insert_data,
+                ).fetchone()
+                pill_id = str(new_pill[0]) if new_pill else None
+                # Link the draft back to the newly created pill
+                if pill_id:
+                    conn.execute(
+                        text("UPDATE pill_drafts SET pill_id = :pill_id WHERE id = :id"),
+                        {"pill_id": pill_id, "id": draft_id},
+                    )
             else:
                 pill_id = str(pill_id_raw)
                 # Apply draft_data to existing pillfinder row and mark as published
-                if draft_data:
-                    set_parts = [
-                        f"{k} = :{k}"
-                        for k in draft_data.keys()
-                        if k in PUBLISHABLE_FIELDS
-                    ]
-                    if set_parts:
-                        set_parts.append("updated_at = now()")
-                        set_parts.append("updated_by = :updated_by_id")
-                        set_parts.append("published = true")
-                        params = {k: v for k, v in draft_data.items() if k in PUBLISHABLE_FIELDS}
-                        params["updated_by_id"] = str(admin["id"])
-                        params["pill_id"] = pill_id
-                        conn.execute(
-                            text(f"UPDATE pillfinder SET {', '.join(set_parts)} WHERE id = :pill_id"),
-                            params,
-                        )
+                publishable = {k: v for k, v in sanitized.items() if k in PUBLISHABLE_FIELDS}
+                if not publishable:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Draft contains no publishable fields. Nothing to apply.",
+                    )
+                set_parts = [f"{k} = :{k}" for k in publishable.keys()]
+                set_parts.append("updated_at = now()")
+                set_parts.append("updated_by = :updated_by_id")
+                set_parts.append("published = true")
+                params = dict(publishable)
+                params["updated_by_id"] = str(admin["id"])
+                params["pill_id"] = pill_id
+                conn.execute(
+                    text(f"UPDATE pillfinder SET {', '.join(set_parts)} WHERE id = :pill_id"),
+                    params,
+                )
 
             conn.execute(
                 text("""
