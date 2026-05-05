@@ -855,22 +855,45 @@ export default function EditPillPage() {
     const session = await getSession()
     if (!session) return
     try {
-      const res = await fetch(`/api/admin/pills/${pillId}/drafts`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft_data: form, status: 'draft' }),
-      })
-      if (!res.ok) {
-        throw new Error(await safeErrorDetail(res, 'Draft creation failed'))
+      if (pill !== null && (pill as Record<string, unknown>).published === false) {
+        // Pill IS already a pillfinder-source draft (published=false).
+        // Update the existing pillfinder row in place via PUT — no pill_drafts row needed.
+        const changedFields = getChangedFields()
+        if (Object.keys(changedFields).length === 0) {
+          setSuccess('Draft saved (no changes)')
+          setSuccessDismissed(false)
+          setSaving(false)
+          return
+        }
+        const res = await fetch(`/api/admin/pills/${pillId}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...changedFields, updated_at: pill?.updated_at }),
+        })
+        if (res.status === 409) { setError(await safeErrorDetail(res, 'Conflict')); setErrorDismissed(false); return }
+        if (!res.ok) throw new Error(await safeErrorDetail(res, 'Draft save failed'))
+        setSuccess('Draft saved')
+        setSuccessDismissed(false)
+        await loadPill()
+      } else {
+        // Pill is published (or status unknown) → create/update a pill_drafts workflow row.
+        const res = await fetch(`/api/admin/pills/${pillId}/drafts`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draft_data: form, status: 'draft' }),
+        })
+        if (!res.ok) {
+          throw new Error(await safeErrorDetail(res, 'Draft creation failed'))
+        }
+        const data = await res.json()
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[handleSaveDraft] draft created:', data.id)
+        }
+        setSuccess(`Workflow draft created: #${data.id.slice(0, 8)} — view all drafts at /admin/drafts`)
+        setSuccessDismissed(false)
+        await loadPill()
+        window.dispatchEvent(new Event('draft-count-changed'))
       }
-      const data = await res.json()
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[handleSaveDraft] draft created:', data.id)
-      }
-      setSuccess(`Workflow draft created: #${data.id.slice(0, 8)} — view all drafts at /admin/drafts`)
-      setSuccessDismissed(false)
-      await loadPill()
-      window.dispatchEvent(new Event('draft-count-changed'))
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
 
