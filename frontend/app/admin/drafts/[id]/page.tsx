@@ -185,6 +185,9 @@ export default function EditDraftPage() {
   const router = useRouter()
 
   const [form, setForm] = useState<PillForm>({})
+  // Extra keys in draft_data that are not in FIELD_SCHEMA (e.g. has_image).
+  // Preserved so PATCH doesn't silently drop them.
+  const [extraDraftData, setExtraDraftData] = useState<Record<string, string>>({})
   const [status, setStatus] = useState<string>('')
   const [pillId, setPillId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -211,13 +214,27 @@ export default function EditDraftPage() {
         const data = await res.json()
         setStatus(data.status)
         setPillId(data.pill_id)
-        // Pre-populate form from draft_data
-        const draftData: Record<string, string> = {}
+
+        const fieldSchemaKeys = new Set(FIELD_SCHEMA.map(f => f.key))
+        const rawDraftData: Record<string, string> = data.draft_data ?? {}
+
+        // Pre-populate FIELD_SCHEMA keys for the visible form
+        const formData: Record<string, string> = {}
         FIELD_SCHEMA.forEach(({ key }) => {
-          const val = data.draft_data?.[key]
-          draftData[key] = val != null ? String(val) : ''
+          const val = rawDraftData[key]
+          formData[key] = val != null ? String(val) : ''
         })
-        setForm(draftData)
+        setForm(formData)
+
+        // Preserve any extra keys (e.g. has_image) that live in draft_data but
+        // are not part of FIELD_SCHEMA, so PATCH doesn't erase them.
+        const extra: Record<string, string> = {}
+        for (const [k, v] of Object.entries(rawDraftData)) {
+          if (!fieldSchemaKeys.has(k)) {
+            extra[k] = v != null ? String(v) : ''
+          }
+        }
+        setExtraDraftData(extra)
       } catch (e) {
         setError(String(e))
       } finally {
@@ -227,15 +244,17 @@ export default function EditDraftPage() {
     load()
   }, [draftId, getSession, router])
 
+  const buildDraftData = () => ({ ...extraDraftData, ...form })
+
   const handleSave = async () => {
     setSaving(true); setError(''); setSuccess('')
     const session = await getSession()
-    if (!session) return
+    if (!session) { setSaving(false); router.push('/admin/login'); return }
     try {
       const res = await fetch(`/api/admin/drafts/${draftId}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft_data: form }),
+        body: JSON.stringify({ draft_data: buildDraftData() }),
       })
       if (!res.ok) throw new Error(await safeErrorDetail(res, 'Failed to save draft'))
       setSuccess('Draft saved successfully')
@@ -245,13 +264,13 @@ export default function EditDraftPage() {
   const handleSubmit = async () => {
     setSubmitting(true); setError(''); setSuccess('')
     const session = await getSession()
-    if (!session) return
+    if (!session) { setSubmitting(false); router.push('/admin/login'); return }
     try {
       // First save any pending changes, then submit
       const saveRes = await fetch(`/api/admin/drafts/${draftId}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft_data: form }),
+        body: JSON.stringify({ draft_data: buildDraftData() }),
       })
       if (!saveRes.ok) throw new Error(await safeErrorDetail(saveRes, 'Failed to save draft'))
 

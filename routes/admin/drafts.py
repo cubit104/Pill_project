@@ -4,7 +4,7 @@ import logging
 from typing import Optional
 
 import bleach
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -50,6 +50,7 @@ class ReviewAction(BaseModel):
 @router.post("/pills/{pill_id}/drafts", status_code=201)
 def create_draft(
     request: Request,
+    response: Response,
     pill_id: str,
     body: DraftCreate,
     admin: dict = Depends(get_admin_user),
@@ -62,31 +63,27 @@ def create_draft(
 
     try:
         with database.db_engine.begin() as conn:
-            # Upsert: if a 'draft' status draft already exists for this pill, update it
-            # instead of creating a duplicate.
-            existing = conn.execute(
+            # Atomic upsert: try to UPDATE the existing 'draft' row first.
+            # The WHERE status = 'draft' ensures we never accidentally overwrite a
+            # row that was transitioned to another status between calls.
+            update_result = conn.execute(
                 text("""
-                    SELECT id FROM pill_drafts
+                    UPDATE pill_drafts
+                    SET draft_data = CAST(:draft_data AS jsonb), updated_at = now()
                     WHERE pill_id = :pill_id AND status = 'draft'
-                    LIMIT 1
+                    RETURNING id
                 """),
-                {"pill_id": pill_id},
-            ).fetchone()
+                {"pill_id": pill_id, "draft_data": json.dumps(body.draft_data)},
+            )
+            updated_row = update_result.fetchone()
 
-            if existing:
-                draft_id = str(existing[0])
-                conn.execute(
-                    text("""
-                        UPDATE pill_drafts
-                        SET draft_data = CAST(:draft_data AS jsonb), updated_at = now()
-                        WHERE id = :id
-                    """),
-                    {"draft_data": json.dumps(body.draft_data), "id": draft_id},
-                )
+            if updated_row:
+                draft_id = str(updated_row[0])
                 action_name = "update_draft"
                 created = False
+                response.status_code = 200
             else:
-                result = conn.execute(
+                insert_result = conn.execute(
                     text("""
                         INSERT INTO pill_drafts (pill_id, draft_data, status, created_by)
                         VALUES (:pill_id, CAST(:draft_data AS jsonb), 'draft', :created_by)
@@ -98,7 +95,7 @@ def create_draft(
                         "created_by": str(admin["id"]),
                     },
                 )
-                draft_id = str(result.scalar())
+                draft_id = str(insert_result.scalar())
                 action_name = "create_draft"
                 created = True
 
