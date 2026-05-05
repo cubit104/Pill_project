@@ -62,25 +62,51 @@ def create_draft(
 
     try:
         with database.db_engine.begin() as conn:
-            result = conn.execute(
+            # Upsert: if a 'draft' status draft already exists for this pill, update it
+            # instead of creating a duplicate.
+            existing = conn.execute(
                 text("""
-                    INSERT INTO pill_drafts (pill_id, draft_data, status, created_by)
-                    VALUES (:pill_id, CAST(:draft_data AS jsonb), 'draft', :created_by)
-                    RETURNING id
+                    SELECT id FROM pill_drafts
+                    WHERE pill_id = :pill_id AND status = 'draft'
+                    LIMIT 1
                 """),
-                {
-                    "pill_id": pill_id,
-                    "draft_data": json.dumps(body.draft_data),
-                    "created_by": str(admin["id"]),
-                },
-            )
-            draft_id = str(result.scalar())
+                {"pill_id": pill_id},
+            ).fetchone()
+
+            if existing:
+                draft_id = str(existing[0])
+                conn.execute(
+                    text("""
+                        UPDATE pill_drafts
+                        SET draft_data = CAST(:draft_data AS jsonb), updated_at = now()
+                        WHERE id = :id
+                    """),
+                    {"draft_data": json.dumps(body.draft_data), "id": draft_id},
+                )
+                action_name = "update_draft"
+                created = False
+            else:
+                result = conn.execute(
+                    text("""
+                        INSERT INTO pill_drafts (pill_id, draft_data, status, created_by)
+                        VALUES (:pill_id, CAST(:draft_data AS jsonb), 'draft', :created_by)
+                        RETURNING id
+                    """),
+                    {
+                        "pill_id": pill_id,
+                        "draft_data": json.dumps(body.draft_data),
+                        "created_by": str(admin["id"]),
+                    },
+                )
+                draft_id = str(result.scalar())
+                action_name = "create_draft"
+                created = True
 
             log_audit(
                 conn,
                 actor_id=admin["id"],
                 actor_email=admin["email"],
-                action="create_draft",
+                action=action_name,
                 entity_type="draft",
                 entity_id=draft_id,
                 metadata={"pill_id": pill_id, "status": "draft"},
@@ -88,7 +114,7 @@ def create_draft(
                 user_agent=request.headers.get("user-agent"),
             )
 
-        return {"id": draft_id, "created": True}
+        return {"id": draft_id, "created": created}
     except SQLAlchemyError as e:
         logger.error(f"create_draft DB error: {e}", exc_info=True)
         # Surface the root DB error so frontend/devtools can display it.
@@ -114,6 +140,108 @@ def get_draft_count(admin: dict = Depends(get_admin_user)):
         return {"count": int(count)}
     except SQLAlchemyError as e:
         logger.error(f"get_draft_count DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
+@router.get("/drafts/{draft_id}")
+def get_draft(draft_id: str, admin: dict = Depends(get_admin_user)):
+    """Return a single draft including its draft_data payload."""
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT d.id, d.pill_id, d.status, d.created_at, d.updated_at,
+                           d.review_notes,
+                           COALESCE(p.medicine_name, d.draft_data->>'medicine_name') AS medicine_name,
+                           d.created_by, d.draft_data
+                    FROM pill_drafts d
+                    LEFT JOIN pillfinder p ON p.id = d.pill_id
+                    WHERE d.id = :id
+                    LIMIT 1
+                """),
+                {"id": draft_id},
+            ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Draft not found")
+        draft_data = row[8] if isinstance(row[8], dict) else (json.loads(row[8]) if row[8] else {})
+        return {
+            "id": str(row[0]),
+            "pill_id": str(row[1]) if row[1] else None,
+            "status": row[2],
+            "created_at": row[3].isoformat() if row[3] else None,
+            "updated_at": row[4].isoformat() if row[4] else None,
+            "review_notes": row[5],
+            "medicine_name": row[6],
+            "created_by": str(row[7]) if row[7] else None,
+            "draft_data": draft_data,
+        }
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"get_draft DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
+@router.patch("/drafts/{draft_id}")
+def update_draft(
+    request: Request,
+    draft_id: str,
+    body: DraftCreate,
+    admin: dict = Depends(get_admin_user),
+):
+    """Update the draft_data of an existing draft (only allowed when status='draft')."""
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.begin() as conn:
+            result = conn.execute(
+                text("""
+                    UPDATE pill_drafts
+                    SET draft_data = CAST(:draft_data AS jsonb), updated_at = now()
+                    WHERE id = :id AND status = 'draft'
+                    RETURNING id, pill_id
+                """),
+                {"draft_data": json.dumps(body.draft_data), "id": draft_id},
+            )
+            row = result.fetchone()
+            if not row:
+                exists = conn.execute(
+                    text("SELECT status FROM pill_drafts WHERE id = :id LIMIT 1"),
+                    {"id": draft_id},
+                ).fetchone()
+                if not exists:
+                    raise HTTPException(status_code=404, detail="Draft not found")
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Cannot edit draft in '{exists[0]}' status. Only 'draft' status drafts may be updated.",
+                )
+
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action="update_draft",
+                entity_type="draft",
+                entity_id=draft_id,
+                metadata={"pill_id": str(row[1]) if row[1] else None},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+
+        return {"id": draft_id, "updated": True}
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"update_draft DB error: {e}", exc_info=True)
         root = getattr(e, "orig", None) or e
         raise HTTPException(status_code=500, detail=f"Database error: {root}")
 

@@ -204,9 +204,9 @@ function DraftsListInner() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-2 items-center">
-                    {draft.pill_id && (
+                    {draft.status === 'draft' && (
                       <Link
-                        href={`/admin/pills/${draft.pill_id}#pending-drafts`}
+                        href={`/admin/drafts/${draft.id}`}
                         className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
                       >
                         <Pencil className="w-3 h-3" /> Edit

@@ -255,6 +255,7 @@ export default function BulkUploadPage() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadError, setUploadError] = useState('')
   const [editCell, setEditCell] = useState<{ rowIdx: number; key: string } | null>(null)
+  const [lastPublishMode, setLastPublishMode] = useState<boolean>(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const zipInputRef = useRef<HTMLInputElement>(null)
@@ -357,6 +358,7 @@ export default function BulkUploadPage() {
       setUploadProgress(10)
       setUploadError('')
       setUploadResults(null)
+      setLastPublishMode(publish)
 
       try {
         setUploadProgress(30)
@@ -772,6 +774,7 @@ export default function BulkUploadPage() {
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 border-b">Drug Name</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 border-b">Status</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 border-b">Details</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 border-b">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -782,7 +785,7 @@ export default function BulkUploadPage() {
                       <td className="px-4 py-2">
                         {r.success ? (
                           <span className="flex items-center gap-1 text-green-600 text-xs font-medium">
-                            <CheckCircle className="w-3.5 h-3.5" /> Saved
+                            <CheckCircle className="w-3.5 h-3.5" /> {lastPublishMode ? 'Published' : 'Draft saved'}
                           </span>
                         ) : (
                           <span className="flex items-center gap-1 text-red-600 text-xs font-medium">
@@ -795,6 +798,16 @@ export default function BulkUploadPage() {
                           <span className="text-gray-400">id: {r.id}</span>
                         ) : (
                           <span className="text-red-600">{r.error}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-xs">
+                        {r.success && r.id && (
+                          <Link
+                            href={lastPublishMode ? `/admin/pills/${r.id}` : `/admin/drafts/${r.id}`}
+                            className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium"
+                          >
+                            <FileText className="w-3 h-3" /> Edit
+                          </Link>
                         )}
                       </td>
                     </tr>
@@ -816,12 +829,22 @@ export default function BulkUploadPage() {
               >
                 Upload another batch
               </button>
-              <Link
-                href="/admin/pills"
-                className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors"
-              >
-                Go to Pills List <ArrowRight className="w-4 h-4" />
-              </Link>
+              <div className="flex gap-3">
+                {!lastPublishMode && (
+                  <Link
+                    href="/admin/drafts"
+                    className="flex items-center gap-2 bg-gray-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-gray-700 transition-colors"
+                  >
+                    View Drafts
+                  </Link>
+                )}
+                <Link
+                  href="/admin/pills"
+                  className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors"
+                >
+                  Go to Pills List <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
             </div>
           </div>
         )}
