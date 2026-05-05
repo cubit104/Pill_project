@@ -916,7 +916,13 @@ def bulk_create_pills(
                             })
                             continue
 
-                    draft_data = {**data, "published": False}
+                    # Guard: only allow known pillfinder column names as keys to
+                    # prevent any unexpected key from reaching the SQL template.
+                    _ALLOWED_DRAFT_KEYS = set(EDITABLE_FIELDS) | {"idempotency_key", "published"}
+                    draft_data = {
+                        k: v for k, v in {**data, "published": False}.items()
+                        if k in _ALLOWED_DRAFT_KEYS
+                    }
                     cols = ", ".join(draft_data.keys())
                     vals = ", ".join(f":{k}" for k in draft_data.keys())
                     draft_result = conn.execute(

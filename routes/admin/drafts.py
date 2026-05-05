@@ -286,7 +286,7 @@ def list_drafts(
                 "id": str(r[0]),
                 "pill_id": str(r[0]),  # same id — Edit links go to /admin/pills/{pill_id}
                 "status": "draft",
-                "created_at": r[2].isoformat() if r[2] else None,
+                "created_at": None,  # pillfinder has no created_at column
                 "updated_at": r[2].isoformat() if r[2] else None,
                 "review_notes": None,
                 "medicine_name": r[1],
