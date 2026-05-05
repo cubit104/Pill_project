@@ -63,9 +63,11 @@ def create_draft(
 
     try:
         with database.db_engine.begin() as conn:
-            # Atomic upsert: try to UPDATE the existing 'draft' row first.
-            # The WHERE status = 'draft' ensures we never accidentally overwrite a
-            # row that was transitioned to another status between calls.
+            # Atomic upsert: attempt UPDATE first (WHERE status='draft').
+            # This is TOCTOU-safe: if a concurrent request transitions the draft
+            # to another status between calls, the WHERE clause prevents overwriting
+            # the now-non-draft row and the subsequent INSERT creates a new draft
+            # instead of producing a duplicate or clobbering the transitioned row.
             update_result = conn.execute(
                 text("""
                     UPDATE pill_drafts

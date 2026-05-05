@@ -1848,7 +1848,7 @@ def test_get_draft_returns_draft_data(client):
     import datetime
 
     call_count = [0]
-    fake_draft_data = {"medicine_name": "Aspirin", "slug": "aspirin", "has_image": "FALSE"}
+    fake_draft_data = {"medicine_name": "Aspirin", "slug": "aspirin", "has_image": False}
 
     def side_effect(sql, *args, **kwargs):
         result = MagicMock()
@@ -1890,7 +1890,7 @@ def test_get_draft_returns_draft_data(client):
     assert data["id"] == "draft-uuid-001"
     assert data["status"] == "draft"
     assert data["draft_data"]["medicine_name"] == "Aspirin"
-    assert data["draft_data"]["has_image"] == "FALSE"
+    assert data["draft_data"]["has_image"] is False
 
 
 def test_get_draft_returns_404_for_missing(client):
