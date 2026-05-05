@@ -1,6 +1,7 @@
 """Admin draft management endpoints."""
 import json
 import logging
+import uuid
 from typing import Optional
 
 import bleach
@@ -248,6 +249,7 @@ def update_draft(
 @router.get("/drafts")
 def list_drafts(
     status: Optional[str] = Query(None),
+    pill_id: Optional[str] = Query(None),
     admin: dict = Depends(get_admin_user),
 ):
     if not database.db_engine:
@@ -258,6 +260,13 @@ def list_drafts(
     if status:
         where += " AND d.status = :status"
         params["status"] = status
+    if pill_id:
+        try:
+            uuid.UUID(pill_id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid pill_id format")
+        where += " AND d.pill_id = :pill_id"
+        params["pill_id"] = pill_id
 
     try:
         with database.db_engine.connect() as conn:
