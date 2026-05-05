@@ -36,6 +36,7 @@ function DraftsListInner() {
   const [error, setError] = useState('')
   const [actioning, setActioning] = useState<string | null>(null)
   const [role, setRole] = useState<string | null>(null)
+  const [pendingCount, setPendingCount] = useState<number | null>(null)
 
   const fetchDrafts = useCallback(async () => {
     const supabase = createClient()
@@ -49,11 +50,14 @@ function DraftsListInner() {
 
     setLoading(true)
     try {
-      const [draftsRes, meRes] = await Promise.all([
+      const [draftsRes, meRes, countRes] = await Promise.all([
         fetch(`/api/admin/drafts${statusFilter ? `?status=${statusFilter}` : ''}`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         }),
         fetch('/api/admin/me', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }),
+        fetch('/api/admin/drafts/count', {
           headers: { Authorization: `Bearer ${session.access_token}` },
         }),
       ])
@@ -62,6 +66,10 @@ function DraftsListInner() {
       if (meRes.ok) {
         const meData = await meRes.json()
         setRole(meData.role)
+      }
+      if (countRes.ok) {
+        const countData = await countRes.json()
+        setPendingCount(countData.count ?? null)
       }
     } catch (e) {
       setError(String(e))
@@ -96,6 +104,7 @@ function DraftsListInner() {
         setError(err.detail || 'Action failed')
       } else {
         fetchDrafts()
+        window.dispatchEvent(new Event('draft-count-changed'))
       }
     } catch (e) {
       setError(String(e))
@@ -108,7 +117,14 @@ function DraftsListInner() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-gray-900">Drafts</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-bold text-gray-900">Drafts</h1>
+        {pendingCount != null && pendingCount > 0 && (
+          <span className="bg-yellow-400 text-yellow-900 text-sm font-bold px-2 py-0.5 rounded-full">
+            {pendingCount}
+          </span>
+        )}
+      </div>
 
       <div className="flex gap-2 flex-wrap">
         {STATUSES.map((s) => (
@@ -162,9 +178,15 @@ function DraftsListInner() {
               </tr>
             )}
             {drafts.map((draft) => (
-              <tr key={draft.id} className="hover:bg-gray-50">
+              <tr key={draft.id} className={`hover:bg-gray-50 ${draft.pill_id ? 'cursor-pointer' : ''}`}>
                 <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                  #{draft.id.slice(0, 8)}
+                  {draft.pill_id ? (
+                    <Link href={`/admin/pills/${draft.pill_id}`} className="hover:text-indigo-600 hover:underline">
+                      #{draft.id.slice(0, 8)}
+                    </Link>
+                  ) : (
+                    `#${draft.id.slice(0, 8)}`
+                  )}
                 </td>
                 <td className="px-4 py-3 text-gray-700">{draft.medicine_name || '(new pill)'}</td>
                 <td className="px-4 py-3">

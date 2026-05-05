@@ -67,6 +67,7 @@ def _aggregate_image_filenames(conn, raw_medicine_name: str, raw_splimprint: str
         image_q = text("""
             SELECT image_filename FROM pillfinder
             WHERE deleted_at IS NULL
+              AND published = true
               AND LOWER(TRIM(medicine_name)) = LOWER(TRIM(:medicine_name))
               AND UPPER(REGEXP_REPLACE(COALESCE(splimprint, ''), '[;,\\s]+', ' ', 'g'))
                 = UPPER(REGEXP_REPLACE(COALESCE(:splimprint, ''), '[;,\\s]+', ' ', 'g'))
@@ -107,6 +108,7 @@ def get_pill_details(
                 query = text("""
                     SELECT * FROM pillfinder
                     WHERE deleted_at IS NULL
+                      AND published = true
                       AND (
                         ndc11 = :ndc
                         OR ndc9  = :ndc
@@ -121,6 +123,7 @@ def get_pill_details(
                 query = text("""
                     SELECT * FROM pillfinder
                     WHERE deleted_at IS NULL
+                      AND published = true
                       AND rxcui = :rxcui
                     LIMIT 1
                 """)
@@ -132,6 +135,7 @@ def get_pill_details(
                 query = text("""
                     SELECT * FROM pillfinder
                     WHERE deleted_at IS NULL
+                      AND published = true
                       AND UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
                       AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)
                     LIMIT 1
@@ -143,6 +147,7 @@ def get_pill_details(
                 query = text("""
                     SELECT * FROM pillfinder
                     WHERE deleted_at IS NULL
+                      AND published = true
                       AND UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
                     LIMIT 1
                 """)
@@ -153,6 +158,7 @@ def get_pill_details(
                 query = text("""
                     SELECT * FROM pillfinder
                     WHERE deleted_at IS NULL
+                      AND published = true
                       AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)
                     LIMIT 1
                 """)
@@ -234,7 +240,7 @@ def get_pill_by_slug(slug: str):
 
     try:
         with database.db_engine.connect() as conn:
-            query = text("SELECT * FROM pillfinder WHERE deleted_at IS NULL AND slug = :slug LIMIT 1")
+            query = text("SELECT * FROM pillfinder WHERE deleted_at IS NULL AND published = true AND slug = :slug LIMIT 1")
             result = conn.execute(query, {"slug": slug})
             row = result.fetchone()
             if not row:
@@ -404,7 +410,7 @@ def get_related_by_class(slug: str, limit: int = Query(default=10, ge=1, le=50))
             # 1) Resolve the input pill's pharma class
             row = conn.execute(text("""
                 SELECT medicine_name, dailymed_pharma_class_epc, pharmclass_fda_epc
-                FROM pillfinder WHERE deleted_at IS NULL AND slug = :slug LIMIT 1
+                FROM pillfinder WHERE deleted_at IS NULL AND published = true AND slug = :slug LIMIT 1
             """), {"slug": slug}).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Pill not found")
@@ -422,6 +428,7 @@ def get_related_by_class(slug: str, limit: int = Query(default=10, ge=1, le=50))
                     image_filename
                 FROM pillfinder
                 WHERE deleted_at IS NULL
+                  AND published = true
                   AND (dailymed_pharma_class_epc = :cls OR pharmclass_fda_epc = :cls)
                   AND slug IS NOT NULL AND slug != ''
                   AND slug != :slug
@@ -458,6 +465,7 @@ def list_pharma_classes():
                     COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
                   FROM pillfinder
                   WHERE deleted_at IS NULL
+                    AND published = true
                     AND (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
                     AND slug IS NOT NULL AND slug != ''
                 ) sub
@@ -489,6 +497,7 @@ def get_class_drugs(class_slug: str, limit: int = Query(default=100, ge=1, le=50
                     SELECT COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
                     FROM pillfinder
                     WHERE deleted_at IS NULL
+                      AND published = true
                       AND (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
                       AND slug IS NOT NULL AND slug != ''
                 ) sub
@@ -514,6 +523,7 @@ def get_class_drugs(class_slug: str, limit: int = Query(default=100, ge=1, le=50
                     image_filename
                 FROM pillfinder
                 WHERE deleted_at IS NULL
+                  AND published = true
                   AND (dailymed_pharma_class_epc = :cls OR pharmclass_fda_epc = :cls)
                   AND slug IS NOT NULL AND slug != ''
                 ORDER BY medicine_name, spl_strength, slug
@@ -559,7 +569,7 @@ def get_condition_drugs(slug: str):
         with database.db_engine.connect() as conn:
             # 1. Resolve rxcui and medicine_name for the given slug
             row = conn.execute(
-                text("SELECT rxcui, medicine_name FROM pillfinder WHERE deleted_at IS NULL AND slug = :slug LIMIT 1"),
+                text("SELECT rxcui, medicine_name FROM pillfinder WHERE deleted_at IS NULL AND published = true AND slug = :slug LIMIT 1"),
                 {"slug": slug},
             ).fetchone()
             if not row:
@@ -608,6 +618,7 @@ def get_condition_drugs(slug: str):
                             JOIN pillfinder p
                               ON p.rxcui = dct.rxcui
                              AND p.deleted_at IS NULL
+                             AND p.published = true
                              AND p.slug IS NOT NULL AND p.slug != ''
                             WHERE dct.tag = :tag
                               AND dct.rxcui != :rxcui
