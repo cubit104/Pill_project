@@ -35,6 +35,7 @@ function DraftsListInner() {
   const [error, setError] = useState('')
   const [actioning, setActioning] = useState<string | null>(null)
   const [role, setRole] = useState<string | null>(null)
+  const [pendingCount, setPendingCount] = useState<number | null>(null)
 
   const fetchDrafts = useCallback(async () => {
     const supabase = createClient()
@@ -48,11 +49,14 @@ function DraftsListInner() {
 
     setLoading(true)
     try {
-      const [draftsRes, meRes] = await Promise.all([
+      const [draftsRes, meRes, countRes] = await Promise.all([
         fetch(`/api/admin/drafts${statusFilter ? `?status=${statusFilter}` : ''}`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         }),
         fetch('/api/admin/me', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }),
+        fetch('/api/admin/drafts/count', {
           headers: { Authorization: `Bearer ${session.access_token}` },
         }),
       ])
@@ -61,6 +65,10 @@ function DraftsListInner() {
       if (meRes.ok) {
         const meData = await meRes.json()
         setRole(meData.role)
+      }
+      if (countRes.ok) {
+        const countData = await countRes.json()
+        setPendingCount(countData.count ?? null)
       }
     } catch (e) {
       setError(String(e))
@@ -107,7 +115,14 @@ function DraftsListInner() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-gray-900">Drafts</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-bold text-gray-900">Drafts</h1>
+        {pendingCount != null && pendingCount > 0 && (
+          <span className="bg-yellow-400 text-yellow-900 text-sm font-bold px-2 py-0.5 rounded-full">
+            {pendingCount}
+          </span>
+        )}
+      </div>
 
       <div className="flex gap-2 flex-wrap">
         {STATUSES.map((s) => (
