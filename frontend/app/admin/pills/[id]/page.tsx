@@ -870,6 +870,7 @@ export default function EditPillPage() {
       setSuccess(`Workflow draft created: #${data.id.slice(0, 8)} — view all drafts at /admin/drafts`)
       setSuccessDismissed(false)
       await loadPill()
+      window.dispatchEvent(new Event('draft-count-changed'))
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
 
@@ -1089,6 +1090,9 @@ export default function EditPillPage() {
                   : draft.status === 'approved' ? 'bg-green-100 text-green-700'
                   : 'bg-gray-100 text-gray-600'}`}>{draft.status}</span>
                 <span className="text-gray-400 text-xs">{new Date(draft.created_at).toLocaleDateString()}</span>
+                <Link href="/admin/drafts" className="text-blue-600 text-xs hover:text-blue-800 hover:underline">
+                  View in Drafts →
+                </Link>
               </div>
             ))}
           </div>

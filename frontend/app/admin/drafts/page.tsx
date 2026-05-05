@@ -3,8 +3,9 @@
 export const dynamic = 'force-dynamic'
 import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '../lib/supabase'
-import { CheckCircle, XCircle, Clock, Send } from 'lucide-react'
+import { CheckCircle, XCircle, Clock, Send, Pencil } from 'lucide-react'
 
 interface Draft {
   id: string
@@ -161,9 +162,15 @@ function DraftsListInner() {
               </tr>
             )}
             {drafts.map((draft) => (
-              <tr key={draft.id} className="hover:bg-gray-50">
+              <tr key={draft.id} className={`hover:bg-gray-50 ${draft.pill_id ? 'cursor-pointer' : ''}`}>
                 <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                  #{draft.id.slice(0, 8)}
+                  {draft.pill_id ? (
+                    <Link href={`/admin/pills/${draft.pill_id}`} className="hover:text-indigo-600 hover:underline">
+                      #{draft.id.slice(0, 8)}
+                    </Link>
+                  ) : (
+                    `#${draft.id.slice(0, 8)}`
+                  )}
                 </td>
                 <td className="px-4 py-3 text-gray-700">{draft.medicine_name || '(new pill)'}</td>
                 <td className="px-4 py-3">
@@ -181,6 +188,14 @@ function DraftsListInner() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-2 items-center">
+                    {draft.pill_id && (
+                      <Link
+                        href={`/admin/pills/${draft.pill_id}#pending-drafts`}
+                        className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
+                      >
+                        <Pencil className="w-3 h-3" /> Edit
+                      </Link>
+                    )}
                     {draft.status === 'draft' && (
                       <button
                         onClick={() => action(draft.id, 'submit')}

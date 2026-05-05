@@ -102,7 +102,9 @@ def list_drafts(
             rows = conn.execute(
                 text(f"""
                     SELECT d.id, d.pill_id, d.status, d.created_at, d.updated_at,
-                           d.review_notes, p.medicine_name, d.created_by
+                           d.review_notes,
+                           COALESCE(p.medicine_name, d.draft_data->>'medicine_name') AS medicine_name,
+                           d.created_by
                     FROM pill_drafts d
                     LEFT JOIN pillfinder p ON p.id = d.pill_id
                     {where}
