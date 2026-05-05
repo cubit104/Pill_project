@@ -293,7 +293,7 @@ function DraftsListInner() {
                     {(
                       (draft.status === 'draft' || draft.status === 'rejected') ||
                       ((draft.status === 'pending_review' || draft.status === 'approved' || draft.status === 'published') &&
-                        (role === 'superuser' || role === 'superadmin'))
+                        role === 'superuser')
                     ) && (
                       <button
                         onClick={() => deleteDraft(draft.id)}

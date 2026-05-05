@@ -483,7 +483,7 @@ def delete_draft(
             # Role gating
             restricted_statuses = {"pending_review", "approved", "published"}
             if draft_status in restricted_statuses:
-                if admin["role"] not in ("superuser",):
+                if admin["role"] != "superuser":
                     raise HTTPException(
                         status_code=403,
                         detail=f"Only superusers can delete drafts with status '{draft_status}'",
