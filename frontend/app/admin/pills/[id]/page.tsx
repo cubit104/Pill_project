@@ -907,13 +907,13 @@ export default function EditPillPage() {
 
       {pill?.slug && <IndexStatusPanel slug={pill.slug} token={token} />}
 
-      {/* Prominent blue banner — visible whenever pending drafts exist */}
+      {/* Yellow banner — visible whenever pending drafts exist */}
       {draftCount > 0 && (
-        <div className="bg-blue-50 border border-blue-300 rounded-md px-4 py-3 text-sm text-blue-800 flex items-center justify-between gap-2">
+        <div className="bg-yellow-50 border border-yellow-300 rounded-md px-4 py-3 text-sm text-yellow-800 flex items-center justify-between gap-2">
           <span>
-            📝 This pill has <strong>{draftCount}</strong> pending workflow draft{draftCount !== 1 ? 's' : ''}.
+            ⚠️ This pill has <strong>{draftCount}</strong> pending draft{draftCount !== 1 ? 's' : ''} awaiting review.
           </span>
-          <Link href={`/admin/drafts?pill_id=${pillId}`} className="text-blue-700 font-medium underline hover:text-blue-900 whitespace-nowrap">
+          <Link href={`/admin/drafts?pill_id=${pillId}`} className="text-yellow-700 font-medium underline hover:text-yellow-900 whitespace-nowrap">
             View drafts →
           </Link>
         </div>
@@ -967,18 +967,14 @@ export default function EditPillPage() {
       )}
 
       <div className="flex gap-3 flex-wrap">
-        <button onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 disabled:opacity-50 text-sm font-medium transition-colors">
-          <Save className="w-4 h-4" />{saving ? 'Saving…' : 'Save changes'}
+        <button onClick={handleSaveDraft} disabled={saving}
+          className="flex items-center gap-2 bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 disabled:opacity-50 text-sm font-medium transition-colors"
+          title="Creates a draft entry for review. The live pill record stays unchanged until the draft is published.">
+          <FileEdit className="w-4 h-4" />{saving ? 'Saving…' : 'Save as Draft'}
         </button>
         <button onClick={handlePublish} disabled={saving}
           className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium transition-colors">
           <Save className="w-4 h-4" />{saving ? 'Saving…' : 'Save & publish'}
-        </button>
-        <button onClick={handleSaveDraft} disabled={saving}
-          className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 disabled:opacity-50 text-sm font-medium transition-colors"
-          title="Creates a reviewable draft that goes through the approval workflow. Use 'Save changes' to save directly to the live record without creating a draft.">
-          <FileEdit className="w-4 h-4" />Save as workflow draft
         </button>
         <button onClick={handleDiscard} disabled={saving}
           className="flex items-center gap-2 bg-white border border-gray-300 text-gray-500 px-4 py-2 rounded-md hover:bg-gray-50 disabled:opacity-50 text-sm font-medium transition-colors"

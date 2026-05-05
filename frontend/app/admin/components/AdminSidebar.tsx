@@ -29,6 +29,7 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
   const pathname = usePathname()
   const [role, setRole] = useState<string | null>(null)
   const [dupCount, setDupCount] = useState<number | null>(null)
+  const [draftCount, setDraftCount] = useState<number | null>(null)
 
   useEffect(() => {
     const init = async () => {
@@ -40,9 +41,10 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
         if (!session) return
         const token = session.access_token
 
-        const [meRes, dupRes] = await Promise.all([
+        const [meRes, dupRes, draftRes] = await Promise.all([
           fetch('/api/admin/me', { headers: { Authorization: `Bearer ${token}` } }),
           fetch('/api/admin/duplicates/count', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/admin/drafts/count', { headers: { Authorization: `Bearer ${token}` } }),
         ])
 
         if (meRes.ok) {
@@ -52,6 +54,10 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
         if (dupRes.ok) {
           const dupData = await dupRes.json()
           if (dupData.total_groups != null) setDupCount(dupData.total_groups)
+        }
+        if (draftRes.ok) {
+          const draftData = await draftRes.json()
+          if (draftData.count != null) setDraftCount(draftData.count)
         }
       } catch (err) {
         if (process.env.NODE_ENV === 'development') {
@@ -144,6 +150,11 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
               {href === '/admin/duplicates' && dupCount != null && dupCount > 0 && (
                 <span className="bg-yellow-400 text-yellow-900 text-xs font-bold px-1.5 py-0.5 rounded-full md:hidden lg:inline">
                   {dupCount}
+                </span>
+              )}
+              {href === '/admin/drafts' && draftCount != null && draftCount > 0 && (
+                <span className="bg-yellow-400 text-yellow-900 text-xs font-bold px-1.5 py-0.5 rounded-full md:hidden lg:inline">
+                  {draftCount}
                 </span>
               )}
             </Link>

@@ -149,6 +149,7 @@ def api_search(
                 spl_strength
             FROM pillfinder
             WHERE deleted_at IS NULL
+              AND published = true
         """
 
         params: dict = {}
@@ -197,6 +198,7 @@ def api_search(
                     SELECT DISTINCT medicine_name, splimprint
                     FROM pillfinder
                     WHERE deleted_at IS NULL
+                      AND published = true
                     {"".join(f' AND {cond}' for cond in where_conditions)}
                 ) AS count_query
             """
@@ -246,6 +248,7 @@ def api_search(
                 image_q = text("""
                     SELECT image_filename FROM pillfinder
                     WHERE deleted_at IS NULL
+                      AND published = true
                       AND medicine_name = :medicine_name
                       AND splimprint = :splimprint
                 """)

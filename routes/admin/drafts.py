@@ -83,6 +83,27 @@ def create_draft(
         raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
+@router.get("/drafts/count")
+def get_draft_count(admin: dict = Depends(get_admin_user)):
+    """Return the count of active (non-published, non-rejected) drafts."""
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.connect() as conn:
+            count = conn.execute(
+                text("""
+                    SELECT COUNT(*) FROM pill_drafts
+                    WHERE status NOT IN ('published', 'rejected')
+                """),
+            ).scalar() or 0
+        return {"count": int(count)}
+    except SQLAlchemyError as e:
+        logger.error(f"get_draft_count DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
 @router.get("/drafts")
 def list_drafts(
     status: Optional[str] = Query(None),
@@ -188,26 +209,50 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
                            "Use /approve first.",
                 )
 
-            pill_id = str(draft[1])
+            pill_id_raw = draft[1]
             draft_data = draft[2] if isinstance(draft[2], dict) else json.loads(draft[2])
 
-            # Apply draft_data to pillfinder
-            if draft_data:
-                set_parts = [
-                    f"{k} = :{k}"
-                    for k in draft_data.keys()
-                    if k in PUBLISHABLE_FIELDS
-                ]
-                if set_parts:
-                    set_parts.append("updated_at = now()")
-                    set_parts.append("updated_by = :updated_by_id")
-                    params = {k: v for k, v in draft_data.items() if k in PUBLISHABLE_FIELDS}
-                    params["updated_by_id"] = str(admin["id"])
-                    params["pill_id"] = pill_id
-                    conn.execute(
-                        text(f"UPDATE pillfinder SET {', '.join(set_parts)} WHERE id = :pill_id"),
-                        params,
-                    )
+            if pill_id_raw is None:
+                # Draft for a brand-new pill (e.g. from bulk upload). Insert into pillfinder.
+                if draft_data:
+                    insert_data = {k: v for k, v in draft_data.items() if k in PUBLISHABLE_FIELDS}
+                    insert_data["published"] = True
+                    insert_data["updated_by"] = str(admin["id"])
+                    cols = ", ".join(insert_data.keys())
+                    vals = ", ".join(f":{k}" for k in insert_data.keys())
+                    new_pill = conn.execute(
+                        text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
+                        insert_data,
+                    ).fetchone()
+                    pill_id = str(new_pill[0]) if new_pill else None
+                    # Link the draft back to the newly created pill
+                    if pill_id:
+                        conn.execute(
+                            text("UPDATE pill_drafts SET pill_id = :pill_id WHERE id = :id"),
+                            {"pill_id": pill_id, "id": draft_id},
+                        )
+                else:
+                    pill_id = None
+            else:
+                pill_id = str(pill_id_raw)
+                # Apply draft_data to existing pillfinder row and mark as published
+                if draft_data:
+                    set_parts = [
+                        f"{k} = :{k}"
+                        for k in draft_data.keys()
+                        if k in PUBLISHABLE_FIELDS
+                    ]
+                    if set_parts:
+                        set_parts.append("updated_at = now()")
+                        set_parts.append("updated_by = :updated_by_id")
+                        set_parts.append("published = true")
+                        params = {k: v for k, v in draft_data.items() if k in PUBLISHABLE_FIELDS}
+                        params["updated_by_id"] = str(admin["id"])
+                        params["pill_id"] = pill_id
+                        conn.execute(
+                            text(f"UPDATE pillfinder SET {', '.join(set_parts)} WHERE id = :pill_id"),
+                            params,
+                        )
 
             conn.execute(
                 text("""

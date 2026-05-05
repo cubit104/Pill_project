@@ -854,42 +854,73 @@ def bulk_create_pills(
 
         try:
             with database.db_engine.begin() as conn:
-                # Idempotency: if a row with this key already exists, return it
-                # instead of inserting a duplicate (safe for client retries).
-                if idempotency_key:
-                    existing = conn.execute(
-                        text("SELECT id FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
-                        {"key": idempotency_key},
-                    ).fetchone()
-                    if existing:
-                        succeeded += 1
-                        results.append({
-                            "index": i,
-                            "success": True,
-                            "id": str(existing[0]),
-                            "drug_name": drug_name,
-                        })
-                        continue
+                if body.publish:
+                    # Idempotency: if a row with this key already exists, return it
+                    # instead of inserting a duplicate (safe for client retries).
+                    if idempotency_key:
+                        existing = conn.execute(
+                            text("SELECT id FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
+                            {"key": idempotency_key},
+                        ).fetchone()
+                        if existing:
+                            succeeded += 1
+                            results.append({
+                                "index": i,
+                                "success": True,
+                                "id": str(existing[0]),
+                                "drug_name": drug_name,
+                            })
+                            continue
 
-                cols = ", ".join(data.keys())
-                vals = ", ".join(f":{k}" for k in data.keys())
-                insert_result = conn.execute(
-                    text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
-                    data,
-                )
-                new_id = insert_result.scalar()
+                    # Insert directly into pillfinder with published = true
+                    publish_data = {**data, "published": True}
+                    cols = ", ".join(publish_data.keys())
+                    vals = ", ".join(f":{k}" for k in publish_data.keys())
+                    insert_result = conn.execute(
+                        text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
+                        publish_data,
+                    )
+                    new_id = insert_result.scalar()
 
-                log_audit(
-                    conn,
-                    actor_id=admin["id"],
-                    actor_email=admin["email"],
-                    action="bulk_create",
-                    entity_type="pill",
-                    entity_id=str(new_id),
-                    diff={"after": {k: str(v) if v is not None else None for k, v in data.items()}, "publish": body.publish},
-                    ip_address=request.client.host if request.client else None,
-                    user_agent=request.headers.get("user-agent"),
-                )
+                    log_audit(
+                        conn,
+                        actor_id=admin["id"],
+                        actor_email=admin["email"],
+                        action="bulk_create",
+                        entity_type="pill",
+                        entity_id=str(new_id),
+                        diff={"after": {k: str(v) if v is not None else None for k, v in publish_data.items()}, "publish": True},
+                        ip_address=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent"),
+                    )
+                else:
+                    # Save as draft: insert into pill_drafts with pill_id=NULL
+                    # (new pill — not yet in pillfinder)
+                    import json as _json
+                    draft_result = conn.execute(
+                        text("""
+                            INSERT INTO pill_drafts (pill_id, draft_data, status, created_by)
+                            VALUES (NULL, CAST(:draft_data AS jsonb), 'draft', :created_by)
+                            RETURNING id
+                        """),
+                        {
+                            "draft_data": _json.dumps({k: str(v) if v is not None else None for k, v in data.items()}),
+                            "created_by": str(admin["id"]),
+                        },
+                    )
+                    new_id = draft_result.scalar()
+
+                    log_audit(
+                        conn,
+                        actor_id=admin["id"],
+                        actor_email=admin["email"],
+                        action="bulk_create_draft",
+                        entity_type="draft",
+                        entity_id=str(new_id),
+                        diff={"after": {k: str(v) if v is not None else None for k, v in data.items()}, "publish": False},
+                        ip_address=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent"),
+                    )
 
             succeeded += 1
             results.append({
