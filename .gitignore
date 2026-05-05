@@ -48,3 +48,5 @@ yarn-error.log*
 
 # TypeScript build artifacts
 *.tsbuildinfo
+frontend/node_modules
+frontend/package-lock.json

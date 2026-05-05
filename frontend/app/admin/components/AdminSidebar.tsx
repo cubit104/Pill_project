@@ -32,17 +32,17 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
   const [draftCount, setDraftCount] = useState<number | null>(null)
 
   const fetchCounts = useCallback(async (token: string) => {
-    const [dupRes, statsRes] = await Promise.all([
+    const [dupRes, draftRes] = await Promise.all([
       fetch('/api/admin/duplicates/count', { headers: { Authorization: `Bearer ${token}` } }),
-      fetch('/api/admin/stats', { headers: { Authorization: `Bearer ${token}` } }),
+      fetch('/api/admin/drafts/count', { headers: { Authorization: `Bearer ${token}` } }),
     ])
     if (dupRes.ok) {
       const dupData = await dupRes.json()
       if (dupData.total_groups != null) setDupCount(dupData.total_groups)
     }
-    if (statsRes.ok) {
-      const statsData = await statsRes.json()
-      if (statsData.pending_drafts != null) setDraftCount(statsData.pending_drafts)
+    if (draftRes.ok) {
+      const draftData = await draftRes.json()
+      if (draftData.count != null) setDraftCount(draftData.count)
     }
   }, [])
 
