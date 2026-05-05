@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, useRef, useId } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
-import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink, Send, CheckCircle, XCircle, Clock } from 'lucide-react'
 import {
   FIELD_SCHEMA,
   FIELD_SCHEMA_BY_KEY,
@@ -636,6 +636,8 @@ export default function EditPillPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<Array<{ id: string; status: string; created_at: string }>>([])
   const [draftCount, setDraftCount] = useState(0)
+  const [role, setRole] = useState<string | null>(null)
+  const [draftActioning, setDraftActioning] = useState<string | null>(null)
   const [completeness, setCompleteness] = useState<CompletenessData | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [resolvedImageUrls, setResolvedImageUrls] = useState<string[]>([])
@@ -657,10 +659,19 @@ export default function EditPillPage() {
     if (!session) { router.push('/admin/login'); return }
     setToken(session.access_token)
     try {
-      const res = await fetch(`/api/admin/pills/${pillId}`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
+      const [res, meRes] = await Promise.all([
+        fetch(`/api/admin/pills/${pillId}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }),
+        fetch('/api/admin/me', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }),
+      ])
       if (!res.ok) throw new Error(await safeErrorDetail(res, 'Failed to fetch pill'))
+      if (meRes.ok) {
+        const meData = await meRes.json()
+        setRole(meData.role)
+      }
       const data = await res.json()
       setPill(data)
       const loadedDrafts = data.drafts || []
@@ -855,22 +866,59 @@ export default function EditPillPage() {
     const session = await getSession()
     if (!session) return
     try {
-      const res = await fetch(`/api/admin/pills/${pillId}/drafts`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft_data: form, status: 'draft' }),
-      })
-      if (!res.ok) {
-        throw new Error(await safeErrorDetail(res, 'Draft creation failed'))
+      const existingDraft = drafts.find(d => d.status === 'draft')
+      let res: Response
+      if (existingDraft) {
+        res = await fetch(`/api/admin/drafts/${existingDraft.id}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draft_data: form }),
+        })
+        if (!res.ok) {
+          throw new Error(await safeErrorDetail(res, 'Draft update failed'))
+        }
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[handleSaveDraft] draft updated:', existingDraft.id)
+        }
+        setSuccess(`Draft updated: #${existingDraft.id.slice(0, 8)}`)
+      } else {
+        res = await fetch(`/api/admin/pills/${pillId}/drafts`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draft_data: form, status: 'draft' }),
+        })
+        if (!res.ok) {
+          throw new Error(await safeErrorDetail(res, 'Draft creation failed'))
+        }
+        const data = await res.json()
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[handleSaveDraft] draft created:', data.id)
+        }
+        setSuccess(`Workflow draft created: #${data.id.slice(0, 8)} — view all drafts at /admin/drafts`)
       }
-      const data = await res.json()
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[handleSaveDraft] draft created:', data.id)
-      }
-      setSuccess(`Workflow draft created: #${data.id.slice(0, 8)} — view all drafts at /admin/drafts`)
       setSuccessDismissed(false)
       await loadPill()
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
+  }
+
+  const handleDraftAction = async (draftId: string, endpoint: string) => {
+    const session = await getSession()
+    if (!session) return
+    setDraftActioning(draftId)
+    try {
+      const res = await fetch(`/api/admin/drafts/${draftId}/${endpoint}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setError(err.detail || `Action '${endpoint}' failed`)
+        setErrorDismissed(false)
+      } else {
+        await loadPill()
+      }
+    } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setDraftActioning(null) }
   }
 
   const handleSaveIndication = async () => {
@@ -1082,13 +1130,57 @@ export default function EditPillPage() {
           </div>
           <div className="divide-y divide-gray-100">
             {drafts.map((draft) => (
-              <div key={draft.id} className="px-4 py-3 flex items-center justify-between text-sm">
+              <div key={draft.id} className="px-4 py-3 flex items-center justify-between text-sm gap-2 flex-wrap">
                 <span className="text-gray-700 font-medium">#{draft.id.slice(0, 8)}</span>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                   draft.status === 'pending_review' ? 'bg-yellow-100 text-yellow-700'
                   : draft.status === 'approved' ? 'bg-green-100 text-green-700'
                   : 'bg-gray-100 text-gray-600'}`}>{draft.status}</span>
                 <span className="text-gray-400 text-xs">{new Date(draft.created_at).toLocaleDateString()}</span>
+                <div className="flex gap-2 items-center flex-wrap">
+                  <Link
+                    href={`/admin/drafts/${draft.id}/edit`}
+                    className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
+                  >
+                    <FileEdit className="w-3 h-3" /> Edit
+                  </Link>
+                  {draft.status === 'draft' && (
+                    <button
+                      onClick={() => handleDraftAction(draft.id, 'submit')}
+                      disabled={draftActioning === draft.id}
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                    >
+                      <Send className="w-3 h-3" /> Submit
+                    </button>
+                  )}
+                  {draft.status === 'pending_review' && (role === 'superuser' || role === 'superadmin' || role === 'editor') && (
+                    <>
+                      <button
+                        onClick={() => handleDraftAction(draft.id, 'approve')}
+                        disabled={draftActioning === draft.id}
+                        className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800 disabled:opacity-50"
+                      >
+                        <CheckCircle className="w-3 h-3" /> Approve
+                      </button>
+                      <button
+                        onClick={() => handleDraftAction(draft.id, 'reject')}
+                        disabled={draftActioning === draft.id}
+                        className="flex items-center gap-1 text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                      >
+                        <XCircle className="w-3 h-3" /> Reject
+                      </button>
+                    </>
+                  )}
+                  {draft.status === 'approved' && (role === 'superuser' || role === 'superadmin' || role === 'editor') && (
+                    <button
+                      onClick={() => handleDraftAction(draft.id, 'publish')}
+                      disabled={draftActioning === draft.id}
+                      className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                    >
+                      <Clock className="w-3 h-3" /> Publish
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

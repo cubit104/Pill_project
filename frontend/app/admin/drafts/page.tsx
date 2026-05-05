@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic'
 import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '../lib/supabase'
 import { CheckCircle, XCircle, Clock, Send } from 'lucide-react'
 
@@ -181,6 +182,12 @@ function DraftsListInner() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-2 items-center">
+                    <Link
+                      href={`/admin/drafts/${draft.id}/edit`}
+                      className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
+                    >
+                      Edit
+                    </Link>
                     {draft.status === 'draft' && (
                       <button
                         onClick={() => action(draft.id, 'submit')}

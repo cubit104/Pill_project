@@ -29,6 +29,10 @@ class DraftCreate(BaseModel):
     # Status on creation is always 'draft'; use the dedicated /submit endpoint to advance state.
 
 
+class DraftUpdate(BaseModel):
+    draft_data: dict
+
+
 class ReviewAction(BaseModel):
     review_notes: Optional[str] = None
 
@@ -83,6 +87,107 @@ def create_draft(
         raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
+@router.get("/drafts/{draft_id}")
+def get_draft(draft_id: str, admin: dict = Depends(get_admin_user)):
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT d.id, d.pill_id, d.status, d.created_at, d.updated_at,
+                           d.review_notes, d.draft_data, d.created_by,
+                           COALESCE(p.medicine_name, d.draft_data->>'medicine_name') AS medicine_name
+                    FROM pill_drafts d
+                    LEFT JOIN pillfinder p ON p.id = d.pill_id
+                    WHERE d.id = :id
+                    LIMIT 1
+                """),
+                {"id": draft_id},
+            ).fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Draft not found")
+
+        draft_data = row[6] if isinstance(row[6], dict) else json.loads(row[6]) if row[6] else {}
+        return {
+            "id": str(row[0]),
+            "pill_id": str(row[1]) if row[1] else None,
+            "status": row[2],
+            "created_at": row[3].isoformat() if row[3] else None,
+            "updated_at": row[4].isoformat() if row[4] else None,
+            "review_notes": row[5],
+            "draft_data": draft_data,
+            "created_by": str(row[7]) if row[7] else None,
+            "medicine_name": row[8],
+        }
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"get_draft DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
+@router.put("/drafts/{draft_id}")
+def update_draft(
+    request: Request,
+    draft_id: str,
+    body: DraftUpdate,
+    admin: dict = Depends(get_admin_user),
+):
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.begin() as conn:
+            result = conn.execute(
+                text("""
+                    UPDATE pill_drafts
+                    SET draft_data = CAST(:draft_data AS jsonb), updated_at = now()
+                    WHERE id = :id AND status = 'draft'
+                    RETURNING id
+                """),
+                {"id": draft_id, "draft_data": json.dumps(body.draft_data)},
+            )
+            row = result.fetchone()
+            if not row:
+                exists = conn.execute(
+                    text("SELECT status FROM pill_drafts WHERE id = :id LIMIT 1"),
+                    {"id": draft_id},
+                ).fetchone()
+                if not exists:
+                    raise HTTPException(status_code=404, detail="Draft not found")
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Draft cannot be updated: current status is '{exists[0]}'. Only 'draft' status drafts can be edited.",
+                )
+
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action="update_draft",
+                entity_type="draft",
+                entity_id=draft_id,
+                metadata={"status": "draft"},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+
+        return {"id": draft_id, "updated": True}
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"update_draft DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
 @router.get("/drafts")
 def list_drafts(
     status: Optional[str] = Query(None),
@@ -102,7 +207,9 @@ def list_drafts(
             rows = conn.execute(
                 text(f"""
                     SELECT d.id, d.pill_id, d.status, d.created_at, d.updated_at,
-                           d.review_notes, p.medicine_name, d.created_by
+                           d.review_notes,
+                           COALESCE(p.medicine_name, d.draft_data->>'medicine_name') AS medicine_name,
+                           d.created_by
                     FROM pill_drafts d
                     LEFT JOIN pillfinder p ON p.id = d.pill_id
                     {where}
