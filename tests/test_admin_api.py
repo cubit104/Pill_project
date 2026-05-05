@@ -2165,3 +2165,373 @@ def test_list_drafts_returns_unpublished_pillfinder_rows(client):
     assert data[0]["pill_id"] == pill_id  # same as id — no separate draft id
     assert data[0]["status"] == "draft"
     assert data[0]["medicine_name"] == "Ibuprofen"
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/admin/drafts/{draft_id}
+# ---------------------------------------------------------------------------
+
+def test_delete_draft_superuser_can_delete_draft_status(client):
+    """DELETE /api/admin/drafts/{id} returns 200 for a superuser deleting a 'draft'."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    DRAFT_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+    PILL_ID = "pppppppp-pppp-pppp-pppp-pppppppppppp"
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            # profiles auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "select" in sql_str and "pill_drafts" in sql_str and "where id" in sql_str:
+            # Draft lookup — return status='draft'
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "draft")
+        elif "insert" in sql_str and "admin_audit_log" in sql_str:
+            result.fetchone.return_value = None
+        elif "delete from pill_drafts" in sql_str:
+            result.fetchone.return_value = None
+        elif "pillfinder" in sql_str and "published" in sql_str:
+            # pillfinder row: published=True so no soft-delete should happen
+            result.fetchone.return_value = (PILL_ID, True)
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] is True
+
+
+def test_delete_draft_editor_can_delete_draft_status(client):
+    """DELETE /api/admin/drafts/{id} returns 200 for an editor deleting a 'draft'."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_EDITOR_ROW)
+
+    DRAFT_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+    PILL_ID = "pppppppp-pppp-pppp-pppp-pppppppppppp"
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_EDITOR_PROFILE
+        elif "select" in sql_str and "pill_drafts" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "draft")
+        elif "insert" in sql_str and "admin_audit_log" in sql_str:
+            result.fetchone.return_value = None
+        elif "delete from pill_drafts" in sql_str:
+            result.fetchone.return_value = None
+        elif "pillfinder" in sql_str and "published" in sql_str:
+            result.fetchone.return_value = (PILL_ID, True)
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR_ROW[0], "email": FAKE_EDITOR_ROW[1]}):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+
+
+def test_delete_draft_readonly_gets_403_for_draft_status(client):
+    """DELETE /api/admin/drafts/{id} returns 403 for readonly user deleting 'draft'."""
+    mock_engine, mock_conn = _make_mock_engine(
+        admin_row=FAKE_READONLY_ROW,
+        profile_row=None,  # readonly has no profiles row — falls back to admin_users
+    )
+
+    DRAFT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    PILL_ID = "pppppppp-pppp-pppp-pppp-pppppppppppp"
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = None  # no profiles row for readonly
+        elif call_count[0] == 2:
+            result.fetchone.return_value = FAKE_READONLY_ROW  # admin_users fallback
+        elif "select" in sql_str and "pill_drafts" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "draft")
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_READONLY_ROW[0]}):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 403
+
+
+def test_delete_draft_editor_gets_403_for_pending_review(client):
+    """DELETE /api/admin/drafts/{id} returns 403 when editor tries to delete pending_review."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_EDITOR_ROW)
+
+    DRAFT_ID = "11111111-1111-1111-1111-111111111111"
+    PILL_ID = "pppppppp-pppp-pppp-pppp-pppppppppppp"
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_EDITOR_PROFILE
+        elif "select" in sql_str and "pill_drafts" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "pending_review")
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR_ROW[0], "email": FAKE_EDITOR_ROW[1]}):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 403
+
+
+def test_delete_draft_superuser_can_delete_pending_review(client):
+    """DELETE /api/admin/drafts/{id} returns 200 when superuser deletes pending_review."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    DRAFT_ID = "22222222-2222-2222-2222-222222222222"
+    PILL_ID = "pppppppp-pppp-pppp-pppp-pppppppppppp"
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "select" in sql_str and "pill_drafts" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "pending_review")
+        elif "insert" in sql_str and "admin_audit_log" in sql_str:
+            result.fetchone.return_value = None
+        elif "delete from pill_drafts" in sql_str:
+            result.fetchone.return_value = None
+        elif "pillfinder" in sql_str and "published" in sql_str:
+            result.fetchone.return_value = (PILL_ID, True)
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] is True
+
+
+def test_delete_draft_soft_deletes_pillfinder_when_last_draft(client):
+    """Deleting the last draft for an unpublished pill soft-deletes the pillfinder row."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    DRAFT_ID = "33333333-3333-3333-3333-333333333333"
+    PILL_ID = "44444444-4444-4444-4444-444444444444"
+
+    executed_sqls: list[str] = []
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql)
+        executed_sqls.append(sql_str)
+        call_count[0] += 1
+        sql_lower = sql_str.lower()
+        if call_count[0] == 1:
+            # profiles auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "select" in sql_lower and "pill_drafts" in sql_lower and "where id" in sql_lower:
+            # Draft row lookup — status='draft', has pill_id
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "draft")
+        elif "insert" in sql_lower and "admin_audit_log" in sql_lower:
+            result.fetchone.return_value = None
+        elif "delete from pill_drafts" in sql_lower:
+            result.fetchone.return_value = None
+        elif "pillfinder" in sql_lower and "published" in sql_lower:
+            # pillfinder.published=false (unpublished)
+            result.fetchone.return_value = (PILL_ID, False)
+        elif "count" in sql_lower and "pill_drafts" in sql_lower:
+            # No other drafts referencing this pill
+            result.scalar.return_value = 0
+        elif "update pillfinder" in sql_lower and "deleted_at" in sql_lower:
+            result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        if "count" not in sql_str.lower():
+            result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] is True
+
+    # Verify that the pillfinder cleanup used a soft-delete (UPDATE … SET deleted_at)
+    # and NOT a hard DELETE.
+    assert any(
+        "UPDATE pillfinder" in sql and "deleted_at" in sql
+        for sql in executed_sqls
+    ), "pillfinder cleanup must use soft-delete (UPDATE … SET deleted_at)"
+    assert not any(
+        "DELETE FROM pillfinder" in sql
+        for sql in executed_sqls
+    ), "pillfinder cleanup must NOT use hard DELETE"
+
+
+def test_delete_draft_does_not_touch_pillfinder_when_other_drafts_exist(client):
+    """Pillfinder row is NOT soft-deleted when another draft still references the pill."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    DRAFT_ID = "55555555-5555-5555-5555-555555555555"
+    PILL_ID = "66666666-6666-6666-6666-666666666666"
+
+    executed_sqls: list[str] = []
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql)
+        executed_sqls.append(sql_str)
+        call_count[0] += 1
+        sql_lower = sql_str.lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "select" in sql_lower and "pill_drafts" in sql_lower and "where id" in sql_lower:
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "draft")
+        elif "insert" in sql_lower and "admin_audit_log" in sql_lower:
+            result.fetchone.return_value = None
+        elif "delete from pill_drafts" in sql_lower:
+            result.fetchone.return_value = None
+        elif "pillfinder" in sql_lower and "published" in sql_lower:
+            result.fetchone.return_value = (PILL_ID, False)
+        elif "count" in sql_lower and "pill_drafts" in sql_lower:
+            # Another draft still exists
+            result.scalar.return_value = 1
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        if "count" not in sql_str.lower():
+            result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    # pillfinder must NOT be touched (neither hard nor soft delete)
+    assert not any("UPDATE pillfinder" in sql and "deleted_at" in sql for sql in executed_sqls), \
+        "pillfinder must not be soft-deleted when other drafts still reference it"
+    assert not any("DELETE FROM pillfinder" in sql for sql in executed_sqls), \
+        "pillfinder must not be hard-deleted when other drafts still reference it"
+
+
+def test_delete_draft_returns_404_for_missing(client):
+    """DELETE /api/admin/drafts/{id} returns 404 when draft doesn't exist."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.delete(
+            "/api/admin/drafts/nonexistent-draft-id",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 404
