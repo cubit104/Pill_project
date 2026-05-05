@@ -16,6 +16,7 @@ interface Draft {
   review_notes: string | null
   medicine_name: string | null
   created_by: string | null
+  source: string | null
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -251,7 +252,7 @@ function DraftsListInner() {
                         <Pencil className="w-3 h-3" /> Edit
                       </Link>
                     )}
-                    {draft.status === 'draft' && (
+                    {draft.status === 'draft' && draft.source !== 'pillfinder' && (
                       <button
                         onClick={() => action(draft.id, 'submit')}
                         disabled={actioning === draft.id}
