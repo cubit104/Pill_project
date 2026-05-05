@@ -512,13 +512,15 @@ def delete_draft(
             # Delete the draft row
             conn.execute(text("DELETE FROM pill_drafts WHERE id = :id"), {"id": draft_id})
 
-            # If the draft had a linked pill, check whether to also delete the pillfinder row.
-            # Only delete the pillfinder row when:
+            # If the draft had a linked pill, check whether to also soft-delete the
+            # pillfinder row.  Conditions:
             #   1. pillfinder.published = false (unpublished / bulk-draft path)
             #   2. No other living draft (non-deleted) still references this pill
+            # We use soft-delete to stay consistent with the rest of the admin codebase
+            # (hard-delete of pillfinder rows is superuser-only via a separate endpoint).
             if pill_id:
                 pill_row = conn.execute(
-                    text("SELECT id, published FROM pillfinder WHERE id = :pill_id LIMIT 1"),
+                    text("SELECT id, published FROM pillfinder WHERE id = :pill_id AND deleted_at IS NULL LIMIT 1"),
                     {"pill_id": pill_id},
                 ).fetchone()
                 if pill_row and pill_row[1] is False:
@@ -531,8 +533,12 @@ def delete_draft(
                     ).scalar() or 0
                     if int(other_drafts) == 0:
                         conn.execute(
-                            text("DELETE FROM pillfinder WHERE id = :pill_id"),
-                            {"pill_id": pill_id},
+                            text("""
+                                UPDATE pillfinder
+                                SET deleted_at = now(), deleted_by = :admin_id
+                                WHERE id = :pill_id AND deleted_at IS NULL
+                            """),
+                            {"pill_id": pill_id, "admin_id": str(admin["id"])},
                         )
 
         return {"deleted": True}

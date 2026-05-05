@@ -287,9 +287,10 @@ function DraftsListInner() {
                         <Upload className="w-3 h-3" /> Publish
                       </button>
                     )}
-                    {/* Delete button — role-gated */}
-                    {(
-                      (draft.status === 'draft' || draft.status === 'rejected') ||
+                    {/* Delete button — role-gated; hidden until role is loaded */}
+                    {role != null && (
+                      ((draft.status === 'draft' || draft.status === 'rejected') &&
+                        (role === 'editor' || role === 'reviewer' || role === 'superuser')) ||
                       ((draft.status === 'pending_review' || draft.status === 'approved' || draft.status === 'published') &&
                         role === 'superuser')
                     ) && (
