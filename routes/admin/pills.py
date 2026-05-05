@@ -896,7 +896,6 @@ def bulk_create_pills(
                 else:
                     # Save as draft: insert into pill_drafts with pill_id=NULL
                     # (new pill — not yet in pillfinder)
-                    import json as _json
                     draft_result = conn.execute(
                         text("""
                             INSERT INTO pill_drafts (pill_id, draft_data, status, created_by)
@@ -904,7 +903,7 @@ def bulk_create_pills(
                             RETURNING id
                         """),
                         {
-                            "draft_data": _json.dumps({k: str(v) if v is not None else None for k, v in data.items()}),
+                            "draft_data": json.dumps({k: str(v) if v is not None else None for k, v in data.items()}),
                             "created_by": str(admin["id"]),
                         },
                     )
