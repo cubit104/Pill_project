@@ -855,14 +855,22 @@ def bulk_create_pills(
         try:
             with database.db_engine.begin() as conn:
                 if body.publish:
-                    # Idempotency: if a row with this key already exists, return it
-                    # instead of inserting a duplicate (safe for client retries).
+                    # Idempotency: if a row with this key already exists, return it.
+                    # If it was previously saved as a draft (published=false), transition
+                    # it to published=true so a re-sent publish request is idempotent
+                    # and doesn't violate the UNIQUE constraint on idempotency_key.
                     if idempotency_key:
                         existing = conn.execute(
-                            text("SELECT id FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
+                            text("SELECT id, published FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
                             {"key": idempotency_key},
                         ).fetchone()
                         if existing:
+                            if not existing[1]:
+                                # Row exists but was saved as draft — transition to published
+                                conn.execute(
+                                    text("UPDATE pillfinder SET published = true WHERE id = :id"),
+                                    {"id": existing[0]},
+                                )
                             succeeded += 1
                             results.append({
                                 "index": i,
@@ -898,12 +906,12 @@ def bulk_create_pills(
                     # This mirrors the publish path so all drafts are accessible via the
                     # existing /admin/pills/{id} edit page — no pill_drafts row needed.
                     if idempotency_key:
+                        # Check for any existing row with this key regardless of published
+                        # status — the UNIQUE constraint on idempotency_key spans all rows,
+                        # so filtering on published=false would miss a published row and
+                        # cause a unique-constraint violation on the subsequent INSERT.
                         existing = conn.execute(
-                            text("""
-                                SELECT id FROM pillfinder
-                                WHERE idempotency_key = :key AND published = false
-                                LIMIT 1
-                            """),
+                            text("SELECT id FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
                             {"key": idempotency_key},
                         ).fetchone()
                         if existing:

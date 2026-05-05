@@ -2114,14 +2114,14 @@ def test_create_draft_returns_201_on_insert(client):
     assert data["created"] is True
 
 
-def test_list_drafts_filters_by_pill_id(client):
-    """GET /api/admin/drafts?pill_id=xxx returns only drafts for that pill."""
+def test_list_drafts_returns_unpublished_pillfinder_rows(client):
+    """GET /api/admin/drafts returns pillfinder rows where published=false."""
     import datetime
 
     mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
 
     call_count = [0]
-    pill_uuid = "11111111-1111-1111-1111-111111111111"
+    pill_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
     def side_effect(sql, *args, **kwargs):
         result = MagicMock()
@@ -2130,18 +2130,13 @@ def test_list_drafts_filters_by_pill_id(client):
         if call_count[0] == 1:
             result.fetchone.return_value = FAKE_ADMIN_PROFILE
             result.fetchall.return_value = []
-        elif "pill_drafts" in sql_str and "select" in sql_str:
+        elif "pillfinder" in sql_str and "published" in sql_str:
             result.fetchone.return_value = None
             result.fetchall.return_value = [
                 (
-                    "draft-uuid-002",
-                    pill_uuid,
-                    "draft",
-                    datetime.datetime(2024, 1, 1),
-                    datetime.datetime(2024, 1, 2),
-                    None,
+                    pill_id,
                     "Ibuprofen",
-                    "00000000-0000-0000-0000-000000000001",
+                    datetime.datetime(2024, 1, 2),
                 )
             ]
         else:
@@ -2156,7 +2151,7 @@ def test_list_drafts_filters_by_pill_id(client):
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
-            f"/api/admin/drafts?pill_id={pill_uuid}",
+            "/api/admin/drafts",
             headers={"Authorization": "Bearer faketoken"},
         )
 
@@ -2164,5 +2159,7 @@ def test_list_drafts_filters_by_pill_id(client):
     data = resp.json()
     assert isinstance(data, list)
     assert len(data) == 1
-    assert data[0]["id"] == "draft-uuid-002"
-    assert data[0]["pill_id"] == pill_uuid
+    assert data[0]["id"] == pill_id
+    assert data[0]["pill_id"] == pill_id
+    assert data[0]["status"] == "draft"
+    assert data[0]["medicine_name"] == "Ibuprofen"
