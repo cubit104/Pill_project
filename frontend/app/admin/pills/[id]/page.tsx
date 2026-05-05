@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, useRef, useId } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
-import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink, Send, CheckCircle, XCircle, Eye } from 'lucide-react'
 import {
   FIELD_SCHEMA,
   FIELD_SCHEMA_BY_KEY,
@@ -636,6 +636,8 @@ export default function EditPillPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<Array<{ id: string; status: string; created_at: string }>>([])
   const [draftCount, setDraftCount] = useState(0)
+  const [role, setRole] = useState<string | null>(null)
+  const [actioning, setActioning] = useState<string | null>(null)
   const [completeness, setCompleteness] = useState<CompletenessData | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [resolvedImageUrls, setResolvedImageUrls] = useState<string[]>([])
@@ -695,6 +697,17 @@ export default function EditPillPage() {
           setIndicationText(indData.plain_text ?? '')
         }
       } catch (e) { console.error(`[loadPill] pill=${pillId} indication fetch failed:`, e) /* indication is optional */ }
+
+      // Fetch current user role for draft action gating
+      try {
+        const meRes = await fetch('/api/admin/me', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+        if (meRes.ok) {
+          const meData = await meRes.json()
+          setRole(meData.role)
+        }
+      } catch (e) { console.error(`[loadPill] pill=${pillId} me fetch failed:`, e) }
     } catch (e) {
       setError(String(e))
     } finally {
@@ -889,6 +902,26 @@ export default function EditPillPage() {
     } catch (e) { setIndicationError(String(e)) } finally { setIndicationSaving(false) }
   }
 
+  const handleDraftAction = async (draftId: string, endpoint: string) => {
+    const session = await getSession()
+    if (!session) return
+    setActioning(draftId)
+    try {
+      const res = await fetch(`/api/admin/drafts/${draftId}/${endpoint}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setError(err.detail || 'Action failed')
+        setErrorDismissed(false)
+      } else {
+        await loadPill()
+      }
+    } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setActioning(null) }
+  }
+
   if (loading) return <div className="p-4 text-gray-500">Loading pill…</div>
 
   const showError = error && !errorDismissed
@@ -1081,16 +1114,63 @@ export default function EditPillPage() {
             </Link>
           </div>
           <div className="divide-y divide-gray-100">
-            {drafts.map((draft) => (
-              <div key={draft.id} className="px-4 py-3 flex items-center justify-between text-sm">
-                <span className="text-gray-700 font-medium">#{draft.id.slice(0, 8)}</span>
+            {drafts.map((draft) => {
+              const canManage = role === 'superuser' || role === 'superadmin' || role === 'editor'
+              return (
+              <div key={draft.id} className="px-4 py-3 flex items-center gap-3 text-sm flex-wrap">
+                <span className="text-gray-700 font-medium font-mono">#{draft.id.slice(0, 8)}</span>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                   draft.status === 'pending_review' ? 'bg-yellow-100 text-yellow-700'
                   : draft.status === 'approved' ? 'bg-green-100 text-green-700'
                   : 'bg-gray-100 text-gray-600'}`}>{draft.status}</span>
                 <span className="text-gray-400 text-xs">{new Date(draft.created_at).toLocaleDateString()}</span>
+                <div className="ml-auto flex gap-2 items-center">
+                  <Link
+                    href={`/admin/drafts/${draft.id}`}
+                    className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900"
+                  >
+                    <Eye className="w-3 h-3" /> View
+                  </Link>
+                  {draft.status === 'draft' && (
+                    <button
+                      onClick={() => handleDraftAction(draft.id, 'submit')}
+                      disabled={actioning === draft.id}
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                    >
+                      <Send className="w-3 h-3" /> Submit
+                    </button>
+                  )}
+                  {draft.status === 'pending_review' && canManage && (
+                    <>
+                      <button
+                        onClick={() => handleDraftAction(draft.id, 'approve')}
+                        disabled={actioning === draft.id}
+                        className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800 disabled:opacity-50"
+                      >
+                        <CheckCircle className="w-3 h-3" /> Approve
+                      </button>
+                      <button
+                        onClick={() => handleDraftAction(draft.id, 'reject')}
+                        disabled={actioning === draft.id}
+                        className="flex items-center gap-1 text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                      >
+                        <XCircle className="w-3 h-3" /> Reject
+                      </button>
+                    </>
+                  )}
+                  {draft.status === 'approved' && canManage && (
+                    <button
+                      onClick={() => handleDraftAction(draft.id, 'publish')}
+                      disabled={actioning === draft.id}
+                      className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                    >
+                      <Save className="w-3 h-3" /> Publish
+                    </button>
+                  )}
+                </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
