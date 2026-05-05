@@ -30,6 +30,7 @@ function DraftsListInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const statusFilter = searchParams.get('status') || ''
+  const pillIdFilter = searchParams.get('pill_id') || ''
 
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [loading, setLoading] = useState(true)
@@ -50,8 +51,12 @@ function DraftsListInner() {
 
     setLoading(true)
     try {
+      const qs = new URLSearchParams()
+      if (statusFilter) qs.set('status', statusFilter)
+      if (pillIdFilter) qs.set('pill_id', pillIdFilter)
+      const qStr = qs.toString()
       const [draftsRes, meRes, countRes] = await Promise.all([
-        fetch(`/api/admin/drafts${statusFilter ? `?status=${statusFilter}` : ''}`, {
+        fetch(`/api/admin/drafts${qStr ? `?${qStr}` : ''}`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         }),
         fetch('/api/admin/me', {
@@ -72,11 +77,11 @@ function DraftsListInner() {
         setPendingCount(countData.count ?? null)
       }
     } catch (e) {
-      setError(String(e))
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, router])
+  }, [statusFilter, pillIdFilter, router])
 
   useEffect(() => {
     fetchDrafts()

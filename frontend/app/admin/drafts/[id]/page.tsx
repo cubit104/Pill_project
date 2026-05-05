@@ -236,7 +236,7 @@ export default function EditDraftPage() {
         }
         setExtraDraftData(extra)
       } catch (e) {
-        setError(String(e))
+        setError(e instanceof Error ? e.message : String(e))
       } finally {
         setLoading(false)
       }
@@ -258,7 +258,7 @@ export default function EditDraftPage() {
       })
       if (!res.ok) throw new Error(await safeErrorDetail(res, 'Failed to save draft'))
       setSuccess('Draft saved successfully')
-    } catch (e) { setError(String(e)) } finally { setSaving(false) }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setSaving(false) }
   }
 
   const handleSubmit = async () => {
@@ -283,7 +283,7 @@ export default function EditDraftPage() {
       setSuccess('Draft submitted for review')
       setStatus('pending_review')
       window.dispatchEvent(new Event('draft-count-changed'))
-    } catch (e) { setError(String(e)) } finally { setSubmitting(false) }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setSubmitting(false) }
   }
 
   if (loading) return <div className="p-4 text-gray-500">Loading draft…</div>
@@ -311,7 +311,7 @@ export default function EditDraftPage() {
         </div>
       )}
 
-      {!isEditable && (
+      {!isEditable && status && (
         <div className="bg-yellow-50 border border-yellow-300 rounded-md px-4 py-3 text-sm text-yellow-800">
           ⚠️ This draft is in <strong>{status}</strong> status and cannot be edited directly.
         </div>

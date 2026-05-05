@@ -2112,3 +2112,57 @@ def test_create_draft_returns_201_on_insert(client):
     data = resp.json()
     assert data["id"] == "new-draft-id"
     assert data["created"] is True
+
+
+def test_list_drafts_filters_by_pill_id(client):
+    """GET /api/admin/drafts?pill_id=xxx returns only drafts for that pill."""
+    import datetime
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    pill_uuid = "11111111-1111-1111-1111-111111111111"
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+            result.fetchall.return_value = []
+        elif "pill_drafts" in sql_str and "select" in sql_str:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = [
+                (
+                    "draft-uuid-002",
+                    pill_uuid,
+                    "draft",
+                    datetime.datetime(2024, 1, 1),
+                    datetime.datetime(2024, 1, 2),
+                    None,
+                    "Ibuprofen",
+                    "00000000-0000-0000-0000-000000000001",
+                )
+            ]
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            f"/api/admin/drafts?pill_id={pill_uuid}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["id"] == "draft-uuid-002"
+    assert data[0]["pill_id"] == pill_uuid
