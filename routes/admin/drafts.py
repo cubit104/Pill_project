@@ -63,6 +63,24 @@ def create_draft(
 
     try:
         with database.db_engine.begin() as conn:
+            # Belt-and-suspenders: if the pill is already a pillfinder-source draft
+            # (published=false), a workflow pill_drafts row is unnecessary and would
+            # create a duplicate entry in the unified drafts list.  Use
+            # PUT /api/admin/pills/{id} to save changes to that row instead.
+            pill_row = conn.execute(
+                text("SELECT published FROM pillfinder WHERE id = :pill_id AND deleted_at IS NULL LIMIT 1"),
+                {"pill_id": pill_id},
+            ).fetchone()
+            if pill_row is not None and pill_row[0] is False:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "This pill is already a draft. "
+                        "Use PUT /api/admin/pills/{id} to save changes; "
+                        "a workflow draft row is unnecessary."
+                    ),
+                )
+
             # Atomic upsert: attempt UPDATE first (WHERE status='draft').
             # This is TOCTOU-safe: if a concurrent request transitions the draft
             # to another status between calls, the WHERE clause prevents overwriting

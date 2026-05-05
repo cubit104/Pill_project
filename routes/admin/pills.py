@@ -1314,6 +1314,11 @@ def update_pill(
         fn_val = updates["image_filename"]
         updates["has_image"] = "TRUE" if fn_val else "FALSE"
 
+    # When publishing, always set published=True so the pillfinder row goes live
+    # and the pill leaves the unified drafts list.
+    if publish:
+        updates["published"] = True
+
     if not updates:
         return {"updated": False}
 
@@ -1454,6 +1459,44 @@ def update_pill(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
+
+            # Fix B: when publishing, close out any active pill_drafts workflow rows
+            # for this pill in the same transaction so they leave the unified drafts list.
+            # Use a CTE to capture each row's prior status before the UPDATE.
+            if publish:
+                closed_drafts = conn.execute(
+                    text("""
+                        WITH prior AS (
+                            SELECT id, status AS prior_status
+                            FROM pill_drafts
+                            WHERE pill_id = :pill_id
+                              AND status NOT IN ('published', 'rejected')
+                        )
+                        UPDATE pill_drafts pd
+                        SET status = 'published',
+                            published_at = now(),
+                            published_by = :admin_id,
+                            updated_at = now()
+                        FROM prior
+                        WHERE pd.id = prior.id
+                        RETURNING pd.id, prior.prior_status
+                    """),
+                    {"admin_id": str(admin["id"]), "pill_id": pill_id},
+                ).fetchall()
+                for draft_row in closed_drafts:
+                    prior_draft_id = str(draft_row[0])
+                    prior_status = draft_row[1]
+                    log_audit(
+                        conn,
+                        actor_id=admin["id"],
+                        actor_email=admin["email"],
+                        action="publish_via_pill_edit",
+                        entity_type="draft",
+                        entity_id=prior_draft_id,
+                        metadata={"pill_id": pill_id, "prior_status": prior_status},
+                        ip_address=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent"),
+                    )
 
         return {"updated": True, "warnings": warnings}
     except HTTPException:
