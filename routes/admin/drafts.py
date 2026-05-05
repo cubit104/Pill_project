@@ -1,7 +1,6 @@
 """Admin draft management endpoints."""
 import json
 import logging
-import uuid
 from typing import Optional
 
 import bleach
@@ -125,7 +124,7 @@ def create_draft(
 
 @router.get("/drafts/count")
 def get_draft_count(admin: dict = Depends(get_admin_user)):
-    """Return the count of active (non-published, non-rejected) drafts."""
+    """Return the count of unpublished draft pills (pillfinder.published = false)."""
     if not database.db_engine:
         database.connect_to_database()
 
@@ -133,8 +132,8 @@ def get_draft_count(admin: dict = Depends(get_admin_user)):
         with database.db_engine.connect() as conn:
             count = conn.execute(
                 text("""
-                    SELECT COUNT(*) FROM pill_drafts
-                    WHERE status NOT IN ('published', 'rejected')
+                    SELECT COUNT(*) FROM pillfinder
+                    WHERE published = false AND deleted_at IS NULL
                 """),
             ).scalar() or 0
         return {"count": int(count)}
@@ -146,7 +145,13 @@ def get_draft_count(admin: dict = Depends(get_admin_user)):
 
 @router.get("/drafts/{draft_id}")
 def get_draft(draft_id: str, admin: dict = Depends(get_admin_user)):
-    """Return a single draft including its draft_data payload."""
+    """Return a single draft including its draft_data payload.
+
+    NOTE: This endpoint is no longer used by the UI (bulk drafts are now
+    stored as pillfinder rows with published=false and edited via
+    /admin/pills/{id}).  Kept for backward compatibility; candidate for
+    removal in a future cleanup.
+    """
     if not database.db_engine:
         database.connect_to_database()
 
@@ -194,7 +199,13 @@ def update_draft(
     body: DraftCreate,
     admin: dict = Depends(get_admin_user),
 ):
-    """Update the draft_data of an existing draft (only allowed when status='draft')."""
+    """Update the draft_data of an existing draft (only allowed when status='draft').
+
+    NOTE: This endpoint is no longer used by the UI (bulk drafts are now
+    stored as pillfinder rows with published=false and edited via
+    /admin/pills/{id}).  Kept for backward compatibility; candidate for
+    removal in a future cleanup.
+    """
     if admin["role"] not in ("superuser", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires editor role or higher")
 
@@ -249,52 +260,45 @@ def update_draft(
 @router.get("/drafts")
 def list_drafts(
     status: Optional[str] = Query(None),
-    pill_id: Optional[str] = Query(None),
     admin: dict = Depends(get_admin_user),
 ):
+    """List all unpublished draft pills from pillfinder (published = false).
+
+    Bulk-upload drafts and any other unpublished pills are stored here.
+    Each row's id is the pillfinder.id — Edit links go to /admin/pills/{id}.
+    Optional ?status= filter: all rows have status='draft', so filtering by
+    'draft' returns everything and any other value returns an empty list.
+    """
     if not database.db_engine:
         database.connect_to_database()
 
-    where = "WHERE 1=1"
-    params: dict = {}
-    if status:
-        where += " AND d.status = :status"
-        params["status"] = status
-    if pill_id:
-        try:
-            uuid.UUID(pill_id)
-        except ValueError:
-            raise HTTPException(status_code=422, detail="Invalid pill_id format")
-        where += " AND d.pill_id = :pill_id"
-        params["pill_id"] = pill_id
+    # All pillfinder-based draft rows have a synthetic status of 'draft'.
+    # Filtering by any other status returns no results (correct — those don't exist here).
+    if status and status != "draft":
+        return []
 
     try:
         with database.db_engine.connect() as conn:
             rows = conn.execute(
-                text(f"""
-                    SELECT d.id, d.pill_id, d.status, d.created_at, d.updated_at,
-                           d.review_notes,
-                           COALESCE(p.medicine_name, d.draft_data->>'medicine_name') AS medicine_name,
-                           d.created_by
-                    FROM pill_drafts d
-                    LEFT JOIN pillfinder p ON p.id = d.pill_id
-                    {where}
-                    ORDER BY d.created_at DESC
+                text("""
+                    SELECT id, medicine_name, updated_at
+                    FROM pillfinder
+                    WHERE published = false AND deleted_at IS NULL
+                    ORDER BY updated_at DESC NULLS LAST
                     LIMIT 100
                 """),
-                params,
             ).fetchall()
 
         return [
             {
                 "id": str(r[0]),
-                "pill_id": str(r[1]) if r[1] else None,
-                "status": r[2],
-                "created_at": r[3].isoformat() if r[3] else None,
-                "updated_at": r[4].isoformat() if r[4] else None,
-                "review_notes": r[5],
-                "medicine_name": r[6],
-                "created_by": str(r[7]) if r[7] else None,
+                "pill_id": str(r[0]),  # same id — Edit links go to /admin/pills/{pill_id}
+                "status": "draft",
+                "created_at": None,  # pillfinder has no created_at column
+                "updated_at": r[2].isoformat() if r[2] else None,
+                "review_notes": None,
+                "medicine_name": r[1],
+                "created_by": None,
             }
             for r in rows
         ]

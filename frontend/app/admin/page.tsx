@@ -151,10 +151,10 @@ export default function AdminDashboard() {
           + Add New Pill
         </Link>
         <Link
-          href="/admin/drafts?status=pending_review"
+          href="/admin/drafts"
           className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 text-sm font-medium transition-colors"
         >
-          Review Queue
+          Drafts
           {(stats?.pending_drafts ?? 0) > 0 && (
             <span className="ml-2 bg-white text-purple-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
               {stats?.pending_drafts}

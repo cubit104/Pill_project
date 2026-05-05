@@ -855,19 +855,28 @@ def bulk_create_pills(
         try:
             with database.db_engine.begin() as conn:
                 if body.publish:
-                    # Idempotency: if a row with this key already exists, return it
-                    # instead of inserting a duplicate (safe for client retries).
+                    # Idempotency: if a row with this key already exists, return it.
+                    # If it was previously saved as a draft (published=false), transition
+                    # it to published=true so a re-sent publish request is idempotent
+                    # and doesn't violate the UNIQUE constraint on idempotency_key.
                     if idempotency_key:
                         existing = conn.execute(
-                            text("SELECT id FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
+                            text("SELECT id, published FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
                             {"key": idempotency_key},
                         ).fetchone()
                         if existing:
+                            existing_id, existing_published = existing
+                            if not existing_published:
+                                # Row exists but was saved as draft — transition to published
+                                conn.execute(
+                                    text("UPDATE pillfinder SET published = true WHERE id = :id"),
+                                    {"id": existing_id},
+                                )
                             succeeded += 1
                             results.append({
                                 "index": i,
                                 "success": True,
-                                "id": str(existing[0]),
+                                "id": str(existing_id),
                                 "drug_name": drug_name,
                             })
                             continue
@@ -894,39 +903,40 @@ def bulk_create_pills(
                         user_agent=request.headers.get("user-agent"),
                     )
                 else:
-                    # Save as draft: insert into pill_drafts with pill_id=NULL
-                    # (new pill — not yet in pillfinder)
-                    # Idempotency: if a draft with this key already exists, return it.
+                    # Save as draft: insert directly into pillfinder with published=false.
+                    # This mirrors the publish path so all drafts are accessible via the
+                    # existing /admin/pills/{id} edit page — no pill_drafts row needed.
                     if idempotency_key:
-                        existing_draft = conn.execute(
-                            text("""
-                                SELECT id FROM pill_drafts
-                                WHERE created_by = :created_by
-                                  AND draft_data->>'idempotency_key' = :key
-                                LIMIT 1
-                            """),
-                            {"created_by": str(admin["id"]), "key": idempotency_key},
+                        # Check for any existing row with this key regardless of published
+                        # status — the UNIQUE constraint on idempotency_key spans all rows,
+                        # so filtering on published=false would miss a published row and
+                        # cause a unique-constraint violation on the subsequent INSERT.
+                        existing = conn.execute(
+                            text("SELECT id FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
+                            {"key": idempotency_key},
                         ).fetchone()
-                        if existing_draft:
+                        if existing:
                             succeeded += 1
                             results.append({
                                 "index": i,
                                 "success": True,
-                                "id": str(existing_draft[0]),
+                                "id": str(existing[0]),
                                 "drug_name": drug_name,
                             })
                             continue
 
+                    # Guard: only allow known pillfinder column names as keys to
+                    # prevent any unexpected key from reaching the SQL template.
+                    _ALLOWED_DRAFT_KEYS = set(EDITABLE_FIELDS) | {"idempotency_key", "published"}
+                    draft_data = {
+                        k: v for k, v in {**data, "published": False}.items()
+                        if k in _ALLOWED_DRAFT_KEYS
+                    }
+                    cols = ", ".join(draft_data.keys())
+                    vals = ", ".join(f":{k}" for k in draft_data.keys())
                     draft_result = conn.execute(
-                        text("""
-                            INSERT INTO pill_drafts (pill_id, draft_data, status, created_by)
-                            VALUES (NULL, CAST(:draft_data AS jsonb), 'draft', :created_by)
-                            RETURNING id
-                        """),
-                        {
-                            "draft_data": json.dumps({k: str(v) if v is not None else None for k, v in data.items()}),
-                            "created_by": str(admin["id"]),
-                        },
+                        text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
+                        draft_data,
                     )
                     new_id = draft_result.scalar()
 
@@ -935,7 +945,7 @@ def bulk_create_pills(
                         actor_id=admin["id"],
                         actor_email=admin["email"],
                         action="bulk_create_draft",
-                        entity_type="draft",
+                        entity_type="pill",
                         entity_id=str(new_id),
                         diff={"after": {k: str(v) if v is not None else None for k, v in data.items()}, "publish": False},
                         ip_address=request.client.host if request.client else None,

@@ -11,8 +11,8 @@ interface Draft {
   id: string
   pill_id: string | null
   status: string
-  created_at: string
-  updated_at: string
+  created_at: string | null
+  updated_at: string | null
   review_notes: string | null
   medicine_name: string | null
   created_by: string | null
@@ -30,7 +30,6 @@ function DraftsListInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const statusFilter = searchParams.get('status') || ''
-  const pillIdFilter = searchParams.get('pill_id') || ''
 
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [loading, setLoading] = useState(true)
@@ -53,7 +52,6 @@ function DraftsListInner() {
     try {
       const qs = new URLSearchParams()
       if (statusFilter) qs.set('status', statusFilter)
-      if (pillIdFilter) qs.set('pill_id', pillIdFilter)
       const qStr = qs.toString()
       const [draftsRes, meRes, countRes] = await Promise.all([
         fetch(`/api/admin/drafts${qStr ? `?${qStr}` : ''}`, {
@@ -81,7 +79,7 @@ function DraftsListInner() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, pillIdFilter, router])
+  }, [statusFilter, router])
 
   useEffect(() => {
     fetchDrafts()
@@ -190,7 +188,7 @@ function DraftsListInner() {
               <th className="px-4 py-3 text-left">Draft ID</th>
               <th className="px-4 py-3 text-left">Pill</th>
               <th className="px-4 py-3 text-left">Status</th>
-              <th className="px-4 py-3 text-left">Created</th>
+              <th className="px-4 py-3 text-left">Last Updated</th>
               <th className="px-4 py-3 text-left">Notes</th>
               <th className="px-4 py-3 text-left">Actions</th>
             </tr>
@@ -238,7 +236,7 @@ function DraftsListInner() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-gray-400 text-xs">
-                  {new Date(draft.created_at).toLocaleDateString()}
+                  {draft.updated_at ? new Date(draft.updated_at).toLocaleDateString() : '—'}
                 </td>
                 <td className="px-4 py-3 text-gray-500 text-xs max-w-xs truncate">
                   {draft.review_notes || '—'}

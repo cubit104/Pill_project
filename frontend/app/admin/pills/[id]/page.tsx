@@ -914,7 +914,7 @@ export default function EditPillPage() {
           <span>
             ⚠️ This pill has <strong>{draftCount}</strong> pending draft{draftCount !== 1 ? 's' : ''} awaiting review.
           </span>
-          <Link href={`/admin/drafts?pill_id=${pillId}`} className="text-yellow-700 font-medium underline hover:text-yellow-900 whitespace-nowrap">
+          <Link href="/admin/drafts" className="text-yellow-700 font-medium underline hover:text-yellow-900 whitespace-nowrap">
             View drafts →
           </Link>
         </div>
@@ -1073,7 +1073,7 @@ export default function EditPillPage() {
         <div className="bg-white rounded-lg shadow border-2 border-blue-200" id="pending-drafts">
           <div className="px-4 py-3 border-b border-blue-200 bg-blue-50 rounded-t-lg flex items-center justify-between">
             <h2 className="font-bold text-blue-900">📝 Pending Drafts ({draftCount})</h2>
-            <Link href={`/admin/drafts?pill_id=${pillId}`} className="text-blue-700 text-sm font-medium underline hover:text-blue-900">
+            <Link href="/admin/drafts" className="text-blue-700 text-sm font-medium underline hover:text-blue-900">
               View all →
             </Link>
           </div>
@@ -1086,7 +1086,7 @@ export default function EditPillPage() {
                   : draft.status === 'approved' ? 'bg-green-100 text-green-700'
                   : 'bg-gray-100 text-gray-600'}`}>{draft.status}</span>
                 <span className="text-gray-400 text-xs">{new Date(draft.created_at).toLocaleDateString()}</span>
-                <Link href={draft.status === 'draft' ? `/admin/drafts/${draft.id}` : `/admin/drafts?pill_id=${pillId}`} className="text-blue-600 text-xs hover:text-blue-800 hover:underline">
+                <Link href="/admin/drafts" className="text-blue-600 text-xs hover:text-blue-800 hover:underline">
                   {draft.status === 'draft' ? 'Edit Draft →' : 'View in Drafts →'}
                 </Link>
               </div>

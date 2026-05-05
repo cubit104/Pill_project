@@ -99,7 +99,7 @@ def get_stats(admin: dict = Depends(get_admin_user)):
             ).scalar() or 0
 
             pending_drafts = conn.execute(
-                text("SELECT COUNT(*) FROM pill_drafts WHERE status IN ('pending_review', 'draft')")
+                text("SELECT COUNT(*) FROM pillfinder WHERE published = false AND deleted_at IS NULL")
             ).scalar() or 0
 
             recent_activity = conn.execute(
