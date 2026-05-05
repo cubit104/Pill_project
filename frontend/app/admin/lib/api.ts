@@ -40,8 +40,8 @@ export const adminApi = {
     apiFetch(`/api/admin/pills/${id}/restore`, { method: 'POST' }),
   createDraft: (pillId: string, data: object) =>
     apiFetch(`/api/admin/pills/${pillId}/drafts`, { method: 'POST', body: JSON.stringify(data) }),
-  getDrafts: (status?: string) =>
-    apiFetch(`/api/admin/drafts${status ? `?status=${status}` : ''}`),
+  getDrafts: () =>
+    apiFetch('/api/admin/drafts'),
   submitDraft: (id: string) =>
     apiFetch(`/api/admin/drafts/${id}/submit`, { method: 'POST' }),
   approveDraft: (id: string, notes?: string) =>
