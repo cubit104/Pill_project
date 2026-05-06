@@ -144,7 +144,7 @@ async def upload_images_zip(
       3. Slugified medicine_name (fallback for pills without a slug column)
       4. Each of the above retried after stripping a trailing '-<N>' suffix
 
-    Images are only matched against published, non-deleted pills, ordered by
+    Images are only matched against non-deleted pills, ordered by
     most-recently-updated first so the newest record wins on slug collisions.
 
     Returns structured JSON with counts and per-file results.
@@ -186,7 +186,7 @@ async def upload_images_zip(
         )
 
     # ── Load pill lookup tables ────────────────────────────────────────────
-    # Ordered by most-recently-updated published rows first so that setdefault
+    # Ordered by most-recently-updated non-deleted rows first so that setdefault
     # below keeps the newest match when slugs/names collide.
     if not database.db_engine:
         database.connect_to_database()
@@ -202,7 +202,7 @@ async def upload_images_zip(
                 text(
                     "SELECT id, medicine_name, slug, ndc11, image_filename"
                     " FROM pillfinder"
-                    " WHERE deleted_at IS NULL AND published = TRUE"
+                    " WHERE deleted_at IS NULL"
                     " ORDER BY updated_at DESC NULLS LAST, id ASC"
                 )
             ).fetchall()
