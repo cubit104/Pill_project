@@ -1,4 +1,5 @@
 """Admin analytics endpoints — GA4, Search Console, PageSpeed Insights, Page Health."""
+import datetime
 import logging
 import os
 import re
@@ -211,6 +212,10 @@ def ga4_overview(
         start_date = "today" if range == "1d" else f"{days}daysAgo"
         date_range = DateRange(start_date=start_date, end_date="today")
 
+        # Compute actual calendar start for date filling later
+        today_date = datetime.date.today()
+        cal_start = today_date if range == "1d" else today_date - datetime.timedelta(days=days)
+
         # --- Summary metrics ---
         summary_req = RunReportRequest(
             property=f"properties/{property_id}",
@@ -253,6 +258,14 @@ def ga4_overview(
             }
             for r in ts_resp.rows
         ]
+        # Fill in missing dates with zero values so the chart spans the full range
+        existing_dates = {d["date"] for d in timeseries}
+        current = cal_start
+        while current <= today_date:
+            date_str = current.strftime("%Y%m%d")
+            if date_str not in existing_dates:
+                timeseries.append({"date": date_str, "users": 0.0, "sessions": 0.0, "pageviews": 0.0})
+            current += datetime.timedelta(days=1)
         timeseries.sort(key=lambda x: x["date"])
 
         # --- Top pages ---
