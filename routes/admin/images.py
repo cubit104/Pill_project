@@ -61,8 +61,12 @@ def _generate_slug(name: str) -> str:
 
 
 def _strip_variant_suffix(stem: str) -> str:
-    """Strip a trailing '-<number>' variant suffix, e.g. 'drug-1' → 'drug'."""
-    return re.sub(r"-\d+$", "", stem)
+    """Strip a trailing '-<number>' or bare trailing digit suffix.
+    e.g. 'drug-1' → 'drug', 'drug25' → 'drug'
+    """
+    s = re.sub(r"-\d+$", "", stem)   # strip dash-prefixed number: drug-1 → drug
+    s = re.sub(r"\d+$", "", s)       # strip bare trailing digits: drug25 → drug
+    return s.rstrip("-")
 
 
 def _normalize_ndc11(value: str) -> str:
@@ -229,9 +233,10 @@ async def upload_images_zip(
         s_no_hyphens = _normalize_ndc11(s)
         if s_no_hyphens.isdigit() and len(s_no_hyphens) == 11:
             return ndc11_map.get(s_no_hyphens)
-        r = slug_map.get(s.lower())
+        s_slug = _generate_slug(s)   # slugify: converts spaces → hyphens
+        r = slug_map.get(s_slug)
         if r is None:
-            r = name_slug_map.get(s.lower())
+            r = name_slug_map.get(s_slug)
         return r
 
     # ── Phase 1: match images to pills and validate image data ────────────

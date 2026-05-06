@@ -168,7 +168,7 @@ def _build_side_effect(pill_rows, existing_image_filename=None, stored_fn_captur
     """
     Build a mock execute side_effect that:
     1. Handles profiles auth lookup → returns FAKE_SUPERUSER_PROFILE
-    2. Handles SELECT all pills (medicine_name in sql, with published filter) → returns pill_rows
+    2. Handles SELECT all pills (medicine_name + ndc11 in sql) → returns pill_rows
     3. Handles SELECT image_filename WHERE id → returns existing_image_filename
     4. Handles UPDATE / INSERT → no-op (optionally captures stored fn)
     """
@@ -185,8 +185,8 @@ def _build_side_effect(pill_rows, existing_image_filename=None, stored_fn_captur
         if "role" in sql_str and "profiles" in sql_str:
             # Auth: profiles lookup
             result.fetchone.return_value = FAKE_SUPERUSER_PROFILE
-        elif "medicine_name" in sql_str and "pillfinder" in sql_str and "published" in sql_str:
-            # Pill data loading (SELECT id, medicine_name, slug, ndc11, image_filename FROM pillfinder WHERE ... published = TRUE ...)
+        elif "medicine_name" in sql_str and "pillfinder" in sql_str and "ndc11" in sql_str:
+            # Pill data loading (SELECT id, medicine_name, slug, ndc11, image_filename FROM pillfinder WHERE ...)
             result.fetchall.return_value = pill_rows
         elif sql_str.lstrip().startswith("select image_filename"):
             # Per-pill image_filename fetch before update
@@ -563,3 +563,161 @@ def test_zip_skips_non_image_files_inside_zip(client):
     # Only aspirin.jpg should be counted (txt and csv are ignored)
     assert data["counts"]["total"] == 1
     assert data["counts"]["matched"] == 1
+
+
+def test_zip_matches_filename_with_spaces_by_slug(client):
+    """Image 'Doxycycline Hyclate.jpg' (spaces) matches pill with slug 'doxycycline-hyclate'."""
+    pill_rows = [
+        (PILL_A_UUID, "Doxycycline Hyclate", "doxycycline-hyclate", None, None),
+    ]
+    side_effect = _build_side_effect(pill_rows)
+
+    mock_engine, mock_conn = _make_mock_engine()
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+
+    db_module.db_engine = mock_engine
+
+    zip_bytes = _make_zip(("Doxycycline Hyclate.jpg", b"fake-jpeg"))
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
+    ):
+        resp = client.post(
+            "/api/admin/pills/bulk-images/zip",
+            files={"file": ("images.zip", zip_bytes, "application/zip")},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["counts"]["total"] == 1
+    assert data["counts"]["matched"] == 1
+    assert data["counts"]["uploaded"] == 1
+    assert data["counts"]["skipped"] == 0
+
+
+def test_zip_matches_filename_with_spaces_and_variant_suffix(client):
+    """'Doxycycline Hyclate-1.jpg' (spaces + dash-suffix) matches 'doxycycline-hyclate'."""
+    pill_rows = [
+        (PILL_A_UUID, "Doxycycline Hyclate", "doxycycline-hyclate", None, None),
+    ]
+    side_effect = _build_side_effect(pill_rows)
+
+    mock_engine, mock_conn = _make_mock_engine()
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+
+    db_module.db_engine = mock_engine
+
+    zip_bytes = _make_zip(("Doxycycline Hyclate-1.jpg", b"fake-jpeg"))
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
+    ):
+        resp = client.post(
+            "/api/admin/pills/bulk-images/zip",
+            files={"file": ("images.zip", zip_bytes, "application/zip")},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["counts"]["matched"] == 1
+    assert data["counts"]["skipped"] == 0
+
+
+def test_zip_matches_filename_with_spaces_by_medicine_name(client):
+    """'Eprosartan Mesylate.jpg' matches pill with medicine_name 'Eprosartan Mesylate' (no slug)."""
+    pill_rows = [
+        (PILL_B_UUID, "Eprosartan Mesylate", None, None, None),
+    ]
+    side_effect = _build_side_effect(pill_rows)
+
+    mock_engine, mock_conn = _make_mock_engine()
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+
+    db_module.db_engine = mock_engine
+
+    zip_bytes = _make_zip(("Eprosartan Mesylate.jpg", b"fake-jpeg"))
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
+    ):
+        resp = client.post(
+            "/api/admin/pills/bulk-images/zip",
+            files={"file": ("images.zip", zip_bytes, "application/zip")},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["counts"]["matched"] == 1
+    assert data["counts"]["skipped"] == 0
+
+
+def test_zip_matches_bare_trailing_digits(client):
+    """'Diphenhydramine Hydrochloride25.jpg' (bare trailing digits) matches the pill."""
+    pill_rows = [
+        (PILL_C_UUID, "Diphenhydramine Hydrochloride", "diphenhydramine-hydrochloride", None, None),
+    ]
+    side_effect = _build_side_effect(pill_rows)
+
+    mock_engine, mock_conn = _make_mock_engine()
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+
+    db_module.db_engine = mock_engine
+
+    zip_bytes = _make_zip(("Diphenhydramine Hydrochloride25.jpg", b"fake-jpeg"))
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
+    ):
+        resp = client.post(
+            "/api/admin/pills/bulk-images/zip",
+            files={"file": ("images.zip", zip_bytes, "application/zip")},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["counts"]["matched"] == 1
+    assert data["counts"]["skipped"] == 0
+
+
+def test_zip_ndc11_not_slugified(client):
+    """11-digit NDC stems are not slugified — they are looked up directly in ndc11_map."""
+    pill_rows = [
+        (PILL_A_UUID, "Drug A", None, "12345678901", None),
+    ]
+    side_effect = _build_side_effect(pill_rows)
+
+    mock_engine, mock_conn = _make_mock_engine()
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+
+    db_module.db_engine = mock_engine
+
+    # 11-digit NDC filename — must still match even though _lookup now slugifies non-NDC stems
+    zip_bytes = _make_zip(("12345678901.jpg", b"fake-jpeg"))
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
+    ):
+        resp = client.post(
+            "/api/admin/pills/bulk-images/zip",
+            files={"file": ("images.zip", zip_bytes, "application/zip")},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["counts"]["matched"] == 1
+    assert data["counts"]["skipped"] == 0
