@@ -8,7 +8,7 @@ Mocks the database, Supabase JWT, and _supabase_upload to avoid real network cal
 import io
 import os
 import zipfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -168,7 +168,7 @@ def _build_side_effect(pill_rows, existing_image_filename=None, stored_fn_captur
     """
     Build a mock execute side_effect that:
     1. Handles profiles auth lookup → returns FAKE_SUPERUSER_PROFILE
-    2. Handles SELECT all pills (medicine_name in sql) → returns pill_rows
+    2. Handles SELECT all pills (medicine_name in sql, with published filter) → returns pill_rows
     3. Handles SELECT image_filename WHERE id → returns existing_image_filename
     4. Handles UPDATE / INSERT → no-op (optionally captures stored fn)
     """
@@ -185,8 +185,8 @@ def _build_side_effect(pill_rows, existing_image_filename=None, stored_fn_captur
         if "role" in sql_str and "profiles" in sql_str:
             # Auth: profiles lookup
             result.fetchone.return_value = FAKE_SUPERUSER_PROFILE
-        elif "medicine_name" in sql_str and "pillfinder" in sql_str:
-            # Pill data loading (SELECT id, medicine_name, slug, ndc11, image_filename FROM pillfinder)
+        elif "medicine_name" in sql_str and "pillfinder" in sql_str and "published" in sql_str:
+            # Pill data loading (SELECT id, medicine_name, slug, ndc11, image_filename FROM pillfinder WHERE ... published = TRUE ...)
             result.fetchall.return_value = pill_rows
         elif sql_str.lstrip().startswith("select image_filename"):
             # Per-pill image_filename fetch before update
@@ -221,7 +221,7 @@ def test_zip_matches_by_ndc11(client):
     zip_bytes = _make_zip(("12345678901.jpg", b"fake-jpeg"))
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
-        "routes.admin.images._supabase_upload", return_value=True
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
     ):
         resp = client.post(
             "/api/admin/pills/bulk-images/zip",
@@ -236,6 +236,39 @@ def test_zip_matches_by_ndc11(client):
     assert data["counts"]["skipped"] == 0
     # Check the result entry has the correct pill_id
     assert data["results"][0]["pill_id"] == PILL_A_UUID
+
+
+def test_zip_matches_hyphenated_ndc11(client):
+    """Image named with hyphenated NDC (e.g. 41163-0249-01.jpg) matches via normalization."""
+    # DB stores the NDC with hyphens; both should normalize to the same 11-digit key
+    pill_rows = [
+        (PILL_A_UUID, "Drug A", None, "41163-0249-01", None),
+    ]
+    side_effect = _build_side_effect(pill_rows)
+
+    mock_engine, mock_conn = _make_mock_engine()
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+
+    db_module.db_engine = mock_engine
+
+    # Filename uses bare digits (hyphens stripped by user)
+    zip_bytes = _make_zip(("41163024901.jpg", b"fake-jpeg"))
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
+    ):
+        resp = client.post(
+            "/api/admin/pills/bulk-images/zip",
+            files={"file": ("images.zip", zip_bytes, "application/zip")},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["counts"]["matched"] == 1, f"Expected match for normalized NDC; got {data}"
+    assert data["counts"]["uploaded"] == 1
 
 
 def test_zip_matches_by_slug(client):
@@ -256,7 +289,7 @@ def test_zip_matches_by_slug(client):
     zip_bytes = _make_zip(("aspirin-500-mg.jpg", b"fake-jpeg"))
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
-        "routes.admin.images._supabase_upload", return_value=True
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
     ):
         resp = client.post(
             "/api/admin/pills/bulk-images/zip",
@@ -289,7 +322,7 @@ def test_zip_matches_by_medicine_name_slug(client):
     zip_bytes = _make_zip(("metronidazole.png", b"fake-png"))
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
-        "routes.admin.images._supabase_upload", return_value=True
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
     ):
         resp = client.post(
             "/api/admin/pills/bulk-images/zip",
@@ -321,7 +354,7 @@ def test_zip_variant_suffix_stripping(client):
     zip_bytes = _make_zip(("drug-1.jpg", b"fake-jpeg"), ("drug-2.webp", b"fake-webp"))
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
-        "routes.admin.images._supabase_upload", return_value=True
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
     ):
         resp = client.post(
             "/api/admin/pills/bulk-images/zip",
@@ -357,7 +390,7 @@ def test_zip_unmatched_image_reported_as_skipped(client):
     )
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
-        "routes.admin.images._supabase_upload", return_value=True
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
     ):
         resp = client.post(
             "/api/admin/pills/bulk-images/zip",
@@ -397,7 +430,7 @@ def test_zip_db_update_appends_to_existing(client):
     zip_bytes = _make_zip(("aspirin.jpg", b"fake-jpeg"))
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
-        "routes.admin.images._supabase_upload", return_value=True
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
     ):
         resp = client.post(
             "/api/admin/pills/bulk-images/zip",
@@ -424,7 +457,7 @@ def test_zip_storage_path_follows_scheme(client):
     ]
     captured_paths: list = []
 
-    def upload_mock(path, data, content_type):
+    async def upload_mock(path, data, content_type):
         captured_paths.append(path)
         return True
 
@@ -440,7 +473,7 @@ def test_zip_storage_path_follows_scheme(client):
     zip_bytes = _make_zip(("aspirin.jpg", b"fake-jpeg"))
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
-        "routes.admin.images._supabase_upload", side_effect=upload_mock
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, side_effect=upload_mock
     ):
         resp = client.post(
             "/api/admin/pills/bulk-images/zip",
@@ -517,7 +550,7 @@ def test_zip_skips_non_image_files_inside_zip(client):
     )
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
-        "routes.admin.images._supabase_upload", return_value=True
+        "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, return_value=True
     ):
         resp = client.post(
             "/api/admin/pills/bulk-images/zip",

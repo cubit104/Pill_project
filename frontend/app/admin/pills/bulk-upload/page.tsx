@@ -18,6 +18,7 @@ import {
   XCircle,
   FileText,
   ArrowRight,
+  Info,
 } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -695,6 +696,19 @@ export default function BulkUploadPage() {
             <code className="bg-gray-100 px-1 rounded">12345678901.jpg</code>.
             Variant suffixes like <code className="bg-gray-100 px-1 rounded">-1</code>, <code className="bg-gray-100 px-1 rounded">-2</code> are stripped automatically.
           </p>
+        </div>
+
+        {/* Informational note about matching scope */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+          <Info className="w-5 h-5 text-blue-500 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-blue-800">Images are matched against pills already in the database</p>
+            <p className="text-xs text-blue-700 mt-1">
+              If you are importing <strong>new</strong> pills from the CSV in this session, complete
+              Step 4 first to create them, then upload their images from each pill&apos;s edit page
+              or run a new bulk upload session.
+            </p>
+          </div>
         </div>
 
         {/* Dropzone */}
