@@ -210,14 +210,14 @@ async def upload_images_zip(
         # ── Read image data ─────────────────────────────────────────────────
         try:
             img_data = zf.read(entry_name)
-        except Exception as e:
+        except Exception:
             results.append(
                 {
                     "filename": basename,
                     "pill_id": pill_id,
                     "storage_path": None,
                     "url": None,
-                    "error": f"Failed to read from ZIP: {e}",
+                    "error": "Failed to read image from ZIP",
                 }
             )
             counts["failed"] += 1
@@ -237,9 +237,11 @@ async def upload_images_zip(
             continue
 
         # ── Build storage path ─────────────────────────────────────────────
-        # Use millisecond timestamp + index to avoid collisions across batch
-        timestamp_ms = int(time.time() * 1000) + idx
-        storage_filename = f"{pill_id[:8]}-{timestamp_ms}{ext}"
+        # Use millisecond timestamp + uuid4 short hex to guarantee uniqueness
+        import uuid as _uuid
+        unique_suffix = _uuid.uuid4().hex[:8]
+        timestamp_ms = int(time.time() * 1000)
+        storage_filename = f"{pill_id[:8]}-{timestamp_ms}-{unique_suffix}{ext}"
         storage_path = f"{pill_id}/{storage_filename}"
 
         content_type = _CONTENT_TYPE_MAP.get(ext, "image/jpeg")

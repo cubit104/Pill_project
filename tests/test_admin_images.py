@@ -454,7 +454,7 @@ def test_zip_storage_path_follows_scheme(client):
     path = captured_paths[0]
     prefix, filename = path.split("/", 1)
     assert prefix == PILL_A_UUID, f"Storage path must start with pill_id, got: {path!r}"
-    # filename should be {pill_id[:8]}-{timestamp}.jpg
+    # filename should be {pill_id[:8]}-{timestamp}-{uuid_suffix}.jpg
     assert filename.startswith(PILL_A_UUID[:8] + "-"), f"Filename must start with pill_id[:8]-: {filename!r}"
     assert filename.endswith(".jpg"), f"Filename must end with .jpg: {filename!r}"
 
