@@ -273,7 +273,8 @@ async def upload_images_zip(
             continue
 
         counts["matched"] += 1
-        pill_id = matched_row[0]
+        # Cast to str — SQLAlchemy returns UUID objects which are not subscriptable
+        pill_id = str(matched_row[0])
 
         # Guard against zip bomb: check the declared uncompressed size before reading
         info = zf.getinfo(entry_name)
