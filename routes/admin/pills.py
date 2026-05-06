@@ -18,7 +18,7 @@ import bleach
 import database
 from routes.admin.auth import get_admin_user, log_audit, require_superuser, CRITICAL_FIELDS
 from routes.admin.field_schema import validate_pill, compute_completeness, compute_seo_score
-from utils import get_image_url
+from utils import get_image_url, generate_slug
 
 logger = logging.getLogger(__name__)
 
@@ -824,9 +824,11 @@ def bulk_create_pills(
         if idempotency_key:
             data["idempotency_key"] = idempotency_key
 
-        # Derive has_image from image_filename so the two columns stay in sync
+        # Parse comma-separated image_filename and sync has_image
         if "image_filename" in data:
-            data["has_image"] = "TRUE" if data["image_filename"] else "FALSE"
+            images = [fn.strip() for fn in str(data["image_filename"]).split(",") if fn.strip()]
+            data["image_filename"] = ", ".join(images)
+            data["has_image"] = "TRUE" if images else "FALSE"
 
         if _has_no_pill_data(data):
             failed += 1
@@ -881,48 +883,31 @@ def bulk_create_pills(
                             })
                             continue
 
-                    # Check 1 — Slug collision (all rows, including soft-deleted)
-                    slug = data.get("slug")
-                    if slug:
-                        slug_conflict = conn.execute(
+                    # Resolve slug — auto-generate if missing, then suffix until free
+                    medicine_name_val = data.get("medicine_name") or ""
+                    spl_strength_val = data.get("spl_strength") or ""
+                    if data.get("slug"):
+                        base_slug = data["slug"]
+                    else:
+                        # Fix doubled slug: strip medicine_name prefix from spl_strength if present
+                        name_lower = medicine_name_val.lower().strip()
+                        strength_clean = spl_strength_val.strip()
+                        if name_lower and strength_clean.lower().startswith(name_lower):
+                            strength_clean = strength_clean[len(name_lower):].strip()
+                        base_slug = generate_slug(medicine_name_val, strength_clean)
+
+                    slug = base_slug
+                    counter = 2
+                    while True:
+                        slug_row = conn.execute(
                             text("SELECT id FROM pillfinder WHERE slug = :slug LIMIT 1"),
                             {"slug": slug},
                         ).fetchone()
-                        if slug_conflict:
-                            failed += 1
-                            results.append({
-                                "index": i,
-                                "success": False,
-                                "drug_name": drug_name,
-                                "error": f"Slug '{slug}' already exists in the database. Edit the existing pill or change the slug in the CSV.",
-                            })
-                            continue
-
-                    # Check 2 — Same medicine_name + spl_strength already live
-                    name_val = data.get("medicine_name")
-                    strength_val = data.get("spl_strength")
-                    if name_val and strength_val:
-                        name_conflict = conn.execute(
-                            text("""
-                                SELECT id FROM pillfinder
-                                WHERE LOWER(TRIM(medicine_name)) = LOWER(TRIM(:name))
-                                  AND LOWER(TRIM(spl_strength)) = LOWER(TRIM(:strength))
-                                  AND deleted_at IS NULL
-                                LIMIT 1
-                            """),
-                            {"name": name_val, "strength": strength_val},
-                        ).fetchone()
-                        if name_conflict:
-                            failed += 1
-                            results.append({
-                                "index": i,
-                                "success": False,
-                                "drug_name": drug_name,
-                                "error": "A pill with this name and strength already exists. Edit the existing record instead.",
-                            })
-                            continue
-
-                    # Insert directly into pillfinder with published = true
+                        if not slug_row:
+                            break
+                        slug = f"{base_slug}-{counter}"
+                        counter += 1
+                    data["slug"] = slug
                     publish_data = {**data, "published": True}
                     cols = ", ".join(publish_data.keys())
                     vals = ", ".join(f":{k}" for k in publish_data.keys())
@@ -966,46 +951,31 @@ def bulk_create_pills(
                             })
                             continue
 
-                    # Check 1 — Slug collision (all rows, including soft-deleted)
-                    slug = data.get("slug")
-                    if slug:
-                        slug_conflict = conn.execute(
+                    # Resolve slug — auto-generate if missing, then suffix until free
+                    medicine_name_val = data.get("medicine_name") or ""
+                    spl_strength_val = data.get("spl_strength") or ""
+                    if data.get("slug"):
+                        base_slug = data["slug"]
+                    else:
+                        # Fix doubled slug: strip medicine_name prefix from spl_strength if present
+                        name_lower = medicine_name_val.lower().strip()
+                        strength_clean = spl_strength_val.strip()
+                        if name_lower and strength_clean.lower().startswith(name_lower):
+                            strength_clean = strength_clean[len(name_lower):].strip()
+                        base_slug = generate_slug(medicine_name_val, strength_clean)
+
+                    slug = base_slug
+                    counter = 2
+                    while True:
+                        slug_row = conn.execute(
                             text("SELECT id FROM pillfinder WHERE slug = :slug LIMIT 1"),
                             {"slug": slug},
                         ).fetchone()
-                        if slug_conflict:
-                            failed += 1
-                            results.append({
-                                "index": i,
-                                "success": False,
-                                "drug_name": drug_name,
-                                "error": f"Slug '{slug}' already exists in the database. Edit the existing pill or change the slug in the CSV.",
-                            })
-                            continue
-
-                    # Check 2 — Same medicine_name + spl_strength already live
-                    name_val = data.get("medicine_name")
-                    strength_val = data.get("spl_strength")
-                    if name_val and strength_val:
-                        name_conflict = conn.execute(
-                            text("""
-                                SELECT id FROM pillfinder
-                                WHERE LOWER(TRIM(medicine_name)) = LOWER(TRIM(:name))
-                                  AND LOWER(TRIM(spl_strength)) = LOWER(TRIM(:strength))
-                                  AND deleted_at IS NULL
-                                LIMIT 1
-                            """),
-                            {"name": name_val, "strength": strength_val},
-                        ).fetchone()
-                        if name_conflict:
-                            failed += 1
-                            results.append({
-                                "index": i,
-                                "success": False,
-                                "drug_name": drug_name,
-                                "error": "A pill with this name and strength already exists. Edit the existing record instead.",
-                            })
-                            continue
+                        if not slug_row:
+                            break
+                        slug = f"{base_slug}-{counter}"
+                        counter += 1
+                    data["slug"] = slug
 
                     # Guard: only allow known pillfinder column names as keys to
                     # prevent any unexpected key from reaching the SQL template.
