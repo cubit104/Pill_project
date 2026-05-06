@@ -1837,6 +1837,261 @@ def test_bulk_create_requires_auth(client):
     assert resp.status_code == 401
 
 
+def test_bulk_create_slug_collision_rejected_draft(client):
+    """POST /api/admin/pills/bulk with publish=false rejects a row whose slug already exists."""
+    EXISTING_SLUG = "aspirin-500-mg"
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    insert_called = [False]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "slug = :slug" in sql_str:
+            # Simulate slug collision
+            result.fetchone.return_value = ("existing-uuid",)
+        elif "insert into pillfinder" in sql_str:
+            insert_called[0] = True
+            result.scalar.return_value = "should-not-be-inserted"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    pills = [{"medicine_name": "Aspirin", "slug": EXISTING_SLUG, "spl_strength": "500 mg"}]
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": pills, "publish": False},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 1
+    assert data["succeeded"] == 0
+    assert data["failed"] == 1
+
+    result = data["results"][0]
+    assert result["success"] is False
+    assert EXISTING_SLUG in result["error"], "error must mention the conflicting slug"
+    assert "already exists" in result["error"]
+    assert insert_called[0] is False, "INSERT must not be called when slug already exists"
+
+
+def test_bulk_create_slug_collision_rejected_publish(client):
+    """POST /api/admin/pills/bulk with publish=true rejects a row whose slug already exists."""
+    EXISTING_SLUG = "ibuprofen-200-mg"
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    insert_called = [False]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "slug = :slug" in sql_str:
+            result.fetchone.return_value = ("existing-uuid",)
+        elif "insert into pillfinder" in sql_str:
+            insert_called[0] = True
+            result.scalar.return_value = "should-not-be-inserted"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    valid_pill = {
+        "medicine_name": "Ibuprofen",
+        "author": "Advil",
+        "spl_strength": "200 mg",
+        "splimprint": "I2",
+        "splcolor_text": "Brown",
+        "splshape_text": "Round",
+        "slug": EXISTING_SLUG,
+        "ndc9": "12345678",
+        "ndc11": "12345678901",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "spl_ingredients": "Ibuprofen 200 mg",
+        "spl_inactive_ing": "Starch",
+        "dea_schedule_name": "N/A",
+        "status_rx_otc": "OTC",
+    }
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": [valid_pill], "publish": True},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["succeeded"] == 0
+    assert data["failed"] == 1
+
+    result = data["results"][0]
+    assert result["success"] is False
+    assert EXISTING_SLUG in result["error"]
+    assert insert_called[0] is False, "INSERT must not be called when slug already exists"
+
+
+def test_bulk_create_name_strength_collision_rejected_draft(client):
+    """POST /api/admin/pills/bulk with publish=false rejects a row matching an existing live pill."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    insert_called = [False]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "slug = :slug" in sql_str:
+            # No slug collision
+            result.fetchone.return_value = None
+        elif "lower(trim(medicine_name))" in sql_str:
+            # Simulate name+strength collision with a live row
+            result.fetchone.return_value = ("live-pill-uuid",)
+        elif "insert into pillfinder" in sql_str:
+            insert_called[0] = True
+            result.scalar.return_value = "should-not-be-inserted"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    pills = [
+        {
+            "medicine_name": "Ezetimibe and Simvastatin",
+            "spl_strength": "10 mg / 20 mg",
+            "slug": "ezetimibe-and-simvastatin-10-mg-20-mg",
+        }
+    ]
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": pills, "publish": False},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["succeeded"] == 0
+    assert data["failed"] == 1
+
+    result = data["results"][0]
+    assert result["success"] is False
+    assert "already exists" in result["error"]
+    assert insert_called[0] is False, "INSERT must not be called when name+strength already exists"
+
+
+def test_bulk_create_name_strength_collision_rejected_publish(client):
+    """POST /api/admin/pills/bulk with publish=true rejects a row matching an existing live pill."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    insert_called = [False]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "slug = :slug" in sql_str:
+            result.fetchone.return_value = None
+        elif "lower(trim(medicine_name))" in sql_str:
+            result.fetchone.return_value = ("live-pill-uuid",)
+        elif "insert into pillfinder" in sql_str:
+            insert_called[0] = True
+            result.scalar.return_value = "should-not-be-inserted"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    valid_pill = {
+        "medicine_name": "Amlodipine Besylate and Simvastatin Hydrochloride",
+        "author": "Pharma",
+        "spl_strength": "5 mg / 10 mg",
+        "splimprint": "AMB10",
+        "splcolor_text": "White",
+        "splshape_text": "Oval",
+        "slug": "amlodipine-besylate-and-simvastatin-5-mg-10-mg",
+        "ndc9": "12345678",
+        "ndc11": "12345678901",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "spl_ingredients": "Amlodipine Besylate 5 mg; Simvastatin Hydrochloride 10 mg",
+        "spl_inactive_ing": "Starch",
+        "dea_schedule_name": "N/A",
+        "status_rx_otc": "Rx",
+    }
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": [valid_pill], "publish": True},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["succeeded"] == 0
+    assert data["failed"] == 1
+
+    result = data["results"][0]
+    assert result["success"] is False
+    assert "already exists" in result["error"]
+    assert insert_called[0] is False, "INSERT must not be called when name+strength already exists"
+
+
 # ---------------------------------------------------------------------------
 # Draft GET / PATCH endpoints  (added to cover new routes)
 # ---------------------------------------------------------------------------
