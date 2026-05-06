@@ -135,14 +135,26 @@ function matchImageToRow(stem: string, rows: ParsedRow[]): number | null {
       const idx = rows.findIndex((r) => r.ndc11?.replace(/-/g, '') === ndc)
       if (idx !== -1) return idx
     }
-    // slug match
+    // exact slug match
     const idx1 = rows.findIndex((r) => r.slug && slugify(r.slug) === slugged)
     if (idx1 !== -1) return idx1
-    // medicine_name slugified match
+    // exact medicine_name slugified match
     const idx2 = rows.findIndex(
       (r) => r.medicine_name && slugify(r.medicine_name) === slugged,
     )
     if (idx2 !== -1) return idx2
+    // prefix slug match: image stem is a prefix of the row's slug
+    // e.g. "nabumetone" matches slug "nabumetone-750-mg"
+    const idx3 = rows.findIndex(
+      (r) => r.slug && slugify(r.slug).startsWith(slugged + '-'),
+    )
+    if (idx3 !== -1) return idx3
+    // prefix medicine_name match: image stem is a prefix of slugified medicine_name
+    // e.g. "doxycycline-hyclate" matches medicine_name "Doxycycline Hyclate 100 mg"
+    const idx4 = rows.findIndex(
+      (r) => r.medicine_name && slugify(r.medicine_name).startsWith(slugged + '-'),
+    )
+    if (idx4 !== -1) return idx4
   }
   return null
 }
