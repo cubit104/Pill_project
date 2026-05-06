@@ -5,6 +5,7 @@ import re
 import logging
 import time
 import unicodedata
+import uuid
 import zipfile
 from typing import Optional
 
@@ -238,8 +239,7 @@ async def upload_images_zip(
 
         # ── Build storage path ─────────────────────────────────────────────
         # Use millisecond timestamp + uuid4 short hex to guarantee uniqueness
-        import uuid as _uuid
-        unique_suffix = _uuid.uuid4().hex[:8]
+        unique_suffix = uuid.uuid4().hex[:8]
         timestamp_ms = int(time.time() * 1000)
         storage_filename = f"{pill_id[:8]}-{timestamp_ms}-{unique_suffix}{ext}"
         storage_path = f"{pill_id}/{storage_filename}"
