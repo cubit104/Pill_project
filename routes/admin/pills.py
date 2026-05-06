@@ -881,6 +881,47 @@ def bulk_create_pills(
                             })
                             continue
 
+                    # Check 1 — Slug collision (all rows, including soft-deleted)
+                    slug = data.get("slug")
+                    if slug:
+                        slug_conflict = conn.execute(
+                            text("SELECT id FROM pillfinder WHERE slug = :slug LIMIT 1"),
+                            {"slug": slug},
+                        ).fetchone()
+                        if slug_conflict:
+                            failed += 1
+                            results.append({
+                                "index": i,
+                                "success": False,
+                                "drug_name": drug_name,
+                                "error": f"Slug '{slug}' already exists in the database. Edit the existing pill or change the slug in the CSV.",
+                            })
+                            continue
+
+                    # Check 2 — Same medicine_name + spl_strength already live
+                    name_val = data.get("medicine_name")
+                    strength_val = data.get("spl_strength")
+                    if name_val and strength_val:
+                        name_conflict = conn.execute(
+                            text("""
+                                SELECT id FROM pillfinder
+                                WHERE LOWER(TRIM(medicine_name)) = LOWER(TRIM(:name))
+                                  AND LOWER(TRIM(spl_strength)) = LOWER(TRIM(:strength))
+                                  AND deleted_at IS NULL
+                                LIMIT 1
+                            """),
+                            {"name": name_val, "strength": strength_val},
+                        ).fetchone()
+                        if name_conflict:
+                            failed += 1
+                            results.append({
+                                "index": i,
+                                "success": False,
+                                "drug_name": drug_name,
+                                "error": "A pill with this name and strength already exists. Edit the existing record instead.",
+                            })
+                            continue
+
                     # Insert directly into pillfinder with published = true
                     publish_data = {**data, "published": True}
                     cols = ", ".join(publish_data.keys())
@@ -922,6 +963,47 @@ def bulk_create_pills(
                                 "success": True,
                                 "id": str(existing[0]),
                                 "drug_name": drug_name,
+                            })
+                            continue
+
+                    # Check 1 — Slug collision (all rows, including soft-deleted)
+                    slug = data.get("slug")
+                    if slug:
+                        slug_conflict = conn.execute(
+                            text("SELECT id FROM pillfinder WHERE slug = :slug LIMIT 1"),
+                            {"slug": slug},
+                        ).fetchone()
+                        if slug_conflict:
+                            failed += 1
+                            results.append({
+                                "index": i,
+                                "success": False,
+                                "drug_name": drug_name,
+                                "error": f"Slug '{slug}' already exists in the database. Edit the existing pill or change the slug in the CSV.",
+                            })
+                            continue
+
+                    # Check 2 — Same medicine_name + spl_strength already live
+                    name_val = data.get("medicine_name")
+                    strength_val = data.get("spl_strength")
+                    if name_val and strength_val:
+                        name_conflict = conn.execute(
+                            text("""
+                                SELECT id FROM pillfinder
+                                WHERE LOWER(TRIM(medicine_name)) = LOWER(TRIM(:name))
+                                  AND LOWER(TRIM(spl_strength)) = LOWER(TRIM(:strength))
+                                  AND deleted_at IS NULL
+                                LIMIT 1
+                            """),
+                            {"name": name_val, "strength": strength_val},
+                        ).fetchone()
+                        if name_conflict:
+                            failed += 1
+                            results.append({
+                                "index": i,
+                                "success": False,
+                                "drug_name": drug_name,
+                                "error": "A pill with this name and strength already exists. Edit the existing record instead.",
                             })
                             continue
 
