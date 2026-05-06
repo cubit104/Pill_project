@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import JSZip from 'jszip'
 import { createClient } from '../../lib/supabase'
 import {
   FIELD_SCHEMA,
@@ -37,27 +38,13 @@ interface BulkResult {
   id?: string
   drug_name: string
   error?: string
+  imageStatus?: 'uploaded' | 'failed' | 'none'
 }
 
-interface ZipFileResult {
+interface ZipMatchEntry {
   filename: string
-  pill_id: string | null
-  storage_path: string | null
-  url: string | null
-  error: string | null
-}
-
-interface ZipUploadCounts {
-  total: number
-  matched: number
-  uploaded: number
-  skipped: number
-  failed: number
-}
-
-interface ZipUploadResponse {
-  counts: ZipUploadCounts
-  results: ZipFileResult[]
+  blob: Blob
+  objectUrl: string
 }
 
 // ── CSV helpers ───────────────────────────────────────────────────────────────
@@ -92,20 +79,63 @@ const CSV_EXAMPLE: Record<string, string> = {
   tags: 'pain relief',
 }
 
+// ── Client-side ZIP matching helpers ─────────────────────────────────────────
+
+/**
+ * Slugify a string the same way the backend `_generate_slug` does.
+ * Lowercases, strips diacritics, replaces any non-[a-z0-9] run with '-',
+ * and trims leading/trailing dashes.
+ */
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
 /**
  * Convert a drug name + strength to a URL-safe slug.
- * Lowercases, strips diacritics, replaces any non-[a-z0-9] run with a single '-',
- * and trims leading/trailing dashes.
  */
 function generateSlug(medicineName: string, strength: string): string {
   const combined = [medicineName, strength].filter(Boolean).join(' ')
   if (!combined) return ''
-  return combined
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '') // strip diacritics
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  return slugify(combined)
+}
+
+/**
+ * Strip variant suffixes like `-1`, `-2`, or bare trailing digits from a stem.
+ */
+function stripVariantSuffix(stem: string): string {
+  return stem.replace(/-\d+$/, '').replace(/\d+$/, '').replace(/-+$/, '')
+}
+
+/**
+ * Match an image filename stem to a CSV row index.
+ * Tries both the raw stem and the variant-stripped version, matching by
+ * NDC11, slug, or slugified medicine_name — same priority as the backend.
+ */
+function matchImageToRow(stem: string, rows: ParsedRow[]): number | null {
+  const candidates = [stem, stripVariantSuffix(stem)]
+  for (const s of candidates) {
+    const slugged = slugify(s)
+    // NDC11 match (11 consecutive digits after stripping hyphens)
+    const ndc = s.replace(/-/g, '')
+    if (/^\d{11}$/.test(ndc)) {
+      const idx = rows.findIndex((r) => r.ndc11?.replace(/-/g, '') === ndc)
+      if (idx !== -1) return idx
+    }
+    // slug match
+    const idx1 = rows.findIndex((r) => r.slug && slugify(r.slug) === slugged)
+    if (idx1 !== -1) return idx1
+    // medicine_name slugified match
+    const idx2 = rows.findIndex(
+      (r) => r.medicine_name && slugify(r.medicine_name) === slugged,
+    )
+    if (idx2 !== -1) return idx2
+  }
+  return null
 }
 
 /**
@@ -278,12 +308,28 @@ export default function BulkUploadPage() {
   const [editCell, setEditCell] = useState<{ rowIdx: number; key: string } | null>(null)
   const [lastPublishMode, setLastPublishMode] = useState<boolean>(false)
 
-  // ZIP image upload state (Step 3)
+  // ZIP image match state (Step 3 — client-side only)
   const [zipDragOver, setZipDragOver] = useState(false)
-  const [zipUploading, setZipUploading] = useState(false)
+  const [zipProcessing, setZipProcessing] = useState(false)
   const [zipProgress, setZipProgress] = useState(0)
   const [zipError, setZipError] = useState('')
-  const [zipResponse, setZipResponse] = useState<ZipUploadResponse | null>(null)
+  const [zipMatches, setZipMatches] = useState<Map<number, ZipMatchEntry>>(new Map())
+  const [zipMatchSummary, setZipMatchSummary] = useState<{ matched: number; unmatched: string[] } | null>(null)
+
+  // Keep a ref to zipMatches for use in the unmount cleanup
+  const zipMatchesRef = useRef<Map<number, ZipMatchEntry>>(new Map())
+  useEffect(() => {
+    zipMatchesRef.current = zipMatches
+  }, [zipMatches])
+
+  // Revoke all objectUrls when the component unmounts
+  useEffect(() => {
+    return () => {
+      for (const { objectUrl } of zipMatchesRef.current.values()) {
+        URL.revokeObjectURL(objectUrl)
+      }
+    }
+  }, [])
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const zipInputRef = useRef<HTMLInputElement>(null)
@@ -398,13 +444,64 @@ export default function BulkUploadPage() {
           },
           body: JSON.stringify({ pills: rows, publish }),
         })
-        setUploadProgress(80)
+        setUploadProgress(60)
         const data = await res.json()
         if (!res.ok) {
           setUploadError(data.detail || 'Upload failed')
           return
         }
-        setUploadResults(data.results)
+
+        const results: BulkResult[] = data.results
+
+        // Upload matched images for each successfully created pill
+        const successfulWithMatch = results.filter(
+          (r) => r.success && r.id && zipMatches.has(r.index),
+        )
+        const imageStatuses: Record<number, BulkResult['imageStatus']> = {}
+        let imgDone = 0
+
+        for (const r of results) {
+          if (!r.success || !r.id) {
+            imageStatuses[r.index] = 'none'
+            continue
+          }
+          const match = zipMatches.get(r.index)
+          if (!match) {
+            imageStatuses[r.index] = 'none'
+            continue
+          }
+          // POST the blob to the single-image upload endpoint
+          const formData = new FormData()
+          formData.append('file', match.blob, match.filename)
+          try {
+            const imgRes = await fetch(`/api/admin/pills/${r.id}/images`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${session.access_token}` },
+              body: formData,
+            })
+            imageStatuses[r.index] = imgRes.ok ? 'uploaded' : 'failed'
+          } catch {
+            imageStatuses[r.index] = 'failed'
+          } finally {
+            URL.revokeObjectURL(match.objectUrl)
+          }
+
+          // Update progress proportionally across image uploads
+          imgDone++
+          if (successfulWithMatch.length > 0) {
+            setUploadProgress(
+              60 + Math.round((imgDone / successfulWithMatch.length) * 35),
+            )
+          }
+        }
+
+        // Merge imageStatus into results
+        const enriched = results.map((r) => ({
+          ...r,
+          imageStatus: imageStatuses[r.index] ?? 'none',
+        }))
+
+        setUploadResults(enriched)
         setUploadSummary({ total: data.total, succeeded: data.succeeded, failed: data.failed })
         setUploadProgress(100)
       } catch (err) {
@@ -413,56 +510,70 @@ export default function BulkUploadPage() {
         setUploading(false)
       }
     },
-    [rows, getSession]
+    [rows, zipMatches, getSession],
   )
 
-  const handleZipUpload = useCallback(
+  const handleZipMatch = useCallback(
     async (zipFileArg?: File) => {
       const f = zipFileArg ?? zipFile
       if (!f) return
-      const session = await getSession()
-      if (!session) {
-        setZipError('Not authenticated. Please log in again.')
-        return
-      }
 
-      setZipUploading(true)
+      setZipProcessing(true)
       setZipProgress(10)
       setZipError('')
-      setZipResponse(null)
-
-      const formData = new FormData()
-      formData.append('file', f)
+      // Revoke old objectUrls before replacing matches
+      for (const { objectUrl } of zipMatches.values()) {
+        URL.revokeObjectURL(objectUrl)
+      }
+      setZipMatches(new Map())
+      setZipMatchSummary(null)
 
       try {
-        setZipProgress(30)
-        const res = await fetch('/api/admin/pills/bulk-images/zip', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${session.access_token}` },
-          body: formData,
+        setZipProgress(20)
+        const zip = await JSZip.loadAsync(f)
+        const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
+
+        const entries = Object.entries(zip.files).filter(([, entry]) => !entry.dir)
+        const imageEntries = entries.filter(([name]) => {
+          const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
+          return IMAGE_EXTS.has(ext)
         })
-        setZipProgress(80)
-        if (!res.ok) {
-          let errMsg = 'ZIP upload failed'
-          try {
-            const errData = await res.json()
-            errMsg = errData.detail || errMsg
-          } catch {
-            errMsg = `Server error (${res.status})`
+
+        setZipProgress(40)
+
+        const matched = new Map<number, ZipMatchEntry>()
+        const unmatched: string[] = []
+
+        for (let i = 0; i < imageEntries.length; i++) {
+          const [fullName, entry] = imageEntries[i]
+          // Strip directory prefix and extension to get the stem
+          const basename = fullName.replace(/^.*\//, '')
+          const dotIdx = basename.lastIndexOf('.')
+          const stem = dotIdx !== -1 ? basename.slice(0, dotIdx) : basename
+
+          const rowIdx = matchImageToRow(stem, rows)
+          if (rowIdx !== null && !matched.has(rowIdx)) {
+            const blob = await entry.async('blob')
+            const objectUrl = URL.createObjectURL(blob)
+            matched.set(rowIdx, { filename: basename, blob, objectUrl })
+          } else {
+            unmatched.push(basename)
           }
-          setZipError(errMsg)
-          return
+
+          // Update progress as we process each image
+          setZipProgress(40 + Math.round(((i + 1) / imageEntries.length) * 55))
         }
-        const data = await res.json()
-        setZipResponse(data as ZipUploadResponse)
+
+        setZipMatches(matched)
+        setZipMatchSummary({ matched: matched.size, unmatched })
         setZipProgress(100)
       } catch (err) {
         setZipError(String(err))
       } finally {
-        setZipUploading(false)
+        setZipProcessing(false)
       }
     },
-    [zipFile, getSession]
+    [zipFile, rows, zipMatches],
   )
 
   // ── Step 1: Upload CSV ────────────────────────────────────────────────────
@@ -690,92 +801,97 @@ export default function BulkUploadPage() {
     )
   }
 
-  // ── Step 3: Upload Images ─────────────────────────────────────────────────
+  // ── Step 3: Match Images ──────────────────────────────────────────────────
 
   function Step3() {
+    const hasMatches = zipMatchSummary !== null
+
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">Upload Images <span className="text-sm font-normal text-gray-400">(Optional)</span></h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Images <span className="text-sm font-normal text-gray-400">(Optional)</span></h2>
           <p className="text-sm text-gray-500">
-            Optionally upload a ZIP file containing pill images. Name images to match the drug
-            slug or NDC — e.g. <code className="bg-gray-100 px-1 rounded">aspirin-500-mg.jpg</code> or{' '}
+            Upload a ZIP of pill images. Each image is matched to a CSV row <strong>in your browser</strong> —
+            no server call yet. When you save in Step 4 each pill will receive its image immediately.
+            Name images by slug, NDC11, or drug name — e.g.{' '}
+            <code className="bg-gray-100 px-1 rounded">aspirin-500-mg.jpg</code> or{' '}
             <code className="bg-gray-100 px-1 rounded">12345678901.jpg</code>.
             Variant suffixes like <code className="bg-gray-100 px-1 rounded">-1</code>, <code className="bg-gray-100 px-1 rounded">-2</code> are stripped automatically.
           </p>
         </div>
 
-        {/* Informational note about matching scope */}
+        {/* Info banner */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
           <Info className="w-5 h-5 text-blue-500 mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-medium text-blue-800">Images are matched against pills already in the database</p>
+            <p className="text-sm font-medium text-blue-800">Images stay in browser memory until Step 4</p>
             <p className="text-xs text-blue-700 mt-1">
-              If you are importing <strong>new</strong> pills from the CSV in this session, complete
-              Step 4 first to create them, then upload their images from each pill&apos;s edit page
-              or run a new bulk upload session.
+              Clicking &quot;Match Images&quot; reads the ZIP locally and pairs each image with its CSV row.
+              No data is sent to the server until you save pills in Step 4.
             </p>
           </div>
         </div>
 
-        {/* Dropzone */}
-        {!zipResponse && (
-          <div
-            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
-              zipDragOver
-                ? 'border-indigo-500 bg-indigo-50'
-                : zipFile
-                ? 'border-green-400 bg-green-50'
-                : 'border-gray-300 hover:border-indigo-400'
-            }`}
-            onClick={() => zipInputRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); if (!zipDragOver) setZipDragOver(true) }}
-            onDragLeave={() => setZipDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault()
-              setZipDragOver(false)
-              const f = e.dataTransfer.files?.[0]
+        {/* Dropzone — always visible so user can change the ZIP */}
+        <div
+          className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+            zipDragOver
+              ? 'border-indigo-500 bg-indigo-50'
+              : zipFile
+              ? 'border-green-400 bg-green-50'
+              : 'border-gray-300 hover:border-indigo-400'
+          }`}
+          onClick={() => zipInputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); if (!zipDragOver) setZipDragOver(true) }}
+          onDragLeave={() => setZipDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setZipDragOver(false)
+            const f = e.dataTransfer.files?.[0]
+            if (f) {
+              setZipFile(f)
+              setZipError('')
+              setZipMatchSummary(null)
+              for (const { objectUrl } of zipMatches.values()) URL.revokeObjectURL(objectUrl)
+              setZipMatches(new Map())
+            }
+          }}
+        >
+          <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
+          {zipFile ? (
+            <>
+              <p className="text-sm font-medium text-green-700">{zipFile.name}</p>
+              <p className="text-xs text-green-600 mt-1">{(zipFile.size / 1024 / 1024).toFixed(1)} MB — click to change</p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-gray-700">Click or drag a ZIP file here</p>
+              <p className="text-xs text-gray-400 mt-1">Accepts .zip · .jpg .jpeg .png .webp inside</p>
+            </>
+          )}
+          <input
+            ref={zipInputRef}
+            type="file"
+            accept=".zip"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
               if (f) {
                 setZipFile(f)
                 setZipError('')
-                setZipResponse(null)
+                setZipMatchSummary(null)
+                for (const { objectUrl } of zipMatches.values()) URL.revokeObjectURL(objectUrl)
+                setZipMatches(new Map())
               }
             }}
-          >
-            <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-            {zipFile ? (
-              <>
-                <p className="text-sm font-medium text-green-700">{zipFile.name}</p>
-                <p className="text-xs text-green-600 mt-1">{(zipFile.size / 1024 / 1024).toFixed(1)} MB — click to change</p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-medium text-gray-700">Click or drag a ZIP file here</p>
-                <p className="text-xs text-gray-400 mt-1">Accepts .zip up to 50 MB · max 500 images · .jpg .jpeg .png .webp</p>
-              </>
-            )}
-            <input
-              ref={zipInputRef}
-              type="file"
-              accept=".zip"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) {
-                  setZipFile(f)
-                  setZipError('')
-                  setZipResponse(null)
-                }
-              }}
-            />
-          </div>
-        )}
+          />
+        </div>
 
         {/* Progress bar */}
-        {zipUploading && (
+        {zipProcessing && (
           <div className="space-y-2">
             <div className="flex justify-between text-xs text-gray-500">
-              <span>Uploading ZIP…</span>
+              <span>Matching images…</span>
               <span>{zipProgress}%</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2">
@@ -794,75 +910,79 @@ export default function BulkUploadPage() {
           </div>
         )}
 
-        {/* Results */}
-        {zipResponse && (
+        {/* Match results */}
+        {hasMatches && zipMatchSummary && (
           <div className="space-y-4">
-            {/* Counts summary */}
-            <div className="grid grid-cols-5 gap-3 text-center text-xs">
-              {[
-                { label: 'Total', value: zipResponse.counts.total, cls: 'bg-gray-50 border-gray-200 text-gray-700' },
-                { label: 'Matched', value: zipResponse.counts.matched, cls: 'bg-blue-50 border-blue-200 text-blue-700' },
-                { label: 'Uploaded', value: zipResponse.counts.uploaded, cls: 'bg-green-50 border-green-200 text-green-700' },
-                { label: 'Skipped', value: zipResponse.counts.skipped, cls: 'bg-amber-50 border-amber-200 text-amber-700' },
-                { label: 'Failed', value: zipResponse.counts.failed, cls: 'bg-red-50 border-red-200 text-red-700' },
-              ].map(({ label, value, cls }) => (
-                <div key={label} className={`border rounded-lg p-3 ${cls}`}>
-                  <div className="text-xl font-bold">{value}</div>
-                  <div className="mt-0.5">{label}</div>
-                </div>
-              ))}
+            {/* Summary counts */}
+            <div className="grid grid-cols-2 gap-3 text-center text-xs">
+              <div className="border rounded-lg p-3 bg-green-50 border-green-200 text-green-700">
+                <div className="text-xl font-bold">{zipMatchSummary.matched}</div>
+                <div className="mt-0.5">Matched</div>
+              </div>
+              <div className="border rounded-lg p-3 bg-amber-50 border-amber-200 text-amber-700">
+                <div className="text-xl font-bold">{zipMatchSummary.unmatched.length}</div>
+                <div className="mt-0.5">Unmatched</div>
+              </div>
             </div>
 
-            {/* Per-file results for failures / unmatched */}
-            {zipResponse.results.filter((r) => r.error).length > 0 && (
+            {/* Matched thumbnails table */}
+            {zipMatchSummary.matched > 0 && (
               <div>
-                <p className="text-xs font-medium text-gray-600 mb-2">
-                  Files that need attention ({zipResponse.results.filter((r) => r.error).length}):
-                </p>
+                <p className="text-xs font-medium text-gray-600 mb-2">Matched images ({zipMatchSummary.matched}):</p>
                 <div className="overflow-auto max-h-64 rounded-lg border border-gray-200">
                   <table className="min-w-full text-xs">
                     <thead className="bg-gray-50 sticky top-0">
                       <tr>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 border-b">Filename</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 border-b">Reason</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 border-b">Row</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 border-b">Drug Name</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 border-b">Image</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 border-b">Preview</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {zipResponse.results
-                        .filter((r) => r.error)
-                        .map((r, i) => (
-                          <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                            <td className="px-3 py-2 font-mono text-gray-700">{r.filename}</td>
-                            <td className="px-3 py-2 text-red-600">{r.error}</td>
-                          </tr>
-                        ))}
+                      {Array.from(zipMatches.entries()).map(([rowIdx, match]) => (
+                        <tr key={rowIdx} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-400 font-mono">{rowIdx + 1}</td>
+                          <td className="px-3 py-2 text-gray-700 font-medium">{rows[rowIdx]?.medicine_name || '—'}</td>
+                          <td className="px-3 py-2 font-mono text-gray-600">{match.filename}</td>
+                          <td className="px-3 py-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={match.objectUrl}
+                              alt={match.filename}
+                              className="h-10 w-10 object-cover rounded border border-gray-200"
+                            />
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
               </div>
             )}
 
-            {zipResponse.counts.uploaded > 0 && (
-              <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center gap-2 text-sm text-green-700">
-                <CheckCircle className="w-4 h-4 shrink-0" />
-                <span>
-                  <strong>{zipResponse.counts.uploaded}</strong> image{zipResponse.counts.uploaded !== 1 ? 's' : ''} uploaded successfully.
-                </span>
+            {/* Unmatched files */}
+            {zipMatchSummary.unmatched.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-gray-600 mb-2">
+                  Unmatched files ({zipMatchSummary.unmatched.length}) — no CSV row found:
+                </p>
+                <div className="overflow-auto max-h-32 rounded-lg border border-gray-200 bg-amber-50 px-3 py-2">
+                  {zipMatchSummary.unmatched.map((name, i) => (
+                    <p key={i} className="text-xs font-mono text-amber-800">{name}</p>
+                  ))}
+                </div>
               </div>
             )}
 
-            <button
-              onClick={() => {
-                setZipFile(null)
-                setZipResponse(null)
-                setZipError('')
-                setZipProgress(0)
-                if (zipInputRef.current) zipInputRef.current.value = ''
-              }}
-              className="text-sm text-indigo-600 hover:underline"
-            >
-              Upload another ZIP
-            </button>
+            {zipMatchSummary.matched > 0 && (
+              <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center gap-2 text-sm text-green-700">
+                <CheckCircle className="w-4 h-4 shrink-0" />
+                <span>
+                  <strong>{zipMatchSummary.matched}</strong> image{zipMatchSummary.matched !== 1 ? 's' : ''} ready — they will be uploaded in Step 4 after each pill is saved.
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -874,23 +994,23 @@ export default function BulkUploadPage() {
             <ChevronLeft className="w-4 h-4" /> Back
           </button>
           <div className="flex gap-2">
-            {/* Upload ZIP button — only shown when a file is selected and not yet uploaded */}
-            {zipFile && !zipResponse && (
+            {/* Match Images button — only shown when a file is selected and matching isn't done yet */}
+            {zipFile && !hasMatches && (
               <button
-                onClick={() => handleZipUpload()}
-                disabled={zipUploading}
+                onClick={() => handleZipMatch()}
+                disabled={zipProcessing}
                 className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Upload className="w-4 h-4" />
-                {zipUploading ? 'Uploading…' : 'Upload ZIP'}
+                {zipProcessing ? 'Matching…' : 'Match Images'}
               </button>
             )}
             <button
               onClick={() => setStep(4)}
-              disabled={zipUploading}
+              disabled={zipProcessing}
               className="flex items-center gap-2 bg-white border border-gray-300 text-gray-600 px-5 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-40"
             >
-              {zipResponse ? <>Next <ChevronRight className="w-4 h-4" /></> : 'Skip'}
+              {hasMatches ? <>Next <ChevronRight className="w-4 h-4" /></> : 'Skip'}
             </button>
           </div>
         </div>
@@ -989,6 +1109,7 @@ export default function BulkUploadPage() {
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 border-b">#</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 border-b">Drug Name</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 border-b">Status</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 border-b">Image</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 border-b">Details</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 border-b">Actions</th>
                   </tr>
@@ -1007,6 +1128,17 @@ export default function BulkUploadPage() {
                           <span className="flex items-center gap-1 text-red-600 text-xs font-medium">
                             <XCircle className="w-3.5 h-3.5" /> Failed
                           </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-xs">
+                        {r.imageStatus === 'uploaded' && (
+                          <span aria-label="Image uploaded" role="img" className="text-green-600">✅</span>
+                        )}
+                        {r.imageStatus === 'failed' && (
+                          <span aria-label="Image upload failed" role="img" className="text-red-500">❌</span>
+                        )}
+                        {(r.imageStatus === 'none' || !r.imageStatus) && (
+                          <span className="text-gray-300" aria-label="No image">—</span>
                         )}
                       </td>
                       <td className="px-4 py-2 text-xs text-gray-500">
@@ -1040,6 +1172,13 @@ export default function BulkUploadPage() {
                   setUploadResults(null)
                   setUploadSummary(null)
                   setUploadProgress(0)
+                  setZipFile(null)
+                  for (const { objectUrl } of zipMatches.values()) URL.revokeObjectURL(objectUrl)
+                  setZipMatches(new Map())
+                  setZipMatchSummary(null)
+                  setZipProgress(0)
+                  setZipError('')
+                  if (zipInputRef.current) zipInputRef.current.value = ''
                 }}
                 className="text-sm text-indigo-600 hover:underline"
               >
