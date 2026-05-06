@@ -82,6 +82,15 @@ const CSV_EXAMPLE: Record<string, string> = {
 // ── Client-side ZIP matching helpers ─────────────────────────────────────────
 
 /**
+ * Revoke all object URLs stored in a ZipMatchEntry map.
+ */
+function revokeZipUrls(m: Map<number, ZipMatchEntry[]>) {
+  for (const imgList of m.values()) {
+    for (const { objectUrl } of imgList) URL.revokeObjectURL(objectUrl)
+  }
+}
+
+/**
  * Slugify a string the same way the backend `_generate_slug` does.
  * Lowercases, strips diacritics, replaces any non-[a-z0-9] run with '-',
  * and trims leading/trailing dashes.
@@ -325,9 +334,7 @@ export default function BulkUploadPage() {
   // Revoke all objectUrls when the component unmounts
   useEffect(() => {
     return () => {
-      for (const entries of zipMatchesRef.current.values()) {
-        for (const { objectUrl } of entries) URL.revokeObjectURL(objectUrl)
-      }
+      revokeZipUrls(zipMatchesRef.current)
     }
   }, [])
 
@@ -539,9 +546,7 @@ export default function BulkUploadPage() {
       setZipProgress(10)
       setZipError('')
       // Revoke old objectUrls before replacing matches
-      for (const entries of zipMatches.values()) {
-        for (const { objectUrl } of entries) URL.revokeObjectURL(objectUrl)
-      }
+      revokeZipUrls(zipMatches)
       setZipMatches(new Map())
       setZipMatchSummary(null)
 
@@ -887,7 +892,7 @@ export default function BulkUploadPage() {
               setZipFile(f)
               setZipError('')
               setZipMatchSummary(null)
-              for (const entries of zipMatches.values()) for (const { objectUrl } of entries) URL.revokeObjectURL(objectUrl)
+              revokeZipUrls(zipMatches)
               setZipMatches(new Map())
             }
           }}
@@ -915,7 +920,7 @@ export default function BulkUploadPage() {
                 setZipFile(f)
                 setZipError('')
                 setZipMatchSummary(null)
-                for (const entries of zipMatches.values()) for (const { objectUrl } of entries) URL.revokeObjectURL(objectUrl)
+                revokeZipUrls(zipMatches)
                 setZipMatches(new Map())
               }
             }}
@@ -1210,7 +1215,7 @@ export default function BulkUploadPage() {
                   setUploadSummary(null)
                   setUploadProgress(0)
                   setZipFile(null)
-                  for (const entries of zipMatches.values()) for (const { objectUrl } of entries) URL.revokeObjectURL(objectUrl)
+                  revokeZipUrls(zipMatches)
                   setZipMatches(new Map())
                   setZipMatchSummary(null)
                   setZipProgress(0)
