@@ -442,11 +442,18 @@ export default function BulkUploadPage() {
           body: formData,
         })
         setZipProgress(80)
-        const data = await res.json()
         if (!res.ok) {
-          setZipError(data.detail || 'ZIP upload failed')
+          let errMsg = 'ZIP upload failed'
+          try {
+            const errData = await res.json()
+            errMsg = errData.detail || errMsg
+          } catch {
+            errMsg = `Server error (${res.status})`
+          }
+          setZipError(errMsg)
           return
         }
+        const data = await res.json()
         setZipResponse(data as ZipUploadResponse)
         setZipProgress(100)
       } catch (err) {
