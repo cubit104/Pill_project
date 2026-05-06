@@ -40,6 +40,7 @@ interface BulkResult {
   error?: string
   imageStatus?: 'uploaded' | 'failed' | 'none'
   imageCount?: number
+  imageFailedCount?: number
 }
 
 interface ZipMatchEntry {
@@ -462,6 +463,7 @@ export default function BulkUploadPage() {
         )
         const imageStatuses: Record<number, BulkResult['imageStatus']> = {}
         const imageCounts: Record<number, number> = {}
+        const imageFailedCounts: Record<number, number> = {}
         let imgDone = 0
 
         for (const r of results) {
@@ -476,6 +478,7 @@ export default function BulkUploadPage() {
           }
           // POST each image blob to the single-image upload endpoint
           let uploadedCount = 0
+          let failedCount = 0
           for (const img of images) {
             const formData = new FormData()
             formData.append('file', img.blob, img.filename)
@@ -486,14 +489,17 @@ export default function BulkUploadPage() {
                 body: formData,
               })
               if (imgRes.ok) uploadedCount++
+              else failedCount++
             } catch {
               // individual image failed; continue uploading others
+              failedCount++
             } finally {
               URL.revokeObjectURL(img.objectUrl)
             }
           }
           imageStatuses[r.index] = uploadedCount > 0 ? 'uploaded' : 'failed'
           imageCounts[r.index] = uploadedCount
+          imageFailedCounts[r.index] = failedCount
 
           // Update progress proportionally across image uploads
           imgDone++
@@ -504,11 +510,12 @@ export default function BulkUploadPage() {
           }
         }
 
-        // Merge imageStatus and imageCount into results
+        // Merge imageStatus, imageCount, and imageFailedCount into results
         const enriched = results.map((r) => ({
           ...r,
           imageStatus: imageStatuses[r.index] ?? 'none',
           imageCount: imageCounts[r.index] ?? 0,
+          imageFailedCount: imageFailedCounts[r.index] ?? 0,
         }))
 
         setUploadResults(enriched)
@@ -1006,7 +1013,7 @@ export default function BulkUploadPage() {
                 <CheckCircle className="w-4 h-4 shrink-0" />
                 <span>
                   <strong>{zipMatchSummary.matched}</strong> row{zipMatchSummary.matched !== 1 ? 's' : ''} matched
-                  {totalImages !== zipMatchSummary.matched && (
+                  {totalImages > zipMatchSummary.matched && (
                     <> (<strong>{totalImages}</strong> image{totalImages !== 1 ? 's' : ''} total)</>
                   )} — they will be uploaded in Step 4 after each pill is saved.
                 </span>
@@ -1163,6 +1170,9 @@ export default function BulkUploadPage() {
                         {r.imageStatus === 'uploaded' && (
                           <span className="text-green-600">
                             ✅ {r.imageCount === 1 ? '1 image' : `${r.imageCount} images`}
+                            {(r.imageFailedCount ?? 0) > 0 && (
+                              <span className="text-red-500 ml-1">({r.imageFailedCount} failed)</span>
+                            )}
                           </span>
                         )}
                         {r.imageStatus === 'failed' && (
