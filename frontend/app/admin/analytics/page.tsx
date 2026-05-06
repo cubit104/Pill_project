@@ -113,6 +113,8 @@ function OverviewTab({ range, onRangeChange }: { range: RangeOption; onRangeChan
         </div>
       ) : ga4?.configured === false ? (
         <NotConfiguredCard service="GA4" message={ga4.message} />
+      ) : ga4?.error ? (
+        <ErrorCard message={`GA4 Error: ${ga4.error}`} onRetry={refetch} />
       ) : sc?.configured === false ? (
         <div className="space-y-4">
           <NotConfiguredCard service="Search Console" message={sc.message} />
@@ -222,6 +224,8 @@ function TrafficTab({ range, onRangeChange, token }: { range: RangeOption; onRan
 
       {loading ? <SkeletonChart height={260} /> : ga4?.configured === false ? (
         <NotConfiguredCard service="GA4" message={ga4.message} />
+      ) : ga4?.error ? (
+        <ErrorCard message={`GA4 Error: ${ga4.error}`} onRetry={refetch} />
       ) : (
         <>
           {/* Stat summary */}
