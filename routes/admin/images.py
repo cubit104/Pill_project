@@ -146,7 +146,7 @@ def _supabase_upload(path: str, data: bytes, content_type: str) -> bool:
         )
         if resp.status_code in (200, 201):
             return True
-        logger.error(f"Supabase upload failed: {resp.status_code}")
+        logger.error(f"Supabase upload failed: {resp.status_code} — {resp.text[:200]}")
         return False
     except Exception as e:
         logger.error(f"Supabase upload error: {e}")
@@ -175,7 +175,7 @@ async def _async_supabase_upload(path: str, data: bytes, content_type: str) -> b
             )
         if resp.status_code in (200, 201):
             return True
-        logger.error(f"Supabase async upload failed: {resp.status_code}")
+        logger.error(f"Supabase async upload failed: {resp.status_code} — {resp.text[:200]}")
         return False
     except Exception as e:
         logger.error(f"Supabase async upload error: {e}")
@@ -258,7 +258,7 @@ async def upload_images_zip(
                     "SELECT id, medicine_name, slug, ndc11, image_filename"
                     " FROM pillfinder"
                     " WHERE deleted_at IS NULL AND published = TRUE"
-                    " ORDER BY updated_at DESC NULLS LAST, id"
+                    " ORDER BY updated_at DESC NULLS LAST, id ASC"
                 )
             ).fetchall()
     except SQLAlchemyError as e:
