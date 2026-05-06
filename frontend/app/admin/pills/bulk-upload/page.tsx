@@ -15,7 +15,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CheckCircle,
-  AlertTriangle,
   XCircle,
   FileText,
   ArrowRight,
@@ -37,6 +36,27 @@ interface BulkResult {
   id?: string
   drug_name: string
   error?: string
+}
+
+interface ZipFileResult {
+  filename: string
+  pill_id: string | null
+  storage_path: string | null
+  url: string | null
+  error: string | null
+}
+
+interface ZipUploadCounts {
+  total: number
+  matched: number
+  uploaded: number
+  skipped: number
+  failed: number
+}
+
+interface ZipUploadResponse {
+  counts: ZipUploadCounts
+  results: ZipFileResult[]
 }
 
 // ── CSV helpers ───────────────────────────────────────────────────────────────
@@ -257,6 +277,13 @@ export default function BulkUploadPage() {
   const [editCell, setEditCell] = useState<{ rowIdx: number; key: string } | null>(null)
   const [lastPublishMode, setLastPublishMode] = useState<boolean>(false)
 
+  // ZIP image upload state (Step 3)
+  const [zipDragOver, setZipDragOver] = useState(false)
+  const [zipUploading, setZipUploading] = useState(false)
+  const [zipProgress, setZipProgress] = useState(0)
+  const [zipError, setZipError] = useState('')
+  const [zipResponse, setZipResponse] = useState<ZipUploadResponse | null>(null)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const zipInputRef = useRef<HTMLInputElement>(null)
 
@@ -386,6 +413,48 @@ export default function BulkUploadPage() {
       }
     },
     [rows, getSession]
+  )
+
+  const handleZipUpload = useCallback(
+    async (zipFileArg?: File) => {
+      const f = zipFileArg ?? zipFile
+      if (!f) return
+      const session = await getSession()
+      if (!session) {
+        setZipError('Not authenticated. Please log in again.')
+        return
+      }
+
+      setZipUploading(true)
+      setZipProgress(10)
+      setZipError('')
+      setZipResponse(null)
+
+      const formData = new FormData()
+      formData.append('file', f)
+
+      try {
+        setZipProgress(30)
+        const res = await fetch('/api/admin/pills/bulk-images/zip', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          body: formData,
+        })
+        setZipProgress(80)
+        const data = await res.json()
+        if (!res.ok) {
+          setZipError(data.detail || 'ZIP upload failed')
+          return
+        }
+        setZipResponse(data as ZipUploadResponse)
+        setZipProgress(100)
+      } catch (err) {
+        setZipError(String(err))
+      } finally {
+        setZipUploading(false)
+      }
+    },
+    [zipFile, getSession]
   )
 
   // ── Step 1: Upload CSV ────────────────────────────────────────────────────
@@ -624,36 +693,156 @@ export default function BulkUploadPage() {
             Optionally upload a ZIP file containing pill images. Name images to match the drug
             slug or NDC — e.g. <code className="bg-gray-100 px-1 rounded">aspirin-500-mg.jpg</code> or{' '}
             <code className="bg-gray-100 px-1 rounded">12345678901.jpg</code>.
+            Variant suffixes like <code className="bg-gray-100 px-1 rounded">-1</code>, <code className="bg-gray-100 px-1 rounded">-2</code> are stripped automatically.
           </p>
         </div>
 
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-amber-800">Bulk image upload — coming soon</p>
-            <p className="text-xs text-amber-700 mt-1">
-              ZIP image processing is not yet available. You can skip this step and upload images
-              individually from each pill&apos;s edit page after import.
-            </p>
+        {/* Dropzone */}
+        {!zipResponse && (
+          <div
+            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+              zipDragOver
+                ? 'border-indigo-500 bg-indigo-50'
+                : zipFile
+                ? 'border-green-400 bg-green-50'
+                : 'border-gray-300 hover:border-indigo-400'
+            }`}
+            onClick={() => zipInputRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); if (!zipDragOver) setZipDragOver(true) }}
+            onDragLeave={() => setZipDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault()
+              setZipDragOver(false)
+              const f = e.dataTransfer.files?.[0]
+              if (f) {
+                setZipFile(f)
+                setZipError('')
+                setZipResponse(null)
+              }
+            }}
+          >
+            <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
+            {zipFile ? (
+              <>
+                <p className="text-sm font-medium text-green-700">{zipFile.name}</p>
+                <p className="text-xs text-green-600 mt-1">{(zipFile.size / 1024 / 1024).toFixed(1)} MB — click to change</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-gray-700">Click or drag a ZIP file here</p>
+                <p className="text-xs text-gray-400 mt-1">Accepts .zip up to 50 MB · max 500 images · .jpg .jpeg .png .webp</p>
+              </>
+            )}
+            <input
+              ref={zipInputRef}
+              type="file"
+              accept=".zip"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) {
+                  setZipFile(f)
+                  setZipError('')
+                  setZipResponse(null)
+                }
+              }}
+            />
           </div>
-        </div>
+        )}
 
-        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center opacity-50 cursor-not-allowed">
-          <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-          <p className="text-sm font-medium text-gray-700">ZIP file upload (coming soon)</p>
-          <p className="text-xs text-gray-400 mt-1">Accept .zip files containing pill images</p>
-          <input
-            ref={zipInputRef}
-            type="file"
-            accept=".zip"
-            className="hidden"
-            disabled
-            onChange={(e) => setZipFile(e.target.files?.[0] ?? null)}
-          />
-        </div>
+        {/* Progress bar */}
+        {zipUploading && (
+          <div className="space-y-2">
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>Uploading ZIP…</span>
+              <span>{zipProgress}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div
+                className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${zipProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
 
-        {zipFile && (
-          <p className="text-sm text-gray-600">Selected: <strong>{zipFile.name}</strong></p>
+        {/* Error */}
+        {zipError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+            {zipError}
+          </div>
+        )}
+
+        {/* Results */}
+        {zipResponse && (
+          <div className="space-y-4">
+            {/* Counts summary */}
+            <div className="grid grid-cols-5 gap-3 text-center text-xs">
+              {[
+                { label: 'Total', value: zipResponse.counts.total, cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+                { label: 'Matched', value: zipResponse.counts.matched, cls: 'bg-blue-50 border-blue-200 text-blue-700' },
+                { label: 'Uploaded', value: zipResponse.counts.uploaded, cls: 'bg-green-50 border-green-200 text-green-700' },
+                { label: 'Skipped', value: zipResponse.counts.skipped, cls: 'bg-amber-50 border-amber-200 text-amber-700' },
+                { label: 'Failed', value: zipResponse.counts.failed, cls: 'bg-red-50 border-red-200 text-red-700' },
+              ].map(({ label, value, cls }) => (
+                <div key={label} className={`border rounded-lg p-3 ${cls}`}>
+                  <div className="text-xl font-bold">{value}</div>
+                  <div className="mt-0.5">{label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Per-file results for failures / unmatched */}
+            {zipResponse.results.filter((r) => r.error).length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-gray-600 mb-2">
+                  Files that need attention ({zipResponse.results.filter((r) => r.error).length}):
+                </p>
+                <div className="overflow-auto max-h-64 rounded-lg border border-gray-200">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 border-b">Filename</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 border-b">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {zipResponse.results
+                        .filter((r) => r.error)
+                        .map((r, i) => (
+                          <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="px-3 py-2 font-mono text-gray-700">{r.filename}</td>
+                            <td className="px-3 py-2 text-red-600">{r.error}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {zipResponse.counts.uploaded > 0 && (
+              <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center gap-2 text-sm text-green-700">
+                <CheckCircle className="w-4 h-4 shrink-0" />
+                <span>
+                  <strong>{zipResponse.counts.uploaded}</strong> image{zipResponse.counts.uploaded !== 1 ? 's' : ''} uploaded successfully.
+                </span>
+              </div>
+            )}
+
+            <button
+              onClick={() => {
+                setZipFile(null)
+                setZipResponse(null)
+                setZipError('')
+                setZipProgress(0)
+                if (zipInputRef.current) zipInputRef.current.value = ''
+              }}
+              className="text-sm text-indigo-600 hover:underline"
+            >
+              Upload another ZIP
+            </button>
+          </div>
         )}
 
         <div className="flex justify-between">
@@ -664,17 +853,23 @@ export default function BulkUploadPage() {
             <ChevronLeft className="w-4 h-4" /> Back
           </button>
           <div className="flex gap-2">
+            {/* Upload ZIP button — only shown when a file is selected and not yet uploaded */}
+            {zipFile && !zipResponse && (
+              <button
+                onClick={() => handleZipUpload()}
+                disabled={zipUploading}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Upload className="w-4 h-4" />
+                {zipUploading ? 'Uploading…' : 'Upload ZIP'}
+              </button>
+            )}
             <button
               onClick={() => setStep(4)}
-              className="flex items-center gap-2 bg-white border border-gray-300 text-gray-600 px-5 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
+              disabled={zipUploading}
+              className="flex items-center gap-2 bg-white border border-gray-300 text-gray-600 px-5 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-40"
             >
-              Skip
-            </button>
-            <button
-              onClick={() => setStep(4)}
-              className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors"
-            >
-              Next <ChevronRight className="w-4 h-4" />
+              {zipResponse ? <>Next <ChevronRight className="w-4 h-4" /></> : 'Skip'}
             </button>
           </div>
         </div>
