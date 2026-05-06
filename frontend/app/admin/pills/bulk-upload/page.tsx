@@ -82,6 +82,15 @@ const CSV_EXAMPLE: Record<string, string> = {
 // ── Client-side ZIP matching helpers ─────────────────────────────────────────
 
 /**
+ * Revoke all object URLs stored in a ZipMatchEntry map.
+ */
+function revokeZipUrls(m: Map<number, ZipMatchEntry[]>) {
+  for (const imgList of m.values()) {
+    for (const { objectUrl } of imgList) URL.revokeObjectURL(objectUrl)
+  }
+}
+
+/**
  * Slugify a string the same way the backend `_generate_slug` does.
  * Lowercases, strips diacritics, replaces any non-[a-z0-9] run with '-',
  * and trims leading/trailing dashes.
@@ -313,11 +322,11 @@ export default function BulkUploadPage() {
   const [zipProcessing, setZipProcessing] = useState(false)
   const [zipProgress, setZipProgress] = useState(0)
   const [zipError, setZipError] = useState('')
-  const [zipMatches, setZipMatches] = useState<Map<number, ZipMatchEntry>>(new Map())
+  const [zipMatches, setZipMatches] = useState<Map<number, ZipMatchEntry[]>>(new Map())
   const [zipMatchSummary, setZipMatchSummary] = useState<{ matched: number; unmatched: string[] } | null>(null)
 
   // Keep a ref to zipMatches for use in the unmount cleanup
-  const zipMatchesRef = useRef<Map<number, ZipMatchEntry>>(new Map())
+  const zipMatchesRef = useRef<Map<number, ZipMatchEntry[]>>(new Map())
   useEffect(() => {
     zipMatchesRef.current = zipMatches
   }, [zipMatches])
@@ -325,9 +334,7 @@ export default function BulkUploadPage() {
   // Revoke all objectUrls when the component unmounts
   useEffect(() => {
     return () => {
-      for (const { objectUrl } of zipMatchesRef.current.values()) {
-        URL.revokeObjectURL(objectUrl)
-      }
+      revokeZipUrls(zipMatchesRef.current)
     }
   }, [])
 
@@ -386,7 +393,15 @@ export default function BulkUploadPage() {
       // Second pass: auto-generate missing slugs
       for (const row of parsed) {
         if (!row.slug || row.slug.trim() === '') {
-          const base = generateSlug(row.medicine_name || '', row.spl_strength || '')
+          const medicineName = row.medicine_name || ''
+          const strength = row.spl_strength || ''
+          // Fix doubled slug: strip medicine_name prefix from spl_strength if present
+          const nameLower = medicineName.toLowerCase().trim()
+          const strengthClean =
+            nameLower && strength.toLowerCase().startsWith(nameLower)
+              ? strength.slice(nameLower.length).trim()
+              : strength
+          const base = generateSlug(medicineName, strengthClean)
           if (!base) continue // skip if both fields are empty
           let candidate = base
           let counter = 2
@@ -457,6 +472,10 @@ export default function BulkUploadPage() {
         const successfulWithMatch = results.filter(
           (r) => r.success && r.id && zipMatches.has(r.index),
         )
+        const totalMatchedImages = successfulWithMatch.reduce(
+          (sum, r) => sum + (zipMatches.get(r.index)?.length ?? 0),
+          0,
+        )
         const imageStatuses: Record<number, BulkResult['imageStatus']> = {}
         let imgDone = 0
 
@@ -465,34 +484,39 @@ export default function BulkUploadPage() {
             imageStatuses[r.index] = 'none'
             continue
           }
-          const match = zipMatches.get(r.index)
-          if (!match) {
+          const matches = zipMatches.get(r.index)
+          if (!matches || matches.length === 0) {
             imageStatuses[r.index] = 'none'
             continue
           }
-          // POST the blob to the single-image upload endpoint
-          const formData = new FormData()
-          formData.append('file', match.blob, match.filename)
-          try {
-            const imgRes = await fetch(`/api/admin/pills/${r.id}/images`, {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${session.access_token}` },
-              body: formData,
-            })
-            imageStatuses[r.index] = imgRes.ok ? 'uploaded' : 'failed'
-          } catch {
-            imageStatuses[r.index] = 'failed'
-          } finally {
-            URL.revokeObjectURL(match.objectUrl)
-          }
+          // POST each image blob to the single-image upload endpoint in order
+          let anyOk = false
+          let anyFail = false
+          for (const m of matches) {
+            const formData = new FormData()
+            formData.append('file', m.blob, m.filename)
+            try {
+              const imgRes = await fetch(`/api/admin/pills/${r.id}/images`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${session.access_token}` },
+                body: formData,
+              })
+              if (imgRes.ok) anyOk = true; else anyFail = true
+            } catch {
+              anyFail = true
+            } finally {
+              URL.revokeObjectURL(m.objectUrl)
+            }
 
-          // Update progress proportionally across image uploads
-          imgDone++
-          if (successfulWithMatch.length > 0) {
-            setUploadProgress(
-              60 + Math.round((imgDone / successfulWithMatch.length) * 35),
-            )
+            // Update progress proportionally across all image uploads
+            imgDone++
+            if (totalMatchedImages > 0) {
+              setUploadProgress(
+                60 + Math.round((imgDone / totalMatchedImages) * 35),
+              )
+            }
           }
+          imageStatuses[r.index] = anyFail ? (anyOk ? 'uploaded' : 'failed') : 'uploaded'
         }
 
         // Merge imageStatus into results
@@ -522,9 +546,7 @@ export default function BulkUploadPage() {
       setZipProgress(10)
       setZipError('')
       // Revoke old objectUrls before replacing matches
-      for (const { objectUrl } of zipMatches.values()) {
-        URL.revokeObjectURL(objectUrl)
-      }
+      revokeZipUrls(zipMatches)
       setZipMatches(new Map())
       setZipMatchSummary(null)
 
@@ -541,7 +563,7 @@ export default function BulkUploadPage() {
 
         setZipProgress(40)
 
-        const matched = new Map<number, ZipMatchEntry>()
+        const matched = new Map<number, ZipMatchEntry[]>()
         const unmatched: string[] = []
 
         for (let i = 0; i < imageEntries.length; i++) {
@@ -551,11 +573,28 @@ export default function BulkUploadPage() {
           const dotIdx = basename.lastIndexOf('.')
           const stem = dotIdx !== -1 ? basename.slice(0, dotIdx) : basename
 
-          const rowIdx = matchImageToRow(stem, rows)
-          if (rowIdx !== null && !matched.has(rowIdx)) {
+          // First try: match by image_filename column in CSV row
+          let rowIdx: number | null = null
+          for (let j = 0; j < rows.length; j++) {
+            const csvImages = rows[j].image_filename
+              ?.split(',')
+              .map((f) => f.trim())
+              .filter(Boolean) || []
+            if (csvImages.some((f) => f.toLowerCase() === basename.toLowerCase())) {
+              rowIdx = j
+              break
+            }
+          }
+          // Fall back to stem-based matching (NDC11 / slug / medicine_name)
+          if (rowIdx === null) {
+            rowIdx = matchImageToRow(stem, rows)
+          }
+
+          if (rowIdx !== null) {
             const blob = await entry.async('blob')
             const objectUrl = URL.createObjectURL(blob)
-            matched.set(rowIdx, { filename: basename, blob, objectUrl })
+            const existing = matched.get(rowIdx) ?? []
+            matched.set(rowIdx, [...existing, { filename: basename, blob, objectUrl }])
           } else {
             unmatched.push(basename)
           }
@@ -564,8 +603,9 @@ export default function BulkUploadPage() {
           setZipProgress(40 + Math.round(((i + 1) / imageEntries.length) * 55))
         }
 
+        const totalImages = Array.from(matched.values()).reduce((s, a) => s + a.length, 0)
         setZipMatches(matched)
-        setZipMatchSummary({ matched: matched.size, unmatched })
+        setZipMatchSummary({ matched: totalImages, unmatched })
         setZipProgress(100)
       } catch (err) {
         setZipError(String(err))
@@ -852,7 +892,7 @@ export default function BulkUploadPage() {
               setZipFile(f)
               setZipError('')
               setZipMatchSummary(null)
-              for (const { objectUrl } of zipMatches.values()) URL.revokeObjectURL(objectUrl)
+              revokeZipUrls(zipMatches)
               setZipMatches(new Map())
             }
           }}
@@ -880,7 +920,7 @@ export default function BulkUploadPage() {
                 setZipFile(f)
                 setZipError('')
                 setZipMatchSummary(null)
-                for (const { objectUrl } of zipMatches.values()) URL.revokeObjectURL(objectUrl)
+                revokeZipUrls(zipMatches)
                 setZipMatches(new Map())
               }
             }}
@@ -940,21 +980,23 @@ export default function BulkUploadPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {Array.from(zipMatches.entries()).map(([rowIdx, match]) => (
-                        <tr key={rowIdx} className="border-b border-gray-100 hover:bg-gray-50">
-                          <td className="px-3 py-2 text-gray-400 font-mono">{rowIdx + 1}</td>
-                          <td className="px-3 py-2 text-gray-700 font-medium">{rows[rowIdx]?.medicine_name || '—'}</td>
-                          <td className="px-3 py-2 font-mono text-gray-600">{match.filename}</td>
-                          <td className="px-3 py-2">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={match.objectUrl}
-                              alt={match.filename}
-                              className="h-10 w-10 object-cover rounded border border-gray-200"
-                            />
-                          </td>
-                        </tr>
-                      ))}
+                      {Array.from(zipMatches.entries()).flatMap(([rowIdx, matchArr]) =>
+                        matchArr.map((match, imgIdx) => (
+                          <tr key={`${rowIdx}-${imgIdx}`} className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="px-3 py-2 text-gray-400 font-mono">{imgIdx === 0 ? rowIdx + 1 : ''}</td>
+                            <td className="px-3 py-2 text-gray-700 font-medium">{imgIdx === 0 ? rows[rowIdx]?.medicine_name || '—' : ''}</td>
+                            <td className="px-3 py-2 font-mono text-gray-600">{match.filename}</td>
+                            <td className="px-3 py-2">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={match.objectUrl}
+                                alt={match.filename}
+                                className="h-10 w-10 object-cover rounded border border-gray-200"
+                              />
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1173,7 +1215,7 @@ export default function BulkUploadPage() {
                   setUploadSummary(null)
                   setUploadProgress(0)
                   setZipFile(null)
-                  for (const { objectUrl } of zipMatches.values()) URL.revokeObjectURL(objectUrl)
+                  revokeZipUrls(zipMatches)
                   setZipMatches(new Map())
                   setZipMatchSummary(null)
                   setZipProgress(0)
