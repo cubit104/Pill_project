@@ -1594,3 +1594,1199 @@ def test_put_pill_indication_requires_editor_or_higher(client):
 
     assert resp.status_code == 403
 
+
+
+# ---------------------------------------------------------------------------
+# Bulk create — POST /api/admin/pills/bulk
+# ---------------------------------------------------------------------------
+
+def test_bulk_create_draft_inserts_all_rows(client):
+    """POST /api/admin/pills/bulk with publish=false inserts all rows as drafts."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            # profiles auth lookup — return ("superuser",) so role resolves correctly
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "idempotency_key" in sql_str and "select" in sql_str:
+            result.fetchone.return_value = None  # no existing row
+        elif "insert into pillfinder" in sql_str:
+            result.scalar.return_value = f"bulk-id-{call_count[0]}"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    pills = [
+        {"medicine_name": "Aspirin", "slug": "aspirin"},
+        {"medicine_name": "Ibuprofen", "slug": "ibuprofen"},
+    ]
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": pills, "publish": False},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 2
+    assert data["succeeded"] == 2
+    assert data["failed"] == 0
+    assert all(r["success"] is True for r in data["results"])
+
+
+def test_bulk_create_publish_skips_invalid_rows(client):
+    """POST /api/admin/pills/bulk with publish=true skips rows missing required fields."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "idempotency_key" in sql_str and "select" in sql_str:
+            result.fetchone.return_value = None
+        elif "insert into pillfinder" in sql_str:
+            result.scalar.return_value = f"new-id-{call_count[0]}"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    # Valid row has all tier-1 required fields; invalid row is missing them
+    valid_pill = {
+        "medicine_name": "Aspirin",
+        "author": "Bayer",
+        "spl_strength": "500 mg",
+        "splimprint": "BAYER",
+        "splcolor_text": "White",
+        "splshape_text": "Round",
+        "slug": "aspirin-bayer",
+        "ndc9": "12345678",
+        "ndc11": "12345678901",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "spl_ingredients": "Aspirin 500 mg",
+        "spl_inactive_ing": "Starch",
+        "dea_schedule_name": "N/A",
+        "status_rx_otc": "OTC",
+    }
+    invalid_pill = {"medicine_name": "Ibuprofen"}  # missing all required fields
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": [valid_pill, invalid_pill], "publish": True},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 2
+    assert data["succeeded"] == 1
+    assert data["failed"] == 1
+
+    results_by_index = {r["index"]: r for r in data["results"]}
+    assert results_by_index[0]["success"] is True   # valid row was inserted
+    assert results_by_index[1]["success"] is False  # invalid row was skipped
+    assert results_by_index[1].get("error"), "failed row must include an error message"
+
+
+def test_bulk_create_partial_db_failure(client):
+    """POST /api/admin/pills/bulk continues when one row hits a DB error."""
+    from sqlalchemy.exc import SQLAlchemyError as SAError
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    insert_call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+            return result
+        if "idempotency_key" in sql_str and "select" in sql_str:
+            result.fetchone.return_value = None
+            return result
+        if "insert into pillfinder" in sql_str:
+            insert_call_count[0] += 1
+            if insert_call_count[0] == 1:
+                raise SAError("unique constraint violation")
+            result.scalar.return_value = f"ok-id-{insert_call_count[0]}"
+            return result
+        result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    pills = [
+        {"medicine_name": "Row1"},
+        {"medicine_name": "Row2"},
+    ]
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": pills, "publish": False},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 2
+    assert data["failed"] == 1
+    assert data["succeeded"] == 1
+
+    results_by_index = {r["index"]: r for r in data["results"]}
+    assert results_by_index[0]["success"] is False
+    assert results_by_index[1]["success"] is True
+
+
+def test_bulk_create_idempotency_key_prevents_duplicate(client):
+    """Retrying POST /api/admin/pills/bulk with an existing idempotency_key returns the existing row."""
+    EXISTING_ID = "existing-pill-uuid"
+    IDEM_KEY = "import-batch-row-42"
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    insert_called = [False]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "idempotency_key" in sql_str and "select" in sql_str:
+            # Return the existing row — simulates a retry after a previous success
+            result.fetchone.return_value = (EXISTING_ID,)
+        elif "insert into pillfinder" in sql_str:
+            insert_called[0] = True
+            result.scalar.return_value = "should-not-be-called"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    pills = [{"medicine_name": "Aspirin", "idempotency_key": IDEM_KEY}]
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": pills, "publish": False},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["succeeded"] == 1
+    assert data["failed"] == 0
+
+    result = data["results"][0]
+    assert result["success"] is True
+    assert result["id"] == EXISTING_ID, "idempotency must return existing row id"
+    assert insert_called[0] is False, "INSERT must not be called when idempotency key matches"
+
+
+def test_bulk_create_requires_auth(client):
+    """POST /api/admin/pills/bulk returns 401 without a token."""
+    with patch("routes.admin.auth._verify_jwt", return_value=None):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": [], "publish": False},
+        )
+    assert resp.status_code == 401
+
+
+def test_bulk_create_slug_collision_rejected_draft(client):
+    """POST /api/admin/pills/bulk with publish=false rejects a row whose slug already exists."""
+    EXISTING_SLUG = "aspirin-500-mg"
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    insert_called = [False]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "slug = :slug" in sql_str:
+            # Simulate slug collision
+            result.fetchone.return_value = ("existing-uuid",)
+        elif "insert into pillfinder" in sql_str:
+            insert_called[0] = True
+            result.scalar.return_value = "should-not-be-inserted"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    pills = [{"medicine_name": "Aspirin", "slug": EXISTING_SLUG, "spl_strength": "500 mg"}]
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": pills, "publish": False},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 1
+    assert data["succeeded"] == 0
+    assert data["failed"] == 1
+
+    result = data["results"][0]
+    assert result["success"] is False
+    assert EXISTING_SLUG in result["error"], "error must mention the conflicting slug"
+    assert "already exists" in result["error"]
+    assert insert_called[0] is False, "INSERT must not be called when slug already exists"
+
+
+def test_bulk_create_slug_collision_rejected_publish(client):
+    """POST /api/admin/pills/bulk with publish=true rejects a row whose slug already exists."""
+    EXISTING_SLUG = "ibuprofen-200-mg"
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    insert_called = [False]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "slug = :slug" in sql_str:
+            result.fetchone.return_value = ("existing-uuid",)
+        elif "insert into pillfinder" in sql_str:
+            insert_called[0] = True
+            result.scalar.return_value = "should-not-be-inserted"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    valid_pill = {
+        "medicine_name": "Ibuprofen",
+        "author": "Advil",
+        "spl_strength": "200 mg",
+        "splimprint": "I2",
+        "splcolor_text": "Brown",
+        "splshape_text": "Round",
+        "slug": EXISTING_SLUG,
+        "ndc9": "12345678",
+        "ndc11": "12345678901",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "spl_ingredients": "Ibuprofen 200 mg",
+        "spl_inactive_ing": "Starch",
+        "dea_schedule_name": "N/A",
+        "status_rx_otc": "OTC",
+    }
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": [valid_pill], "publish": True},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["succeeded"] == 0
+    assert data["failed"] == 1
+
+    result = data["results"][0]
+    assert result["success"] is False
+    assert EXISTING_SLUG in result["error"]
+    assert insert_called[0] is False, "INSERT must not be called when slug already exists"
+
+
+def test_bulk_create_name_strength_collision_rejected_draft(client):
+    """POST /api/admin/pills/bulk with publish=false rejects a row matching an existing live pill."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    insert_called = [False]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "slug = :slug" in sql_str:
+            # No slug collision
+            result.fetchone.return_value = None
+        elif "lower(trim(medicine_name))" in sql_str:
+            # Simulate name+strength collision with a live row
+            result.fetchone.return_value = ("live-pill-uuid",)
+        elif "insert into pillfinder" in sql_str:
+            insert_called[0] = True
+            result.scalar.return_value = "should-not-be-inserted"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    pills = [
+        {
+            "medicine_name": "Ezetimibe and Simvastatin",
+            "spl_strength": "10 mg / 20 mg",
+            "slug": "ezetimibe-and-simvastatin-10-mg-20-mg",
+        }
+    ]
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": pills, "publish": False},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["succeeded"] == 0
+    assert data["failed"] == 1
+
+    result = data["results"][0]
+    assert result["success"] is False
+    assert "already exists" in result["error"]
+    assert insert_called[0] is False, "INSERT must not be called when name+strength already exists"
+
+
+def test_bulk_create_name_strength_collision_rejected_publish(client):
+    """POST /api/admin/pills/bulk with publish=true rejects a row matching an existing live pill."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    insert_called = [False]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "slug = :slug" in sql_str:
+            result.fetchone.return_value = None
+        elif "lower(trim(medicine_name))" in sql_str:
+            result.fetchone.return_value = ("live-pill-uuid",)
+        elif "insert into pillfinder" in sql_str:
+            insert_called[0] = True
+            result.scalar.return_value = "should-not-be-inserted"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    valid_pill = {
+        "medicine_name": "Amlodipine Besylate and Simvastatin Hydrochloride",
+        "author": "Pharma",
+        "spl_strength": "5 mg / 10 mg",
+        "splimprint": "AMB10",
+        "splcolor_text": "White",
+        "splshape_text": "Oval",
+        "slug": "amlodipine-besylate-and-simvastatin-5-mg-10-mg",
+        "ndc9": "12345678",
+        "ndc11": "12345678901",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "spl_ingredients": "Amlodipine Besylate 5 mg; Simvastatin Hydrochloride 10 mg",
+        "spl_inactive_ing": "Starch",
+        "dea_schedule_name": "N/A",
+        "status_rx_otc": "Rx",
+    }
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/bulk",
+            json={"pills": [valid_pill], "publish": True},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["succeeded"] == 0
+    assert data["failed"] == 1
+
+    result = data["results"][0]
+    assert result["success"] is False
+    assert "already exists" in result["error"]
+    assert insert_called[0] is False, "INSERT must not be called when name+strength already exists"
+
+
+# ---------------------------------------------------------------------------
+# Draft GET / PATCH endpoints  (added to cover new routes)
+# ---------------------------------------------------------------------------
+
+def test_get_draft_returns_draft_data(client):
+    """GET /api/admin/drafts/{id} returns draft including draft_data."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    import datetime
+
+    call_count = [0]
+    fake_draft_data = {"medicine_name": "Aspirin", "slug": "aspirin", "has_image": False}
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            # profiles auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "pill_drafts" in sql_str and "select" in sql_str:
+            result.fetchone.return_value = (
+                "draft-uuid-001",
+                None,
+                "draft",
+                datetime.datetime(2024, 1, 1),
+                datetime.datetime(2024, 1, 2),
+                None,
+                "Aspirin",
+                "00000000-0000-0000-0000-000000000001",
+                fake_draft_data,
+            )
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/drafts/draft-uuid-001",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["id"] == "draft-uuid-001"
+    assert data["status"] == "draft"
+    assert data["draft_data"]["medicine_name"] == "Aspirin"
+    assert data["draft_data"]["has_image"] is False
+
+
+def test_get_draft_returns_404_for_missing(client):
+    """GET /api/admin/drafts/{id} returns 404 when draft doesn't exist."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/drafts/nonexistent-id",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 404
+
+
+def test_patch_draft_updates_draft_data(client):
+    """PATCH /api/admin/drafts/{id} updates draft_data and returns 200."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            # profiles auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "update pill_drafts" in sql_str and "status = 'draft'" in sql_str:
+            # Successful UPDATE RETURNING id, pill_id
+            result.fetchone.return_value = ("draft-uuid-001", None)
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.patch(
+            "/api/admin/drafts/draft-uuid-001",
+            json={"draft_data": {"medicine_name": "Updated Aspirin", "slug": "aspirin-updated"}},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["id"] == "draft-uuid-001"
+    assert data["updated"] is True
+
+
+def test_patch_draft_returns_404_for_missing(client):
+    """PATCH /api/admin/drafts/{id} returns 404 when draft doesn't exist."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        else:
+            # UPDATE returns nothing; status check also returns nothing
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.patch(
+            "/api/admin/drafts/nonexistent-id",
+            json={"draft_data": {"medicine_name": "Whatever"}},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 404
+
+
+def test_patch_draft_returns_409_for_non_draft_status(client):
+    """PATCH /api/admin/drafts/{id} returns 409 when draft is not in 'draft' status."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            # profiles auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "update pill_drafts" in sql_str:
+            # UPDATE found no row (status != 'draft')
+            result.fetchone.return_value = None
+        elif "select status" in sql_str:
+            # Draft exists but is in pending_review
+            result.fetchone.return_value = ("pending_review",)
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.patch(
+            "/api/admin/drafts/some-submitted-draft",
+            json={"draft_data": {"medicine_name": "Whatever"}},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 409
+    assert "pending_review" in resp.json()["detail"]
+
+
+def test_create_draft_upsert_returns_200_on_update(client):
+    """POST /api/admin/pills/{id}/drafts returns 200 when an existing draft is updated."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            # profiles auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "update pill_drafts" in sql_str:
+            # Existing 'draft' row found and updated — return the id
+            result.fetchone.return_value = ("existing-draft-id",)
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/some-pill-id/drafts",
+            json={"draft_data": {"medicine_name": "Aspirin"}},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["id"] == "existing-draft-id"
+    assert data["created"] is False
+
+
+def test_create_draft_returns_201_on_insert(client):
+    """POST /api/admin/pills/{id}/drafts returns 201 when a new draft is inserted."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            # profiles auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "update pill_drafts" in sql_str:
+            # No existing 'draft' row — UPDATE returns nothing
+            result.fetchone.return_value = None
+        elif "insert into pill_drafts" in sql_str:
+            result.scalar.return_value = "new-draft-id"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills/some-pill-id/drafts",
+            json={"draft_data": {"medicine_name": "Aspirin"}},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["id"] == "new-draft-id"
+    assert data["created"] is True
+
+
+def test_list_drafts_returns_unpublished_pillfinder_rows(client):
+    """GET /api/admin/drafts returns pillfinder rows where published=false."""
+    import datetime
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+    pill_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+            result.fetchall.return_value = []
+        elif "pillfinder" in sql_str and "published" in sql_str:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = [
+                (
+                    pill_id,
+                    "Ibuprofen",
+                    datetime.datetime(2024, 1, 2),
+                )
+            ]
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/drafts",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert isinstance(data, list)
+    assert len(data) == 1
+    # Both 'id' and 'pill_id' are the same pillfinder.id — pill_id is included
+    # for backward compatibility with callers that expect the old pill_drafts shape.
+    assert data[0]["id"] == pill_id
+    assert data[0]["pill_id"] == pill_id  # same as id — no separate draft id
+    assert data[0]["status"] == "draft"
+    assert data[0]["medicine_name"] == "Ibuprofen"
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/admin/drafts/{draft_id}
+# ---------------------------------------------------------------------------
+
+def test_delete_draft_superuser_can_delete_draft_status(client):
+    """DELETE /api/admin/drafts/{id} returns 200 for a superuser deleting a 'draft'."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    DRAFT_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+    PILL_ID = "pppppppp-pppp-pppp-pppp-pppppppppppp"
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            # profiles auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "select" in sql_str and "pill_drafts" in sql_str and "where id" in sql_str:
+            # Draft lookup — return status='draft'
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "draft")
+        elif "insert" in sql_str and "admin_audit_log" in sql_str:
+            result.fetchone.return_value = None
+        elif "delete from pill_drafts" in sql_str:
+            result.fetchone.return_value = None
+        elif "pillfinder" in sql_str and "published" in sql_str:
+            # pillfinder row: published=True so no soft-delete should happen
+            result.fetchone.return_value = (PILL_ID, True)
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] is True
+
+
+def test_delete_draft_editor_can_delete_draft_status(client):
+    """DELETE /api/admin/drafts/{id} returns 200 for an editor deleting a 'draft'."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_EDITOR_ROW)
+
+    DRAFT_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+    PILL_ID = "pppppppp-pppp-pppp-pppp-pppppppppppp"
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_EDITOR_PROFILE
+        elif "select" in sql_str and "pill_drafts" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "draft")
+        elif "insert" in sql_str and "admin_audit_log" in sql_str:
+            result.fetchone.return_value = None
+        elif "delete from pill_drafts" in sql_str:
+            result.fetchone.return_value = None
+        elif "pillfinder" in sql_str and "published" in sql_str:
+            result.fetchone.return_value = (PILL_ID, True)
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR_ROW[0], "email": FAKE_EDITOR_ROW[1]}):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+
+
+def test_delete_draft_readonly_gets_403_for_draft_status(client):
+    """DELETE /api/admin/drafts/{id} returns 403 for readonly user deleting 'draft'."""
+    mock_engine, mock_conn = _make_mock_engine(
+        admin_row=FAKE_READONLY_ROW,
+        profile_row=None,  # readonly has no profiles row — falls back to admin_users
+    )
+
+    DRAFT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    PILL_ID = "pppppppp-pppp-pppp-pppp-pppppppppppp"
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = None  # no profiles row for readonly
+        elif call_count[0] == 2:
+            result.fetchone.return_value = FAKE_READONLY_ROW  # admin_users fallback
+        elif "select" in sql_str and "pill_drafts" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "draft")
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_READONLY_ROW[0]}):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 403
+
+
+def test_delete_draft_editor_gets_403_for_pending_review(client):
+    """DELETE /api/admin/drafts/{id} returns 403 when editor tries to delete pending_review."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_EDITOR_ROW)
+
+    DRAFT_ID = "11111111-1111-1111-1111-111111111111"
+    PILL_ID = "pppppppp-pppp-pppp-pppp-pppppppppppp"
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_EDITOR_PROFILE
+        elif "select" in sql_str and "pill_drafts" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "pending_review")
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR_ROW[0], "email": FAKE_EDITOR_ROW[1]}):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 403
+
+
+def test_delete_draft_superuser_can_delete_pending_review(client):
+    """DELETE /api/admin/drafts/{id} returns 200 when superuser deletes pending_review."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    DRAFT_ID = "22222222-2222-2222-2222-222222222222"
+    PILL_ID = "pppppppp-pppp-pppp-pppp-pppppppppppp"
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "select" in sql_str and "pill_drafts" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "pending_review")
+        elif "insert" in sql_str and "admin_audit_log" in sql_str:
+            result.fetchone.return_value = None
+        elif "delete from pill_drafts" in sql_str:
+            result.fetchone.return_value = None
+        elif "pillfinder" in sql_str and "published" in sql_str:
+            result.fetchone.return_value = (PILL_ID, True)
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] is True
+
+
+def test_delete_draft_soft_deletes_pillfinder_when_last_draft(client):
+    """Deleting the last draft for an unpublished pill soft-deletes the pillfinder row."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    DRAFT_ID = "33333333-3333-3333-3333-333333333333"
+    PILL_ID = "44444444-4444-4444-4444-444444444444"
+
+    executed_sqls: list[str] = []
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql)
+        executed_sqls.append(sql_str)
+        call_count[0] += 1
+        sql_lower = sql_str.lower()
+        if call_count[0] == 1:
+            # profiles auth lookup
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "select" in sql_lower and "pill_drafts" in sql_lower and "where id" in sql_lower:
+            # Draft row lookup — status='draft', has pill_id
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "draft")
+        elif "insert" in sql_lower and "admin_audit_log" in sql_lower:
+            result.fetchone.return_value = None
+        elif "delete from pill_drafts" in sql_lower:
+            result.fetchone.return_value = None
+        elif "pillfinder" in sql_lower and "published" in sql_lower:
+            # pillfinder.published=false (unpublished)
+            result.fetchone.return_value = (PILL_ID, False)
+        elif "count" in sql_lower and "pill_drafts" in sql_lower:
+            # No other drafts referencing this pill
+            result.scalar.return_value = 0
+        elif "update pillfinder" in sql_lower and "deleted_at" in sql_lower:
+            result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        if "count" not in sql_str.lower():
+            result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] is True
+
+    # Verify that the pillfinder cleanup used a soft-delete (UPDATE … SET deleted_at)
+    # and NOT a hard DELETE.
+    assert any(
+        "UPDATE pillfinder" in sql and "deleted_at" in sql
+        for sql in executed_sqls
+    ), "pillfinder cleanup must use soft-delete (UPDATE … SET deleted_at)"
+    assert not any(
+        "DELETE FROM pillfinder" in sql
+        for sql in executed_sqls
+    ), "pillfinder cleanup must NOT use hard DELETE"
+
+
+def test_delete_draft_does_not_touch_pillfinder_when_other_drafts_exist(client):
+    """Pillfinder row is NOT soft-deleted when another draft still references the pill."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    DRAFT_ID = "55555555-5555-5555-5555-555555555555"
+    PILL_ID = "66666666-6666-6666-6666-666666666666"
+
+    executed_sqls: list[str] = []
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql)
+        executed_sqls.append(sql_str)
+        call_count[0] += 1
+        sql_lower = sql_str.lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "select" in sql_lower and "pill_drafts" in sql_lower and "where id" in sql_lower:
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, "draft")
+        elif "insert" in sql_lower and "admin_audit_log" in sql_lower:
+            result.fetchone.return_value = None
+        elif "delete from pill_drafts" in sql_lower:
+            result.fetchone.return_value = None
+        elif "pillfinder" in sql_lower and "published" in sql_lower:
+            result.fetchone.return_value = (PILL_ID, False)
+        elif "count" in sql_lower and "pill_drafts" in sql_lower:
+            # Another draft still exists
+            result.scalar.return_value = 1
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        if "count" not in sql_str.lower():
+            result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.delete(
+            f"/api/admin/drafts/{DRAFT_ID}",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    # pillfinder must NOT be touched (neither hard nor soft delete)
+    assert not any("UPDATE pillfinder" in sql and "deleted_at" in sql for sql in executed_sqls), \
+        "pillfinder must not be soft-deleted when other drafts still reference it"
+    assert not any("DELETE FROM pillfinder" in sql for sql in executed_sqls), \
+        "pillfinder must not be hard-deleted when other drafts still reference it"
+
+
+def test_delete_draft_returns_404_for_missing(client):
+    """DELETE /api/admin/drafts/{id} returns 404 when draft doesn't exist."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.delete(
+            "/api/admin/drafts/nonexistent-draft-id",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 404
