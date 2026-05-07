@@ -16,7 +16,7 @@ export default function GoogleAnalytics() {
           window.dataLayer = window.dataLayer || [];
           function gtag(){dataLayer.push(arguments);}
           gtag('js', new Date());
-          gtag('config', '${gaId}', { send_page_view: false });
+          gtag('config', '${gaId}', { send_page_view: true });
         `}
       </Script>
     </>
