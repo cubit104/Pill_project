@@ -52,12 +52,14 @@ def get_suggestions(
                 SELECT DISTINCT ndc9 AS code
                     FROM pillfinder
                     WHERE deleted_at IS NULL
+                    AND published = true
                     AND ndc9 IS NOT NULL
                     AND REPLACE(ndc9, '-', '') LIKE :like_q
                 UNION
                 SELECT DISTINCT ndc11 AS code
                     FROM pillfinder
                     WHERE deleted_at IS NULL
+                    AND published = true
                     AND ndc11 IS NOT NULL
                     AND REPLACE(ndc11, '-', '') LIKE :like_q
                 LIMIT :lim
@@ -76,6 +78,7 @@ def get_suggestions(
                 SELECT DISTINCT splimprint
                     FROM pillfinder
                     WHERE deleted_at IS NULL
+                    AND published = true
                     AND splimprint IS NOT NULL
                     AND UPPER(
                         REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')
@@ -103,6 +106,7 @@ def get_suggestions(
                 SELECT DISTINCT medicine_name
                     FROM pillfinder
                     WHERE deleted_at IS NULL
+                    AND published = true
                     AND LOWER(medicine_name) LIKE :like_q
                     ORDER BY medicine_name
                     LIMIT :lim
@@ -149,6 +153,7 @@ def api_search(
                 spl_strength
             FROM pillfinder
             WHERE deleted_at IS NULL
+              AND published = true
         """
 
         params: dict = {}
@@ -197,6 +202,7 @@ def api_search(
                     SELECT DISTINCT medicine_name, splimprint
                     FROM pillfinder
                     WHERE deleted_at IS NULL
+                      AND published = true
                     {"".join(f' AND {cond}' for cond in where_conditions)}
                 ) AS count_query
             """
@@ -246,6 +252,7 @@ def api_search(
                 image_q = text("""
                     SELECT image_filename FROM pillfinder
                     WHERE deleted_at IS NULL
+                      AND published = true
                       AND medicine_name = :medicine_name
                       AND splimprint = :splimprint
                 """)

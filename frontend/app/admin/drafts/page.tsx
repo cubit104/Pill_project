@@ -3,18 +3,20 @@
 export const dynamic = 'force-dynamic'
 import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '../lib/supabase'
-import { CheckCircle, XCircle, Clock, Send } from 'lucide-react'
+import { CheckCircle, XCircle, Send, Pencil, Upload, Trash2 } from 'lucide-react'
 
 interface Draft {
   id: string
   pill_id: string | null
   status: string
-  created_at: string
-  updated_at: string
+  created_at: string | null
+  updated_at: string | null
   review_notes: string | null
   medicine_name: string | null
   created_by: string | null
+  source: string | null
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -35,6 +37,7 @@ function DraftsListInner() {
   const [error, setError] = useState('')
   const [actioning, setActioning] = useState<string | null>(null)
   const [role, setRole] = useState<string | null>(null)
+  const [pendingCount, setPendingCount] = useState<number | null>(null)
 
   const fetchDrafts = useCallback(async () => {
     const supabase = createClient()
@@ -48,11 +51,17 @@ function DraftsListInner() {
 
     setLoading(true)
     try {
-      const [draftsRes, meRes] = await Promise.all([
-        fetch(`/api/admin/drafts${statusFilter ? `?status=${statusFilter}` : ''}`, {
+      const qs = new URLSearchParams()
+      if (statusFilter) qs.set('status', statusFilter)
+      const qStr = qs.toString()
+      const [draftsRes, meRes, countRes] = await Promise.all([
+        fetch(`/api/admin/drafts${qStr ? `?${qStr}` : ''}`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         }),
         fetch('/api/admin/me', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }),
+        fetch('/api/admin/drafts/count', {
           headers: { Authorization: `Bearer ${session.access_token}` },
         }),
       ])
@@ -62,8 +71,12 @@ function DraftsListInner() {
         const meData = await meRes.json()
         setRole(meData.role)
       }
+      if (countRes.ok) {
+        const countData = await countRes.json()
+        setPendingCount(countData.count ?? null)
+      }
     } catch (e) {
-      setError(String(e))
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
@@ -95,6 +108,35 @@ function DraftsListInner() {
         setError(err.detail || 'Action failed')
       } else {
         fetchDrafts()
+        window.dispatchEvent(new Event('draft-count-changed'))
+      }
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setActioning(null)
+    }
+  }
+
+  const deleteDraft = async (draftId: string) => {
+    if (!confirm('Delete this draft? This action cannot be undone.')) return
+    const supabase = createClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (!session) return
+
+    setActioning(draftId)
+    try {
+      const res = await fetch(`/api/admin/drafts/${draftId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        setError(err.detail || 'Delete failed')
+      } else {
+        fetchDrafts()
+        window.dispatchEvent(new Event('draft-count-changed'))
       }
     } catch (e) {
       setError(String(e))
@@ -107,7 +149,14 @@ function DraftsListInner() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-gray-900">Drafts</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-bold text-gray-900">Drafts</h1>
+        {pendingCount != null && pendingCount > 0 && (
+          <span className="bg-yellow-400 text-yellow-900 text-sm font-bold px-2 py-0.5 rounded-full">
+            {pendingCount}
+          </span>
+        )}
+      </div>
 
       <div className="flex gap-2 flex-wrap">
         {STATUSES.map((s) => (
@@ -140,7 +189,7 @@ function DraftsListInner() {
               <th className="px-4 py-3 text-left">Draft ID</th>
               <th className="px-4 py-3 text-left">Pill</th>
               <th className="px-4 py-3 text-left">Status</th>
-              <th className="px-4 py-3 text-left">Created</th>
+              <th className="px-4 py-3 text-left">Last Updated</th>
               <th className="px-4 py-3 text-left">Notes</th>
               <th className="px-4 py-3 text-left">Actions</th>
             </tr>
@@ -161,11 +210,25 @@ function DraftsListInner() {
               </tr>
             )}
             {drafts.map((draft) => (
-              <tr key={draft.id} className="hover:bg-gray-50">
+              <tr key={draft.id} className={`hover:bg-gray-50 ${draft.pill_id ? 'cursor-pointer' : ''}`}>
                 <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                  #{draft.id.slice(0, 8)}
+                  {draft.pill_id ? (
+                    <Link href={`/admin/pills/${draft.pill_id}`} className="hover:text-indigo-600 hover:underline">
+                      #{draft.id.slice(0, 8)}
+                    </Link>
+                  ) : (
+                    `#${draft.id.slice(0, 8)}`
+                  )}
                 </td>
-                <td className="px-4 py-3 text-gray-700">{draft.medicine_name || '(new pill)'}</td>
+                <td className="px-4 py-3 text-gray-700">
+                  {draft.pill_id ? (
+                    <Link href={`/admin/pills/${draft.pill_id}`} className="hover:text-indigo-600 hover:underline">
+                      {draft.medicine_name || '(new pill)'}
+                    </Link>
+                  ) : (
+                    draft.medicine_name || '(new pill)'
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <span
                     className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[draft.status] || 'bg-gray-100 text-gray-600'}`}
@@ -174,14 +237,22 @@ function DraftsListInner() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-gray-400 text-xs">
-                  {new Date(draft.created_at).toLocaleDateString()}
+                  {draft.updated_at ? new Date(draft.updated_at).toLocaleDateString() : '—'}
                 </td>
                 <td className="px-4 py-3 text-gray-500 text-xs max-w-xs truncate">
                   {draft.review_notes || '—'}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-2 items-center">
-                    {draft.status === 'draft' && (
+                    {(draft.status === 'draft' || draft.status === 'rejected' || draft.status === 'published') && draft.pill_id && (
+                      <Link
+                        href={`/admin/pills/${draft.pill_id}`}
+                        className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
+                      >
+                        <Pencil className="w-3 h-3" /> Edit
+                      </Link>
+                    )}
+                    {draft.status === 'draft' && draft.source !== 'pillfinder' && (
                       <button
                         onClick={() => action(draft.id, 'submit')}
                         disabled={actioning === draft.id}
@@ -214,7 +285,23 @@ function DraftsListInner() {
                         disabled={actioning === draft.id}
                         className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
                       >
-                        <Clock className="w-3 h-3" /> Publish
+                        <Upload className="w-3 h-3" /> Publish
+                      </button>
+                    )}
+                    {/* Delete button — role-gated; hidden until role is loaded */}
+                    {role != null && (
+                      ((draft.status === 'draft' || draft.status === 'rejected') &&
+                        (role === 'editor' || role === 'reviewer' || role === 'superuser')) ||
+                      ((draft.status === 'pending_review' || draft.status === 'approved' || draft.status === 'published') &&
+                        role === 'superuser')
+                    ) && (
+                      <button
+                        onClick={() => deleteDraft(draft.id)}
+                        disabled={actioning === draft.id}
+                        className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+                        title="Delete draft"
+                      >
+                        <Trash2 className="w-3 h-3" /> Delete
                       </button>
                     )}
                   </div>

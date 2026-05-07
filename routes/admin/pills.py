@@ -18,7 +18,7 @@ import bleach
 import database
 from routes.admin.auth import get_admin_user, log_audit, require_superuser, CRITICAL_FIELDS
 from routes.admin.field_schema import validate_pill, compute_completeness, compute_seo_score
-from utils import get_image_url
+from utils import get_image_url, generate_slug
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +129,11 @@ class BulkTagRequest(BaseModel):
 
 class BulkDeleteRequest(BaseModel):
     ids: list[str]
+
+
+class BulkCreateRequest(BaseModel):
+    pills: list[PillCreate]
+    publish: bool = False
 
 
 @router.get("")
@@ -782,6 +787,252 @@ def bulk_delete(
         raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
+@router.post("/bulk", status_code=200)
+def bulk_create_pills(
+    request: Request,
+    body: BulkCreateRequest,
+    admin: dict = Depends(get_admin_user),
+):
+    """Bulk-create pills from a CSV import. Returns per-row results."""
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+
+    if len(body.pills) > 500:
+        raise HTTPException(status_code=400, detail="Maximum 500 pills per request")
+
+    if not database.db_engine:
+        database.connect_to_database()
+
+    results = []
+    succeeded = 0
+    failed = 0
+
+    def _has_no_pill_data(data: dict) -> bool:
+        """Return True when data contains no clinical fields (only idempotency_key or nothing)."""
+        meaningful_keys = {k for k in data if k != "idempotency_key"}
+        return len(meaningful_keys) == 0
+
+    for i, pill_model in enumerate(body.pills):
+        drug_name = pill_model.medicine_name or f"Row {i + 1}"
+        idempotency_key = pill_model.idempotency_key
+
+        # Sanitize all provided fields (exclude idempotency_key for now)
+        raw = pill_model.model_dump(exclude={"idempotency_key"})
+        data = {k: _sanitize(v) for k, v in raw.items() if v is not None}
+
+        # Include idempotency_key in insert data if provided
+        if idempotency_key:
+            data["idempotency_key"] = idempotency_key
+
+        # Parse comma-separated image_filename and sync has_image
+        if "image_filename" in data:
+            images = [fn.strip() for fn in str(data["image_filename"]).split(",") if fn.strip()]
+            data["image_filename"] = ", ".join(images)
+            data["has_image"] = "TRUE" if images else "FALSE"
+
+        if _has_no_pill_data(data):
+            failed += 1
+            results.append({
+                "index": i,
+                "success": False,
+                "drug_name": drug_name,
+                "error": "No data provided for this row",
+            })
+            continue
+
+        # When publishing, skip rows that fail tier-1 validation
+        if body.publish:
+            errors = validate_pill(data, strict=True)
+            if errors:
+                failed += 1
+                error_msg = "; ".join(e["message"] for e in errors)
+                results.append({
+                    "index": i,
+                    "success": False,
+                    "drug_name": drug_name,
+                    "error": error_msg,
+                })
+                continue
+
+        try:
+            with database.db_engine.begin() as conn:
+                if body.publish:
+                    # Idempotency: if a row with this key already exists, return it.
+                    # If it was previously saved as a draft (published=false), transition
+                    # it to published=true so a re-sent publish request is idempotent
+                    # and doesn't violate the UNIQUE constraint on idempotency_key.
+                    if idempotency_key:
+                        existing = conn.execute(
+                            text("SELECT id, published FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
+                            {"key": idempotency_key},
+                        ).fetchone()
+                        if existing:
+                            existing_id, existing_published = existing
+                            if not existing_published:
+                                # Row exists but was saved as draft — transition to published
+                                conn.execute(
+                                    text("UPDATE pillfinder SET published = true WHERE id = :id"),
+                                    {"id": existing_id},
+                                )
+                            succeeded += 1
+                            results.append({
+                                "index": i,
+                                "success": True,
+                                "id": str(existing_id),
+                                "drug_name": drug_name,
+                            })
+                            continue
+
+                    # Resolve slug — auto-generate if missing, then suffix until free
+                    medicine_name_val = data.get("medicine_name") or ""
+                    spl_strength_val = data.get("spl_strength") or ""
+                    if data.get("slug"):
+                        base_slug = data["slug"]
+                    else:
+                        # Fix doubled slug: strip medicine_name prefix from spl_strength if present
+                        name_lower = medicine_name_val.lower().strip()
+                        strength_clean = spl_strength_val.strip()
+                        if name_lower and strength_clean.lower().startswith(name_lower):
+                            strength_clean = strength_clean[len(name_lower):].strip()
+                        base_slug = generate_slug(medicine_name_val, strength_clean)
+
+                    slug = base_slug
+                    counter = 2
+                    while True:
+                        slug_row = conn.execute(
+                            text("SELECT id FROM pillfinder WHERE slug = :slug LIMIT 1"),
+                            {"slug": slug},
+                        ).fetchone()
+                        if not slug_row:
+                            break
+                        slug = f"{base_slug}-{counter}"
+                        counter += 1
+                    data["slug"] = slug
+                    publish_data = {**data, "published": True}
+                    cols = ", ".join(publish_data.keys())
+                    vals = ", ".join(f":{k}" for k in publish_data.keys())
+                    insert_result = conn.execute(
+                        text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
+                        publish_data,
+                    )
+                    new_id = insert_result.scalar()
+
+                    log_audit(
+                        conn,
+                        actor_id=admin["id"],
+                        actor_email=admin["email"],
+                        action="bulk_create",
+                        entity_type="pill",
+                        entity_id=str(new_id),
+                        diff={"after": {k: str(v) if v is not None else None for k, v in publish_data.items()}, "publish": True},
+                        ip_address=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent"),
+                    )
+                else:
+                    # Save as draft: insert directly into pillfinder with published=false.
+                    # This mirrors the publish path so all drafts are accessible via the
+                    # existing /admin/pills/{id} edit page — no pill_drafts row needed.
+                    if idempotency_key:
+                        # Check for any existing row with this key regardless of published
+                        # status — the UNIQUE constraint on idempotency_key spans all rows,
+                        # so filtering on published=false would miss a published row and
+                        # cause a unique-constraint violation on the subsequent INSERT.
+                        existing = conn.execute(
+                            text("SELECT id FROM pillfinder WHERE idempotency_key = :key LIMIT 1"),
+                            {"key": idempotency_key},
+                        ).fetchone()
+                        if existing:
+                            succeeded += 1
+                            results.append({
+                                "index": i,
+                                "success": True,
+                                "id": str(existing[0]),
+                                "drug_name": drug_name,
+                            })
+                            continue
+
+                    # Resolve slug — auto-generate if missing, then suffix until free
+                    medicine_name_val = data.get("medicine_name") or ""
+                    spl_strength_val = data.get("spl_strength") or ""
+                    if data.get("slug"):
+                        base_slug = data["slug"]
+                    else:
+                        # Fix doubled slug: strip medicine_name prefix from spl_strength if present
+                        name_lower = medicine_name_val.lower().strip()
+                        strength_clean = spl_strength_val.strip()
+                        if name_lower and strength_clean.lower().startswith(name_lower):
+                            strength_clean = strength_clean[len(name_lower):].strip()
+                        base_slug = generate_slug(medicine_name_val, strength_clean)
+
+                    slug = base_slug
+                    counter = 2
+                    while True:
+                        slug_row = conn.execute(
+                            text("SELECT id FROM pillfinder WHERE slug = :slug LIMIT 1"),
+                            {"slug": slug},
+                        ).fetchone()
+                        if not slug_row:
+                            break
+                        slug = f"{base_slug}-{counter}"
+                        counter += 1
+                    data["slug"] = slug
+
+                    # Guard: only allow known pillfinder column names as keys to
+                    # prevent any unexpected key from reaching the SQL template.
+                    _ALLOWED_DRAFT_KEYS = set(EDITABLE_FIELDS) | {"idempotency_key", "published"}
+                    draft_data = {
+                        k: v for k, v in {**data, "published": False}.items()
+                        if k in _ALLOWED_DRAFT_KEYS
+                    }
+                    cols = ", ".join(draft_data.keys())
+                    vals = ", ".join(f":{k}" for k in draft_data.keys())
+                    draft_result = conn.execute(
+                        text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
+                        draft_data,
+                    )
+                    new_id = draft_result.scalar()
+
+                    log_audit(
+                        conn,
+                        actor_id=admin["id"],
+                        actor_email=admin["email"],
+                        action="bulk_create_draft",
+                        entity_type="pill",
+                        entity_id=str(new_id),
+                        diff={"after": {k: str(v) if v is not None else None for k, v in data.items()}, "publish": False},
+                        ip_address=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent"),
+                    )
+
+            succeeded += 1
+            results.append({
+                "index": i,
+                "success": True,
+                "id": str(new_id),
+                "drug_name": drug_name,
+            })
+        except SQLAlchemyError as e:
+            failed += 1
+            logger.error(f"bulk_create row {i} DB error: {e}", exc_info=True)
+            results.append({
+                "index": i,
+                "success": False,
+                "drug_name": drug_name,
+                "error": "Database error — row could not be saved",
+            })
+
+    logger.info(
+        "bulk_create by %s: total=%d succeeded=%d failed=%d publish=%s",
+        admin["email"], len(body.pills), succeeded, failed, body.publish,
+    )
+    return {
+        "results": results,
+        "total": len(body.pills),
+        "succeeded": succeeded,
+        "failed": failed,
+    }
+
+
 @router.get("/{pill_id}")
 def get_pill(pill_id: str, admin: dict = Depends(get_admin_user)):
     if not database.db_engine:
@@ -803,11 +1054,11 @@ def get_pill(pill_id: str, admin: dict = Depends(get_admin_user)):
                 else:
                     pill[k] = v
 
-            # Include pending drafts (no LIMIT so draft_count is exact)
+            # Include active (non-published, non-rejected) drafts
             drafts = conn.execute(
                 text("""
                     SELECT id, status, created_at, updated_at, review_notes
-                    FROM pill_drafts WHERE pill_id = :id AND status != 'published'
+                    FROM pill_drafts WHERE pill_id = :id AND status IN ('draft', 'pending_review', 'approved')
                     ORDER BY created_at DESC
                 """),
                 {"id": pill_id},
@@ -1115,6 +1366,11 @@ def update_pill(
         fn_val = updates["image_filename"]
         updates["has_image"] = "TRUE" if fn_val else "FALSE"
 
+    # When publishing, always set published=True so the pillfinder row goes live
+    # and the pill leaves the unified drafts list.
+    if publish:
+        updates["published"] = True
+
     if not updates:
         return {"updated": False}
 
@@ -1255,6 +1511,44 @@ def update_pill(
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
+
+            # Fix B: when publishing, close out any active pill_drafts workflow rows
+            # for this pill in the same transaction so they leave the unified drafts list.
+            # Use a CTE to capture each row's prior status before the UPDATE.
+            if publish:
+                closed_drafts = conn.execute(
+                    text("""
+                        WITH prior AS (
+                            SELECT id, status AS prior_status
+                            FROM pill_drafts
+                            WHERE pill_id = :pill_id
+                              AND status NOT IN ('published', 'rejected')
+                        )
+                        UPDATE pill_drafts pd
+                        SET status = 'published',
+                            published_at = now(),
+                            published_by = :admin_id,
+                            updated_at = now()
+                        FROM prior
+                        WHERE pd.id = prior.id
+                        RETURNING pd.id, prior.prior_status
+                    """),
+                    {"admin_id": str(admin["id"]), "pill_id": pill_id},
+                ).fetchall()
+                for draft_row in closed_drafts:
+                    prior_draft_id = str(draft_row[0])
+                    prior_status = draft_row[1]
+                    log_audit(
+                        conn,
+                        actor_id=admin["id"],
+                        actor_email=admin["email"],
+                        action="publish_via_pill_edit",
+                        entity_type="draft",
+                        entity_id=prior_draft_id,
+                        metadata={"pill_id": pill_id, "prior_status": prior_status},
+                        ip_address=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent"),
+                    )
 
         return {"updated": True, "warnings": warnings}
     except HTTPException:

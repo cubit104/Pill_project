@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, Users, Settings, ImageOff, Layers, BarChart2, X } from 'lucide-react'
@@ -29,6 +29,22 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
   const pathname = usePathname()
   const [role, setRole] = useState<string | null>(null)
   const [dupCount, setDupCount] = useState<number | null>(null)
+  const [draftCount, setDraftCount] = useState<number | null>(null)
+
+  const fetchCounts = useCallback(async (token: string) => {
+    const [dupRes, draftRes] = await Promise.all([
+      fetch('/api/admin/duplicates/count', { headers: { Authorization: `Bearer ${token}` } }),
+      fetch('/api/admin/drafts/count', { headers: { Authorization: `Bearer ${token}` } }),
+    ])
+    if (dupRes.ok) {
+      const dupData = await dupRes.json()
+      if (dupData.total_groups != null) setDupCount(dupData.total_groups)
+    }
+    if (draftRes.ok) {
+      const draftData = await draftRes.json()
+      if (draftData.count != null) setDraftCount(draftData.count)
+    }
+  }, [])
 
   useEffect(() => {
     const init = async () => {
@@ -40,19 +56,15 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
         if (!session) return
         const token = session.access_token
 
-        const [meRes, dupRes] = await Promise.all([
+        const [meRes] = await Promise.all([
           fetch('/api/admin/me', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/admin/duplicates/count', { headers: { Authorization: `Bearer ${token}` } }),
         ])
 
         if (meRes.ok) {
           const data = await meRes.json()
           setRole(data.role)
         }
-        if (dupRes.ok) {
-          const dupData = await dupRes.json()
-          if (dupData.total_groups != null) setDupCount(dupData.total_groups)
-        }
+        await fetchCounts(token)
       } catch (err) {
         if (process.env.NODE_ENV === 'development') {
           console.error('Failed to init sidebar:', err)
@@ -60,7 +72,25 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
       }
     }
     init()
-  }, [])
+  }, [fetchCounts])
+
+  useEffect(() => {
+    const handleDraftCountChanged = async () => {
+      try {
+        const supabase = createClient()
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) return
+        await fetchCounts(session.access_token)
+      } catch (err) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Failed to refresh draft count:', err)
+        }
+      }
+    }
+
+    window.addEventListener('draft-count-changed', handleDraftCountChanged)
+    return () => window.removeEventListener('draft-count-changed', handleDraftCountChanged)
+  }, [fetchCounts])
 
   const isSuperuser = role === 'superuser' || role === 'superadmin'
   const canViewAudit = role === 'superuser' || role === 'superadmin' || role === 'editor'
@@ -144,6 +174,11 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
               {href === '/admin/duplicates' && dupCount != null && dupCount > 0 && (
                 <span className="bg-yellow-400 text-yellow-900 text-xs font-bold px-1.5 py-0.5 rounded-full md:hidden lg:inline">
                   {dupCount}
+                </span>
+              )}
+              {href === '/admin/drafts' && draftCount != null && draftCount > 0 && (
+                <span className="bg-blue-600 text-white text-xs font-bold px-1.5 py-0.5 rounded-full md:hidden lg:inline">
+                  {draftCount}
                 </span>
               )}
             </Link>

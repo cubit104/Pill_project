@@ -855,21 +855,47 @@ export default function EditPillPage() {
     const session = await getSession()
     if (!session) return
     try {
-      const res = await fetch(`/api/admin/pills/${pillId}/drafts`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft_data: form, status: 'draft' }),
-      })
-      if (!res.ok) {
-        throw new Error(await safeErrorDetail(res, 'Draft creation failed'))
+      // pill.published is a boolean from the API response; PillData types it as string|null
+      const pillPublished: unknown = pill?.['published']
+      if (pillPublished === false) {
+        // Pill IS already a pillfinder-source draft (published=false).
+        // Update the existing pillfinder row in place via PUT — no pill_drafts row needed.
+        const changedFields = getChangedFields()
+        if (Object.keys(changedFields).length === 0) {
+          setSuccess('Draft saved (no changes)')
+          setSuccessDismissed(false)
+          setSaving(false)
+          return
+        }
+        const res = await fetch(`/api/admin/pills/${pillId}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...changedFields, updated_at: pill?.updated_at }),
+        })
+        if (res.status === 409) { setError(await safeErrorDetail(res, 'Conflict')); setErrorDismissed(false); return }
+        if (!res.ok) throw new Error(await safeErrorDetail(res, 'Draft save failed'))
+        setSuccess('Draft saved')
+        setSuccessDismissed(false)
+        await loadPill()
+      } else {
+        // Pill is published (or pill not yet loaded) → create/update a pill_drafts workflow row.
+        const res = await fetch(`/api/admin/pills/${pillId}/drafts`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draft_data: form, status: 'draft' }),
+        })
+        if (!res.ok) {
+          throw new Error(await safeErrorDetail(res, 'Draft creation failed'))
+        }
+        const data = await res.json()
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[handleSaveDraft] draft created:', data.id)
+        }
+        setSuccess(`Workflow draft created: #${data.id.slice(0, 8)} — view all drafts at /admin/drafts`)
+        setSuccessDismissed(false)
+        await loadPill()
+        window.dispatchEvent(new Event('draft-count-changed'))
       }
-      const data = await res.json()
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[handleSaveDraft] draft created:', data.id)
-      }
-      setSuccess(`Workflow draft created: #${data.id.slice(0, 8)} — view all drafts at /admin/drafts`)
-      setSuccessDismissed(false)
-      await loadPill()
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
 
@@ -907,13 +933,13 @@ export default function EditPillPage() {
 
       {pill?.slug && <IndexStatusPanel slug={pill.slug} token={token} />}
 
-      {/* Prominent blue banner — visible whenever pending drafts exist */}
+      {/* Yellow banner — visible whenever pending drafts exist */}
       {draftCount > 0 && (
-        <div className="bg-blue-50 border border-blue-300 rounded-md px-4 py-3 text-sm text-blue-800 flex items-center justify-between gap-2">
+        <div className="bg-yellow-50 border border-yellow-300 rounded-md px-4 py-3 text-sm text-yellow-800 flex items-center justify-between gap-2">
           <span>
-            📝 This pill has <strong>{draftCount}</strong> pending workflow draft{draftCount !== 1 ? 's' : ''}.
+            ⚠️ This pill has <strong>{draftCount}</strong> pending draft{draftCount !== 1 ? 's' : ''} awaiting review.
           </span>
-          <Link href={`/admin/drafts?pill_id=${pillId}`} className="text-blue-700 font-medium underline hover:text-blue-900 whitespace-nowrap">
+          <Link href="/admin/drafts" className="text-yellow-700 font-medium underline hover:text-yellow-900 whitespace-nowrap">
             View drafts →
           </Link>
         </div>
@@ -967,18 +993,14 @@ export default function EditPillPage() {
       )}
 
       <div className="flex gap-3 flex-wrap">
-        <button onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 disabled:opacity-50 text-sm font-medium transition-colors">
-          <Save className="w-4 h-4" />{saving ? 'Saving…' : 'Save changes'}
+        <button onClick={handleSaveDraft} disabled={saving}
+          className="flex items-center gap-2 bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 disabled:opacity-50 text-sm font-medium transition-colors"
+          title="Creates a draft entry for review. The live pill record stays unchanged until the draft is published.">
+          <FileEdit className="w-4 h-4" />{saving ? 'Saving…' : 'Save as Draft'}
         </button>
         <button onClick={handlePublish} disabled={saving}
           className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium transition-colors">
           <Save className="w-4 h-4" />{saving ? 'Saving…' : 'Save & publish'}
-        </button>
-        <button onClick={handleSaveDraft} disabled={saving}
-          className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 disabled:opacity-50 text-sm font-medium transition-colors"
-          title="Creates a reviewable draft that goes through the approval workflow. Use 'Save changes' to save directly to the live record without creating a draft.">
-          <FileEdit className="w-4 h-4" />Save as workflow draft
         </button>
         <button onClick={handleDiscard} disabled={saving}
           className="flex items-center gap-2 bg-white border border-gray-300 text-gray-500 px-4 py-2 rounded-md hover:bg-gray-50 disabled:opacity-50 text-sm font-medium transition-colors"
@@ -1076,7 +1098,7 @@ export default function EditPillPage() {
         <div className="bg-white rounded-lg shadow border-2 border-blue-200" id="pending-drafts">
           <div className="px-4 py-3 border-b border-blue-200 bg-blue-50 rounded-t-lg flex items-center justify-between">
             <h2 className="font-bold text-blue-900">📝 Pending Drafts ({draftCount})</h2>
-            <Link href={`/admin/drafts?pill_id=${pillId}`} className="text-blue-700 text-sm font-medium underline hover:text-blue-900">
+            <Link href="/admin/drafts" className="text-blue-700 text-sm font-medium underline hover:text-blue-900">
               View all →
             </Link>
           </div>
@@ -1089,6 +1111,9 @@ export default function EditPillPage() {
                   : draft.status === 'approved' ? 'bg-green-100 text-green-700'
                   : 'bg-gray-100 text-gray-600'}`}>{draft.status}</span>
                 <span className="text-gray-400 text-xs">{new Date(draft.created_at).toLocaleDateString()}</span>
+                <Link href="/admin/drafts" className="text-blue-600 text-xs hover:text-blue-800 hover:underline">
+                  {draft.status === 'draft' ? 'Edit Draft →' : 'View in Drafts →'}
+                </Link>
               </div>
             ))}
           </div>
