@@ -8,11 +8,12 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/testdb")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://testserver")
@@ -20,7 +21,7 @@ os.environ.setdefault("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-key")
 
 from routes import medication_guide as medication_guide_routes
-from services.medication_guide import GuideNotFoundError, build_guide
+from services.medication_guide import GuideNotFoundError, GuideValidationError, _upsert_guide, build_guide
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -193,6 +194,76 @@ def test_unknown_rxcui_returns_404_error_payload():
 
     assert response.status_code == 404
     assert response.json() == {"error": "No FDA label found for this drug"}
+
+
+def test_by_ndc_endpoint_returns_400_for_invalid_ndc():
+    app = FastAPI()
+    app.include_router(medication_guide_routes.router)
+    client = TestClient(app)
+    response = client.get("/api/drugs/by-ndc/not-an-ndc/guide")
+    assert response.status_code == 400
+    assert response.json() == {"error": "Invalid NDC format"}
+
+
+def test_invalid_ndc_is_rejected_before_openfda_lookup():
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()):
+        with pytest.raises(GuideValidationError):
+            asyncio.run(build_guide(ndc="not-an-ndc", openfda_client=mock_client))
+
+    assert mock_client.fetch_label_by_ndc.call_count == 0
+
+
+def test_upsert_recovers_from_insert_integrity_error():
+    payload = {
+        "rxcui": "153165",
+        "ndc": "0071-0156-23",
+        "spl_set_id": "abc-123",
+        "generic_name": "atorvastatin calcium",
+        "brand_name": "LIPITOR",
+        "overview": "overview",
+        "uses": "uses",
+        "dosage": "dosage",
+        "how_to_take": None,
+        "side_effects": "side effects",
+        "warnings": "warnings",
+        "interactions": None,
+        "contraindications": "contraindications",
+        "special_populations": None,
+        "overdose": None,
+        "storage": None,
+        "pharmacology": "pharmacology",
+        "manufacturer": "manufacturer",
+        "has_boxed_warning": False,
+        "source_url": "https://api.fda.gov/drug/label.json?search=spl_set_id:abc-123",
+    }
+
+    row = MagicMock()
+    row._mapping = {"id": 7}
+
+    update_stmt_result = MagicMock()
+    select_result = MagicMock()
+    select_result.fetchone.return_value = row
+
+    conn = MagicMock()
+    conn.execute.side_effect = [
+        IntegrityError("INSERT", {}, Exception("duplicate key")),
+        update_stmt_result,
+        select_result,
+    ]
+
+    with patch("services.medication_guide._select_cached_row", return_value={"id": 7}), patch(
+        "services.medication_guide._row_as_dict", return_value={"id": 7, "rxcui": "153165"}
+    ):
+        result = _upsert_guide(conn, payload, existing_id=None)
+
+    assert result["id"] == 7
+    assert conn.rollback.call_count == 1
+    assert conn.commit.call_count == 1
 
 
 @pytest.mark.live

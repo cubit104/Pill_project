@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 import database
 from ndc_normalize import normalize_ndc_to_11
@@ -27,6 +28,10 @@ class GuideNotFoundError(RuntimeError):
 
 class GuideInternalError(RuntimeError):
     """Raised when database access fails for guide operations."""
+
+
+class GuideValidationError(RuntimeError):
+    """Raised when input parameters are invalid."""
 
 
 SECTION_MAPPING: dict[str, tuple[str, ...]] = {
@@ -287,30 +292,37 @@ def _upsert_guide(conn, payload: dict[str, Any], existing_id: Optional[int]) -> 
         conn.commit()
         return _row_as_dict(list(row._mapping.keys()), row)
 
-    row = conn.execute(
-        text(
-            """
-            INSERT INTO public.medication_guide (
-                rxcui, ndc, spl_set_id, generic_name, brand_name,
-                overview, uses, dosage, how_to_take, side_effects,
-                warnings, interactions, contraindications, special_populations,
-                overdose, storage, pharmacology, manufacturer,
-                has_boxed_warning, source_url, fetched_at, updated_at
-            )
-            VALUES (
-                :rxcui, :ndc, :spl_set_id, :generic_name, :brand_name,
-                :overview, :uses, :dosage, :how_to_take, :side_effects,
-                :warnings, :interactions, :contraindications, :special_populations,
-                :overdose, :storage, :pharmacology, :manufacturer,
-                :has_boxed_warning, :source_url, :fetched_at, :updated_at
-            )
-            RETURNING *
-            """
-        ),
-        params,
-    ).fetchone()
-    conn.commit()
-    return _row_as_dict(list(row._mapping.keys()), row)
+    try:
+        row = conn.execute(
+            text(
+                """
+                INSERT INTO public.medication_guide (
+                    rxcui, ndc, spl_set_id, generic_name, brand_name,
+                    overview, uses, dosage, how_to_take, side_effects,
+                    warnings, interactions, contraindications, special_populations,
+                    overdose, storage, pharmacology, manufacturer,
+                    has_boxed_warning, source_url, fetched_at, updated_at
+                )
+                VALUES (
+                    :rxcui, :ndc, :spl_set_id, :generic_name, :brand_name,
+                    :overview, :uses, :dosage, :how_to_take, :side_effects,
+                    :warnings, :interactions, :contraindications, :special_populations,
+                    :overdose, :storage, :pharmacology, :manufacturer,
+                    :has_boxed_warning, :source_url, :fetched_at, :updated_at
+                )
+                RETURNING *
+                """
+            ),
+            params,
+        ).fetchone()
+        conn.commit()
+        return _row_as_dict(list(row._mapping.keys()), row)
+    except IntegrityError:
+        conn.rollback()
+        conflict = _select_cached_row(conn, rxcui=params.get("rxcui"), ndc=params.get("ndc"))
+        if not conflict or conflict.get("id") is None:
+            raise
+        return _upsert_guide(conn, payload, existing_id=int(conflict["id"]))
 
 
 async def build_guide(
@@ -340,6 +352,8 @@ async def build_guide(
         raise GuideNotFoundError("No FDA label found for this drug")
 
     normalized_ndc = normalize_ndc_to_11(ndc) if ndc else None
+    if ndc and not normalized_ndc:
+        raise GuideValidationError("Invalid NDC format")
 
     if not database.db_engine and not database.connect_to_database():
         raise GuideInternalError("Database connection not available")
@@ -347,25 +361,24 @@ async def build_guide(
     client = openfda_client or OpenFDAClient()
 
     with database.db_engine.connect() as conn:
-        cached = _select_cached_row(conn, rxcui=rxcui, ndc=normalized_ndc or ndc)
+        cached = _select_cached_row(conn, rxcui=rxcui, ndc=normalized_ndc)
         if cached and not force_refresh and not _is_stale(cached.get("fetched_at")):
-            logger.debug("Medication guide cache hit for rxcui=%s ndc=%s", rxcui, normalized_ndc or ndc)
+            logger.debug("Medication guide cache hit for rxcui=%s ndc=%s", rxcui, normalized_ndc)
             return _row_to_response(cached)
 
         logger.info(
             "Medication guide fetch from openFDA (cache %s) for rxcui=%s ndc=%s",
             "stale" if cached else "miss",
             rxcui,
-            normalized_ndc or ndc,
+            normalized_ndc,
         )
 
         label_record = None
         if rxcui:
             label_record = await client.fetch_label_by_rxcui(rxcui)
 
-        if label_record is None and (normalized_ndc or ndc):
-            ndc_query = normalized_ndc or ndc
-            label_record = await client.fetch_label_by_ndc(ndc_query)
+        if label_record is None and normalized_ndc:
+            label_record = await client.fetch_label_by_ndc(normalized_ndc)
 
         if label_record is None:
             raise GuideNotFoundError("No FDA label found for this drug")
