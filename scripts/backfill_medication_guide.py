@@ -47,7 +47,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _pct(numerator: int, denominator: int) -> float:
-    if denominator <= 0:
+    if denominator == 0:
         return 0.0
     return (numerator / denominator) * 100.0
 

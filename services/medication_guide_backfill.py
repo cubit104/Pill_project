@@ -147,6 +147,20 @@ def _emit_progress(
     )
 
 
+def _log_progress_counts(*, processed: int, total: int, complete: int, partial: int, not_found: int, errors: int) -> None:
+    if processed % 10 != 0 and processed != total:
+        return
+    logger.info(
+        "Backfill progress: %d/%d (complete=%d, partial=%d, not_found=%d, errors=%d)",
+        processed,
+        total,
+        complete,
+        partial,
+        not_found,
+        errors,
+    )
+
+
 async def run_backfill(
     *,
     limit: Optional[int] = None,
@@ -199,16 +213,14 @@ async def run_backfill(
                 pill_id=pill_id,
                 status="skipped",
             )
-            if processed % 10 == 0 or processed == total:
-                logger.info(
-                    "Backfill progress: %d/%d (complete=%d, partial=%d, not_found=%d, errors=%d)",
-                    processed,
-                    total,
-                    complete,
-                    partial,
-                    not_found,
-                    errors,
-                )
+            _log_progress_counts(
+                processed=processed,
+                total=total,
+                complete=complete,
+                partial=partial,
+                not_found=not_found,
+                errors=errors,
+            )
             continue
 
         if dry_run:
@@ -238,16 +250,14 @@ async def run_backfill(
                 pill_id=pill_id,
                 status="complete",
             )
-            if processed % 10 == 0 or processed == total:
-                logger.info(
-                    "Backfill progress: %d/%d (complete=%d, partial=%d, not_found=%d, errors=%d)",
-                    processed,
-                    total,
-                    complete,
-                    partial,
-                    not_found,
-                    errors,
-                )
+            _log_progress_counts(
+                processed=processed,
+                total=total,
+                complete=complete,
+                partial=partial,
+                not_found=not_found,
+                errors=errors,
+            )
             continue
 
         if use_sleep and call_count > 0 and rate_limit_seconds > 0:
@@ -320,16 +330,14 @@ async def run_backfill(
             status=status,
         )
 
-        if processed % 10 == 0 or processed == total:
-            logger.info(
-                "Backfill progress: %d/%d (complete=%d, partial=%d, not_found=%d, errors=%d)",
-                processed,
-                total,
-                complete,
-                partial,
-                not_found,
-                errors,
-            )
+        _log_progress_counts(
+            processed=processed,
+            total=total,
+            complete=complete,
+            partial=partial,
+            not_found=not_found,
+            errors=errors,
+        )
 
     reports_root = report_dir or Path("./backfill_reports")
     reports_root.mkdir(parents=True, exist_ok=True)
