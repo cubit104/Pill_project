@@ -66,7 +66,7 @@ def _print_summary(summary, report_dir: Path) -> None:
     print(f"Errors:              {summary.errors:>4}  ({_pct(summary.errors, total):.1f}%)")
     print(f"Duration:           {summary.duration_seconds:.1f}s")
     print(f"Reports written to: {report_dir}/")
-    for key in ("complete", "partial", "not_found", "errors"):
+    for key in ("complete", "partial", "not_found", "errors", "skipped", "would_fetch"):
         path = summary.report_paths.get(key)
         if path:
             print(f"  - {Path(path).name}")

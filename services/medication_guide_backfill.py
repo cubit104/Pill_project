@@ -78,34 +78,53 @@ def _pillfinder_has_rxcui(conn) -> bool:
     return bool(row)
 
 
-def _load_published_pills(limit: Optional[int]) -> list[dict[str, Any]]:
+def _select_published_pills_sql(*, has_rxcui: bool, limit: Optional[int]) -> tuple[str, dict[str, Any]]:
+    if has_rxcui:
+        sql = """
+            SELECT id, slug, medicine_name, ndc11, rxcui
+            FROM public.pillfinder
+            WHERE published = TRUE
+            ORDER BY id ASC
+        """
+    else:
+        sql = """
+            SELECT id, slug, medicine_name, ndc11, NULL::text AS rxcui
+            FROM public.pillfinder
+            WHERE published = TRUE
+            ORDER BY id ASC
+        """
+    params: dict[str, Any] = {}
+    if limit is not None:
+        sql += "\nLIMIT :limit"
+        params["limit"] = limit
+    return sql, params
+
+
+def _count_published_pills(limit: Optional[int]) -> int:
     _connect_db()
     with database.db_engine.connect() as conn:
         has_rxcui = _pillfinder_has_rxcui(conn)
         if not has_rxcui:
             logger.warning("pillfinder.rxcui column not found; falling back to NDC-only backfill")
+        total = conn.execute(
+            text("SELECT COUNT(*) FROM public.pillfinder WHERE published = TRUE")
+        ).scalar() or 0
+    total = int(total)
+    if limit is not None:
+        return min(total, limit)
+    return total
 
-        if has_rxcui:
-            sql = """
-                SELECT id, slug, medicine_name, ndc11, rxcui
-                FROM public.pillfinder
-                WHERE published = TRUE
-                ORDER BY id ASC
-            """
-        else:
-            sql = """
-                SELECT id, slug, medicine_name, ndc11, NULL::text AS rxcui
-                FROM public.pillfinder
-                WHERE published = TRUE
-                ORDER BY id ASC
-            """
-        params: dict[str, Any] = {}
-        if limit is not None:
-            sql += "\nLIMIT :limit"
-            params["limit"] = limit
 
-        rows = conn.execute(text(sql), params).fetchall()
-        return [dict(row._mapping) for row in rows]
+def _iter_published_pills(limit: Optional[int]):
+    _connect_db()
+    with database.db_engine.connect() as conn:
+        has_rxcui = _pillfinder_has_rxcui(conn)
+        if not has_rxcui:
+            logger.warning("pillfinder.rxcui column not found; falling back to NDC-only backfill")
+        sql, params = _select_published_pills_sql(has_rxcui=has_rxcui, limit=limit)
+        result = conn.execution_options(stream_results=True).execute(text(sql), params)
+        for row in result:
+            yield dict(row._mapping)
 
 
 def _timestamp() -> str:
@@ -173,21 +192,21 @@ async def run_backfill(
     progress_callback: Optional[Callable[[BackfillProgress], None]] = None,
 ) -> BackfillSummary:
     start = time.monotonic()
-    pills = _load_published_pills(limit)
-    total = len(pills)
+    total = _count_published_pills(limit)
 
     complete_rows: list[dict[str, Any]] = []
     partial_rows: list[dict[str, Any]] = []
     not_found_rows: list[dict[str, Any]] = []
     errors_rows: list[dict[str, Any]] = []
     skipped_rows: list[dict[str, Any]] = []
+    would_fetch_rows: list[dict[str, Any]] = []
 
     complete = partial = not_found = skipped = errors = 0
     processed = 0
     call_count = 0
     use_sleep = not bool(os.getenv("OPENFDA_API_KEY"))
 
-    for pill in pills:
+    for pill in _iter_published_pills(limit):
         processed += 1
         pill_id = pill.get("id")
         slug = pill.get("slug")
@@ -226,16 +245,15 @@ async def run_backfill(
             continue
 
         if dry_run:
-            complete += 1
-            complete_rows.append(
+            would_fetch_rows.append(
                 {
                     "pill_id": pill_id,
                     "slug": slug,
                     "medicine_name": medicine_name,
                     "rxcui": rxcui or "",
                     "ndc": ndc or "",
-                    "brand_name": "would-fetch",
-                    "generic_name": "would-fetch",
+                    "brand_name": "",
+                    "generic_name": "",
                 }
             )
             logger.info(
@@ -250,7 +268,7 @@ async def run_backfill(
                 processed=processed,
                 total=total,
                 pill_id=pill_id,
-                status="complete",
+                status="skipped",
             )
             _log_progress_milestone(
                 processed=processed,
@@ -267,10 +285,11 @@ async def run_backfill(
         call_count += 1
 
         try:
-            if rxcui:
-                result = await build_guide(rxcui=str(rxcui), force_refresh=force_refresh)
-            else:
-                result = await build_guide(ndc=str(ndc), force_refresh=force_refresh)
+            result = await build_guide(
+                rxcui=str(rxcui) if rxcui else None,
+                ndc=str(ndc) if ndc else None,
+                force_refresh=force_refresh,
+            )
 
             sections = result.get("sections") or {}
             missing_sections = [key for key in SECTION_KEYS if not sections.get(key)]
@@ -350,6 +369,7 @@ async def run_backfill(
     not_found_path = reports_root / f"not_found-{ts}.csv"
     errors_path = reports_root / f"errors-{ts}.csv"
     skipped_path = reports_root / f"skipped-{ts}.csv"
+    would_fetch_path = reports_root / f"would_fetch-{ts}.csv"
 
     _write_csv(
         complete_path,
@@ -377,6 +397,11 @@ async def run_backfill(
     )
     _write_csv(errors_path, ["pill_id", "slug", "error_type", "error_message"], errors_rows)
     _write_csv(skipped_path, ["pill_id", "slug", "medicine_name", "rxcui", "ndc", "reason"], skipped_rows)
+    _write_csv(
+        would_fetch_path,
+        ["pill_id", "slug", "medicine_name", "rxcui", "ndc", "brand_name", "generic_name"],
+        would_fetch_rows,
+    )
 
     duration = time.monotonic() - start
     return BackfillSummary(
@@ -394,5 +419,6 @@ async def run_backfill(
             "not_found": str(not_found_path),
             "errors": str(errors_path),
             "skipped": str(skipped_path),
+            "would_fetch": str(would_fetch_path),
         },
     )
