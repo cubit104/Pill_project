@@ -1307,6 +1307,7 @@ def create_pill(
             if body.idempotency_key:
                 data["idempotency_key"] = body.idempotency_key
 
+            data["published"] = publish
             cols = ", ".join(data.keys())
             vals = ", ".join(f":{k}" for k in data.keys())
             result = conn.execute(

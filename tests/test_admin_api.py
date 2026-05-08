@@ -438,6 +438,47 @@ def test_pill_create_accepts_image_alt_text_and_tags(client):
     )
 
 
+def test_pill_create_draft_sets_published_false(client):
+    """POST /api/admin/pills without publish=true should insert published=False."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        if "from profiles" in sql_str:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "idempotency_key" in sql_str and "select" in sql_str:
+            result.fetchone.return_value = None
+        elif "insert into pillfinder" in sql_str:
+            result.scalar.return_value = "new-pill-uuid"
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.post(
+            "/api/admin/pills",
+            json={"medicine_name": "DraftDrug"},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 201, resp.text
+
+    insert_calls = [
+        call for call in mock_conn.execute.call_args_list
+        if call.args and "insert into pillfinder" in str(call.args[0]).lower()
+    ]
+    assert insert_calls, "Expected create_pill to execute an INSERT"
+    insert_params = insert_calls[0].args[1]
+    assert insert_params["published"] is False
+
+
 def test_pill_update_accepts_image_alt_text_and_tags(client):
     """PUT /api/admin/pills/{id} should accept image_alt_text and tags fields."""
     from datetime import datetime, timezone
