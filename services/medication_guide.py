@@ -244,87 +244,85 @@ def _map_openfda_record(record: dict[str, Any], *, requested_rxcui: Optional[str
     return mapped
 
 
-def _upsert_guide(conn, payload: dict[str, Any], existing_id: Optional[int]) -> dict[str, Any]:
-    """Insert or update one medication_guide row and return it."""
-    payload = dict(payload)
+def _payload_with_timestamps(payload: dict[str, Any]) -> dict[str, Any]:
+    out = dict(payload)
     now = datetime.now(timezone.utc)
-    payload["updated_at"] = now
-    payload["fetched_at"] = now
+    out["updated_at"] = now
+    out["fetched_at"] = now
+    return out
+
+
+def _update_guide(conn, payload: dict[str, Any], *, existing_id: int) -> dict[str, Any]:
+    """Update one medication_guide row and return it."""
+    payload = dict(payload)
+    payload = _payload_with_timestamps(payload)
     params = {col: payload.get(col) for col in _GUIDE_COLUMNS}
+    conn.execute(
+        text(
+            """
+            UPDATE public.medication_guide
+            SET
+                rxcui = :rxcui,
+                ndc = :ndc,
+                spl_set_id = :spl_set_id,
+                generic_name = :generic_name,
+                brand_name = :brand_name,
+                overview = :overview,
+                uses = :uses,
+                dosage = :dosage,
+                how_to_take = :how_to_take,
+                side_effects = :side_effects,
+                warnings = :warnings,
+                interactions = :interactions,
+                contraindications = :contraindications,
+                special_populations = :special_populations,
+                overdose = :overdose,
+                storage = :storage,
+                pharmacology = :pharmacology,
+                manufacturer = :manufacturer,
+                has_boxed_warning = :has_boxed_warning,
+                source_url = :source_url,
+                fetched_at = :fetched_at,
+                updated_at = :updated_at
+            WHERE id = :id
+            """
+        ),
+        {**params, "id": existing_id},
+    )
+    row = conn.execute(
+        text("SELECT * FROM public.medication_guide WHERE id = :id LIMIT 1"),
+        {"id": existing_id},
+    ).fetchone()
+    return _row_as_dict(list(row._mapping.keys()), row)
 
-    if existing_id:
-        conn.execute(
-            text(
-                """
-                UPDATE public.medication_guide
-                SET
-                    rxcui = :rxcui,
-                    ndc = :ndc,
-                    spl_set_id = :spl_set_id,
-                    generic_name = :generic_name,
-                    brand_name = :brand_name,
-                    overview = :overview,
-                    uses = :uses,
-                    dosage = :dosage,
-                    how_to_take = :how_to_take,
-                    side_effects = :side_effects,
-                    warnings = :warnings,
-                    interactions = :interactions,
-                    contraindications = :contraindications,
-                    special_populations = :special_populations,
-                    overdose = :overdose,
-                    storage = :storage,
-                    pharmacology = :pharmacology,
-                    manufacturer = :manufacturer,
-                    has_boxed_warning = :has_boxed_warning,
-                    source_url = :source_url,
-                    fetched_at = :fetched_at,
-                    updated_at = :updated_at
-                WHERE id = :id
-                """
-            ),
-            {**params, "id": existing_id},
-        )
-        row = conn.execute(
-            text("SELECT * FROM public.medication_guide WHERE id = :id LIMIT 1"),
-            {"id": existing_id},
-        ).fetchone()
-        conn.commit()
-        return _row_as_dict(list(row._mapping.keys()), row)
 
-    try:
-        row = conn.execute(
-            text(
-                """
-                INSERT INTO public.medication_guide (
-                    rxcui, ndc, spl_set_id, generic_name, brand_name,
-                    overview, uses, dosage, how_to_take, side_effects,
-                    warnings, interactions, contraindications, special_populations,
-                    overdose, storage, pharmacology, manufacturer,
-                    has_boxed_warning, source_url, fetched_at, updated_at
-                )
-                VALUES (
-                    :rxcui, :ndc, :spl_set_id, :generic_name, :brand_name,
-                    :overview, :uses, :dosage, :how_to_take, :side_effects,
-                    :warnings, :interactions, :contraindications, :special_populations,
-                    :overdose, :storage, :pharmacology, :manufacturer,
-                    :has_boxed_warning, :source_url, :fetched_at, :updated_at
-                )
-                RETURNING *
-                """
-            ),
-            params,
-        ).fetchone()
-        conn.commit()
-        return _row_as_dict(list(row._mapping.keys()), row)
-    except IntegrityError as exc:
-        conn.rollback()
-        conflict = _select_cached_row(conn, rxcui=params.get("rxcui"), ndc=params.get("ndc"))
-        if not conflict or conflict.get("id") is None:
-            raise GuideInternalError(
-                "Integrity conflict detected but no existing medication_guide row could be resolved"
-            ) from exc
-        return _upsert_guide(conn, payload, existing_id=int(conflict["id"]))
+def _insert_guide(conn, payload: dict[str, Any]) -> dict[str, Any]:
+    """Insert one medication_guide row and return it."""
+    payload = _payload_with_timestamps(payload)
+    params = {col: payload.get(col) for col in _GUIDE_COLUMNS}
+    row = conn.execute(
+        text(
+            """
+            INSERT INTO public.medication_guide (
+                rxcui, ndc, spl_set_id, generic_name, brand_name,
+                overview, uses, dosage, how_to_take, side_effects,
+                warnings, interactions, contraindications, special_populations,
+                overdose, storage, pharmacology, manufacturer,
+                has_boxed_warning, source_url, fetched_at, updated_at
+            )
+            VALUES (
+                :rxcui, :ndc, :spl_set_id, :generic_name, :brand_name,
+                :overview, :uses, :dosage, :how_to_take, :side_effects,
+                :warnings, :interactions, :contraindications, :special_populations,
+                :overdose, :storage, :pharmacology, :manufacturer,
+                :has_boxed_warning, :source_url, :fetched_at, :updated_at
+            )
+            RETURNING *
+            """
+        ),
+        params,
+    ).fetchone()
+    return _row_as_dict(list(row._mapping.keys()), row)
 
 
 async def build_guide(
@@ -368,28 +366,47 @@ async def build_guide(
             logger.debug("Medication guide cache hit for rxcui=%s ndc=%s", rxcui, normalized_ndc)
             return _row_to_response(cached)
 
-        logger.info(
-            "Medication guide fetch from openFDA (cache %s) for rxcui=%s ndc=%s",
-            "stale" if cached else "miss",
-            rxcui,
-            normalized_ndc,
-        )
+    logger.info(
+        "Medication guide fetch from openFDA (cache %s) for rxcui=%s ndc=%s",
+        "stale" if cached else "miss",
+        rxcui,
+        normalized_ndc,
+    )
 
-        label_record = None
-        if rxcui:
-            label_record = await client.fetch_label_by_rxcui(rxcui)
+    label_record = None
+    if rxcui:
+        label_record = await client.fetch_label_by_rxcui(rxcui)
 
-        if label_record is None and normalized_ndc:
-            label_record = await client.fetch_label_by_ndc(normalized_ndc)
+    if label_record is None and normalized_ndc:
+        label_record = await client.fetch_label_by_ndc(normalized_ndc)
 
-        if label_record is None:
-            raise GuideNotFoundError("No FDA label found for this drug")
+    if label_record is None:
+        raise GuideNotFoundError("No FDA label found for this drug")
 
-        mapped = _map_openfda_record(label_record, requested_rxcui=rxcui)
-        existing_id = int(cached["id"]) if cached and cached.get("id") is not None else None
-        if existing_id is None:
+    mapped = _map_openfda_record(label_record, requested_rxcui=rxcui)
+    existing_id = int(cached["id"]) if cached and cached.get("id") is not None else None
+
+    if existing_id is None:
+        with database.db_engine.connect() as conn:
             existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
-            existing_id = int(existing["id"]) if existing and existing.get("id") is not None else None
+        existing_id = int(existing["id"]) if existing and existing.get("id") is not None else None
 
-        row = _upsert_guide(conn, mapped, existing_id=existing_id)
+    if existing_id is not None:
+        with database.db_engine.begin() as write_conn:
+            row = _update_guide(write_conn, mapped, existing_id=existing_id)
         return _row_to_response(row)
+
+    try:
+        with database.db_engine.begin() as write_conn:
+            row = _insert_guide(write_conn, mapped)
+    except IntegrityError as exc:
+        with database.db_engine.connect() as conn:
+            existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
+        if not existing or existing.get("id") is None:
+            raise GuideInternalError(
+                "Integrity conflict detected but no existing medication_guide row could be resolved"
+            ) from exc
+        with database.db_engine.begin() as write_conn:
+            row = _update_guide(write_conn, mapped, existing_id=int(existing["id"]))
+
+    return _row_to_response(row)
