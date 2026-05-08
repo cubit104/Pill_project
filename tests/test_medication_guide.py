@@ -21,7 +21,7 @@ os.environ.setdefault("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-key")
 
 from routes import medication_guide as medication_guide_routes
-from services.medication_guide import GuideNotFoundError, GuideValidationError, _upsert_guide, build_guide
+from services.medication_guide import GuideNotFoundError, GuideValidationError, build_guide
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -36,6 +36,9 @@ class _DummyEngine:
                 return False
 
         return _Ctx()
+
+    def begin(self):
+        return self.connect()
 
 
 def _load_fixture(name: str) -> dict:
@@ -59,8 +62,7 @@ def test_build_guide_maps_openfda_fields_and_null_sections():
     def _select(*_, **__):
         return cache["row"]
 
-    def _upsert(_conn, payload, existing_id):
-        assert existing_id is None
+    def _insert(_conn, payload):
         cache["row"] = _row_from_payload(payload)
         return cache["row"]
 
@@ -71,7 +73,7 @@ def test_build_guide_maps_openfda_fields_and_null_sections():
 
     with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
         "services.medication_guide._select_cached_row", side_effect=_select
-    ), patch("services.medication_guide._upsert_guide", side_effect=_upsert):
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert):
         result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client))
 
     assert result["rxcui"] == "153165"
@@ -90,7 +92,7 @@ def test_build_guide_maps_openfda_fields_and_null_sections():
     )
     with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
         "services.medication_guide._select_cached_row", side_effect=_select
-    ), patch("services.medication_guide._upsert_guide", side_effect=_upsert):
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert):
         acet_result = asyncio.run(build_guide(rxcui="161", openfda_client=mock_client_2))
 
     assert acet_result["sections"]["how_to_take"] is None
@@ -163,7 +165,7 @@ def test_build_guide_refetches_when_stale():
     }
     lipitor = _load_fixture("openfda_lipitor.json")["results"][0]
 
-    def _upsert(_conn, payload, existing_id):
+    def _update(_conn, payload, *, existing_id):
         assert existing_id == 1
         return _row_from_payload(payload)
 
@@ -174,7 +176,7 @@ def test_build_guide_refetches_when_stale():
 
     with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
         "services.medication_guide._select_cached_row", return_value=old_row
-    ), patch("services.medication_guide._upsert_guide", side_effect=_upsert):
+    ), patch("services.medication_guide._update_guide", side_effect=_update):
         result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client))
 
     assert result["sections"]["overview"].startswith("LIPITOR")
@@ -219,51 +221,112 @@ def test_invalid_ndc_is_rejected_before_openfda_lookup():
 
 
 def test_upsert_recovers_from_insert_integrity_error():
-    payload = {
-        "rxcui": "153165",
-        "ndc": "0071-0156-23",
-        "spl_set_id": "abc-123",
-        "generic_name": "atorvastatin calcium",
-        "brand_name": "LIPITOR",
-        "overview": "overview",
-        "uses": "uses",
-        "dosage": "dosage",
-        "how_to_take": None,
-        "side_effects": "side effects",
-        "warnings": "warnings",
-        "interactions": None,
-        "contraindications": "contraindications",
-        "special_populations": None,
-        "overdose": None,
-        "storage": None,
-        "pharmacology": "pharmacology",
-        "manufacturer": "manufacturer",
-        "has_boxed_warning": False,
-        "source_url": "https://api.fda.gov/drug/label.json?search=spl_set_id:abc-123",
-    }
+    lipitor = _load_fixture("openfda_lipitor.json")["results"][0]
+    updated_row = _row_from_payload(
+        {
+            "id": 7,
+            "rxcui": "153165",
+            "ndc": "0071-0156-23",
+            "generic_name": "atorvastatin calcium",
+            "brand_name": "LIPITOR",
+        }
+    )
 
-    row = MagicMock()
-    row._mapping = {"id": 7}
+    read_conn = MagicMock()
+    write_conn_1 = MagicMock()
+    write_conn_2 = MagicMock()
+    engine = MagicMock()
 
-    update_stmt_result = MagicMock()
-    select_result = MagicMock()
-    select_result.fetchone.return_value = row
+    connect_cm = MagicMock()
+    connect_cm.__enter__.return_value = read_conn
+    connect_cm.__exit__.return_value = False
+    engine.connect.return_value = connect_cm
 
-    conn = MagicMock()
-    conn.execute.side_effect = [
-        IntegrityError("INSERT", {}, Exception("duplicate key")),
-        update_stmt_result,
-        select_result,
-    ]
+    begin_cm_1 = MagicMock()
+    begin_cm_1.__enter__.return_value = write_conn_1
+    begin_cm_1.__exit__.return_value = False
+    begin_cm_2 = MagicMock()
+    begin_cm_2.__enter__.return_value = write_conn_2
+    begin_cm_2.__exit__.return_value = False
+    engine.begin.side_effect = [begin_cm_1, begin_cm_2]
 
-    with patch("services.medication_guide._select_cached_row", return_value={"id": 7}), patch(
-        "services.medication_guide._row_as_dict", return_value={"id": 7, "rxcui": "153165"}
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=lipitor),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", engine), patch(
+        "services.medication_guide._select_cached_row",
+        side_effect=[None, None, {"id": 7, "rxcui": "153165"}],
+    ) as mock_select, patch(
+        "services.medication_guide._insert_guide",
+        side_effect=IntegrityError("INSERT", {}, Exception("duplicate key")),
+    ) as mock_insert, patch(
+        "services.medication_guide._update_guide", return_value=updated_row
+    ) as mock_update:
+        result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client))
+
+    assert result["rxcui"] == "153165"
+    assert mock_insert.call_count == 1
+    assert mock_select.call_count == 3
+    mock_update.assert_called_once()
+    assert mock_update.call_args.kwargs["existing_id"] == 7
+    assert write_conn_1.commit.call_count == 0
+    assert write_conn_1.rollback.call_count == 0
+    assert write_conn_2.commit.call_count == 0
+    assert write_conn_2.rollback.call_count == 0
+
+
+def test_build_guide_uses_engine_begin_for_writes():
+    lipitor = _load_fixture("openfda_lipitor.json")["results"][0]
+    inserted_row = _row_from_payload({"rxcui": "153165", "ndc": "0071-0156-23"})
+
+    read_conn = MagicMock()
+    write_conn = MagicMock()
+    engine = MagicMock()
+
+    connect_cm = MagicMock()
+    connect_cm.__enter__.return_value = read_conn
+    connect_cm.__exit__.return_value = False
+    engine.connect.return_value = connect_cm
+
+    begin_cm = MagicMock()
+    begin_cm.__enter__.return_value = write_conn
+    begin_cm.__exit__.return_value = False
+    engine.begin.return_value = begin_cm
+
+    miss_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=lipitor),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", engine), patch(
+        "services.medication_guide._select_cached_row", side_effect=[None, None]
+    ), patch("services.medication_guide._insert_guide", return_value=inserted_row):
+        asyncio.run(build_guide(rxcui="153165", openfda_client=miss_client))
+
+    assert engine.begin.call_count >= 1
+
+    fresh_row = _row_from_payload(
+        {"rxcui": "153165", "ndc": "0071-0156-23"},
+        fetched_at=datetime.now(timezone.utc),
+    )
+    engine_cache_hit = MagicMock()
+    hit_cm = MagicMock()
+    hit_cm.__enter__.return_value = read_conn
+    hit_cm.__exit__.return_value = False
+    engine_cache_hit.connect.return_value = hit_cm
+    hit_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", engine_cache_hit), patch(
+        "services.medication_guide._select_cached_row", return_value=fresh_row
     ):
-        result = _upsert_guide(conn, payload, existing_id=None)
+        asyncio.run(build_guide(rxcui="153165", openfda_client=hit_client))
 
-    assert result["id"] == 7
-    assert conn.rollback.call_count == 1
-    assert conn.commit.call_count == 1
+    assert engine_cache_hit.begin.call_count == 0
 
 
 @pytest.mark.live
