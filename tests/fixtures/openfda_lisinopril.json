@@ -1,0 +1,23 @@
+{
+  "results": [
+    {
+      "description": ["Lisinopril is an ACE inhibitor."],
+      "indications_and_usage": ["Indicated for hypertension and heart failure."],
+      "dosage_and_administration": ["Initial dose is 10 mg once daily."],
+      "adverse_reactions": ["Common reactions include dizziness and cough."],
+      "boxed_warning": ["When pregnancy is detected, discontinue as soon as possible."],
+      "warnings_and_cautions": ["Monitor renal function and potassium."],
+      "contraindications": ["Contraindicated in patients with angioedema history."],
+      "clinical_pharmacology": ["Lisinopril inhibits angiotensin converting enzyme."],
+      "openfda": {
+        "rxcui": ["29046"],
+        "product_ndc": ["0002-4463-30"],
+        "spl_set_id": ["set-lisinopril"],
+        "generic_name": ["lisinopril"],
+        "brand_name": ["ZESTRIL"],
+        "manufacturer_name": ["AstraZeneca"],
+        "spl_id": ["spl-002"]
+      }
+    }
+  ]
+}
