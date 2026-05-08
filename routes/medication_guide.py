@@ -37,8 +37,8 @@ async def get_guide_by_ndc(ndc: str):
     """Return medication guide for one NDC."""
     try:
         return await build_guide(ndc=ndc)
-    except GuideValidationError as exc:
-        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except GuideValidationError:
+        return JSONResponse(status_code=400, content={"error": "Invalid NDC format"})
     except GuideNotFoundError:
         return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
     except OpenFDAUpstreamError:

@@ -317,11 +317,13 @@ def _upsert_guide(conn, payload: dict[str, Any], existing_id: Optional[int]) -> 
         ).fetchone()
         conn.commit()
         return _row_as_dict(list(row._mapping.keys()), row)
-    except IntegrityError:
+    except IntegrityError as exc:
         conn.rollback()
         conflict = _select_cached_row(conn, rxcui=params.get("rxcui"), ndc=params.get("ndc"))
         if not conflict or conflict.get("id") is None:
-            raise
+            raise GuideInternalError(
+                "Integrity conflict detected but no existing medication_guide row could be resolved"
+            ) from exc
         return _upsert_guide(conn, payload, existing_id=int(conflict["id"]))
 
 
