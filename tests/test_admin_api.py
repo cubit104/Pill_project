@@ -475,7 +475,8 @@ def test_pill_create_draft_sets_published_false(client):
         if call.args and "insert into pillfinder" in str(call.args[0]).lower()
     ]
     assert insert_calls, "Expected create_pill to execute an INSERT"
-    assert len(insert_calls[0].args) > 1 and isinstance(insert_calls[0].args[1], dict)
+    assert len(insert_calls[0].args) > 1
+    assert isinstance(insert_calls[0].args[1], dict)
     insert_params = insert_calls[0].args[1]
     assert insert_params.get("published") is False
 
