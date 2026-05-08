@@ -199,7 +199,8 @@ def test_backfill_passes_rxcui_and_ndc_when_both_exist(tmp_path):
     ):
         asyncio.run(run_backfill(limit=1, report_dir=tmp_path, rate_limit_seconds=0))
 
-    _, kwargs = build_guide_mock.call_args
+    assert build_guide_mock.call_args.args == ()
+    kwargs = build_guide_mock.call_args.kwargs
     assert kwargs["rxcui"] == "123"
     assert kwargs["ndc"] == "12345-6789-01"
 

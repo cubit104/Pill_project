@@ -117,7 +117,9 @@ def _count_published_pills(limit: Optional[int]) -> int:
 
 def _iter_published_pills(limit: Optional[int]):
     _connect_db()
-    with database.db_engine.connect() as conn:
+    conn = database.db_engine.connect()
+    result = None
+    try:
         has_rxcui = _pillfinder_has_rxcui(conn)
         if not has_rxcui:
             logger.warning("pillfinder.rxcui column not found; falling back to NDC-only backfill")
@@ -125,6 +127,10 @@ def _iter_published_pills(limit: Optional[int]):
         result = conn.execution_options(stream_results=True).execute(text(sql), params)
         for row in result:
             yield dict(row._mapping)
+    finally:
+        if result is not None:
+            result.close()
+        conn.close()
 
 
 def _timestamp() -> str:

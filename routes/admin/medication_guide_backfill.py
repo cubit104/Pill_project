@@ -30,7 +30,7 @@ async def _try_start_backfill() -> bool:
         if _is_running:
             return False
         if database.db_engine or database.connect_to_database():
-            conn = database.db_engine.connect()
+            conn = database.db_engine.connect().execution_options(isolation_level="AUTOCOMMIT")
             try:
                 acquired = bool(
                     conn.execute(
