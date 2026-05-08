@@ -66,6 +66,7 @@ _GUIDE_COLUMNS = [
     "has_boxed_warning",
     "source_url",
     "fetched_at",
+    "updated_at",
 ]
 
 
@@ -241,15 +242,43 @@ def _map_openfda_record(record: dict[str, Any], *, requested_rxcui: Optional[str
 def _upsert_guide(conn, payload: dict[str, Any], existing_id: Optional[int]) -> dict[str, Any]:
     """Insert or update one medication_guide row and return it."""
     payload = dict(payload)
-    payload["updated_at"] = datetime.now(timezone.utc)
-    payload["fetched_at"] = payload["updated_at"]
+    now = datetime.now(timezone.utc)
+    payload["updated_at"] = now
+    payload["fetched_at"] = now
+    params = {col: payload.get(col) for col in _GUIDE_COLUMNS}
 
     if existing_id:
-        assignments = ", ".join(f"{col} = :{col}" for col in payload.keys())
-        params = {**payload, "id": existing_id}
         conn.execute(
-            text(f"UPDATE public.medication_guide SET {assignments} WHERE id = :id"),
-            params,
+            text(
+                """
+                UPDATE public.medication_guide
+                SET
+                    rxcui = :rxcui,
+                    ndc = :ndc,
+                    spl_set_id = :spl_set_id,
+                    generic_name = :generic_name,
+                    brand_name = :brand_name,
+                    overview = :overview,
+                    uses = :uses,
+                    dosage = :dosage,
+                    how_to_take = :how_to_take,
+                    side_effects = :side_effects,
+                    warnings = :warnings,
+                    interactions = :interactions,
+                    contraindications = :contraindications,
+                    special_populations = :special_populations,
+                    overdose = :overdose,
+                    storage = :storage,
+                    pharmacology = :pharmacology,
+                    manufacturer = :manufacturer,
+                    has_boxed_warning = :has_boxed_warning,
+                    source_url = :source_url,
+                    fetched_at = :fetched_at,
+                    updated_at = :updated_at
+                WHERE id = :id
+                """
+            ),
+            {**params, "id": existing_id},
         )
         row = conn.execute(
             text("SELECT * FROM public.medication_guide WHERE id = :id LIMIT 1"),
@@ -258,11 +287,27 @@ def _upsert_guide(conn, payload: dict[str, Any], existing_id: Optional[int]) -> 
         conn.commit()
         return _row_as_dict(list(row._mapping.keys()), row)
 
-    cols = ", ".join(payload.keys())
-    values = ", ".join(f":{col}" for col in payload.keys())
     row = conn.execute(
-        text(f"INSERT INTO public.medication_guide ({cols}) VALUES ({values}) RETURNING *"),
-        payload,
+        text(
+            """
+            INSERT INTO public.medication_guide (
+                rxcui, ndc, spl_set_id, generic_name, brand_name,
+                overview, uses, dosage, how_to_take, side_effects,
+                warnings, interactions, contraindications, special_populations,
+                overdose, storage, pharmacology, manufacturer,
+                has_boxed_warning, source_url, fetched_at, updated_at
+            )
+            VALUES (
+                :rxcui, :ndc, :spl_set_id, :generic_name, :brand_name,
+                :overview, :uses, :dosage, :how_to_take, :side_effects,
+                :warnings, :interactions, :contraindications, :special_populations,
+                :overdose, :storage, :pharmacology, :manufacturer,
+                :has_boxed_warning, :source_url, :fetched_at, :updated_at
+            )
+            RETURNING *
+            """
+        ),
+        params,
     ).fetchone()
     conn.commit()
     return _row_as_dict(list(row._mapping.keys()), row)

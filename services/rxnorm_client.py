@@ -25,7 +25,8 @@ class RxNormClient:
             )
         response.raise_for_status()
         payload = response.json()
-        candidates = ((payload.get("approximateGroup") or {}).get("candidate") or [])
+        group = payload.get("approximateGroup") or {}
+        candidates = group.get("candidate") or []
 
         results: list[dict[str, Any]] = []
         for candidate in candidates:

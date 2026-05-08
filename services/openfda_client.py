@@ -78,4 +78,6 @@ class OpenFDAClient:
                     continue
                 break
 
-        raise OpenFDAUpstreamError(f"openFDA request failed for search '{search}'") from last_error
+        raise OpenFDAUpstreamError(f"openFDA request failed for search '{search}'") from (
+            last_error or RuntimeError("openFDA request failed")
+        )

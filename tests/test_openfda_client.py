@@ -7,6 +7,7 @@ import os
 from unittest.mock import AsyncMock, patch
 
 import httpx
+import pytest
 
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/testdb")
 
@@ -59,10 +60,5 @@ def test_fetch_raises_after_retry_exhausted():
     network_error = httpx.RequestError("network", request=req)
 
     with patch("httpx.AsyncClient.get", new=AsyncMock(side_effect=[network_error, network_error])):
-        try:
+        with pytest.raises(OpenFDAUpstreamError):
             asyncio.run(client.fetch_label_by_rxcui("99999"))
-            raised = False
-        except OpenFDAUpstreamError:
-            raised = True
-
-    assert raised is True

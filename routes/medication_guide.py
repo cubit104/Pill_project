@@ -23,12 +23,13 @@ async def get_guide_by_rxcui(rxcui: str):
     """Return medication guide for one RxCUI."""
     try:
         return await build_guide(rxcui=rxcui)
-    except GuideNotFoundError as exc:
-        return JSONResponse(status_code=404, content={"error": str(exc)})
-    except OpenFDAUpstreamError as exc:
+    except GuideNotFoundError:
+        return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
+    except OpenFDAUpstreamError:
         return JSONResponse(status_code=502, content={"error": "Failed to fetch FDA label"})
     except GuideInternalError as exc:
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        logger.error("Medication guide internal error (rxcui=%s): %s", rxcui, exc)
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
 
 @router.get("/api/drugs/by-ndc/{ndc}/guide")
@@ -36,12 +37,13 @@ async def get_guide_by_ndc(ndc: str):
     """Return medication guide for one NDC."""
     try:
         return await build_guide(ndc=ndc)
-    except GuideNotFoundError as exc:
-        return JSONResponse(status_code=404, content={"error": str(exc)})
-    except OpenFDAUpstreamError as exc:
+    except GuideNotFoundError:
+        return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
+    except OpenFDAUpstreamError:
         return JSONResponse(status_code=502, content={"error": "Failed to fetch FDA label"})
     except GuideInternalError as exc:
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        logger.error("Medication guide internal error (ndc=%s): %s", ndc, exc)
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
 
 @router.get("/api/drugs/search")
@@ -64,9 +66,10 @@ async def refresh_guide(rxcui: str, _admin=Depends(require_superuser)):
     """Force refresh a medication guide row regardless of cache age."""
     try:
         return await build_guide(rxcui=rxcui, force_refresh=True)
-    except GuideNotFoundError as exc:
-        return JSONResponse(status_code=404, content={"error": str(exc)})
-    except OpenFDAUpstreamError as exc:
+    except GuideNotFoundError:
+        return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
+    except OpenFDAUpstreamError:
         return JSONResponse(status_code=502, content={"error": "Failed to fetch FDA label"})
     except GuideInternalError as exc:
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        logger.error("Medication guide refresh internal error (rxcui=%s): %s", rxcui, exc)
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})

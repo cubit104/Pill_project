@@ -59,6 +59,7 @@ def test_build_guide_maps_openfda_fields_and_null_sections():
         return cache["row"]
 
     def _upsert(_conn, payload, existing_id):
+        assert existing_id is None
         cache["row"] = _row_from_payload(payload)
         return cache["row"]
 
