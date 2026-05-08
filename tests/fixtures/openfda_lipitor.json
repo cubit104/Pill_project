@@ -1,0 +1,34 @@
+{
+  "results": [
+    {
+      "description": ["LIPITOR is a statin medicine used to lower cholesterol."],
+      "indications_and_usage": ["LIPITOR is indicated to reduce elevated total-C, LDL-C, Apo B, and triglycerides."],
+      "dosage_and_administration": ["The recommended starting dose is 10 or 20 mg once daily."],
+      "dosage_forms_and_strengths": ["Tablets: 10 mg, 20 mg, 40 mg, and 80 mg."],
+      "information_for_patients": ["Patients should be advised to read the patient information leaflet."],
+      "adverse_reactions": ["Most common adverse reactions are nasopharyngitis, arthralgia, diarrhea."],
+      "warnings_and_cautions": ["Skeletal muscle effects and liver enzyme abnormalities may occur."],
+      "drug_interactions": ["Strong CYP3A4 inhibitors increase atorvastatin exposure."],
+      "contraindications": ["Contraindicated in active liver disease."],
+      "pregnancy": ["Discontinue as soon as pregnancy is recognized."],
+      "lactation": ["Breastfeeding is not recommended."],
+      "pediatric_use": ["Safety and effectiveness have been established in pediatric patients 10 to 17 years."],
+      "geriatric_use": ["No overall differences in safety or effectiveness were observed."],
+      "overdosage": ["There is no specific treatment for atorvastatin overdose."],
+      "storage_and_handling": ["Store at controlled room temperature 20 to 25°C (68 to 77°F)."],
+      "how_supplied": ["Supplied in bottles of 30 and 90 tablets."],
+      "clinical_pharmacology": ["Atorvastatin is a selective inhibitor of HMG-CoA reductase."],
+      "mechanism_of_action": ["Inhibits conversion of HMG-CoA to mevalonate."],
+      "pharmacokinetics": ["Peak plasma concentrations occur within 1 to 2 hours."],
+      "openfda": {
+        "rxcui": ["153165"],
+        "product_ndc": ["0071-0156-23"],
+        "spl_set_id": ["abc-123"],
+        "generic_name": ["atorvastatin calcium"],
+        "brand_name": ["LIPITOR"],
+        "manufacturer_name": ["Upjohn US 2 LLC"],
+        "spl_id": ["spl-001"]
+      }
+    }
+  ]
+}
