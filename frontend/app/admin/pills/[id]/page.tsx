@@ -995,6 +995,7 @@ export default function EditPillPage() {
       <div className="flex gap-3 flex-wrap">
         <button onClick={handleSave} disabled={saving}
           className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm font-medium transition-colors"
+          aria-label="Save changes directly to this pill record"
           title="Save changes directly to this pill record">
           <Save className="w-4 h-4" />{saving ? 'Saving…' : 'Save changes'}
         </button>
