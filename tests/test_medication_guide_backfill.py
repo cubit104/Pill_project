@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/testdb")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://testserver")
 os.environ.setdefault("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co")
@@ -63,6 +65,13 @@ def _guide(*, complete: bool = True) -> dict:
 def _csv_rows(path: str) -> list[dict[str, str]]:
     with Path(path).open(newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+@pytest.fixture(autouse=True)
+def _reset_backfill_running_flag():
+    admin_backfill_route._is_running = False
+    yield
+    admin_backfill_route._is_running = False
 
 
 def test_mocked_happy_path_complete_and_partial(tmp_path):
