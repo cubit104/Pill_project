@@ -147,7 +147,9 @@ def _emit_progress(
     )
 
 
-def _log_progress_counts(*, processed: int, total: int, complete: int, partial: int, not_found: int, errors: int) -> None:
+def _log_progress_milestone(
+    *, processed: int, total: int, complete: int, partial: int, not_found: int, errors: int
+) -> None:
     if processed % 10 != 0 and processed != total:
         return
     logger.info(
@@ -213,7 +215,7 @@ async def run_backfill(
                 pill_id=pill_id,
                 status="skipped",
             )
-            _log_progress_counts(
+            _log_progress_milestone(
                 processed=processed,
                 total=total,
                 complete=complete,
@@ -250,7 +252,7 @@ async def run_backfill(
                 pill_id=pill_id,
                 status="complete",
             )
-            _log_progress_counts(
+            _log_progress_milestone(
                 processed=processed,
                 total=total,
                 complete=complete,
@@ -330,7 +332,7 @@ async def run_backfill(
             status=status,
         )
 
-        _log_progress_counts(
+        _log_progress_milestone(
             processed=processed,
             total=total,
             complete=complete,
