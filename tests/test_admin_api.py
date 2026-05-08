@@ -478,7 +478,8 @@ def test_pill_create_draft_sets_published_false(client):
     assert len(insert_calls[0].args) > 1, "INSERT call missing bound parameters"
     assert isinstance(insert_calls[0].args[1], dict), "INSERT parameters should be a dict"
     insert_params = insert_calls[0].args[1]
-    assert insert_params.get("published") is False
+    assert "published" in insert_params, "INSERT parameters missing 'published'"
+    assert insert_params["published"] is False
 
 
 def test_pill_update_accepts_image_alt_text_and_tags(client):
