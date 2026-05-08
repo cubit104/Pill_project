@@ -31,6 +31,29 @@ RxNorm approximate term resolver:
 ### `POST /api/admin/drugs/{rxcui}/guide/refresh`
 Force-refreshes a guide row regardless of `fetched_at` age (superuser-protected).
 
+## Backfill
+
+Pre-populate the `medication_guide` table for all published pills.
+
+### CLI
+
+    # Test with 5 pills first
+    python -m scripts.backfill_medication_guide --limit 5
+
+    # Full run
+    python -m scripts.backfill_medication_guide
+
+    # Force refresh of all rows (ignore 30-day cache)
+    python -m scripts.backfill_medication_guide --force
+
+Reports are written to `./backfill_reports/`.
+
+### Admin API
+
+    POST /api/admin/medication-guide/backfill?limit=5
+
+Runs in the background. Returns `202 Accepted` immediately. Check server logs and the reports directory.
+
 ## openFDA mapping table
 
 | # | DB column | openFDA fields (in order, joined with `\n\n`) |
