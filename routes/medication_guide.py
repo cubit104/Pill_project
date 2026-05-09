@@ -19,10 +19,10 @@ router = APIRouter(tags=["medication-guide"])
 
 
 @router.get("/api/drugs/{rxcui}/guide")
-async def get_guide_by_rxcui(rxcui: str):
+async def get_guide_by_rxcui(rxcui: str, include_professional: bool = Query(False)):
     """Return medication guide for one RxCUI."""
     try:
-        return await build_guide(rxcui=rxcui)
+        return await build_guide(rxcui=rxcui, include_professional=include_professional)
     except GuideNotFoundError:
         return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
     except OpenFDAUpstreamError:
@@ -33,10 +33,10 @@ async def get_guide_by_rxcui(rxcui: str):
 
 
 @router.get("/api/drugs/by-ndc/{ndc}/guide")
-async def get_guide_by_ndc(ndc: str):
+async def get_guide_by_ndc(ndc: str, include_professional: bool = Query(False)):
     """Return medication guide for one NDC."""
     try:
-        return await build_guide(ndc=ndc)
+        return await build_guide(ndc=ndc, include_professional=include_professional)
     except GuideValidationError:
         return JSONResponse(status_code=400, content={"error": "Invalid NDC format"})
     except GuideNotFoundError:
