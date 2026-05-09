@@ -321,10 +321,10 @@ export default async function MedicationGuidePage(
             </a>
           </p>
         )}
-        {fetchedDate && guide.fetched_at && (
+        {fetchedDate && (
           <p className="text-xs text-slate-400">
             Last updated:{' '}
-            <time dateTime={guide.fetched_at}>{fetchedDate}</time>
+            <time dateTime={guide.fetched_at ?? undefined}>{fetchedDate}</time>
           </p>
         )}
       </div>
