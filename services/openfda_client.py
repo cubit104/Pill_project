@@ -31,12 +31,20 @@ class OpenFDAClient:
         self.timeout = httpx.Timeout(connect=10.0, read=20.0, write=20.0, pool=20.0)
 
     async def fetch_label_by_rxcui(self, rxcui: str) -> Optional[dict[str, Any]]:
-        """Fetch one SPL label by RxCUI."""
+        """Fetch one label by RxCUI — prefers records with a medication_guide field."""
+        result = await self._fetch_label(search=f"openfda.rxcui:{rxcui}+AND+_exists_:medication_guide")
+        if result is not None:
+            return result
         return await self._fetch_label(search=f"openfda.rxcui:{rxcui}")
 
     async def fetch_label_by_ndc(self, ndc: str) -> Optional[dict[str, Any]]:
-        """Fetch one SPL label by normalized NDC."""
+        """Fetch one label by NDC — prefers records with a medication_guide field."""
         escaped_ndc = ndc.replace('"', '\\"')
+        result = await self._fetch_label(
+            search=f'openfda.product_ndc:"{escaped_ndc}"+AND+_exists_:medication_guide'
+        )
+        if result is not None:
+            return result
         return await self._fetch_label(search=f'openfda.product_ndc:"{escaped_ndc}"')
 
     async def _fetch_label(self, search: str) -> Optional[dict[str, Any]]:
