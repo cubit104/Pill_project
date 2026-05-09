@@ -403,16 +403,24 @@ async def build_guide(
 
     mapped = _map_openfda_record(label_record, requested_rxcui=rxcui)
 
-    # Attempt to fetch real patient guide text from DailyMed XML when
-    # spl_set_id is available. This replaces the openFDA-derived overview.
-    spl_set_id = mapped.get("spl_set_id")
+    # Attempt to fetch real patient guide text from DailyMed XML.
+    # Use spl_set_id from openFDA response first; fall back to the cached DB value
+    # (openFDA often omits spl_set_id even when it exists in DailyMed).
+    spl_set_id = mapped.get("spl_set_id") or (cached.get("spl_set_id") if cached else None)
     if spl_set_id:
+        # Ensure the resolved spl_set_id is stored in the mapped payload too
+        if not mapped.get("spl_set_id"):
+            mapped["spl_set_id"] = spl_set_id
+            encoded_set_id = quote(spl_set_id, safe="")
+            mapped["source_url"] = (
+                f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}"
+            )
         dm_client = dailymed_client or DailyMedClient()
         try:
             dm_result = dm_client.fetch_patient_guide(spl_set_id)
             if dm_result and dm_result.get("full_text"):
                 mapped["overview"] = dm_result["full_text"]
-                logger.debug(
+                logger.info(
                     "DailyMed overview set for spl_set_id=%s (%d chars)",
                     spl_set_id,
                     len(mapped["overview"]),
