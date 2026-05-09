@@ -248,7 +248,7 @@ def _map_openfda_record(record: dict[str, Any], *, requested_rxcui: Optional[str
             f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}"
         )
     elif generic_name:
-        encoded_name = quote(generic_name)
+        encoded_name = quote(generic_name, safe="")
         mapped["source_url"] = (
             "https://dailymed.nlm.nih.gov/dailymed/search.cfm"
             f"?query={encoded_name}&SearchTerm={encoded_name}"
