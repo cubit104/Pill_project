@@ -84,23 +84,24 @@ function formatMedGuideText(raw: string): ReactNode {
   //    We inject a marker before each recognised boundary so we can split cleanly.
   const MARKER = '\x00'
 
-  // Question-type headers ("What is…", "Who should…", "How should…", "Why…", "When…")
-  // Match after a space or at the very start of string to avoid mid-word matches.
-  // Trim trailing space from keyword so chunks are clean.
+  // Header keyword patterns — shared between split-injection and isHeader classification.
+  // Using the same set avoids dual-maintenance.
+  const QUESTION_KEYWORDS = 'What|Who|How|Why|When'
+  const QUESTION_RE = new RegExp(`(^| )(${QUESTION_KEYWORDS}) ([^?]+\\?)`, 'g')
+  const ALLCAPS_RE = /([^A-Z])([A-Z]{2,}(?:\s+[A-Z]{2,}){2,})(?=[:\s])/g
+
+  // Question-type headers: match after space or at string start; content is anything up to `?`.
   text = text.replace(
-    /(^| )(What|Who|How|Why|When) ([A-Z][^?]*\?)/g,
+    QUESTION_RE,
     (_m, pre, kw, rest) => `${pre}${MARKER}${kw} ${rest}`,
   )
 
-  // Numbered list items (1. 2. 3. …)  — preserve the leading space so no words run together
-  text = text.replace(/(\s)(\d{1,2})\.\s+(?=[A-Z])/g, (_m, sp, n) => `${sp}${MARKER}${n}. `)
+  // Numbered list items (1. 2. 3. …) — preserve the leading space so no words run together.
+  // Does not restrict the following character to uppercase.
+  text = text.replace(/(\s)(\d{1,2})\.\s+(?=\S)/g, (_m, sp, n) => `${sp}${MARKER}${n}. `)
 
   // ALL-CAPS phrases of ≥ 3 words as section headers (e.g. "WARNINGS AND PRECAUTIONS")
-  // Use a word-boundary character class check instead of lookbehind
-  text = text.replace(
-    /([^A-Z])([A-Z]{2,}(?:\s+[A-Z]{2,}){2,})(?=[:\s])/g,
-    (_m, pre, caps) => `${pre}${MARKER}${caps}`,
-  )
+  text = text.replace(ALLCAPS_RE, (_m, pre, caps) => `${pre}${MARKER}${caps}`)
 
   const chunks = text.split(MARKER).map((c) => c.trim()).filter(Boolean)
 
@@ -133,8 +134,9 @@ function formatMedGuideText(raw: string): ReactNode {
     bulletItems = []
   }
 
+  // isHeader mirrors the injection patterns above so the two stay in sync.
   const isHeader = (s: string) =>
-    /^(What |Who |How |Why |When )/i.test(s) ||
+    new RegExp(`^(${QUESTION_KEYWORDS}) `, 'i').test(s) ||
     /^[A-Z]{2,}(?:\s+[A-Z]{2,}){2,}/.test(s) ||
     s.trim().endsWith('?')
 
