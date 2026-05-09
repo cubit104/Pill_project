@@ -200,14 +200,10 @@ function formatMedGuideText(text: string): React.ReactNode {
     `([.?])\\s+(${questionWords.join('|')})\\s`,
     'g'
   )
-  processed = processed.replace(questionRe, (_match, punct, word) => `${punct}\n${MARKER}${word} `)
+  processed = processed.replace(questionRe, (_match, punct, word) => punct + '\n' + MARKER + word + ' ')
 
-  // 2b. Numbered list items 1–20 — single pass with one regex
-  processed = processed.replace(/ (\d{1,2})\. /g, (match, num) => {
-    const n = parseInt(num, 10)
-    if (n >= 1 && n <= 20) return ` ${MARKER}${num}. `
-    return match
-  })
+  // 2b. Numbered list items 1–20 — single pass, precise regex matching only 1-20
+  processed = processed.replace(/ ([1-9]|1\d|20)\. /g, (_match, num) => ' ' + MARKER + num + '. ')
 
   // 2c. ALL-CAPS multi-word section titles (WHAT IS, WHO SHOULD, HOW SHOULD, etc.)
   processed = processed.replace(
@@ -459,8 +455,9 @@ export default async function MedicationGuidePage(
             ⚠ Black Box Warning
           </p>
           <p className="text-red-900 text-sm mt-1">
-            {overview.slice(0, BLACK_BOX_WARNING_PREVIEW_LENGTH)}
-            {overview.length > BLACK_BOX_WARNING_PREVIEW_LENGTH ? '…' : ''}
+            {overview.length > BLACK_BOX_WARNING_PREVIEW_LENGTH
+              ? overview.slice(0, overview.lastIndexOf(' ', BLACK_BOX_WARNING_PREVIEW_LENGTH)) + '…'
+              : overview}
           </p>
         </div>
       )}
