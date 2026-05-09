@@ -68,121 +68,237 @@ async function fetchMedicationGuide(
   }
 }
 
-// ── UI components ──────────────────────────────────────────────────────────
+// ── Smart med-guide text formatter ─────────────────────────────────────────
 
-function GuideText({ text, textColorClass = 'text-slate-700' }: { text: string; textColorClass?: string }) {
-  const paragraphs = text
-    .split(/\n\n+/)
-    .map((p) => p.trim())
-    .filter(Boolean)
-  if (paragraphs.length <= 1) {
+const MARKER = '\x00'
+
+/**
+ * Maximum number of words in each item for it to be treated as a short
+ * inline list entry (e.g. "skin rash" or "trouble swallowing").
+ */
+const MAX_WORDS_PER_INLINE_LIST_ITEM = 8
+
+/**
+ * Number of characters of the overview text to show inside the black box
+ * warning banner — enough to signal urgency without duplicating the full text.
+ */
+const BLACK_BOX_WARNING_PREVIEW_LENGTH = 300
+
+/**
+ * Returns true when `parts` looks like an inline symptom/item list:
+ * at least 3 parts, each containing at most MAX_WORDS_PER_INLINE_LIST_ITEM words.
+ */
+function isInlineList(parts: string[]): boolean {
+  return (
+    parts.length >= 3 &&
+    parts.every((p) => p.split(' ').length <= MAX_WORDS_PER_INLINE_LIST_ITEM)
+  )
+}
+
+/** Render inline list items detected after a colon inside a paragraph. */
+function renderInlineList(text: string): React.ReactNode {
+  const colonIdx = text.indexOf(': ')
+  if (colonIdx === -1) return <>{text}</>
+
+  const before = text.slice(0, colonIdx + 1) // includes the colon
+  const after = text.slice(colonIdx + 2)
+
+  // Split on transition from lowercase to Uppercase mid-sentence
+  const parts = after.split(/(?<=[a-z])\s+(?=[A-Z])/)
+  if (isInlineList(parts)) {
     return (
-      <p className={`text-sm leading-relaxed whitespace-pre-wrap ${textColorClass}`}>{text}</p>
+      <>
+        {before}{' '}
+        <ul className="list-disc list-outside ml-4 mt-1 space-y-0.5">
+          {parts.map((item, i) => (
+            <li key={i} className="text-sm text-slate-600">
+              {item.trim()}
+            </li>
+          ))}
+        </ul>
+      </>
     )
   }
-  return (
-    <div className="space-y-3">
-      {paragraphs.map((p, i) => (
-        <p key={i} className={`text-sm leading-relaxed whitespace-pre-wrap ${textColorClass}`}>
-          {p}
-        </p>
-      ))}
-    </div>
-  )
+  return <>{text}</>
 }
 
-function SectionBlock({ title, content }: { title: string; content: string }) {
-  return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-4">
-      <h2 className="text-base font-semibold text-slate-800 mb-3">{title}</h2>
-      <GuideText text={content} />
-    </section>
-  )
+/** Classify and render a single chunk of text. */
+type Chunk =
+  | { type: 'header'; text: string }
+  | { type: 'numbered'; num: number; text: string }
+  | { type: 'paragraph'; text: string }
+
+function classifyChunk(raw: string): Chunk {
+  const text = raw.trim()
+
+  // ALL-CAPS section title: 3+ words all caps
+  const allCapsWords = text.match(/\b[A-Z]{2,}\b/g) ?? []
+  const startsWithNumber = /^\d+\./.test(text)
+  if (
+    /^[A-Z\s\d\W]{10,}$/.test(text) &&
+    allCapsWords.length >= 3 &&
+    !startsWithNumber
+  ) {
+    return { type: 'header', text }
+  }
+
+  // Question header: starts with interrogative word and contains ?
+  if (
+    /^(What|Who|How|Why|When|Where)\s/.test(text) &&
+    text.includes('?')
+  ) {
+    return { type: 'header', text }
+  }
+
+  // Numbered list item
+  const numMatch = text.match(/^(\d+)\.\s/)
+  if (numMatch) {
+    return { type: 'numbered', num: parseInt(numMatch[1], 10), text }
+  }
+
+  return { type: 'paragraph', text }
 }
 
-function PoisonControlCallout() {
-  return (
-    <div
-      className="bg-red-50 border border-red-300 rounded-xl p-5 mb-6"
-      role="note"
-      aria-label="Poison control information"
-    >
-      <h2 className="text-sm font-bold text-red-900 mb-2">
-        <span aria-hidden="true">☎ </span>In case of overdose
-      </h2>
-      <p className="text-sm text-red-800 leading-relaxed">
-        Call Poison Control at{' '}
-        <a
-          href="tel:18002221222"
-          className="font-bold underline hover:text-red-900"
+/**
+ * Parse raw DailyMed overview text into structured React nodes.
+ *
+ * Step 1 – Strip preamble up through the first "Read this Medication Guide"
+ *           / "Read this Patient Information" / "Important:" sentence.
+ * Step 2 – Inject \x00 markers before structural boundaries.
+ * Step 3 – Split on \x00, classify each chunk.
+ * Step 4 – Render as h3 / ol / p with nested ul for inline lists.
+ */
+function formatMedGuideText(text: string): React.ReactNode {
+  // ── Step 1: strip preamble ─────────────────────────────────────────────
+  let processed = text
+
+  const anchorPatterns = [
+    /Read this Medication Guide/,
+    /Read this Patient Information/,
+    /^Important:/,
+  ]
+
+  for (const pattern of anchorPatterns) {
+    const match = pattern.exec(processed)
+    if (match) {
+      // Find the start of the sentence containing the anchor; clamp -1 returns to 0
+      const before = processed.slice(0, match.index)
+      const dotIdx = before.lastIndexOf('. ')
+      const bangIdx = before.lastIndexOf('! ')
+      const lastPunct = Math.max(dotIdx, bangIdx)
+      const sentenceStart = lastPunct >= 0 ? lastPunct + 2 : 0
+      processed = processed.slice(sentenceStart)
+      break
+    }
+  }
+
+  // ── Step 2: inject split markers ──────────────────────────────────────
+
+  // 2a. Question headers after sentence-ending punctuation — single compiled regex
+  const questionWords = ['What', 'Who', 'How', 'Why', 'When', 'Where']
+  const questionRe = new RegExp(
+    `([.?])\\s+(${questionWords.join('|')})\\s`,
+    'g'
+  )
+  processed = processed.replace(questionRe, (_match, punct, word) => `${punct}\n${MARKER}${word} `)
+
+  // 2b. Numbered list items 1–20 — single pass, precise regex matching only 1-20
+  processed = processed.replace(/ ([1-9]|1\d|20)\. /g, (_match, num) => ' ' + MARKER + num + '. ')
+
+  // 2c. ALL-CAPS multi-word section titles (WHAT IS, WHO SHOULD, HOW SHOULD, etc.)
+  processed = processed.replace(
+    /\b(WHAT IS|WHO SHOULD|HOW SHOULD|WHAT ARE|WHAT SHOULD|HOW DO|HOW CAN|WHEN SHOULD|WHERE SHOULD)\b/g,
+    `${MARKER}$1`
+  )
+
+  // 2d. "Symptoms may include:" and "Call your healthcare provider" at thought boundaries
+  processed = processed
+    .replace(/([.!?])\s+(Symptoms may include:)/g, `$1\n${MARKER}$2`)
+    .replace(/([.!?])\s+(Call your (healthcare provider|doctor|pharmacist))/g, `$1\n${MARKER}$2`)
+
+  // ── Step 3: split and classify ─────────────────────────────────────────
+  const rawChunks = processed.split(MARKER)
+  const chunks: Chunk[] = rawChunks
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .map(classifyChunk)
+
+  // ── Step 4: render ─────────────────────────────────────────────────────
+  const nodes: React.ReactNode[] = []
+  let i = 0
+
+  while (i < chunks.length) {
+    const chunk = chunks[i]
+
+    if (chunk.type === 'header') {
+      nodes.push(
+        <h3
+          key={i}
+          className="text-base font-semibold text-slate-900 mt-8 mb-2 pb-1 border-b border-slate-100"
         >
-          1-800-222-1222
-        </a>{' '}
-        (24 hours a day, 7 days a week). If the person has collapsed, had a seizure, has trouble
-        breathing, or cannot be awakened, call{' '}
-        <a href="tel:911" className="font-bold underline hover:text-red-900">
-          911
-        </a>{' '}
-        immediately.
+          {chunk.text}
+        </h3>
+      )
+      i++
+      continue
+    }
+
+    if (chunk.type === 'numbered') {
+      // Collect consecutive numbered items into a single <ol>
+      const items: Chunk[] = []
+      while (i < chunks.length && chunks[i].type === 'numbered') {
+        items.push(chunks[i])
+        i++
+      }
+      nodes.push(
+        <ol key={`ol-${i}`} className="list-decimal list-outside ml-5 space-y-3 my-3">
+          {items.map((item, idx) => {
+            if (item.type !== 'numbered') return null
+            // Strip the leading "N. " from the text
+            const itemText = item.text.replace(/^\d+\.\s*/, '')
+
+            // Detect nested symptom list within the item
+            const colonIdx = itemText.indexOf(': ')
+            if (colonIdx !== -1) {
+              const afterColon = itemText.slice(colonIdx + 2)
+              const subParts = afterColon.split(/(?<=[a-z])\s+(?=[A-Z])/)
+              if (isInlineList(subParts)) {
+                return (
+                  <li key={idx} className="text-sm text-slate-700 leading-relaxed pl-1">
+                    {itemText.slice(0, colonIdx + 1)}
+                    <ul className="list-disc list-outside ml-4 mt-1 space-y-0.5">
+                      {subParts.map((sub, si) => (
+                        <li key={si} className="text-sm text-slate-600">
+                          {sub.trim()}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                )
+              }
+            }
+
+            return (
+              <li key={idx} className="text-sm text-slate-700 leading-relaxed pl-1">
+                {itemText}
+              </li>
+            )
+          })}
+        </ol>
+      )
+      continue
+    }
+
+    // paragraph
+    nodes.push(
+      <p key={i} className="text-sm text-slate-700 leading-relaxed my-2">
+        {renderInlineList(chunk.text)}
       </p>
-    </div>
-  )
-}
+    )
+    i++
+  }
 
-function BoxedWarningBanner({ text }: { text: string }) {
-  return (
-    <div
-      className="bg-red-100 border-2 border-red-500 rounded-xl p-5 mb-6"
-      role="alert"
-      aria-label="Boxed warning"
-    >
-      <h2 className="text-sm font-bold text-red-900 mb-2 uppercase tracking-wide">
-        <span aria-hidden="true">⚠ </span>Boxed Warning
-      </h2>
-      {/* Per spec, the full warnings text is used here. The same text also appears
-          in the regular Warnings section below — this is intentional per requirements. */}
-      <GuideText text={text} textColorClass="text-red-900" />
-    </div>
-  )
-}
-
-// ── Section order spec ─────────────────────────────────────────────────────
-
-const SECTION_ORDER: Array<{ key: keyof GuideSection; label: string }> = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'uses', label: 'Uses' },
-  { key: 'dosage', label: 'Dosage' },
-  { key: 'how_to_take', label: 'How to Take' },
-  { key: 'side_effects', label: 'Side Effects' },
-  { key: 'warnings', label: 'Warnings' },
-  { key: 'interactions', label: 'Drug Interactions' },
-  { key: 'contraindications', label: 'Contraindications' },
-  { key: 'special_populations', label: 'Special Populations' },
-  { key: 'overdose', label: 'Overdose' },
-  { key: 'storage', label: 'Storage' },
-  { key: 'pharmacology', label: 'Pharmacology' },
-  { key: 'manufacturer', label: 'Manufacturer' },
-]
-
-// ── Page header component ──────────────────────────────────────────────────
-
-function PageHeader({ slug, pillTitle, subtitle }: { slug: string; pillTitle: string; subtitle?: string }) {
-  return (
-    <div className="mb-6">
-      <Link
-        href={`/pill/${encodeURIComponent(slug)}`}
-        className="inline-flex items-center gap-1 text-sky-600 hover:text-sky-800 text-sm font-medium mb-4 transition-colors"
-        aria-label={`Back to ${pillTitle} pill detail`}
-      >
-        ← Back to pill page
-      </Link>
-      <h1 className="text-2xl font-bold text-slate-900 mb-1">{pillTitle}</h1>
-      {subtitle && (
-        <p className="text-sm text-slate-500 mb-1">{subtitle}</p>
-      )}
-      <p className="text-sm text-slate-500">Medication Guide</p>
-    </div>
-  )
+  return <>{nodes}</>
 }
 
 // ── Metadata ───────────────────────────────────────────────────────────────
@@ -198,8 +314,9 @@ export async function generateMetadata(
       robots: { index: false, follow: true },
     }
   }
-  const title = `${pill.drug_name}${pill.strength ? ` ${pill.strength}` : ''} — Medication Guide`
-  const description = `FDA prescribing information for ${pill.drug_name}: uses, dosage, warnings, side effects, and more.`
+  const drugName = pill.drug_name
+  const title = `${drugName}${pill.strength ? ` ${pill.strength}` : ''} — Medication Guide`
+  const description = `Official FDA Medication Guide for ${drugName} — written for patients, sourced from DailyMed.`
   const canonicalUrl = `${SITE_URL}/pill/${encodeURIComponent(slug)}/medication-guide`
   return {
     title,
@@ -226,16 +343,38 @@ export default async function MedicationGuidePage(
 
   const result = await fetchMedicationGuide(pill.rxcui, pill.ndc)
 
-  const pillTitle = [pill.drug_name, pill.strength].filter(Boolean).join(' ')
+  const drugName = pill.drug_name
+  const strength = pill.strength ?? ''
+  const pillTitle = [drugName, strength].filter(Boolean).join(' ')
 
-  // ── Empty / error states ──────────────────────────────────────────────
+  // ── Shared page shell ─────────────────────────────────────────────────
+
+  const backLink = (
+    <Link
+      href={`/pill/${encodeURIComponent(slug)}`}
+      className="inline-flex items-center gap-1 text-sm text-sky-600 hover:text-sky-800 transition-colors mb-5"
+    >
+      ← Back to {drugName}
+    </Link>
+  )
+
+  const pageHeading = (
+    <div className="border-b border-slate-200 mt-3 mb-6">
+      <h1 className="text-3xl font-bold text-slate-900">{pillTitle}</h1>
+      <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mt-1 mb-3">
+        Medication Guide
+      </p>
+    </div>
+  )
+
+  // ── Error / not-found states ───────────────────────────────────────────
 
   if (result.status === 'error') {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        <PageHeader slug={slug} pillTitle={pillTitle} />
-        <PoisonControlCallout />
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
+      <div className="max-w-2xl mx-auto px-4 py-10">
+        {backLink}
+        {pageHeading}
+        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center mb-8">
           <p className="text-slate-700 font-medium mb-2">
             Medication information is temporarily unavailable.
           </p>
@@ -247,28 +386,42 @@ export default async function MedicationGuidePage(
 
   if (result.status === 'not_found' || result.status === 'no_identifiers') {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        <PageHeader slug={slug} pillTitle={pillTitle} />
-        <PoisonControlCallout />
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
-          <p className="text-slate-700 font-medium mb-2">
-            Detailed medication information is not available
+      <div className="max-w-2xl mx-auto px-4 py-10">
+        {backLink}
+        {pageHeading}
+        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center mb-8">
+          <p className="text-4xl mb-3">📄</p>
+          <p className="text-lg font-semibold text-slate-800">No Medication Guide Available</p>
+          <p className="text-sm text-slate-500 mt-2">
+            The FDA has not issued a Medication Guide for this drug. For general information, visit:
           </p>
-          <p className="text-sm text-slate-500 max-w-md mx-auto">
-            Detailed FDA prescribing information is not available for this medication. Please
-            consult your pharmacist or healthcare provider for guidance specific to your treatment.
+          <p className="text-sm text-sky-600 mt-4 space-x-4">
+            <a
+              href="https://medlineplus.gov/druginformation.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline"
+            >
+              MedlinePlus
+            </a>
+            <span aria-hidden="true">·</span>
+            <a
+              href={`https://www.drugs.com/${encodeURIComponent(drugName.toLowerCase())}.html`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline"
+            >
+              Drugs.com
+            </a>
           </p>
         </div>
       </div>
     )
   }
 
-  // ── Full / partial guide ──────────────────────────────────────────────
+  // ── Full guide ────────────────────────────────────────────────────────
 
   const { guide } = result
-  const subtitle = [guide.generic_name, guide.brand_name]
-    .filter((v): v is string => !!v && v !== pill.drug_name)
-    .join(' / ')
 
   const fetchedDate = (() => {
     if (!guide.fetched_at) return null
@@ -284,38 +437,85 @@ export default async function MedicationGuidePage(
     }
   })()
 
+  const overview = guide.sections.overview
+
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      {/* Header */}
-      <PageHeader slug={slug} pillTitle={pillTitle} subtitle={subtitle || undefined} />
+    <div className="max-w-2xl mx-auto px-4 py-10">
+      {backLink}
+      {pageHeading}
 
-      {/* Poison control callout — always shown */}
-      <PoisonControlCallout />
-
-      {/* Boxed warning banner */}
-      {guide.has_boxed_warning && guide.sections.warnings && (
-        <BoxedWarningBanner text={guide.sections.warnings} />
+      {/* Black box warning */}
+      {guide.has_boxed_warning && overview && (
+        <div
+          className="bg-red-50 border-l-4 border-red-600 rounded-r-lg p-4 mb-6"
+          role="alert"
+          aria-label="Black box warning"
+        >
+          <p className="font-bold text-red-800 text-sm uppercase tracking-wide mb-1">
+            ⚠ Black Box Warning
+          </p>
+          <p className="text-red-900 text-sm mt-1">
+            {(() => {
+              if (overview.length <= BLACK_BOX_WARNING_PREVIEW_LENGTH) return overview
+              const cutoff = overview.lastIndexOf(' ', BLACK_BOX_WARNING_PREVIEW_LENGTH)
+              return overview.slice(0, cutoff > 0 ? cutoff : BLACK_BOX_WARNING_PREVIEW_LENGTH) + '…'
+            })()}
+          </p>
+        </div>
       )}
 
-      {/* Main sections */}
-      {SECTION_ORDER.map(({ key, label }) => {
-        const content = guide.sections[key]
-        if (!content) return null
-        return <SectionBlock key={key} title={label} content={content} />
-      })}
+      {/* Poison control bar */}
+      <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 mb-6 text-xs text-slate-600">
+        ☎ Poison Control: 1-800-222-1222&nbsp;&nbsp;|&nbsp;&nbsp;Emergency: 911
+      </div>
 
-      {/* Footer metadata */}
-      <div className="mt-6 pt-5 border-t border-slate-200 space-y-2">
+      {/* Main article card */}
+      {overview ? (
+        <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-6 sm:p-8 mb-8">
+          <h2 className="text-lg font-semibold text-slate-900 mb-6">📋 FDA Medication Guide</h2>
+          {formatMedGuideText(overview)}
+        </div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center mb-8">
+          <p className="text-4xl mb-3">📄</p>
+          <p className="text-lg font-semibold text-slate-800">No Medication Guide Available</p>
+          <p className="text-sm text-slate-500 mt-2">
+            The FDA has not issued a Medication Guide for this drug. For general information, visit:
+          </p>
+          <p className="text-sm text-sky-600 mt-4 space-x-4">
+            <a
+              href="https://medlineplus.gov/druginformation.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline"
+            >
+              MedlinePlus
+            </a>
+            <span aria-hidden="true">·</span>
+            <a
+              href={`https://www.drugs.com/${encodeURIComponent(drugName.toLowerCase())}.html`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline"
+            >
+              Drugs.com
+            </a>
+          </p>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="border-t border-slate-100 mt-4 pt-5 space-y-1.5">
         {guide.disclaimer && (
-          <p className="text-xs text-slate-500 leading-relaxed">{guide.disclaimer}</p>
+          <p className="text-xs text-slate-400 italic leading-relaxed">{guide.disclaimer}</p>
         )}
         {guide.source_url && (
-          <p className="text-xs text-slate-500">
+          <p className="text-xs">
             <a
               href={guide.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sky-700 hover:underline"
+              className="text-xs text-sky-600 hover:underline"
             >
               Source: FDA Structured Product Labeling
             </a>
