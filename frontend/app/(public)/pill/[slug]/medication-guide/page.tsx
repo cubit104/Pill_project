@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import React from 'react'
 import Link from 'next/link'
 import { fetchPill, API_BASE } from '../../lib'
 
@@ -195,22 +194,20 @@ function formatMedGuideText(text: string): React.ReactNode {
 
   // ── Step 2: inject split markers ──────────────────────────────────────
 
-  // 2a. Question headers after sentence-ending punctuation
+  // 2a. Question headers after sentence-ending punctuation — single compiled regex
   const questionWords = ['What', 'Who', 'How', 'Why', 'When', 'Where']
-  for (const w of questionWords) {
-    // After ". " or "? "
-    processed = processed
-      .replace(new RegExp(`\\.\\s+${w}\\s`, 'g'), `.\n${MARKER}${w} `)
-      .replace(new RegExp(`\\?\\s+${w}\\s`, 'g'), `?\n${MARKER}${w} `)
-  }
+  const questionRe = new RegExp(
+    `([.?])\\s+(${questionWords.join('|')})\\s`,
+    'g'
+  )
+  processed = processed.replace(questionRe, (_match, punct, word) => `${punct}\n${MARKER}${word} `)
 
-  // 2b. Numbered list items 1–20
-  for (let n = 1; n <= 20; n++) {
-    processed = processed.replace(
-      new RegExp(` ${n}\\.\\s`, 'g'),
-      ` ${MARKER}${n}. `
-    )
-  }
+  // 2b. Numbered list items 1–20 — single pass with one regex
+  processed = processed.replace(/ (\d{1,2})\. /g, (match, num) => {
+    const n = parseInt(num, 10)
+    if (n >= 1 && n <= 20) return ` ${MARKER}${num}. `
+    return match
+  })
 
   // 2c. ALL-CAPS multi-word section titles (WHAT IS, WHO SHOULD, HOW SHOULD, etc.)
   processed = processed.replace(
@@ -404,7 +401,7 @@ export default async function MedicationGuidePage(
           </p>
           <p className="text-sm text-sky-600 mt-4 space-x-4">
             <a
-              href={`https://medlineplus.gov/druginformation.html`}
+              href="https://medlineplus.gov/druginformation.html"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:underline"
