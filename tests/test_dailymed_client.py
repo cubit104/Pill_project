@@ -148,6 +148,42 @@ def test_fetch_patient_guide_cleans_whitespace():
     assert "\n" not in result["full_text"]
 
 
+def test_fetch_patient_guide_falls_back_to_older_ppi_format():
+    """Falls back to section 42228-7 (older Patient Package Insert) when higher-priority sections are absent."""
+    client = DailyMedClient()
+    xml_content = _xml_with_section("42228-7", "PATIENT INFORMATION Amlodipine and Valsartan")
+
+    with patch("services.dailymed_client.requests.get", return_value=_mock_response(200, xml_content)):
+        result = client.fetch_patient_guide("amlodipine-set-id")
+
+    assert result is not None
+    assert "PATIENT INFORMATION Amlodipine and Valsartan" in result["full_text"]
+
+
+def test_fetch_patient_guide_falls_back_to_information_for_patients():
+    """Falls back to section 34076-0 (Information for Patients) when higher-priority sections are absent."""
+    client = DailyMedClient()
+    xml_content = _xml_with_section("34076-0", "Information for patients taking this drug.")
+
+    with patch("services.dailymed_client.requests.get", return_value=_mock_response(200, xml_content)):
+        result = client.fetch_patient_guide("theophylline-set-id")
+
+    assert result is not None
+    assert "Information for patients taking this drug." in result["full_text"]
+
+
+def test_fetch_patient_guide_falls_back_to_alternate_ppi_code():
+    """Falls back to section 42227-9 (alternate Patient Package Insert code) when higher-priority sections are absent."""
+    client = DailyMedClient()
+    xml_content = _xml_with_section("42227-9", "Patient package insert alternate code text.")
+
+    with patch("services.dailymed_client.requests.get", return_value=_mock_response(200, xml_content)):
+        result = client.fetch_patient_guide("minocycline-set-id")
+
+    assert result is not None
+    assert "Patient package insert alternate code text." in result["full_text"]
+
+
 def test_fetch_patient_guide_prefers_medguide_over_ppi():
     """Section 42231-1 is preferred over 42230-3 when both are present."""
     client = DailyMedClient()
