@@ -37,7 +37,7 @@ class GuideValidationError(RuntimeError):
 
 
 SECTION_MAPPING: dict[str, tuple[str, ...]] = {
-    "overview": ("medication_guide", "patient_package_insert", "spl_patient_package_insert"),
+    "overview": ("medication_guide", "patient_package_insert", "spl_patient_package_insert", "description"),
     "uses": ("indications_and_usage",),
     "dosage": ("dosage_and_administration", "dosage_forms_and_strengths"),
     "how_to_take": ("instructions_for_use", "information_for_patients"),
@@ -243,8 +243,9 @@ def _map_openfda_record(record: dict[str, Any], *, requested_rxcui: Optional[str
     mapped["manufacturer"] = _build_manufacturer(openfda)
 
     if spl_set_id:
+        encoded_set_id = quote(spl_set_id, safe="")
         mapped["source_url"] = (
-            f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={spl_set_id}"
+            f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}"
         )
     elif generic_name:
         encoded_name = quote(generic_name)

@@ -179,7 +179,7 @@ def test_build_guide_refetches_when_stale():
     ), patch("services.medication_guide._update_guide", side_effect=_update):
         result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client))
 
-    assert result["sections"]["overview"] is None
+    assert result["sections"]["overview"].startswith("LIPITOR")
     assert mock_client.fetch_label_by_rxcui.call_count == 1
 
 
