@@ -430,18 +430,20 @@ export default function PillDetailClient({
         </div>
 
         {/* Medication Information preview card */}
+        {(slug ?? pill.slug) && (
         <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-base font-semibold text-slate-800 mb-2">Medication Information</h2>
           <p className="text-sm text-slate-600 mb-4">
             See FDA-based uses, dosage, warnings, side effects, and more.
           </p>
           <Link
-            href={`/pill/${encodeURIComponent(slug ?? pill.slug ?? '')}/medication-guide`}
+            href={`/pill/${encodeURIComponent((slug ?? pill.slug)!)}/medication-guide`}
             className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             Open Medication Guide →
           </Link>
         </section>
+        )}
 
         {/* Similar-looking Pills (Confusion Risk) */}
         {similar && similar.length > 0 && (

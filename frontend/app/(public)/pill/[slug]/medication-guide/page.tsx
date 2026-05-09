@@ -105,20 +105,20 @@ async function fetchMedicationGuide(pill: PillDetail): Promise<GuideResult> {
 
 // ── UI components ──────────────────────────────────────────────────────────
 
-function GuideText({ text, textClassName = 'text-slate-700' }: { text: string; textClassName?: string }) {
+function GuideText({ text, textColorClass = 'text-slate-700' }: { text: string; textColorClass?: string }) {
   const paragraphs = text
     .split(/\n\n+/)
     .map((p) => p.trim())
     .filter(Boolean)
   if (paragraphs.length <= 1) {
     return (
-      <p className={`text-sm leading-relaxed whitespace-pre-wrap ${textClassName}`}>{text}</p>
+      <p className={`text-sm leading-relaxed whitespace-pre-wrap ${textColorClass}`}>{text}</p>
     )
   }
   return (
     <div className="space-y-3">
       {paragraphs.map((p, i) => (
-        <p key={i} className={`text-sm leading-relaxed ${textClassName}`}>
+        <p key={i} className={`text-sm leading-relaxed ${textColorClass}`}>
           {p}
         </p>
       ))}
@@ -174,8 +174,9 @@ function BoxedWarningBanner({ text }: { text: string }) {
       <h2 className="text-sm font-bold text-red-900 mb-2 uppercase tracking-wide">
         <span aria-hidden="true">⚠ </span>Boxed Warning
       </h2>
-      {/* Per spec, warnings text may also appear in the regular Warnings section below. */}
-      <GuideText text={text} textClassName="text-red-900" />
+      {/* Per spec, the full warnings text is used here. The same text also appears
+          in the regular Warnings section below — this is intentional per requirements. */}
+      <GuideText text={text} textColorClass="text-red-900" />
     </div>
   )
 }
