@@ -59,7 +59,7 @@ const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
 ]
 
 function isHtmlContent(content: string): boolean {
-  return /^<(p|ul|ol|li|strong|em|u|h3|h4|table|br|hr)\b/i.test(content.trimStart())
+  return /^<[a-z][a-z0-9-]*\b[^>]*>/i.test(content.trimStart())
 }
 
 function GuideHtml({ content }: { content: string }) {
