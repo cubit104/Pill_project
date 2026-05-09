@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 import database
 from ndc_normalize import normalize_ndc_to_11
 from services.dailymed_client import DailyMedClient
+from services.dailymed_spl_client import fetch_spl_sections
 from services.openfda_client import OpenFDAClient, OpenFDAUpstreamError
 
 logger = logging.getLogger(__name__)
@@ -403,7 +404,7 @@ async def build_guide(
 
     mapped = _map_openfda_record(label_record, requested_rxcui=rxcui)
 
-    # Attempt to fetch real patient guide text from DailyMed XML.
+    # Attempt to fetch structured HTML from DailyMed SPL XML.
     # Use spl_set_id from openFDA response first; fall back to the cached DB value
     # (openFDA often omits spl_set_id even when it exists in DailyMed).
     spl_set_id = mapped.get("spl_set_id") or (cached.get("spl_set_id") if cached else None)
@@ -415,22 +416,47 @@ async def build_guide(
             mapped["source_url"] = (
                 f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}"
             )
-        dm_client = dailymed_client or DailyMedClient()
+
+        # Try to fetch fully structured HTML for all sections from DailyMed SPL XML.
+        # On success, overlay the openFDA plain-text fields with HTML.
+        # On failure, fall back to the existing DailyMed patient-guide text for overview.
+        spl_sections: dict = {}
         try:
-            dm_result = dm_client.fetch_patient_guide(spl_set_id)
-            if dm_result and dm_result.get("full_text"):
-                mapped["overview"] = dm_result["full_text"]
-                logger.info(
-                    "DailyMed overview set for spl_set_id=%s (%d chars)",
-                    spl_set_id,
-                    len(mapped["overview"]),
-                )
+            spl_sections = await fetch_spl_sections(spl_set_id)
         except Exception:
             logger.warning(
-                "DailyMed fetch failed for spl_set_id=%s, using openFDA fallback",
+                "SPL sections fetch raised for spl_set_id=%s, using openFDA fallback",
                 spl_set_id,
                 exc_info=True,
             )
+
+        if spl_sections:
+            for key in SECTION_MAPPING:
+                if spl_sections.get(key):
+                    mapped[key] = spl_sections[key]
+            if spl_sections.get("_has_boxed_warning"):
+                mapped["has_boxed_warning"] = True
+            logger.info(
+                "DailyMed SPL HTML sections applied for spl_set_id=%s", spl_set_id
+            )
+        else:
+            # Fall back to patient-guide plain text from DailyMed for overview only
+            dm_client = dailymed_client or DailyMedClient()
+            try:
+                dm_result = dm_client.fetch_patient_guide(spl_set_id)
+                if dm_result and dm_result.get("full_text"):
+                    mapped["overview"] = dm_result["full_text"]
+                    logger.info(
+                        "DailyMed overview set for spl_set_id=%s (%d chars)",
+                        spl_set_id,
+                        len(mapped["overview"]),
+                    )
+            except Exception:
+                logger.warning(
+                    "DailyMed fetch failed for spl_set_id=%s, using openFDA fallback",
+                    spl_set_id,
+                    exc_info=True,
+                )
 
     existing_id = int(cached["id"]) if cached and cached.get("id") is not None else None
 
