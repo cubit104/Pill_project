@@ -32,6 +32,13 @@ def _clean_text(raw: str) -> str:
 
 _SECTION_TAG = "{urn:hl7-org:v3}section"
 _CODE_TAG = "{urn:hl7-org:v3}code"
+_TITLE_TAG = "{urn:hl7-org:v3}title"
+_PATIENT_TITLE_KEYWORDS = ("medication guide", "patient information")
+
+
+def _extract_section_text(section: ET.Element) -> str:
+    """Return cleaned text content of a section, or empty string."""
+    return _clean_text("".join(section.itertext()))
 
 
 def _find_section_by_code(tree: ET.Element, code: str) -> ET.Element | None:
@@ -45,6 +52,34 @@ def _find_section_by_code(tree: ET.Element, code: str) -> ET.Element | None:
         code_el = section.find(_CODE_TAG)
         if code_el is not None and code_el.get("code") == code:
             return section
+    return None
+
+
+def _find_patient_subsection_in_section17(tree: ET.Element) -> ET.Element | None:
+    """Look inside Section 17 (34076-0) for a child section titled as a patient guide.
+
+    Some FDA labels (e.g. BENAZEPRIL HYDROCHLORIDE, THEOPHYLLINE) embed the
+    patient-facing "Medication Guide" or "Patient Information" as a child
+    subsection within Section 17 (Patient Counseling Information) rather than
+    as a standalone top-level section.  This helper finds that subsection by
+    matching the section title against known patient-guide keywords.
+
+    Note: SPL XML wraps child sections inside ``<component>`` elements, so
+    they are not direct ``<section>`` children of ``section17``.  We therefore
+    use ``iter()`` to traverse all descendants rather than ``findall()`` which
+    only finds direct children.
+    """
+    section17 = _find_section_by_code(tree, "34076-0")
+    if section17 is None:
+        return None
+    for child in section17.iter(_SECTION_TAG):
+        if child is section17:
+            continue
+        title_el = child.find(_TITLE_TAG)
+        if title_el is not None and title_el.text:
+            title_lower = title_el.text.strip().lower()
+            if any(kw in title_lower for kw in _PATIENT_TITLE_KEYWORDS):
+                return child
     return None
 
 
@@ -98,8 +133,7 @@ class DailyMedClient:
         for code in _MEDGUIDE_CODES:
             section = _find_section_by_code(tree, code)
             if section is not None:
-                raw_text = "".join(section.itertext())
-                cleaned = _clean_text(raw_text)
+                cleaned = _extract_section_text(section)
                 if cleaned:
                     logger.info(
                         "DailyMed section %s found for spl_set_id=%s (%d chars)",
@@ -108,6 +142,22 @@ class DailyMedClient:
                         len(cleaned),
                     )
                     return {"full_text": cleaned}
+
+        # Fallback: look for a patient guide subsection buried inside Section 17
+        # (Patient Counseling Information, code 34076-0).  Some older labels
+        # (e.g. BENAZEPRIL HYDROCHLORIDE, THEOPHYLLINE) place the patient-facing
+        # "Medication Guide" or "Patient Information" here rather than in a
+        # dedicated top-level section.
+        section = _find_patient_subsection_in_section17(tree)
+        if section is not None:
+            cleaned = _extract_section_text(section)
+            if cleaned:
+                logger.info(
+                    "DailyMed Section 17 subsection fallback used for spl_set_id=%s (%d chars)",
+                    spl_set_id,
+                    len(cleaned),
+                )
+                return {"full_text": cleaned}
 
         logger.debug("No patient guide section found in DailyMed XML for spl_set_id=%s", spl_set_id)
         return None

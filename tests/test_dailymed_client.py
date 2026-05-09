@@ -161,9 +161,29 @@ def test_fetch_patient_guide_falls_back_to_older_ppi_format():
 
 
 def test_fetch_patient_guide_falls_back_to_information_for_patients():
-    """Falls back to section 34076-0 (Information for Patients) when higher-priority sections are absent."""
+    """Falls back to a subsection within Section 17 (34076-0) when its title contains 'Medication Guide'."""
     client = DailyMedClient()
-    xml_content = _xml_with_section("34076-0", "Information for patients taking this drug.")
+    # Simulate a label where the patient guide lives as a child of Section 17
+    xml_content = b"""<?xml version="1.0" encoding="UTF-8"?>
+<document xmlns="urn:hl7-org:v3">
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <code code="34076-0" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Patient Counseling Information</title>
+          <text><paragraph>Counsel patients about fetal risk.</paragraph></text>
+          <component>
+            <section>
+              <title>Medication Guide</title>
+              <text><paragraph>Information for patients taking this drug.</paragraph></text>
+            </section>
+          </component>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</document>"""
 
     with patch("services.dailymed_client.requests.get", return_value=_mock_response(200, xml_content)):
         result = client.fetch_patient_guide("theophylline-set-id")
@@ -173,9 +193,29 @@ def test_fetch_patient_guide_falls_back_to_information_for_patients():
 
 
 def test_fetch_patient_guide_falls_back_to_alternate_ppi_code():
-    """Falls back to section 42227-9 (alternate Patient Package Insert code) when higher-priority sections are absent."""
+    """Falls back to a subsection within Section 17 (34076-0) when its title contains 'Patient Information'."""
     client = DailyMedClient()
-    xml_content = _xml_with_section("42227-9", "Patient package insert alternate code text.")
+    # Simulate a label where the patient guide lives as a child of Section 17 with a "Patient Information" title
+    xml_content = b"""<?xml version="1.0" encoding="UTF-8"?>
+<document xmlns="urn:hl7-org:v3">
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <code code="34076-0" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Patient Counseling Information</title>
+          <text><paragraph>Clinical counseling notes for prescribers.</paragraph></text>
+          <component>
+            <section>
+              <title>Patient Information</title>
+              <text><paragraph>Patient package insert alternate code text.</paragraph></text>
+            </section>
+          </component>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</document>"""
 
     with patch("services.dailymed_client.requests.get", return_value=_mock_response(200, xml_content)):
         result = client.fetch_patient_guide("minocycline-set-id")
