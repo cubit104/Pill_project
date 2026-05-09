@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 import database
 from ndc_normalize import normalize_ndc_to_11
+from services.dailymed_client import DailyMedClient
 from services.openfda_client import OpenFDAClient, OpenFDAUpstreamError
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ class GuideValidationError(RuntimeError):
 
 
 SECTION_MAPPING: dict[str, tuple[str, ...]] = {
-    "overview": ("medication_guide", "patient_package_insert", "spl_patient_package_insert", "description"),
+    "overview": ("medication_guide", "patient_package_insert", "spl_patient_package_insert"),
     "uses": ("indications_and_usage",),
     "dosage": ("dosage_and_administration", "dosage_forms_and_strengths"),
     "how_to_take": ("instructions_for_use", "information_for_patients"),
@@ -346,6 +347,7 @@ async def build_guide(
     ndc: Optional[str] = None,
     force_refresh: bool = False,
     openfda_client: Optional[OpenFDAClient] = None,
+    dailymed_client: Optional[DailyMedClient] = None,
 ) -> dict[str, Any]:
     """Resolve, cache, and return a medication guide by RxCUI or NDC.
 
@@ -354,6 +356,7 @@ async def build_guide(
         ndc: Fallback or primary lookup key when RxCUI is unavailable.
         force_refresh: If True, bypasses cache freshness checks.
         openfda_client: Optional injectable client for tests.
+        dailymed_client: Optional injectable DailyMed client for tests.
 
     Returns:
         API response payload for one medication guide.
@@ -399,6 +402,28 @@ async def build_guide(
         raise GuideNotFoundError("No FDA label found for this drug")
 
     mapped = _map_openfda_record(label_record, requested_rxcui=rxcui)
+
+    # Attempt to fetch real patient guide text from DailyMed XML when
+    # spl_set_id is available. This replaces the openFDA-derived overview.
+    spl_set_id = mapped.get("spl_set_id")
+    if spl_set_id:
+        dm_client = dailymed_client or DailyMedClient()
+        try:
+            dm_result = dm_client.fetch_patient_guide(spl_set_id)
+            if dm_result and dm_result.get("full_text"):
+                mapped["overview"] = dm_result["full_text"]
+                logger.debug(
+                    "DailyMed overview set for spl_set_id=%s (%d chars)",
+                    spl_set_id,
+                    len(mapped["overview"]),
+                )
+        except Exception:
+            logger.warning(
+                "DailyMed fetch failed for spl_set_id=%s, using openFDA fallback",
+                spl_set_id,
+                exc_info=True,
+            )
+
     existing_id = int(cached["id"]) if cached and cached.get("id") is not None else None
 
     if existing_id is None:
