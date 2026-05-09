@@ -142,7 +142,9 @@ function PoisonControlCallout() {
       role="note"
       aria-label="Poison control information"
     >
-      <h2 className="text-sm font-bold text-red-900 mb-2">☎ In case of overdose</h2>
+      <h2 className="text-sm font-bold text-red-900 mb-2">
+        <span aria-hidden="true">☎ </span>In case of overdose
+      </h2>
       <p className="text-sm text-red-800 leading-relaxed">
         Call Poison Control at{' '}
         <a
@@ -170,7 +172,7 @@ function BoxedWarningBanner({ text }: { text: string }) {
       aria-label="Boxed warning"
     >
       <h2 className="text-sm font-bold text-red-900 mb-2 uppercase tracking-wide">
-        ⚠ Boxed Warning
+        <span aria-hidden="true">⚠ </span>Boxed Warning
       </h2>
       {/* Per spec, warnings text may also appear in the regular Warnings section below. */}
       <GuideText text={text} textClassName="text-red-900" />
@@ -195,6 +197,27 @@ const SECTION_ORDER: Array<{ key: keyof GuideSection; label: string }> = [
   { key: 'pharmacology', label: 'Pharmacology' },
   { key: 'manufacturer', label: 'Manufacturer' },
 ]
+
+// ── Page header component ──────────────────────────────────────────────────
+
+function PageHeader({ slug, pillTitle, subtitle }: { slug: string; pillTitle: string; subtitle?: string }) {
+  return (
+    <div className="mb-6">
+      <Link
+        href={`/pill/${encodeURIComponent(slug)}`}
+        className="inline-flex items-center gap-1 text-sky-600 hover:text-sky-800 text-sm font-medium mb-4 transition-colors"
+        aria-label={`Back to ${pillTitle} pill detail`}
+      >
+        ← Back to pill page
+      </Link>
+      <h1 className="text-2xl font-bold text-slate-900 mb-1">{pillTitle}</h1>
+      {subtitle && (
+        <p className="text-sm text-slate-500 mb-1">{subtitle}</p>
+      )}
+      <p className="text-sm text-slate-500">Medication Guide</p>
+    </div>
+  )
+}
 
 // ── Metadata ───────────────────────────────────────────────────────────────
 
@@ -239,27 +262,12 @@ export default async function MedicationGuidePage(
 
   const pillTitle = [pill.drug_name, pill.strength].filter(Boolean).join(' ')
 
-  // Shared header shown in all states
-  const PageHeader = () => (
-    <div className="mb-6">
-      <Link
-        href={`/pill/${encodeURIComponent(slug)}`}
-        className="inline-flex items-center gap-1 text-sky-600 hover:text-sky-800 text-sm font-medium mb-4 transition-colors"
-        aria-label={`Back to ${pillTitle} pill detail`}
-      >
-        ← Back to pill page
-      </Link>
-      <h1 className="text-2xl font-bold text-slate-900 mb-1">{pillTitle}</h1>
-      <p className="text-sm text-slate-500">Medication Guide</p>
-    </div>
-  )
-
   // ── Empty / error states ──────────────────────────────────────────────
 
   if (result.status === 'error') {
     return (
       <div className="max-w-3xl mx-auto px-4 py-8">
-        <PageHeader />
+        <PageHeader slug={slug} pillTitle={pillTitle} />
         <PoisonControlCallout />
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
           <p className="text-slate-700 font-medium mb-2">
@@ -274,7 +282,7 @@ export default async function MedicationGuidePage(
   if (result.status === 'not_found' || result.status === 'no_identifiers') {
     return (
       <div className="max-w-3xl mx-auto px-4 py-8">
-        <PageHeader />
+        <PageHeader slug={slug} pillTitle={pillTitle} />
         <PoisonControlCallout />
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
           <p className="text-slate-700 font-medium mb-2">
@@ -312,20 +320,7 @@ export default async function MedicationGuidePage(
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       {/* Header */}
-      <div className="mb-6">
-        <Link
-          href={`/pill/${encodeURIComponent(slug)}`}
-          className="inline-flex items-center gap-1 text-sky-600 hover:text-sky-800 text-sm font-medium mb-4 transition-colors"
-          aria-label={`Back to ${pillTitle} pill detail`}
-        >
-          ← Back to pill page
-        </Link>
-        <h1 className="text-2xl font-bold text-slate-900 mb-1">{pillTitle}</h1>
-        {subtitle && (
-          <p className="text-sm text-slate-500 mb-1">{subtitle}</p>
-        )}
-        <p className="text-sm text-slate-500">Medication Guide</p>
-      </div>
+      <PageHeader slug={slug} pillTitle={pillTitle} subtitle={subtitle || undefined} />
 
       {/* Poison control callout — always shown */}
       <PoisonControlCallout />
