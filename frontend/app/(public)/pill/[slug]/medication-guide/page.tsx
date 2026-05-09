@@ -133,10 +133,11 @@ function classifyChunk(raw: string): Chunk {
 
   // ALL-CAPS section title: 3+ words all caps
   const allCapsWords = text.match(/\b[A-Z]{2,}\b/g) ?? []
+  const startsWithNumber = /^\d+\./.test(text)
   if (
     /^[A-Z\s\d\W]{10,}$/.test(text) &&
     allCapsWords.length >= 3 &&
-    !(/^\d+\./).test(text)
+    !startsWithNumber
   ) {
     return { type: 'header', text }
   }
@@ -180,13 +181,12 @@ function formatMedGuideText(text: string): React.ReactNode {
   for (const pattern of anchorPatterns) {
     const match = pattern.exec(processed)
     if (match) {
-      // Find the start of the sentence containing the anchor
+      // Find the start of the sentence containing the anchor; clamp -1 returns to 0
       const before = processed.slice(0, match.index)
-      const sentenceStart = Math.max(
-        before.lastIndexOf('. ') + 2,
-        before.lastIndexOf('! ') + 2,
-        0
-      )
+      const dotIdx = before.lastIndexOf('. ')
+      const bangIdx = before.lastIndexOf('! ')
+      const lastPunct = Math.max(dotIdx, bangIdx)
+      const sentenceStart = lastPunct >= 0 ? lastPunct + 2 : 0
       processed = processed.slice(sentenceStart)
       break
     }
@@ -200,7 +200,7 @@ function formatMedGuideText(text: string): React.ReactNode {
     `([.?])\\s+(${questionWords.join('|')})\\s`,
     'g'
   )
-  processed = processed.replace(questionRe, (_match, punct, word) => punct + '\n' + MARKER + word + ' ')
+  processed = processed.replace(questionRe, (_match, punct, word) => `${punct}\n${MARKER}${word} `)
 
   // 2b. Numbered list items 1–20 — single pass, precise regex matching only 1-20
   processed = processed.replace(/ ([1-9]|1\d|20)\. /g, (_match, num) => ' ' + MARKER + num + '. ')
@@ -455,9 +455,11 @@ export default async function MedicationGuidePage(
             ⚠ Black Box Warning
           </p>
           <p className="text-red-900 text-sm mt-1">
-            {overview.length > BLACK_BOX_WARNING_PREVIEW_LENGTH
-              ? overview.slice(0, overview.lastIndexOf(' ', BLACK_BOX_WARNING_PREVIEW_LENGTH)) + '…'
-              : overview}
+            {(() => {
+              if (overview.length <= BLACK_BOX_WARNING_PREVIEW_LENGTH) return overview
+              const cutoff = overview.lastIndexOf(' ', BLACK_BOX_WARNING_PREVIEW_LENGTH)
+              return overview.slice(0, cutoff > 0 ? cutoff : BLACK_BOX_WARNING_PREVIEW_LENGTH) + '…'
+            })()}
           </p>
         </div>
       )}
