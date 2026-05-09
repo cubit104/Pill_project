@@ -1,243 +1,149 @@
-import { notFound } from 'next/navigation'
-import type { Metadata } from 'next'
 import Link from 'next/link'
-import { fetchPill, API_BASE } from '../../lib'
+import { notFound } from 'next/navigation'
 
-const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
-).replace(/\/$/, '')
+const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+type PageParams = Promise<{ slug: string }>
+type SearchParams = Promise<{ tab?: string }>
 
-interface GuideSection {
-  overview: string | null
-  uses: string | null
-  dosage: string | null
-  how_to_take: string | null
-  side_effects: string | null
-  warnings: string | null
-  interactions: string | null
-  contraindications: string | null
-  special_populations: string | null
-  overdose: string | null
-  storage: string | null
-  pharmacology: string | null
-  manufacturer: string | null
+type PillInfo = {
+  rxcui?: string
+  ndc11?: string
+  ndc9?: string
+  medicine_name?: string
+  brand_names?: string
 }
 
-interface MedicationGuide {
-  rxcui: string | null
-  ndc: string | null
-  generic_name: string | null
-  brand_name: string | null
-  has_boxed_warning: boolean
-  sections: GuideSection
-  professional_html: string | null
-  source_url: string | null
-  fetched_at: string | null
-  disclaimer: string | null
+type GuideSections = {
+  overview?: string | null
+  uses?: string | null
+  dosage?: string | null
+  how_to_take?: string | null
+  side_effects?: string | null
+  warnings?: string | null
+  interactions?: string | null
+  contraindications?: string | null
+  special_populations?: string | null
+  overdose?: string | null
+  storage?: string | null
+  pharmacology?: string | null
+  manufacturer?: string | null
 }
 
-type GuideResult =
-  | { status: 'ok'; guide: MedicationGuide }
-  | { status: 'not_found' }
-  | { status: 'error' }
-  | { status: 'no_identifiers' }
+type GuideResponse = {
+  rxcui?: string
+  ndc?: string
+  generic_name?: string
+  brand_name?: string
+  has_boxed_warning?: boolean
+  sections: GuideSections
+  professional_html?: string | null
+  source_url?: string | null
+  disclaimer?: string | null
+}
 
-// ── Data fetching ─────────────────────────────────────────────────────────────
+const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'uses', label: 'Uses' },
+  { key: 'dosage', label: 'Dosage' },
+  { key: 'how_to_take', label: 'How To Take' },
+  { key: 'side_effects', label: 'Side Effects' },
+  { key: 'warnings', label: 'Warnings' },
+  { key: 'interactions', label: 'Interactions' },
+  { key: 'contraindications', label: 'Contraindications' },
+  { key: 'special_populations', label: 'Special Populations' },
+  { key: 'overdose', label: 'Overdose' },
+  { key: 'storage', label: 'Storage' },
+  { key: 'pharmacology', label: 'Pharmacology' },
+  { key: 'manufacturer', label: 'Manufacturer' },
+]
 
-async function fetchMedicationGuide(
-  rxcui: string | undefined,
-  ndc: string | undefined
-): Promise<GuideResult> {
-  if (!rxcui && !ndc) return { status: 'no_identifiers' }
+function isHtmlContent(content: string): boolean {
+  return /^<[a-z][a-z0-9-]*\b[^>]*>/i.test(content.trimStart())
+}
 
-  const url = rxcui
-    ? `${API_BASE}/api/drugs/${encodeURIComponent(rxcui)}/guide`
-    : `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(ndc!)}/guide`
+function GuideHtml({ content }: { content: string }) {
+  return (
+    <div
+      className={[
+        '[&_ul]:list-disc [&_ul]:ml-4 [&_ul]:space-y-1 [&_ul]:my-2',
+        '[&_ol]:list-decimal [&_ol]:ml-4 [&_ol]:space-y-1 [&_ol]:my-2',
+        '[&_li]:text-sm [&_li]:text-slate-700 [&_li]:leading-relaxed',
+        '[&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2',
+        '[&_strong]:font-semibold [&_strong]:text-slate-800',
+        '[&_em]:italic',
+        '[&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:text-sm [&_h3]:mt-3 [&_h3]:mb-1',
+        '[&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:text-sm [&_h4]:mt-3 [&_h4]:mb-1',
+        '[&_hr]:border-slate-200 [&_hr]:my-4',
+        '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-3',
+        '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:text-sm [&_td]:text-slate-700 [&_td]:align-top',
+        '[&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:text-sm [&_th]:font-semibold [&_th]:bg-slate-50',
+      ].join(' ')}
+      dangerouslySetInnerHTML={{ __html: content }}
+    />
+  )
+}
+
+function GuideText({ content }: { content: string }) {
+  return <p className="text-slate-700 leading-7 whitespace-pre-line">{content}</p>
+}
+
+function SectionBlock({ label, content }: { label: string; content?: string | null }) {
+  if (!content) return null
+  return (
+    <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <h2 className="text-lg font-semibold text-slate-900 mb-4">{label}</h2>
+      {isHtmlContent(content) ? <GuideHtml content={content} /> : <GuideText content={content} />}
+    </section>
+  )
+}
+
+async function fetchPill(slug: string): Promise<PillInfo | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, { cache: 'no-store' })
+    if (!res.ok) return null
+    return (await res.json()) as PillInfo
+  } catch {
+    return null
+  }
+}
+
+async function fetchGuide(
+  pill: PillInfo,
+  isPro: boolean
+): Promise<GuideResponse | null> {
+  const include = isPro ? 'true' : 'false'
 
   try {
-    const res = await fetch(url, { next: { revalidate: 86400 } })
-    if (res.status === 404 || res.status === 400) return { status: 'not_found' }
-    if (!res.ok) return { status: 'error' }
-    const guide = await res.json()
-    return { status: 'ok', guide }
+    if (pill.rxcui) {
+      const res = await fetch(
+        `${API_BASE}/api/drugs/${encodeURIComponent(pill.rxcui)}/guide?include_professional=${include}`,
+        { cache: 'no-store' }
+      )
+      if (res.ok) return (await res.json()) as GuideResponse
+    }
+
+    const ndc = pill.ndc11 || pill.ndc9
+    if (ndc) {
+      const res = await fetch(
+        `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(ndc)}/guide?include_professional=${include}`,
+        { cache: 'no-store' }
+      )
+      if (res.ok) return (await res.json()) as GuideResponse
+    }
+
+    return null
   } catch {
-    return { status: 'error' }
+    return null
   }
 }
-
-// ── Extract only the patient Medication Guide section ─────────────────────────
-
-function extractMedGuideSection(text: string): string {
-  const markers = [
-    /MEDICATION GUIDE\b/i,
-    /PATIENT INFORMATION\b/i,
-    /Patient Information\b/,
-  ]
-  for (const marker of markers) {
-    const idx = text.search(marker)
-    if (idx !== -1) return text.slice(idx)
-  }
-  return text
-}
-
-// ── Text formatter ────────────────────────────────────────────────────────────
-
-const MARKER = '\x00'
-const MAX_WORDS_PER_INLINE_LIST_ITEM = 8
-const BLACK_BOX_WARNING_PREVIEW_LENGTH = 300
-
-function isInlineList(parts: string[]): boolean {
-  return (
-    parts.length >= 3 &&
-    parts.every((p) => p.split(' ').length <= MAX_WORDS_PER_INLINE_LIST_ITEM)
-  )
-}
-
-function renderInlineList(text: string): React.ReactNode {
-  const colonIdx = text.indexOf(': ')
-  if (colonIdx === -1) return <>{text}</>
-  const before = text.slice(0, colonIdx + 1)
-  const after = text.slice(colonIdx + 2)
-  const parts = after.split(/(?<=[a-z])\s+(?=[A-Z])/)
-  if (isInlineList(parts)) {
-    return (
-      <>
-        {before}{' '}
-        <ul className="list-disc list-outside ml-4 mt-1 space-y-0.5">
-          {parts.map((item, i) => (
-            <li key={i} className="text-sm text-slate-600">{item.trim()}</li>
-          ))}
-        </ul>
-      </>
-    )
-  }
-  return <>{text}</>
-}
-
-type Chunk =
-  | { type: 'header'; text: string }
-  | { type: 'numbered'; num: number; text: string }
-  | { type: 'paragraph'; text: string }
-
-function classifyChunk(raw: string): Chunk {
-  const text = raw.trim()
-  const allCapsWords = text.match(/\b[A-Z]{2,}\b/g) ?? []
-  const startsWithNumber = /^\d+\./.test(text)
-  if (/^[A-Z\s\d\W]{10,}$/.test(text) && allCapsWords.length >= 3 && !startsWithNumber) {
-    return { type: 'header', text }
-  }
-  if (/^(What|Who|How|Why|When|Where)\s/.test(text) && text.includes('?')) {
-    return { type: 'header', text }
-  }
-  const numMatch = text.match(/^(\d+)\.\s/)
-  if (numMatch) return { type: 'numbered', num: parseInt(numMatch[1], 10), text }
-  return { type: 'paragraph', text }
-}
-
-function formatMedGuideText(rawText: string): React.ReactNode {
-  // Extract only the patient Medication Guide section
-  let processed = extractMedGuideSection(rawText)
-
-  // Inject split markers
-  const questionWords = ['What', 'Who', 'How', 'Why', 'When', 'Where']
-  const questionRe = new RegExp(`([.?])\\s+(${questionWords.join('|')})\\s`, 'g')
-  processed = processed.replace(questionRe, (_m, punct, word) => `${punct}\n${MARKER}${word} `)
-  processed = processed.replace(/ ([1-9]|1\d|20)\. /g, (_m, num) => ' ' + MARKER + num + '. ')
-  processed = processed.replace(
-    /\b(WHAT IS|WHO SHOULD|HOW SHOULD|WHAT ARE|WHAT SHOULD|HOW DO|HOW CAN|WHEN SHOULD|WHERE SHOULD)\b/g,
-    `${MARKER}$1`
-  )
-  processed = processed
-    .replace(/([.!?])\s+(Symptoms may include:)/g, `$1\n${MARKER}$2`)
-    .replace(/([.!?])\s+(Call your (healthcare provider|doctor|pharmacist))/g, `$1\n${MARKER}$2`)
-
-  const chunks: Chunk[] = processed.split(MARKER)
-    .map((c) => c.trim())
-    .filter(Boolean)
-    .map(classifyChunk)
-
-  const nodes: React.ReactNode[] = []
-  let i = 0
-  while (i < chunks.length) {
-    const chunk = chunks[i]
-    if (chunk.type === 'header') {
-      nodes.push(
-        <h3 key={i} className="text-base font-semibold text-slate-900 mt-8 mb-2 pb-1 border-b border-slate-100">
-          {chunk.text}
-        </h3>
-      )
-      i++
-      continue
-    }
-    if (chunk.type === 'numbered') {
-      const items: Chunk[] = []
-      while (i < chunks.length && chunks[i].type === 'numbered') { items.push(chunks[i]); i++ }
-      nodes.push(
-        <ol key={`ol-${i}`} className="list-decimal list-outside ml-5 space-y-3 my-3">
-          {items.map((item, idx) => {
-            if (item.type !== 'numbered') return null
-            const itemText = item.text.replace(/^\d+\.\s*/, '')
-            const colonIdx = itemText.indexOf(': ')
-            if (colonIdx !== -1) {
-              const afterColon = itemText.slice(colonIdx + 2)
-              const subParts = afterColon.split(/(?<=[a-z])\s+(?=[A-Z])/)
-              if (isInlineList(subParts)) {
-                return (
-                  <li key={idx} className="text-sm text-slate-700 leading-relaxed pl-1">
-                    {itemText.slice(0, colonIdx + 1)}
-                    <ul className="list-disc list-outside ml-4 mt-1 space-y-0.5">
-                      {subParts.map((sub, si) => <li key={si} className="text-sm text-slate-600">{sub.trim()}</li>)}
-                    </ul>
-                  </li>
-                )
-              }
-            }
-            return <li key={idx} className="text-sm text-slate-700 leading-relaxed pl-1">{itemText}</li>
-          })}
-        </ol>
-      )
-      continue
-    }
-    nodes.push(
-      <p key={i} className="text-sm text-slate-700 leading-relaxed my-2">
-        {renderInlineList(chunk.text)}
-      </p>
-    )
-    i++
-  }
-  return <>{nodes}</>
-}
-
-// ── Metadata ──────────────────────────────────────────────────────────────────
-
-export async function generateMetadata(
-  { params }: { params: Promise<{ slug: string }> }
-): Promise<Metadata> {
-  const { slug } = await params
-  const pill = await fetchPill(slug)
-  if (!pill) return { title: 'Pill Not Found', robots: { index: false, follow: true } }
-  const drugName = pill.drug_name
-  const title = `${drugName}${pill.strength ? ` ${pill.strength}` : ''} — Medication Guide`
-  const description = `Official FDA Medication Guide for ${drugName} — written for patients, sourced from DailyMed.`
-  const canonicalUrl = `${SITE_URL}/pill/${encodeURIComponent(slug)}/medication-guide`
-  return {
-    title,
-    description,
-    alternates: { canonical: canonicalUrl },
-    openGraph: { title, description, url: canonicalUrl, type: 'article', siteName: 'PillSeek' },
-  }
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function MedicationGuidePage({
   params,
   searchParams,
 }: {
-  params: Promise<{ slug: string }>
-  searchParams: Promise<{ tab?: string }>
+  params: PageParams
+  searchParams: SearchParams
 }) {
   const { slug } = await params
   const { tab = 'consumer' } = await searchParams
@@ -246,170 +152,97 @@ export default async function MedicationGuidePage({
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
-  const result = await fetchMedicationGuide(pill.rxcui, pill.ndc)
-
-  const drugName = pill.drug_name
-  const strength = pill.strength ?? ''
-  const pillTitle = [drugName, strength].filter(Boolean).join(' ')
-
-  // ── Shared shell ───────────────────────────────────────────────────────────
-
-  const backLink = (
-    <Link
-      href={`/pill/${encodeURIComponent(slug)}`}
-      className="inline-flex items-center gap-1 text-sm text-sky-600 hover:text-sky-800 transition-colors mb-5"
-    >
-      ← Back to {drugName}
-    </Link>
-  )
-
-  const pageHeading = (
-    <div className="mb-6">
-      <h1 className="text-3xl font-bold text-slate-900">
-        Medication Guide — <span className="text-slate-700">{pillTitle}</span>
-      </h1>
-      <p className="text-slate-500 text-sm mt-1">
-        Patient-friendly guidance and full FDA prescribing information.
-      </p>
-    </div>
-  )
-
-  // ── Tab switcher ───────────────────────────────────────────────────────────
-
-  const tabs = (
-    <div className="flex gap-2 mb-8">
-      <Link
-        href={`/pill/${encodeURIComponent(slug)}/medication-guide`}
-        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium border transition-all ${
-          !isPro
-            ? 'bg-white border-slate-900 text-slate-900 shadow-sm'
-            : 'bg-transparent border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300'
-        }`}
-      >
-        💊 Medication Guide
-      </Link>
-      <Link
-        href={`/pill/${encodeURIComponent(slug)}/medication-guide?tab=pro`}
-        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium border transition-all ${
-          isPro
-            ? 'bg-white border-slate-900 text-slate-900 shadow-sm'
-            : 'bg-transparent border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300'
-        }`}
-      >
-        🗂️ Full Prescribing Information
-      </Link>
-    </div>
-  )
-
-  // ── Error / not-found states ───────────────────────────────────────────────
-
-  if (result.status === 'error') {
-    return (
-      <div className="max-w-3xl mx-auto px-4 py-10">
-        {backLink}{pageHeading}{tabs}
-        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
-          <p className="text-slate-700 font-medium mb-2">Medication information is temporarily unavailable.</p>
-          <p className="text-sm text-slate-500">Please try again later.</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (result.status === 'not_found' || result.status === 'no_identifiers') {
-    return (
-      <div className="max-w-3xl mx-auto px-4 py-10">
-        {backLink}{pageHeading}{tabs}
-        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
-          <p className="text-4xl mb-3">📄</p>
-          <p className="text-lg font-semibold text-slate-800">No Medication Guide Available</p>
-          <p className="text-sm text-slate-500 mt-2">
-            The FDA has not issued a Medication Guide for this drug.
-          </p>
-          <p className="text-sm text-sky-600 mt-4 space-x-4">
-            <a href="https://medlineplus.gov/druginformation.html" target="_blank" rel="noopener noreferrer" className="hover:underline">MedlinePlus</a>
-            <span aria-hidden="true">·</span>
-            <a href={`https://www.drugs.com/${encodeURIComponent(drugName.toLowerCase())}.html`} target="_blank" rel="noopener noreferrer" className="hover:underline">Drugs.com</a>
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  const { guide } = result
-
-  const fetchedDate = (() => {
-    if (!guide.fetched_at) return null
-    try {
-      return new Date(guide.fetched_at).toLocaleDateString('en-US', {
-        year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
-      })
-    } catch { return null }
-  })()
-
-  const overview = guide.sections.overview
+  const guide = await fetchGuide(pill, isPro)
+  const drugName = guide?.brand_name || guide?.generic_name || pill.medicine_name || 'Medication'
+  const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guide?.sections?.[key]))
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-10">
-      {backLink}
-      {pageHeading}
-      {tabs}
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
+        <p className="mt-2 text-slate-600 text-sm">
+          Patient-friendly guidance and full FDA prescribing information.
+        </p>
+      </div>
 
-      {/* ── Boxed warning ── */}
-      {guide.has_boxed_warning && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6" role="alert">
-          <p className="font-bold text-red-700 text-sm flex items-center gap-2 mb-1">
-            ⚠️ Boxed Warning
-          </p>
-          <p className="text-red-800 text-sm">This medication includes an FDA boxed warning.</p>
-          {overview && (
-            <p className="text-red-900 text-sm mt-2">
-              {overview.length <= BLACK_BOX_WARNING_PREVIEW_LENGTH
-                ? overview
-                : overview.slice(0, overview.lastIndexOf(' ', BLACK_BOX_WARNING_PREVIEW_LENGTH) || BLACK_BOX_WARNING_PREVIEW_LENGTH) + '…'}
-            </p>
-          )}
-        </div>
-      )}
+      <div className="flex border-b border-slate-200 mb-6">
+        <Link
+          href={`/pill/${slug}/medication-guide`}
+          className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            !isPro
+              ? 'border-sky-600 text-sky-700'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          💊 Medication Guide
+        </Link>
+        <Link
+          href={`/pill/${slug}/medication-guide?tab=pro`}
+          className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            isPro
+              ? 'border-sky-600 text-sky-700'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          🏥 Full Prescribing Information
+        </Link>
+      </div>
 
-      {/* ── Tab 1: Medication Guide (consumer) ── */}
       {!isPro && (
         <>
-          {/* Poison control bar */}
-          <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 mb-6 text-xs text-slate-600">
-            ☎ Poison Control: 1-800-222-1222&nbsp;&nbsp;|&nbsp;&nbsp;Emergency: 911
-          </div>
-
-          {overview ? (
-            <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-6 sm:p-8 mb-8">
-              <h2 className="text-lg font-semibold text-slate-900 mb-6">📋 FDA Medication Guide</h2>
-              {formatMedGuideText(overview)}
-            </div>
-          ) : (
-            <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center mb-8">
-              <p className="text-4xl mb-3">📄</p>
-              <p className="text-lg font-semibold text-slate-800">No Medication Guide Available</p>
-              <p className="text-sm text-slate-500 mt-2">The FDA has not issued a patient Medication Guide for this drug.</p>
-              <p className="text-sm text-sky-600 mt-4 space-x-4">
-                <a href="https://medlineplus.gov/druginformation.html" target="_blank" rel="noopener noreferrer" className="hover:underline">MedlinePlus</a>
-                <span aria-hidden="true">·</span>
-                <a href={`https://www.drugs.com/${encodeURIComponent(drugName.toLowerCase())}.html`} target="_blank" rel="noopener noreferrer" className="hover:underline">Drugs.com</a>
-              </p>
+          {guide?.has_boxed_warning && (
+            <div className="rounded-2xl border border-rose-300 bg-rose-50 p-4 text-rose-900">
+              <p className="font-semibold">⚠️ Boxed Warning</p>
+              <p className="text-sm mt-1">This medication includes an FDA boxed warning.</p>
             </div>
           )}
+
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
+            <p className="font-semibold">Poison Help</p>
+            <p className="text-sm mt-1">
+              In the U.S., call Poison Control at <a href="tel:18002221222" className="underline">1-800-222-1222</a>.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {SECTION_ORDER.map(({ key, label }) => (
+              <SectionBlock key={key} label={label} content={guide?.sections?.[key]} />
+            ))}
+
+            {(!guide || !hasRenderableSections) && (
+              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-600">
+                Medication guide content is not available right now.
+              </div>
+            )}
+          </div>
         </>
       )}
 
-      {/* ── Tab 2: Full Prescribing Information (professional) ── */}
       {isPro && (
         <div>
-          {guide.professional_html ? (
-            <iframe
-              srcDoc={guide.professional_html}
-              className="w-full border-0 rounded-2xl shadow-sm"
-              style={{ minHeight: '85vh' }}
-              sandbox="allow-same-origin allow-scripts"
-              title={`${pillTitle} Full Prescribing Information`}
-            />
+          {guide?.professional_html ? (
+            <>
+              <iframe
+                srcDoc={guide.professional_html}
+                className="w-full border-0 rounded-xl shadow-sm"
+                style={{ minHeight: '85vh' }}
+                sandbox="allow-scripts"
+                title={`${drugName} Full Prescribing Information`}
+              />
+              <div className="mt-4 text-sm text-slate-600">
+                {guide.source_url && (
+                  <a
+                    href={guide.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-sky-600 hover:underline"
+                  >
+                    View on DailyMed ↗
+                  </a>
+                )}
+                <p className="mt-2">Source: FDA Structured Product Labeling via DailyMed</p>
+              </div>
+            </>
           ) : (
             <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
               <p className="text-4xl mb-3">📄</p>
@@ -417,7 +250,7 @@ export default async function MedicationGuidePage({
               <p className="text-sm text-slate-500 mt-2 mb-4">
                 The structured product label could not be rendered.
               </p>
-              {guide.source_url && (
+              {guide?.source_url && (
                 <a
                   href={guide.source_url}
                   target="_blank"
@@ -427,34 +260,11 @@ export default async function MedicationGuidePage({
                   View on DailyMed ↗
                 </a>
               )}
-            </div>
-          )}
-          {guide.source_url && guide.professional_html && (
-            <div className="mt-4 text-center">
-              <a href={guide.source_url} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-600 hover:underline">
-                View on DailyMed ↗
-              </a>
+              <p className="mt-4 text-xs text-slate-500">Source: FDA Structured Product Labeling via DailyMed</p>
             </div>
           )}
         </div>
       )}
-
-      {/* ── Footer ── */}
-      <div className="border-t border-slate-100 mt-8 pt-5 space-y-1.5">
-        {guide.disclaimer && (
-          <p className="text-xs text-slate-400 italic leading-relaxed">{guide.disclaimer}</p>
-        )}
-        {guide.source_url && (
-          <a href={guide.source_url} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-600 hover:underline block">
-            Source: FDA Structured Product Labeling
-          </a>
-        )}
-        {fetchedDate && (
-          <p className="text-xs text-slate-400">
-            Last updated: <time dateTime={guide.fetched_at ?? undefined}>{fetchedDate}</time>
-          </p>
-        )}
-      </div>
     </div>
   )
 }

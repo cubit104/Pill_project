@@ -29,7 +29,7 @@ def test_fetch_label_by_rxcui_returns_first_result():
     assert result == {"id": "record-1"}
     assert mock_get.call_count == 1
     sent_params = mock_get.call_args.kwargs["params"]
-    assert sent_params["search"] == "openfda.rxcui:153165"
+    assert sent_params["search"] == "openfda.rxcui:153165+AND+_exists_:medication_guide"
     assert sent_params["api_key"] == "key-123"
 
 
