@@ -59,7 +59,33 @@ const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
 ]
 
 function isHtmlContent(content: string): boolean {
-  return /<[a-z][a-z0-9-]*\b[^>]*>/i.test(content)
+  return /^<[a-z][a-z0-9-]*\b[^>]*>/i.test(content.trimStart())
+}
+
+function GuideHtml({ content }: { content: string }) {
+  return (
+    <div
+      className={[
+        '[&_ul]:list-disc [&_ul]:ml-4 [&_ul]:space-y-1 [&_ul]:my-2',
+        '[&_ol]:list-decimal [&_ol]:ml-4 [&_ol]:space-y-1 [&_ol]:my-2',
+        '[&_li]:text-sm [&_li]:text-slate-700 [&_li]:leading-relaxed',
+        '[&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2',
+        '[&_strong]:font-semibold [&_strong]:text-slate-800',
+        '[&_em]:italic',
+        '[&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:text-sm [&_h3]:mt-3 [&_h3]:mb-1',
+        '[&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:text-sm [&_h4]:mt-3 [&_h4]:mb-1',
+        '[&_hr]:border-slate-200 [&_hr]:my-4',
+        '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-3',
+        '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:text-sm [&_td]:text-slate-700 [&_td]:align-top',
+        '[&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:text-sm [&_th]:font-semibold [&_th]:bg-slate-50',
+      ].join(' ')}
+      dangerouslySetInnerHTML={{ __html: content }}
+    />
+  )
+}
+
+function GuideText({ content }: { content: string }) {
+  return <p className="text-slate-700 leading-7 whitespace-pre-line">{content}</p>
 }
 
 function SectionBlock({ label, content }: { label: string; content?: string | null }) {
@@ -67,27 +93,7 @@ function SectionBlock({ label, content }: { label: string; content?: string | nu
   return (
     <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-900 mb-4">{label}</h2>
-      {isHtmlContent(content) ? (
-        <div
-          className={[
-            '[&_ul]:list-disc [&_ul]:ml-4 [&_ul]:space-y-1 [&_ul]:my-2',
-            '[&_ol]:list-decimal [&_ol]:ml-4 [&_ol]:space-y-1 [&_ol]:my-2',
-            '[&_li]:text-sm [&_li]:text-slate-700 [&_li]:leading-relaxed',
-            '[&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2',
-            '[&_strong]:font-semibold [&_strong]:text-slate-800',
-            '[&_em]:italic',
-            '[&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:text-sm [&_h3]:mt-3 [&_h3]:mb-1',
-            '[&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:text-sm [&_h4]:mt-3 [&_h4]:mb-1',
-            '[&_hr]:border-slate-200 [&_hr]:my-4',
-            '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-3',
-            '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:text-sm [&_td]:text-slate-700 [&_td]:align-top',
-            '[&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:text-sm [&_th]:font-semibold [&_th]:bg-slate-50',
-          ].join(' ')}
-          dangerouslySetInnerHTML={{ __html: content }}
-        />
-      ) : (
-        <p className="text-sm text-slate-700 leading-7 whitespace-pre-line">{content}</p>
-      )}
+      {isHtmlContent(content) ? <GuideHtml content={content} /> : <GuideText content={content} />}
     </section>
   )
 }
@@ -102,23 +108,30 @@ async function fetchPill(slug: string): Promise<PillInfo | null> {
   }
 }
 
-async function fetchGuide(pill: PillInfo): Promise<GuideResponse | null> {
+async function fetchGuide(
+  pill: PillInfo,
+  isPro: boolean
+): Promise<GuideResponse | null> {
+  const include = isPro ? 'true' : 'false'
+
   try {
     if (pill.rxcui) {
       const res = await fetch(
-        `${API_BASE}/api/drugs/${encodeURIComponent(pill.rxcui)}/guide`,
+        `${API_BASE}/api/drugs/${encodeURIComponent(pill.rxcui)}/guide?include_professional=${include}`,
         { cache: 'no-store' }
       )
       if (res.ok) return (await res.json()) as GuideResponse
     }
+
     const ndc = pill.ndc11 || pill.ndc9
     if (ndc) {
       const res = await fetch(
-        `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(ndc)}/guide`,
+        `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(ndc)}/guide?include_professional=${include}`,
         { cache: 'no-store' }
       )
       if (res.ok) return (await res.json()) as GuideResponse
     }
+
     return null
   } catch {
     return null
@@ -139,13 +152,12 @@ export default async function MedicationGuidePage({
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
-  const guide = await fetchGuide(pill)
+  const guide = await fetchGuide(pill, isPro)
   const drugName = guide?.brand_name || guide?.generic_name || pill.medicine_name || 'Medication'
   const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guide?.sections?.[key]))
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-      {/* Heading */}
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
         <p className="mt-2 text-slate-600 text-sm">
@@ -153,8 +165,7 @@ export default async function MedicationGuidePage({
         </p>
       </div>
 
-      {/* Tab switcher */}
-      <div className="flex border-b border-slate-200">
+      <div className="flex border-b border-slate-200 mb-6">
         <Link
           href={`/pill/${slug}/medication-guide`}
           className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
@@ -177,7 +188,6 @@ export default async function MedicationGuidePage({
         </Link>
       </div>
 
-      {/* ── Tab 1: Medication Guide ── */}
       {!isPro && (
         <>
           {guide?.has_boxed_warning && (
@@ -190,8 +200,7 @@ export default async function MedicationGuidePage({
           <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
             <p className="font-semibold">Poison Help</p>
             <p className="text-sm mt-1">
-              In the U.S., call Poison Control at{' '}
-              <a href="tel:18002221222" className="underline">1-800-222-1222</a>.
+              In the U.S., call Poison Control at <a href="tel:18002221222" className="underline">1-800-222-1222</a>.
             </p>
           </div>
 
@@ -206,16 +215,9 @@ export default async function MedicationGuidePage({
               </div>
             )}
           </div>
-
-          {guide?.disclaimer && (
-            <p className="text-xs text-slate-400 italic leading-relaxed border-t border-slate-100 pt-4">
-              {guide.disclaimer}
-            </p>
-          )}
         </>
       )}
 
-      {/* ── Tab 2: Full Prescribing Information ── */}
       {isPro && (
         <div>
           {guide?.professional_html ? (
@@ -238,7 +240,7 @@ export default async function MedicationGuidePage({
                     View on DailyMed ↗
                   </a>
                 )}
-                <p className="mt-2 text-xs">Source: FDA Structured Product Labeling via DailyMed</p>
+                <p className="mt-2">Source: FDA Structured Product Labeling via DailyMed</p>
               </div>
             </>
           ) : (
@@ -258,6 +260,7 @@ export default async function MedicationGuidePage({
                   View on DailyMed ↗
                 </a>
               )}
+              <p className="mt-4 text-xs text-slate-500">Source: FDA Structured Product Labeling via DailyMed</p>
             </div>
           )}
         </div>
