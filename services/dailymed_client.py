@@ -16,13 +16,14 @@ DAILYMED_SPL_XML_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{
 # Section codes for genuine patient-facing documents only, in priority order:
 # 42231-1 = SPL MEDGUIDE SECTION (dedicated FDA Medication Guide, e.g. Ritalin, Trazodone)
 # 42230-3 = SPL PATIENT PACKAGE INSERT SECTION (e.g. Reyataz/Atazanavir)
-# 42228-7 = Patient Package Insert older format (e.g. Amlodipine/Valsartan branded)
 #
 # Deliberately excluded:
+# 42228-7 = Maps to "8.1 Pregnancy" in many labels — a prescriber-facing clinical
+#            pregnancy section, NOT a patient guide.
 # 34076-0 = "Information for Patients" — this is a prescriber-label subsection containing
 #            clinical pregnancy risk summaries and counseling notes, NOT a patient guide.
 # 42227-9 = alternate PPI code that also maps to prescriber-facing content in practice.
-_MEDGUIDE_CODES = ("42231-1", "42230-3", "42228-7")
+_MEDGUIDE_CODES = ("42231-1", "42230-3")
 
 
 def _clean_text(raw: str) -> str:
@@ -33,7 +34,21 @@ def _clean_text(raw: str) -> str:
 _SECTION_TAG = "{urn:hl7-org:v3}section"
 _CODE_TAG = "{urn:hl7-org:v3}code"
 _TITLE_TAG = "{urn:hl7-org:v3}title"
-_PATIENT_TITLE_KEYWORDS = ("medication guide", "patient information")
+_PATIENT_TITLE_KEYWORDS = (
+    "medication guide",
+    "patient information",
+    "med guide",
+    "patient package insert",
+)
+_PATIENT_CONTENT_KEYWORDS = (
+    "medication guide",
+    "patient information",
+    "patient package insert",
+    "important: read",
+    "read this medication guide",
+)
+# SPL Unclassified Section — often contains embedded patient guides with no title
+_SPL_UNCLASSIFIED_CODE = "42229-5"
 
 
 def _extract_section_text(section: ET.Element) -> str:
@@ -55,14 +70,26 @@ def _find_section_by_code(tree: ET.Element, code: str) -> ET.Element | None:
     return None
 
 
-def _find_patient_subsection_in_section17(tree: ET.Element) -> ET.Element | None:
-    """Look inside Section 17 (34076-0) for a child section titled as a patient guide.
+def _section_looks_like_patient_guide(section: ET.Element) -> bool:
+    """Return True if a section's title or opening text looks like a patient guide."""
+    # Check title element first
+    title_el = section.find(_TITLE_TAG)
+    if title_el is not None and title_el.text:
+        title_lower = title_el.text.strip().lower()
+        if any(kw in title_lower for kw in _PATIENT_TITLE_KEYWORDS):
+            return True
+    # Check opening content (first 400 chars) for patient-guide keywords
+    raw = "".join(section.itertext())
+    snippet = raw[:400].lower()
+    return any(kw in snippet for kw in _PATIENT_CONTENT_KEYWORDS)
 
-    Some FDA labels (e.g. BENAZEPRIL HYDROCHLORIDE, THEOPHYLLINE) embed the
-    patient-facing "Medication Guide" or "Patient Information" as a child
-    subsection within Section 17 (Patient Counseling Information) rather than
-    as a standalone top-level section.  This helper finds that subsection by
-    matching the section title against known patient-guide keywords.
+
+def _find_patient_subsection_in_section17(tree: ET.Element) -> ET.Element | None:
+    """Look inside Section 17 (34076-0) for an embedded patient guide subsection.
+
+    Checks both title text and opening content for patient-guide keywords.
+    Also checks 42229-5 (unclassified) child sections which often contain
+    embedded patient guides with no explicit title.
 
     Note: SPL XML wraps child sections inside ``<component>`` elements, so
     they are not direct ``<section>`` children of ``section17``.  We therefore
@@ -75,11 +102,8 @@ def _find_patient_subsection_in_section17(tree: ET.Element) -> ET.Element | None
     for child in section17.iter(_SECTION_TAG):
         if child is section17:
             continue
-        title_el = child.find(_TITLE_TAG)
-        if title_el is not None and title_el.text:
-            title_lower = title_el.text.strip().lower()
-            if any(kw in title_lower for kw in _PATIENT_TITLE_KEYWORDS):
-                return child
+        if _section_looks_like_patient_guide(child):
+            return child
     return None
 
 
@@ -92,10 +116,15 @@ class DailyMedClient:
     def fetch_patient_guide(self, spl_set_id: str) -> Optional[dict]:
         """Fetch patient-facing guide text for the given SPL Set ID.
 
-        Tries dedicated patient-facing section codes only (42231-1, 42230-3,
-        42228-7). Prescriber-facing sections such as 34076-0 (Information for
-        Patients) are intentionally excluded as they contain clinical text not
-        suitable for a patient medication guide.
+        Tries dedicated patient-facing section codes only (42231-1, 42230-3).
+        Prescriber-facing sections such as 34076-0 (Information for Patients)
+        and 42228-7 (maps to pregnancy sections in many labels) are intentionally
+        excluded as they contain clinical text not suitable for a patient
+        medication guide.
+
+        Falls back to checking child sections of Section 17 (34076-0) for
+        embedded patient guides detected by title or opening content keywords,
+        including untitled subsections with code 42229-5.
 
         Args:
             spl_set_id: The SPL Set ID (UUID) for the drug label.

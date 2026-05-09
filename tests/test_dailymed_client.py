@@ -148,16 +148,16 @@ def test_fetch_patient_guide_cleans_whitespace():
     assert "\n" not in result["full_text"]
 
 
-def test_fetch_patient_guide_falls_back_to_older_ppi_format():
-    """Falls back to section 42228-7 (older Patient Package Insert) when higher-priority sections are absent."""
+def test_fetch_patient_guide_ignores_42228_7_pregnancy_section():
+    """Section 42228-7 (maps to pregnancy sections) is NOT treated as a patient guide."""
     client = DailyMedClient()
-    xml_content = _xml_with_section("42228-7", "PATIENT INFORMATION Amlodipine and Valsartan")
+    # This code now maps to "8.1 Pregnancy" in many labels — not a patient guide.
+    xml_content = _xml_with_section("42228-7", "8.1 Pregnancy: Risk summary for prescribers.")
 
     with patch("services.dailymed_client.requests.get", return_value=_mock_response(200, xml_content)):
         result = client.fetch_patient_guide("amlodipine-set-id")
 
-    assert result is not None
-    assert "PATIENT INFORMATION Amlodipine and Valsartan" in result["full_text"]
+    assert result is None
 
 
 def test_fetch_patient_guide_falls_back_to_information_for_patients():
@@ -222,6 +222,100 @@ def test_fetch_patient_guide_falls_back_to_alternate_ppi_code():
 
     assert result is not None
     assert "Patient package insert alternate code text." in result["full_text"]
+
+
+def test_fetch_patient_guide_detects_patient_guide_by_content_in_42229_5():
+    """Detects patient guide via content keywords in an untitled 42229-5 subsection of Section 17.
+
+    Simulates AMLODIPINE AND VALSARTAN where the real patient info lives inside
+    a 42229-5 (SPL Unclassified Section) child of Section 17 with no title.
+    """
+    client = DailyMedClient()
+    xml_content = b"""<?xml version="1.0" encoding="UTF-8"?>
+<document xmlns="urn:hl7-org:v3">
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <code code="34076-0" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>17 PATIENT COUNSELING INFORMATION</title>
+          <text><paragraph>Advise the patient to read the FDA-approved patient labeling.</paragraph></text>
+          <component>
+            <section>
+              <code code="42229-5" codeSystem="2.16.840.1.113883.6.1"/>
+              <text><paragraph>Patient Information: Amlodipine and Valsartan Tablets. Read this medication guide carefully before you start taking this medicine.</paragraph></text>
+            </section>
+          </component>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</document>"""
+
+    with patch("services.dailymed_client.requests.get", return_value=_mock_response(200, xml_content)):
+        result = client.fetch_patient_guide("amlodipine-valsartan-set-id")
+
+    assert result is not None
+    assert "Patient Information" in result["full_text"]
+    assert "Amlodipine and Valsartan" in result["full_text"]
+
+
+def test_fetch_patient_guide_content_detection_ignores_non_patient_subsections():
+    """Content-based detection does NOT match generic Section 17 text without patient-guide keywords."""
+    client = DailyMedClient()
+    xml_content = b"""<?xml version="1.0" encoding="UTF-8"?>
+<document xmlns="urn:hl7-org:v3">
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <code code="34076-0" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>17 PATIENT COUNSELING INFORMATION</title>
+          <component>
+            <section>
+              <title>8.1 Pregnancy</title>
+              <text><paragraph>Risk summary: Based on animal data, may cause fetal harm.</paragraph></text>
+            </section>
+          </component>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</document>"""
+
+    with patch("services.dailymed_client.requests.get", return_value=_mock_response(200, xml_content)):
+        result = client.fetch_patient_guide("no-guide-set-id")
+
+    assert result is None
+
+
+def test_fetch_patient_guide_detects_patient_guide_by_content_keyword_no_title():
+    """Content-based detection finds a patient guide subsection with no title but patient-guide content."""
+    client = DailyMedClient()
+    xml_content = b"""<?xml version="1.0" encoding="UTF-8"?>
+<document xmlns="urn:hl7-org:v3">
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <code code="34076-0" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>17 PATIENT COUNSELING INFORMATION</title>
+          <component>
+            <section>
+              <text><paragraph>MEDICATION GUIDE. Important information about this drug. Read this medication guide before you start taking this medicine and each time you get a refill.</paragraph></text>
+            </section>
+          </component>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</document>"""
+
+    with patch("services.dailymed_client.requests.get", return_value=_mock_response(200, xml_content)):
+        result = client.fetch_patient_guide("content-only-set-id")
+
+    assert result is not None
+    assert "MEDICATION GUIDE" in result["full_text"]
 
 
 def test_fetch_patient_guide_prefers_medguide_over_ppi():
