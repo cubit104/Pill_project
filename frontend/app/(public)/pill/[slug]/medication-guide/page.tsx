@@ -108,9 +108,11 @@ async function fetchMedicationGuide(
 
 /**
  * Returns true when the content string contains structured HTML from the
- * backend (DailyMed SPL XML parse). Checks for an opening HTML tag like
- * `<p>`, `<ul>`, `<ol>`, `<strong>`, `<table>` etc. rather than any `<`,
- * to avoid false positives from plain text like "< 5 mg daily".
+ * backend (DailyMed SPL XML parse). Checks for a known HTML opening tag
+ * rather than any `<` to avoid false positives (e.g. "< 5 mg daily").
+ *
+ * NOTE: The tag list here should match the `ALLOWED_TAGS` list in
+ * `services/dailymed_spl_client.py`. If backend tags are added, update both.
  */
 function isHtmlContent(content: string): boolean {
   return /^<(p|ul|ol|li|strong|em|u|h3|h4|table|br|hr)\b/i.test(content.trimStart())

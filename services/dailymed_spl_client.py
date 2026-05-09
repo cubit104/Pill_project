@@ -245,8 +245,13 @@ async def fetch_spl_sections(spl_set_id: str) -> dict[str, str | bool]:
     """Fetch and parse DailyMed SPL XML, return section key → HTML string dict.
 
     Returns an empty dict on any failure so callers can fall back to openFDA
-    plain text. The special key ``_has_boxed_warning`` is set to ``True`` when
-    a boxed-warning LOINC section (34066-1) is present in the document.
+    plain text.
+
+    The returned dict contains:
+    - Standard section keys (``"uses"``, ``"dosage"``, etc.) mapped to HTML strings.
+    - A sentinel key ``"_has_boxed_warning"`` (bool ``True``) when the document
+      contains a boxed-warning LOINC section (34066-1). Callers should check
+      ``spl_sections.get("_has_boxed_warning")`` to detect this case.
 
     Args:
         spl_set_id: The SPL Set ID (UUID) for the drug label.
