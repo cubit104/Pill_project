@@ -63,7 +63,8 @@ def test_to_html_paragraph():
 def test_to_html_paragraph_escapes_html():
     el = _parse(f'<paragraph xmlns="{NS}">A &amp; B &lt;br&gt;</paragraph>')
     result = _to_html(el)
-    assert "&amp;" in result or "A &amp; B" in result or "A & B" in result
+    # html.escape converts & → &amp; and < → &lt; so both must appear
+    assert "A &amp; B &lt;br&gt;" in result
 
 
 def test_to_html_unordered_list():

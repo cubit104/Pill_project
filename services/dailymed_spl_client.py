@@ -241,7 +241,7 @@ def _section_text_to_html(text_el: etree._Element) -> str:  # noqa: ANN001
     return bleach.clean(combined, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
 
 
-async def fetch_spl_sections(spl_set_id: str) -> dict[str, str]:
+async def fetch_spl_sections(spl_set_id: str) -> dict[str, str | bool]:
     """Fetch and parse DailyMed SPL XML, return section key → HTML string dict.
 
     Returns an empty dict on any failure so callers can fall back to openFDA
@@ -311,7 +311,7 @@ async def fetch_spl_sections(spl_set_id: str) -> dict[str, str]:
             sections[section_key] = section_html
 
     if has_boxed_warning:
-        sections["_has_boxed_warning"] = True  # type: ignore[assignment]
+        sections["_has_boxed_warning"] = True
 
     logger.info(
         "SPL sections fetched for spl_set_id=%s: %s",
