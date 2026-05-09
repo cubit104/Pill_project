@@ -7,7 +7,7 @@ const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
 
-// ── Types ──────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface GuideSection {
   overview: string | null
@@ -32,6 +32,7 @@ interface MedicationGuide {
   brand_name: string | null
   has_boxed_warning: boolean
   sections: GuideSection
+  professional_html: string | null
   source_url: string | null
   fetched_at: string | null
   disclaimer: string | null
@@ -43,15 +44,13 @@ type GuideResult =
   | { status: 'error' }
   | { status: 'no_identifiers' }
 
-// ── Data fetching ──────────────────────────────────────────────────────────
+// ── Data fetching ─────────────────────────────────────────────────────────────
 
 async function fetchMedicationGuide(
   rxcui: string | undefined,
   ndc: string | undefined
 ): Promise<GuideResult> {
-  if (!rxcui && !ndc) {
-    return { status: 'no_identifiers' }
-  }
+  if (!rxcui && !ndc) return { status: 'no_identifiers' }
 
   const url = rxcui
     ? `${API_BASE}/api/drugs/${encodeURIComponent(rxcui)}/guide`
@@ -68,26 +67,27 @@ async function fetchMedicationGuide(
   }
 }
 
-// ── Smart med-guide text formatter ─────────────────────────────────────────
+// ── Extract only the patient Medication Guide section ─────────────────────────
+
+function extractMedGuideSection(text: string): string {
+  const markers = [
+    /MEDICATION GUIDE\b/i,
+    /PATIENT INFORMATION\b/i,
+    /Patient Information\b/,
+  ]
+  for (const marker of markers) {
+    const idx = text.search(marker)
+    if (idx !== -1) return text.slice(idx)
+  }
+  return text
+}
+
+// ── Text formatter ────────────────────────────────────────────────────────────
 
 const MARKER = '\x00'
-
-/**
- * Maximum number of words in each item for it to be treated as a short
- * inline list entry (e.g. "skin rash" or "trouble swallowing").
- */
 const MAX_WORDS_PER_INLINE_LIST_ITEM = 8
-
-/**
- * Number of characters of the overview text to show inside the black box
- * warning banner — enough to signal urgency without duplicating the full text.
- */
 const BLACK_BOX_WARNING_PREVIEW_LENGTH = 300
 
-/**
- * Returns true when `parts` looks like an inline symptom/item list:
- * at least 3 parts, each containing at most MAX_WORDS_PER_INLINE_LIST_ITEM words.
- */
 function isInlineList(parts: string[]): boolean {
   return (
     parts.length >= 3 &&
@@ -95,15 +95,11 @@ function isInlineList(parts: string[]): boolean {
   )
 }
 
-/** Render inline list items detected after a colon inside a paragraph. */
 function renderInlineList(text: string): React.ReactNode {
   const colonIdx = text.indexOf(': ')
   if (colonIdx === -1) return <>{text}</>
-
-  const before = text.slice(0, colonIdx + 1) // includes the colon
+  const before = text.slice(0, colonIdx + 1)
   const after = text.slice(colonIdx + 2)
-
-  // Split on transition from lowercase to Uppercase mid-sentence
   const parts = after.split(/(?<=[a-z])\s+(?=[A-Z])/)
   if (isInlineList(parts)) {
     return (
@@ -111,9 +107,7 @@ function renderInlineList(text: string): React.ReactNode {
         {before}{' '}
         <ul className="list-disc list-outside ml-4 mt-1 space-y-0.5">
           {parts.map((item, i) => (
-            <li key={i} className="text-sm text-slate-600">
-              {item.trim()}
-            </li>
+            <li key={i} className="text-sm text-slate-600">{item.trim()}</li>
           ))}
         </ul>
       </>
@@ -122,7 +116,6 @@ function renderInlineList(text: string): React.ReactNode {
   return <>{text}</>
 }
 
-/** Classify and render a single chunk of text. */
 type Chunk =
   | { type: 'header'; text: string }
   | { type: 'numbered'; num: number; text: string }
@@ -130,134 +123,62 @@ type Chunk =
 
 function classifyChunk(raw: string): Chunk {
   const text = raw.trim()
-
-  // ALL-CAPS section title: 3+ words all caps
   const allCapsWords = text.match(/\b[A-Z]{2,}\b/g) ?? []
   const startsWithNumber = /^\d+\./.test(text)
-  if (
-    /^[A-Z\s\d\W]{10,}$/.test(text) &&
-    allCapsWords.length >= 3 &&
-    !startsWithNumber
-  ) {
+  if (/^[A-Z\s\d\W]{10,}$/.test(text) && allCapsWords.length >= 3 && !startsWithNumber) {
     return { type: 'header', text }
   }
-
-  // Question header: starts with interrogative word and contains ?
-  if (
-    /^(What|Who|How|Why|When|Where)\s/.test(text) &&
-    text.includes('?')
-  ) {
+  if (/^(What|Who|How|Why|When|Where)\s/.test(text) && text.includes('?')) {
     return { type: 'header', text }
   }
-
-  // Numbered list item
   const numMatch = text.match(/^(\d+)\.\s/)
-  if (numMatch) {
-    return { type: 'numbered', num: parseInt(numMatch[1], 10), text }
-  }
-
+  if (numMatch) return { type: 'numbered', num: parseInt(numMatch[1], 10), text }
   return { type: 'paragraph', text }
 }
 
-/**
- * Parse raw DailyMed overview text into structured React nodes.
- *
- * Step 1 – Strip preamble up through the first "Read this Medication Guide"
- *           / "Read this Patient Information" / "Important:" sentence.
- * Step 2 – Inject \x00 markers before structural boundaries.
- * Step 3 – Split on \x00, classify each chunk.
- * Step 4 – Render as h3 / ol / p with nested ul for inline lists.
- */
-function formatMedGuideText(text: string): React.ReactNode {
-  // ── Step 1: strip preamble ─────────────────────────────────────────────
-  let processed = text
+function formatMedGuideText(rawText: string): React.ReactNode {
+  // Extract only the patient Medication Guide section
+  let processed = extractMedGuideSection(rawText)
 
-  const anchorPatterns = [
-    /Read this Medication Guide/,
-    /Read this Patient Information/,
-    /^Important:/,
-  ]
-
-  for (const pattern of anchorPatterns) {
-    const match = pattern.exec(processed)
-    if (match) {
-      // Find the start of the sentence containing the anchor; clamp -1 returns to 0
-      const before = processed.slice(0, match.index)
-      const dotIdx = before.lastIndexOf('. ')
-      const bangIdx = before.lastIndexOf('! ')
-      const lastPunct = Math.max(dotIdx, bangIdx)
-      const sentenceStart = lastPunct >= 0 ? lastPunct + 2 : 0
-      processed = processed.slice(sentenceStart)
-      break
-    }
-  }
-
-  // ── Step 2: inject split markers ──────────────────────────────────────
-
-  // 2a. Question headers after sentence-ending punctuation — single compiled regex
+  // Inject split markers
   const questionWords = ['What', 'Who', 'How', 'Why', 'When', 'Where']
-  const questionRe = new RegExp(
-    `([.?])\\s+(${questionWords.join('|')})\\s`,
-    'g'
-  )
-  processed = processed.replace(questionRe, (_match, punct, word) => `${punct}\n${MARKER}${word} `)
-
-  // 2b. Numbered list items 1–20 — single pass, precise regex matching only 1-20
-  processed = processed.replace(/ ([1-9]|1\d|20)\. /g, (_match, num) => ' ' + MARKER + num + '. ')
-
-  // 2c. ALL-CAPS multi-word section titles (WHAT IS, WHO SHOULD, HOW SHOULD, etc.)
+  const questionRe = new RegExp(`([.?])\\s+(${questionWords.join('|')})\\s`, 'g')
+  processed = processed.replace(questionRe, (_m, punct, word) => `${punct}\n${MARKER}${word} `)
+  processed = processed.replace(/ ([1-9]|1\d|20)\. /g, (_m, num) => ' ' + MARKER + num + '. ')
   processed = processed.replace(
     /\b(WHAT IS|WHO SHOULD|HOW SHOULD|WHAT ARE|WHAT SHOULD|HOW DO|HOW CAN|WHEN SHOULD|WHERE SHOULD)\b/g,
     `${MARKER}$1`
   )
-
-  // 2d. "Symptoms may include:" and "Call your healthcare provider" at thought boundaries
   processed = processed
     .replace(/([.!?])\s+(Symptoms may include:)/g, `$1\n${MARKER}$2`)
     .replace(/([.!?])\s+(Call your (healthcare provider|doctor|pharmacist))/g, `$1\n${MARKER}$2`)
 
-  // ── Step 3: split and classify ─────────────────────────────────────────
-  const rawChunks = processed.split(MARKER)
-  const chunks: Chunk[] = rawChunks
+  const chunks: Chunk[] = processed.split(MARKER)
     .map((c) => c.trim())
     .filter(Boolean)
     .map(classifyChunk)
 
-  // ── Step 4: render ─────────────────────────────────────────────────────
   const nodes: React.ReactNode[] = []
   let i = 0
-
   while (i < chunks.length) {
     const chunk = chunks[i]
-
     if (chunk.type === 'header') {
       nodes.push(
-        <h3
-          key={i}
-          className="text-base font-semibold text-slate-900 mt-8 mb-2 pb-1 border-b border-slate-100"
-        >
+        <h3 key={i} className="text-base font-semibold text-slate-900 mt-8 mb-2 pb-1 border-b border-slate-100">
           {chunk.text}
         </h3>
       )
       i++
       continue
     }
-
     if (chunk.type === 'numbered') {
-      // Collect consecutive numbered items into a single <ol>
       const items: Chunk[] = []
-      while (i < chunks.length && chunks[i].type === 'numbered') {
-        items.push(chunks[i])
-        i++
-      }
+      while (i < chunks.length && chunks[i].type === 'numbered') { items.push(chunks[i]); i++ }
       nodes.push(
         <ol key={`ol-${i}`} className="list-decimal list-outside ml-5 space-y-3 my-3">
           {items.map((item, idx) => {
             if (item.type !== 'numbered') return null
-            // Strip the leading "N. " from the text
             const itemText = item.text.replace(/^\d+\.\s*/, '')
-
-            // Detect nested symptom list within the item
             const colonIdx = itemText.indexOf(': ')
             if (colonIdx !== -1) {
               const afterColon = itemText.slice(colonIdx + 2)
@@ -267,29 +188,18 @@ function formatMedGuideText(text: string): React.ReactNode {
                   <li key={idx} className="text-sm text-slate-700 leading-relaxed pl-1">
                     {itemText.slice(0, colonIdx + 1)}
                     <ul className="list-disc list-outside ml-4 mt-1 space-y-0.5">
-                      {subParts.map((sub, si) => (
-                        <li key={si} className="text-sm text-slate-600">
-                          {sub.trim()}
-                        </li>
-                      ))}
+                      {subParts.map((sub, si) => <li key={si} className="text-sm text-slate-600">{sub.trim()}</li>)}
                     </ul>
                   </li>
                 )
               }
             }
-
-            return (
-              <li key={idx} className="text-sm text-slate-700 leading-relaxed pl-1">
-                {itemText}
-              </li>
-            )
+            return <li key={idx} className="text-sm text-slate-700 leading-relaxed pl-1">{itemText}</li>
           })}
         </ol>
       )
       continue
     }
-
-    // paragraph
     nodes.push(
       <p key={i} className="text-sm text-slate-700 leading-relaxed my-2">
         {renderInlineList(chunk.text)}
@@ -297,23 +207,17 @@ function formatMedGuideText(text: string): React.ReactNode {
     )
     i++
   }
-
   return <>{nodes}</>
 }
 
-// ── Metadata ───────────────────────────────────────────────────────────────
+// ── Metadata ──────────────────────────────────────────────────────────────────
 
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params
   const pill = await fetchPill(slug)
-  if (!pill) {
-    return {
-      title: 'Pill Not Found',
-      robots: { index: false, follow: true },
-    }
-  }
+  if (!pill) return { title: 'Pill Not Found', robots: { index: false, follow: true } }
   const drugName = pill.drug_name
   const title = `${drugName}${pill.strength ? ` ${pill.strength}` : ''} — Medication Guide`
   const description = `Official FDA Medication Guide for ${drugName} — written for patients, sourced from DailyMed.`
@@ -322,22 +226,23 @@ export async function generateMetadata(
     title,
     description,
     alternates: { canonical: canonicalUrl },
-    openGraph: {
-      title,
-      description,
-      url: canonicalUrl,
-      type: 'article',
-      siteName: 'PillSeek',
-    },
+    openGraph: { title, description, url: canonicalUrl, type: 'article', siteName: 'PillSeek' },
   }
 }
 
-// ── Page ───────────────────────────────────────────────────────────────────
+// ── Page ──────────────────────────────────────────────────────────────────────
 
-export default async function MedicationGuidePage(
-  { params }: { params: Promise<{ slug: string }> }
-) {
+export default async function MedicationGuidePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>
+  searchParams: Promise<{ tab?: string }>
+}) {
   const { slug } = await params
+  const { tab = 'consumer' } = await searchParams
+  const isPro = tab === 'pro'
+
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
@@ -347,7 +252,7 @@ export default async function MedicationGuidePage(
   const strength = pill.strength ?? ''
   const pillTitle = [drugName, strength].filter(Boolean).join(' ')
 
-  // ── Shared page shell ─────────────────────────────────────────────────
+  // ── Shared shell ───────────────────────────────────────────────────────────
 
   const backLink = (
     <Link
@@ -359,25 +264,51 @@ export default async function MedicationGuidePage(
   )
 
   const pageHeading = (
-    <div className="border-b border-slate-200 mt-3 mb-6">
-      <h1 className="text-3xl font-bold text-slate-900">{pillTitle}</h1>
-      <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mt-1 mb-3">
-        Medication Guide
+    <div className="mb-6">
+      <h1 className="text-3xl font-bold text-slate-900">
+        Medication Guide — <span className="text-slate-700">{pillTitle}</span>
+      </h1>
+      <p className="text-slate-500 text-sm mt-1">
+        Patient-friendly guidance and full FDA prescribing information.
       </p>
     </div>
   )
 
-  // ── Error / not-found states ───────────────────────────────────────────
+  // ── Tab switcher ───────────────────────────────────────────────────────────
+
+  const tabs = (
+    <div className="flex gap-2 mb-8">
+      <Link
+        href={`/pill/${encodeURIComponent(slug)}/medication-guide`}
+        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium border transition-all ${
+          !isPro
+            ? 'bg-white border-slate-900 text-slate-900 shadow-sm'
+            : 'bg-transparent border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300'
+        }`}
+      >
+        💊 Medication Guide
+      </Link>
+      <Link
+        href={`/pill/${encodeURIComponent(slug)}/medication-guide?tab=pro`}
+        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium border transition-all ${
+          isPro
+            ? 'bg-white border-slate-900 text-slate-900 shadow-sm'
+            : 'bg-transparent border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300'
+        }`}
+      >
+        🗂️ Full Prescribing Information
+      </Link>
+    </div>
+  )
+
+  // ── Error / not-found states ───────────────────────────────────────────────
 
   if (result.status === 'error') {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-10">
-        {backLink}
-        {pageHeading}
-        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center mb-8">
-          <p className="text-slate-700 font-medium mb-2">
-            Medication information is temporarily unavailable.
-          </p>
+      <div className="max-w-3xl mx-auto px-4 py-10">
+        {backLink}{pageHeading}{tabs}
+        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
+          <p className="text-slate-700 font-medium mb-2">Medication information is temporarily unavailable.</p>
           <p className="text-sm text-slate-500">Please try again later.</p>
         </div>
       </div>
@@ -386,40 +317,23 @@ export default async function MedicationGuidePage(
 
   if (result.status === 'not_found' || result.status === 'no_identifiers') {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-10">
-        {backLink}
-        {pageHeading}
-        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center mb-8">
+      <div className="max-w-3xl mx-auto px-4 py-10">
+        {backLink}{pageHeading}{tabs}
+        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
           <p className="text-4xl mb-3">📄</p>
           <p className="text-lg font-semibold text-slate-800">No Medication Guide Available</p>
           <p className="text-sm text-slate-500 mt-2">
-            The FDA has not issued a Medication Guide for this drug. For general information, visit:
+            The FDA has not issued a Medication Guide for this drug.
           </p>
           <p className="text-sm text-sky-600 mt-4 space-x-4">
-            <a
-              href="https://medlineplus.gov/druginformation.html"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:underline"
-            >
-              MedlinePlus
-            </a>
+            <a href="https://medlineplus.gov/druginformation.html" target="_blank" rel="noopener noreferrer" className="hover:underline">MedlinePlus</a>
             <span aria-hidden="true">·</span>
-            <a
-              href={`https://www.drugs.com/${encodeURIComponent(drugName.toLowerCase())}.html`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:underline"
-            >
-              Drugs.com
-            </a>
+            <a href={`https://www.drugs.com/${encodeURIComponent(drugName.toLowerCase())}.html`} target="_blank" rel="noopener noreferrer" className="hover:underline">Drugs.com</a>
           </p>
         </div>
       </div>
     )
   }
-
-  // ── Full guide ────────────────────────────────────────────────────────
 
   const { guide } = result
 
@@ -427,104 +341,117 @@ export default async function MedicationGuidePage(
     if (!guide.fetched_at) return null
     try {
       return new Date(guide.fetched_at).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        timeZone: 'UTC',
+        year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
       })
-    } catch {
-      return null
-    }
+    } catch { return null }
   })()
 
   const overview = guide.sections.overview
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-10">
+    <div className="max-w-3xl mx-auto px-4 py-10">
       {backLink}
       {pageHeading}
+      {tabs}
 
-      {/* Black box warning */}
-      {guide.has_boxed_warning && overview && (
-        <div
-          className="bg-red-50 border-l-4 border-red-600 rounded-r-lg p-4 mb-6"
-          role="alert"
-          aria-label="Black box warning"
-        >
-          <p className="font-bold text-red-800 text-sm uppercase tracking-wide mb-1">
-            ⚠ Black Box Warning
+      {/* ── Boxed warning ── */}
+      {guide.has_boxed_warning && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6" role="alert">
+          <p className="font-bold text-red-700 text-sm flex items-center gap-2 mb-1">
+            ⚠️ Boxed Warning
           </p>
-          <p className="text-red-900 text-sm mt-1">
-            {(() => {
-              if (overview.length <= BLACK_BOX_WARNING_PREVIEW_LENGTH) return overview
-              const cutoff = overview.lastIndexOf(' ', BLACK_BOX_WARNING_PREVIEW_LENGTH)
-              return overview.slice(0, cutoff > 0 ? cutoff : BLACK_BOX_WARNING_PREVIEW_LENGTH) + '…'
-            })()}
-          </p>
+          <p className="text-red-800 text-sm">This medication includes an FDA boxed warning.</p>
+          {overview && (
+            <p className="text-red-900 text-sm mt-2">
+              {overview.length <= BLACK_BOX_WARNING_PREVIEW_LENGTH
+                ? overview
+                : overview.slice(0, overview.lastIndexOf(' ', BLACK_BOX_WARNING_PREVIEW_LENGTH) || BLACK_BOX_WARNING_PREVIEW_LENGTH) + '…'}
+            </p>
+          )}
         </div>
       )}
 
-      {/* Poison control bar */}
-      <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 mb-6 text-xs text-slate-600">
-        ☎ Poison Control: 1-800-222-1222&nbsp;&nbsp;|&nbsp;&nbsp;Emergency: 911
-      </div>
+      {/* ── Tab 1: Medication Guide (consumer) ── */}
+      {!isPro && (
+        <>
+          {/* Poison control bar */}
+          <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 mb-6 text-xs text-slate-600">
+            ☎ Poison Control: 1-800-222-1222&nbsp;&nbsp;|&nbsp;&nbsp;Emergency: 911
+          </div>
 
-      {/* Main article card */}
-      {overview ? (
-        <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-6 sm:p-8 mb-8">
-          <h2 className="text-lg font-semibold text-slate-900 mb-6">📋 FDA Medication Guide</h2>
-          {formatMedGuideText(overview)}
-        </div>
-      ) : (
-        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center mb-8">
-          <p className="text-4xl mb-3">📄</p>
-          <p className="text-lg font-semibold text-slate-800">No Medication Guide Available</p>
-          <p className="text-sm text-slate-500 mt-2">
-            The FDA has not issued a Medication Guide for this drug. For general information, visit:
-          </p>
-          <p className="text-sm text-sky-600 mt-4 space-x-4">
-            <a
-              href="https://medlineplus.gov/druginformation.html"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:underline"
-            >
-              MedlinePlus
-            </a>
-            <span aria-hidden="true">·</span>
-            <a
-              href={`https://www.drugs.com/${encodeURIComponent(drugName.toLowerCase())}.html`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:underline"
-            >
-              Drugs.com
-            </a>
-          </p>
+          {overview ? (
+            <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-6 sm:p-8 mb-8">
+              <h2 className="text-lg font-semibold text-slate-900 mb-6">📋 FDA Medication Guide</h2>
+              {formatMedGuideText(overview)}
+            </div>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center mb-8">
+              <p className="text-4xl mb-3">📄</p>
+              <p className="text-lg font-semibold text-slate-800">No Medication Guide Available</p>
+              <p className="text-sm text-slate-500 mt-2">The FDA has not issued a patient Medication Guide for this drug.</p>
+              <p className="text-sm text-sky-600 mt-4 space-x-4">
+                <a href="https://medlineplus.gov/druginformation.html" target="_blank" rel="noopener noreferrer" className="hover:underline">MedlinePlus</a>
+                <span aria-hidden="true">·</span>
+                <a href={`https://www.drugs.com/${encodeURIComponent(drugName.toLowerCase())}.html`} target="_blank" rel="noopener noreferrer" className="hover:underline">Drugs.com</a>
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Tab 2: Full Prescribing Information (professional) ── */}
+      {isPro && (
+        <div>
+          {guide.professional_html ? (
+            <iframe
+              srcDoc={guide.professional_html}
+              className="w-full border-0 rounded-2xl shadow-sm"
+              style={{ minHeight: '85vh' }}
+              sandbox="allow-same-origin allow-scripts"
+              title={`${pillTitle} Full Prescribing Information`}
+            />
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
+              <p className="text-4xl mb-3">📄</p>
+              <p className="text-lg font-semibold text-slate-800">Full Prescribing Information Not Available</p>
+              <p className="text-sm text-slate-500 mt-2 mb-4">
+                The structured product label could not be rendered.
+              </p>
+              {guide.source_url && (
+                <a
+                  href={guide.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-sm text-sky-600 hover:underline"
+                >
+                  View on DailyMed ↗
+                </a>
+              )}
+            </div>
+          )}
+          {guide.source_url && guide.professional_html && (
+            <div className="mt-4 text-center">
+              <a href={guide.source_url} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-600 hover:underline">
+                View on DailyMed ↗
+              </a>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Footer */}
-      <div className="border-t border-slate-100 mt-4 pt-5 space-y-1.5">
+      {/* ── Footer ── */}
+      <div className="border-t border-slate-100 mt-8 pt-5 space-y-1.5">
         {guide.disclaimer && (
           <p className="text-xs text-slate-400 italic leading-relaxed">{guide.disclaimer}</p>
         )}
         {guide.source_url && (
-          <p className="text-xs">
-            <a
-              href={guide.source_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-sky-600 hover:underline"
-            >
-              Source: FDA Structured Product Labeling
-            </a>
-          </p>
+          <a href={guide.source_url} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-600 hover:underline block">
+            Source: FDA Structured Product Labeling
+          </a>
         )}
         {fetchedDate && (
           <p className="text-xs text-slate-400">
-            Last updated:{' '}
-            <time dateTime={guide.fetched_at ?? undefined}>{fetchedDate}</time>
+            Last updated: <time dateTime={guide.fetched_at ?? undefined}>{fetchedDate}</time>
           </p>
         )}
       </div>
