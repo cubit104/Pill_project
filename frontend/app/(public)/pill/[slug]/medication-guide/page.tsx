@@ -38,6 +38,7 @@ type GuideResponse = {
   has_boxed_warning?: boolean
   sections: GuideSections
   professional_html?: string | null
+  medguide_html?: string | null
   source_url?: string | null
   disclaimer?: string | null
 }
@@ -112,12 +113,14 @@ async function fetchGuide(
   pill: PillInfo,
   isPro: boolean
 ): Promise<GuideResponse | null> {
-  const include = isPro ? 'true' : 'false'
+  const params = isPro
+    ? 'include_professional=true'
+    : 'include_medguide=true&include_professional=false'
 
   try {
     if (pill.rxcui) {
       const res = await fetch(
-        `${API_BASE}/api/drugs/${encodeURIComponent(pill.rxcui)}/guide?include_professional=${include}`,
+        `${API_BASE}/api/drugs/${encodeURIComponent(pill.rxcui)}/guide?${params}`,
         { cache: 'no-store' }
       )
       if (res.ok) return (await res.json()) as GuideResponse
@@ -126,7 +129,7 @@ async function fetchGuide(
     const ndc = pill.ndc11 || pill.ndc9
     if (ndc) {
       const res = await fetch(
-        `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(ndc)}/guide?include_professional=${include}`,
+        `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(ndc)}/guide?${params}`,
         { cache: 'no-store' }
       )
       if (res.ok) return (await res.json()) as GuideResponse
@@ -204,17 +207,42 @@ export default async function MedicationGuidePage({
             </p>
           </div>
 
-          <div className="space-y-4">
-            {SECTION_ORDER.map(({ key, label }) => (
-              <SectionBlock key={key} label={label} content={guide?.sections?.[key]} />
-            ))}
-
-            {(!guide || !hasRenderableSections) && (
-              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-600">
-                Medication guide content is not available right now.
+          {guide?.medguide_html ? (
+            <div>
+              <iframe
+                srcDoc={guide.medguide_html}
+                className="w-full border-0 rounded-xl shadow-sm"
+                style={{ minHeight: '85vh' }}
+                sandbox="allow-scripts"
+                title={`${drugName} Medication Guide`}
+              />
+              <div className="mt-4 text-sm text-slate-600">
+                {guide.source_url && (
+                  <a
+                    href={guide.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-sky-600 hover:underline"
+                  >
+                    View on DailyMed ↗
+                  </a>
+                )}
+                <p className="mt-2">Source: FDA Structured Product Labeling via DailyMed</p>
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {SECTION_ORDER.map(({ key, label }) => (
+                <SectionBlock key={key} label={label} content={guide?.sections?.[key]} />
+              ))}
+
+              {(!guide || !hasRenderableSections) && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-600">
+                  Medication guide content is not available right now.
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 

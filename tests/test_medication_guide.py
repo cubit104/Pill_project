@@ -446,6 +446,137 @@ def test_build_guide_falls_back_gracefully_when_dailymed_raises():
     assert "sections" in result
 
 
+def test_guide_route_forwards_include_medguide_flag():
+    app = FastAPI()
+    app.include_router(medication_guide_routes.router)
+
+    async def _ok(*, rxcui=None, ndc=None, include_medguide=False, **kwargs):
+        return {
+            "rxcui": rxcui,
+            "ndc": ndc,
+            "sections": {},
+            "medguide_html": "<html>medguide</html>" if include_medguide else None,
+        }
+
+    with patch("routes.medication_guide.build_guide", side_effect=_ok) as mock_build:
+        client = TestClient(app)
+        response = client.get("/api/drugs/153165/guide?include_medguide=true")
+
+    assert response.status_code == 200
+    assert response.json()["medguide_html"] == "<html>medguide</html>"
+    assert mock_build.call_args.kwargs["include_medguide"] is True
+
+
+def test_include_medguide_false_does_not_include_in_response():
+    """include_medguide=False (default) must not include medguide_html even if cached."""
+    fresh_row = {
+        "id": 1,
+        "rxcui": "153165",
+        "ndc": "0071-0156-23",
+        "generic_name": "atorvastatin calcium",
+        "brand_name": "LIPITOR",
+        "overview": "cached overview",
+        "uses": None,
+        "dosage": None,
+        "how_to_take": None,
+        "side_effects": None,
+        "warnings": None,
+        "interactions": None,
+        "contraindications": None,
+        "special_populations": None,
+        "overdose": None,
+        "storage": None,
+        "pharmacology": None,
+        "manufacturer": None,
+        "has_boxed_warning": False,
+        "professional_html": None,
+        "medguide_html": "<html>cached medguide</html>",
+        "source_url": "https://dailymed.nlm.nih.gov/",
+        "fetched_at": datetime.now(timezone.utc) - timedelta(days=1),
+    }
+
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=fresh_row
+    ):
+        result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client))
+
+    # include_medguide defaults to False → medguide_html must be absent / None
+    assert result.get("medguide_html") is None
+
+
+def test_include_medguide_lazy_fetches_and_persists_on_cache_hit():
+    """When cache hit lacks medguide_html and include_medguide=True, it is fetched and persisted."""
+    spl_id = "spl-set-abc"
+    fresh_row = {
+        "id": 42,
+        "rxcui": "153165",
+        "ndc": "0071-0156-23",
+        "generic_name": "atorvastatin calcium",
+        "brand_name": "LIPITOR",
+        "spl_set_id": spl_id,
+        "overview": "cached overview",
+        "uses": None,
+        "dosage": None,
+        "how_to_take": None,
+        "side_effects": None,
+        "warnings": None,
+        "interactions": None,
+        "contraindications": None,
+        "special_populations": None,
+        "overdose": None,
+        "storage": None,
+        "pharmacology": None,
+        "manufacturer": None,
+        "has_boxed_warning": False,
+        "professional_html": None,
+        "medguide_html": None,
+        "source_url": "https://dailymed.nlm.nih.gov/",
+        "fetched_at": datetime.now(timezone.utc) - timedelta(days=1),
+    }
+
+    updated_row = {**fresh_row, "medguide_html": "<html>fetched medguide</html>"}
+
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    write_conn = MagicMock()
+    engine = MagicMock()
+    read_cm = MagicMock()
+    read_cm.__enter__.return_value = MagicMock()
+    read_cm.__exit__.return_value = False
+    engine.connect.return_value = read_cm
+
+    write_cm = MagicMock()
+    write_cm.__enter__.return_value = write_conn
+    write_cm.__exit__.return_value = False
+    engine.begin.return_value = write_cm
+
+    with patch("services.medication_guide.database.db_engine", engine), \
+         patch("services.medication_guide._select_cached_row", return_value=fresh_row), \
+         patch(
+             "services.medication_guide.fetch_medguide_html",
+             new=AsyncMock(return_value="<html>fetched medguide</html>"),
+         ) as mock_fetch, \
+         patch(
+             "services.medication_guide._update_guide",
+             return_value=updated_row,
+         ) as mock_update:
+        result = asyncio.run(
+            build_guide(rxcui="153165", include_medguide=True, openfda_client=mock_client)
+        )
+
+    mock_fetch.assert_called_once_with(spl_id)
+    mock_update.assert_called_once()
+    assert result.get("medguide_html") == "<html>fetched medguide</html>"
+
+
 @pytest.mark.live
 @pytest.mark.skipif(os.getenv("RUN_LIVE_OPENFDA_TESTS") != "1", reason="Live openFDA tests are disabled")
 def test_live_lipitor_sections():
