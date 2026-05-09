@@ -107,6 +107,16 @@ async function fetchMedicationGuide(
 // ── Rendering components ───────────────────────────────────────────────────
 
 /**
+ * Returns true when the content string contains structured HTML from the
+ * backend (DailyMed SPL XML parse). Checks for an opening HTML tag like
+ * `<p>`, `<ul>`, `<ol>`, `<strong>`, `<table>` etc. rather than any `<`,
+ * to avoid false positives from plain text like "< 5 mg daily".
+ */
+function isHtmlContent(content: string): boolean {
+  return /^<(p|ul|ol|li|strong|em|u|h3|h4|table|br|hr)\b/i.test(content.trimStart())
+}
+
+/**
  * Renders structured HTML returned by the backend (from DailyMed SPL XML).
  * Applies scoped Tailwind classes to style lists, paragraphs, tables, etc.
  * Content is trusted FDA-sourced HTML, sanitized server-side with bleach.
@@ -155,7 +165,7 @@ function GuideText({ text }: { text: string }) {
  * Automatically detects HTML vs plain-text and routes to the right renderer.
  */
 function SectionBlock({ label, content }: { label: string; content: string }) {
-  const isHtml = content.trimStart().startsWith('<')
+  const isHtml = isHtmlContent(content)
   return (
     <section className="mb-8">
       <h2 className="text-base font-semibold text-slate-900 mb-3 pb-2 border-b border-slate-200">
@@ -341,7 +351,7 @@ export default async function MedicationGuidePage(
           <p className="font-bold text-red-800 text-sm uppercase tracking-wide mb-2">
             ⚠ Black Box Warning
           </p>
-          {warningsContent.trimStart().startsWith('<') ? (
+          {isHtmlContent(warningsContent) ? (
             <div
               className="text-red-900 text-sm [&_p]:text-red-900 [&_p]:my-1 [&_li]:text-red-900 [&_strong]:font-semibold"
               dangerouslySetInnerHTML={{ __html: warningsContent }}

@@ -79,7 +79,7 @@ def _local(tag: str) -> str:
     return tag
 
 
-def _to_html(el: etree._Element) -> str:  # noqa: ANN001
+def _to_html(el: etree._Element) -> str:
     """Recursively convert one SPL XML element to an HTML string.
 
     Handles: paragraph, list, item, caption, content, br, table family,
@@ -182,7 +182,7 @@ def _to_html(el: etree._Element) -> str:  # noqa: ANN001
     return _inner()
 
 
-def _caption_inner(el: etree._Element) -> str:  # noqa: ANN001
+def _caption_inner(el: etree._Element) -> str:
     """Return the inner HTML of a <caption> element."""
     parts: list[str] = []
     if el.text:
@@ -194,7 +194,7 @@ def _caption_inner(el: etree._Element) -> str:  # noqa: ANN001
     return "".join(parts)
 
 
-def _item_inner(el: etree._Element) -> str:  # noqa: ANN001
+def _item_inner(el: etree._Element) -> str:
     """Return inner HTML for a list <item>, including any nested lists."""
     parts: list[str] = []
     if el.text:
@@ -206,7 +206,7 @@ def _item_inner(el: etree._Element) -> str:  # noqa: ANN001
     return "".join(parts)
 
 
-def _safe_cell_attrs(el: etree._Element) -> str:  # noqa: ANN001
+def _safe_cell_attrs(el: etree._Element) -> str:
     """Build a safe attribute string for <td>/<th> elements."""
     attrs = ""
     colspan = el.get("colspan")
@@ -218,7 +218,7 @@ def _safe_cell_attrs(el: etree._Element) -> str:  # noqa: ANN001
     return attrs
 
 
-def _section_text_to_html(text_el: etree._Element) -> str:  # noqa: ANN001
+def _section_text_to_html(text_el: etree._Element) -> str:
     """Convert a section's <text> element to sanitized HTML.
 
     Direct text content of the <text> element is wrapped in <p>. Each child
