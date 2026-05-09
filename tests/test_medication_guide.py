@@ -125,6 +125,7 @@ def test_build_guide_cache_hit_skips_openfda_within_30_days():
         "pharmacology": "cached pharmacology",
         "manufacturer": "cached manufacturer",
         "has_boxed_warning": False,
+        "professional_html": "<html><body>cached professional</body></html>",
         "source_url": "https://api.fda.gov/drug/label.json?search=spl_set_id:abc-123",
         "fetched_at": datetime.now(timezone.utc) - timedelta(days=1),
     }
@@ -138,9 +139,35 @@ def test_build_guide_cache_hit_skips_openfda_within_30_days():
         "services.medication_guide._select_cached_row", return_value=fresh_row
     ):
         result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client))
+        pro_result = asyncio.run(
+            build_guide(rxcui="153165", include_professional=True, openfda_client=mock_client)
+        )
 
     assert result["sections"]["overview"] == "cached overview"
+    assert result["professional_html"] is None
+    assert pro_result["professional_html"] == "<html><body>cached professional</body></html>"
     assert mock_client.fetch_label_by_rxcui.call_count == 0
+
+
+def test_guide_route_forwards_include_professional_flag():
+    app = FastAPI()
+    app.include_router(medication_guide_routes.router)
+
+    async def _ok(*, rxcui=None, ndc=None, include_professional=False, **kwargs):
+        return {
+            "rxcui": rxcui,
+            "ndc": ndc,
+            "sections": {},
+            "professional_html": "<html></html>" if include_professional else None,
+        }
+
+    with patch("routes.medication_guide.build_guide", side_effect=_ok) as mock_build:
+        client = TestClient(app)
+        response = client.get("/api/drugs/153165/guide?include_professional=true")
+
+    assert response.status_code == 200
+    assert response.json()["professional_html"] == "<html></html>"
+    assert mock_build.call_args.kwargs["include_professional"] is True
 
 
 def test_build_guide_refetches_when_stale():

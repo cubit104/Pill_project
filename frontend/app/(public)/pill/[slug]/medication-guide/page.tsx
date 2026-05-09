@@ -59,11 +59,29 @@ const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
 ]
 
 function isHtmlContent(content: string): boolean {
-  return /<[a-z][\s\S]*>/i.test(content)
+  return /^<(p|ul|ol|li|strong|em|u|h3|h4|table|br|hr)\b/i.test(content.trimStart())
 }
 
 function GuideHtml({ content }: { content: string }) {
-  return <div className="prose prose-slate max-w-none" dangerouslySetInnerHTML={{ __html: content }} />
+  return (
+    <div
+      className={[
+        '[&_ul]:list-disc [&_ul]:ml-4 [&_ul]:space-y-1 [&_ul]:my-2',
+        '[&_ol]:list-decimal [&_ol]:ml-4 [&_ol]:space-y-1 [&_ol]:my-2',
+        '[&_li]:text-sm [&_li]:text-slate-700 [&_li]:leading-relaxed',
+        '[&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2',
+        '[&_strong]:font-semibold [&_strong]:text-slate-800',
+        '[&_em]:italic',
+        '[&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:text-sm [&_h3]:mt-3 [&_h3]:mb-1',
+        '[&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:text-sm [&_h4]:mt-3 [&_h4]:mb-1',
+        '[&_hr]:border-slate-200 [&_hr]:my-4',
+        '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-3',
+        '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:text-sm [&_td]:text-slate-700 [&_td]:align-top',
+        '[&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:text-sm [&_th]:font-semibold [&_th]:bg-slate-50',
+      ].join(' ')}
+      dangerouslySetInnerHTML={{ __html: content }}
+    />
+  )
 }
 
 function GuideText({ content }: { content: string }) {
@@ -136,6 +154,7 @@ export default async function MedicationGuidePage({
 
   const guide = await fetchGuide(pill, isPro)
   const drugName = guide?.brand_name || guide?.generic_name || pill.medicine_name || 'Medication'
+  const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guide?.sections?.[key]))
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
@@ -190,7 +209,7 @@ export default async function MedicationGuidePage({
               <SectionBlock key={key} label={label} content={guide?.sections?.[key]} />
             ))}
 
-            {!guide && (
+            {(!guide || !hasRenderableSections) && (
               <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-600">
                 Medication guide content is not available right now.
               </div>
@@ -207,7 +226,7 @@ export default async function MedicationGuidePage({
                 srcDoc={guide.professional_html}
                 className="w-full border-0 rounded-xl shadow-sm"
                 style={{ minHeight: '85vh' }}
-                sandbox="allow-same-origin allow-scripts"
+                sandbox="allow-scripts"
                 title={`${drugName} Full Prescribing Information`}
               />
               <div className="mt-4 text-sm text-slate-600">
