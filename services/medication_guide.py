@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+from urllib.parse import quote
 
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -18,7 +19,8 @@ logger = logging.getLogger(__name__)
 CACHE_TTL_DAYS = 30
 DISCLAIMER = (
     "This information is for educational purposes only and is not medical advice. "
-    "Always consult a healthcare professional. Source: U.S. FDA Structured Product Labeling (openFDA)."
+    "Always consult a healthcare professional before taking any medication. "
+    "Source: U.S. FDA Medication Guide via openFDA / DailyMed (National Library of Medicine)."
 )
 
 
@@ -35,18 +37,24 @@ class GuideValidationError(RuntimeError):
 
 
 SECTION_MAPPING: dict[str, tuple[str, ...]] = {
-    "overview": ("description",),
+    "overview": ("medication_guide", "patient_package_insert", "spl_patient_package_insert"),
     "uses": ("indications_and_usage",),
     "dosage": ("dosage_and_administration", "dosage_forms_and_strengths"),
-    "how_to_take": ("information_for_patients", "spl_patient_package_insert", "instructions_for_use"),
+    "how_to_take": ("instructions_for_use", "information_for_patients"),
     "side_effects": ("adverse_reactions",),
     "warnings": ("boxed_warning", "warnings_and_cautions", "warnings"),
     "interactions": ("drug_interactions",),
     "contraindications": ("contraindications",),
-    "special_populations": ("pregnancy", "lactation", "pediatric_use", "geriatric_use", "use_in_specific_populations"),
+    "special_populations": (
+        "use_in_specific_populations",
+        "pregnancy",
+        "lactation",
+        "pediatric_use",
+        "geriatric_use",
+    ),
     "overdose": ("overdosage",),
     "storage": ("storage_and_handling", "how_supplied"),
-    "pharmacology": ("clinical_pharmacology", "mechanism_of_action", "pharmacokinetics"),
+    "pharmacology": ("mechanism_of_action", "clinical_pharmacology"),
 }
 
 _GUIDE_COLUMNS = [
@@ -235,11 +243,17 @@ def _map_openfda_record(record: dict[str, Any], *, requested_rxcui: Optional[str
     mapped["manufacturer"] = _build_manufacturer(openfda)
 
     if spl_set_id:
-        mapped["source_url"] = f"https://api.fda.gov/drug/label.json?search=spl_set_id:{spl_set_id}"
-    elif rxcui:
-        mapped["source_url"] = f"https://api.fda.gov/drug/label.json?search=openfda.rxcui:{rxcui}"
+        mapped["source_url"] = (
+            f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={spl_set_id}"
+        )
+    elif generic_name:
+        encoded_name = quote(generic_name)
+        mapped["source_url"] = (
+            "https://dailymed.nlm.nih.gov/dailymed/search.cfm"
+            f"?query={encoded_name}&SearchTerm={encoded_name}"
+        )
     else:
-        mapped["source_url"] = None
+        mapped["source_url"] = "https://dailymed.nlm.nih.gov/dailymed/"
 
     return mapped
 
