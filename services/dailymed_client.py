@@ -14,9 +14,12 @@ logger = logging.getLogger(__name__)
 DAILYMED_SPL_XML_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{setid}.xml"
 
 # Section codes in priority order:
-# 42231-1 = SPL MEDGUIDE SECTION (dedicated Medication Guide, e.g. Plavix)
-# 42230-3 = SPL PATIENT PACKAGE INSERT SECTION (fallback, e.g. Reyataz)
-_MEDGUIDE_CODES = ("42231-1", "42230-3")
+# 42231-1 = SPL MEDGUIDE SECTION (dedicated FDA Medication Guide, highest priority)
+# 42230-3 = SPL PATIENT PACKAGE INSERT SECTION
+# 42228-7 = Patient Package Insert (older format, e.g. Amlodipine/Valsartan)
+# 34076-0 = Information for Patients
+# 42227-9 = Patient Package Insert (alternate code used by some manufacturers)
+_MEDGUIDE_CODES = ("42231-1", "42230-3", "42228-7", "34076-0", "42227-9")
 
 
 def _clean_text(raw: str) -> str:
@@ -51,8 +54,10 @@ class DailyMedClient:
     def fetch_patient_guide(self, spl_set_id: str) -> Optional[dict]:
         """Fetch patient-facing guide text for the given SPL Set ID.
 
-        Tries the dedicated Medication Guide section (42231-1) first, then
-        falls back to the Patient Package Insert section (42230-3).
+        Tries each patient-facing section code in priority order: 42231-1
+        (SPL MEDGUIDE SECTION), 42230-3 (SPL PATIENT PACKAGE INSERT),
+        42228-7 (Patient Package Insert, older format), 34076-0 (Information
+        for Patients), and 42227-9 (Patient Package Insert, alternate code).
 
         Args:
             spl_set_id: The SPL Set ID (UUID) for the drug label.
