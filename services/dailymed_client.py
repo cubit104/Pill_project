@@ -13,13 +13,16 @@ logger = logging.getLogger(__name__)
 
 DAILYMED_SPL_XML_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{setid}.xml"
 
-# Section codes in priority order:
-# 42231-1 = SPL MEDGUIDE SECTION (dedicated FDA Medication Guide, highest priority)
-# 42230-3 = SPL PATIENT PACKAGE INSERT SECTION
-# 42228-7 = Patient Package Insert (older format, e.g. Amlodipine/Valsartan)
-# 34076-0 = Information for Patients
-# 42227-9 = Patient Package Insert (alternate code used by some manufacturers)
-_MEDGUIDE_CODES = ("42231-1", "42230-3", "42228-7", "34076-0", "42227-9")
+# Section codes for genuine patient-facing documents only, in priority order:
+# 42231-1 = SPL MEDGUIDE SECTION (dedicated FDA Medication Guide, e.g. Ritalin, Trazodone)
+# 42230-3 = SPL PATIENT PACKAGE INSERT SECTION (e.g. Reyataz/Atazanavir)
+# 42228-7 = Patient Package Insert older format (e.g. Amlodipine/Valsartan branded)
+#
+# Deliberately excluded:
+# 34076-0 = "Information for Patients" — this is a prescriber-label subsection containing
+#            clinical pregnancy risk summaries and counseling notes, NOT a patient guide.
+# 42227-9 = alternate PPI code that also maps to prescriber-facing content in practice.
+_MEDGUIDE_CODES = ("42231-1", "42230-3", "42228-7")
 
 
 def _clean_text(raw: str) -> str:
@@ -54,10 +57,10 @@ class DailyMedClient:
     def fetch_patient_guide(self, spl_set_id: str) -> Optional[dict]:
         """Fetch patient-facing guide text for the given SPL Set ID.
 
-        Tries each patient-facing section code in priority order: 42231-1
-        (SPL MEDGUIDE SECTION), 42230-3 (SPL PATIENT PACKAGE INSERT),
-        42228-7 (Patient Package Insert, older format), 34076-0 (Information
-        for Patients), and 42227-9 (Patient Package Insert, alternate code).
+        Tries dedicated patient-facing section codes only (42231-1, 42230-3,
+        42228-7). Prescriber-facing sections such as 34076-0 (Information for
+        Patients) are intentionally excluded as they contain clinical text not
+        suitable for a patient medication guide.
 
         Args:
             spl_set_id: The SPL Set ID (UUID) for the drug label.
@@ -98,7 +101,7 @@ class DailyMedClient:
                 raw_text = "".join(section.itertext())
                 cleaned = _clean_text(raw_text)
                 if cleaned:
-                    logger.debug(
+                    logger.info(
                         "DailyMed section %s found for spl_set_id=%s (%d chars)",
                         code,
                         spl_set_id,
