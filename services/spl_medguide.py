@@ -8,6 +8,7 @@ link, iframe wrapper, or ``<html>`` outer frame.
 
 from __future__ import annotations
 
+from copy import deepcopy
 import html
 import logging
 import re
@@ -45,11 +46,18 @@ _HEADING_KEYWORD_RE = re.compile(
     re.IGNORECASE,
 )
 _DASH_ONLY_P_RE = re.compile(r"^[\s\-–—_=]{3,}$")
+_APPROVAL_P_RE = re.compile(r"^\s*this medication guide has been approved", re.IGNORECASE)
+_REVISED_P_RE = re.compile(r"^\s*revised:", re.IGNORECASE)
+_ALLOWED_CLASS_VALUES: dict[str, set[str]] = {
+    "div": {"medguide-meta"},
+    "p": {"medguide-approval", "medguide-revised"},
+}
 
 # Safe HTML tags allowed in output
 ALLOWED_TAGS = [
     "article",
     "h1", "h2", "h3",
+    "div",
     "p", "ul", "ol", "li", "strong", "em", "u", "br",
     "table", "thead", "tbody", "tr", "th", "td", "caption",
     "hr",
@@ -60,6 +68,8 @@ ALLOWED_ATTRS: dict[str, list[str]] = {
     "h1": ["id"],
     "h2": ["id"],
     "h3": ["id"],
+    "div": ["class"],
+    "p": ["class"],
     "td": ["colspan", "rowspan"],
     "th": ["colspan", "rowspan"],
 }
@@ -108,64 +118,76 @@ def _is_heading_like_text(text: str) -> bool:
         return False
     if len(normalized.split()) > 25:
         return False
+    if normalized.endswith(":"):
+        return len(normalized) <= 80
     return normalized.endswith("?") or bool(_HEADING_KEYWORD_RE.match(normalized))
 
 
-def _is_single_bold_paragraph_source(paragraph_el: etree._Element) -> bool:
-    style = (paragraph_el.get("styleCode") or "").lower()
-    if "bold" in style:
-        return True
-    children = list(paragraph_el)
-    if len(children) != 1:
+def _style_tokens(style_code: str) -> set[str]:
+    return {token for token in re.split(r"[\s,]+", (style_code or "").lower()) if token}
+
+
+def _apply_style_wrappers(inner: str, style_code: str) -> str:
+    if not inner:
+        return ""
+    tokens = _style_tokens(style_code)
+    if "bold" in tokens:
+        inner = f"<strong>{inner}</strong>"
+    if "italics" in tokens or "italic" in tokens:
+        inner = f"<em>{inner}</em>"
+    if "underline" in tokens:
+        inner = f"<u>{inner}</u>"
+    return inner
+
+
+def _logical_table_rows(table_el: etree._Element) -> list[etree._Element]:
+    rows: list[etree._Element] = []
+    for child in table_el:
+        child_tag = _local(child.tag)
+        if child_tag == "tr":
+            rows.append(child)
+        elif child_tag in {"thead", "tbody", "tfoot"}:
+            rows.extend(grandchild for grandchild in child if _local(grandchild.tag) == "tr")
+    return rows
+
+
+def _row_cells(row_el: etree._Element) -> list[etree._Element]:
+    return [child for child in row_el if _local(child.tag) in {"td", "th"}]
+
+
+def _table_has_block_cell_content(table_el: etree._Element) -> bool:
+    for row in _logical_table_rows(table_el):
+        for cell in _row_cells(row):
+            if _local(cell.tag) != "td":
+                continue
+            if any(_local(desc.tag) in {"paragraph", "list"} for desc in cell.iterdescendants()):
+                return True
+    return False
+
+
+def _is_layout_table(table_el: etree._Element) -> bool:
+    border = (table_el.get("border") or "").strip()
+    if border and border != "0":
         return False
-    child = children[0]
-    if _local(child.tag) != "content":
+
+    rows = _logical_table_rows(table_el)
+    if not rows:
         return False
-    child_style = (child.get("styleCode") or "").lower()
-    if "bold" not in child_style:
+
+    row_cell_counts: list[int] = []
+    for row in rows:
+        cells = _row_cells(row)
+        if not cells:
+            continue
+        if any(_local(cell.tag) == "th" for cell in cells):
+            return False
+        row_cell_counts.append(len(cells))
+
+    if not row_cell_counts:
         return False
-    para_text = _normalize_visible_text("".join(paragraph_el.itertext()))
-    child_text = _normalize_visible_text("".join(child.itertext()))
-    return bool(para_text) and para_text == child_text
-
-
-def _is_single_cell_layout_table(table_el: etree._Element) -> bool:
-    rows = [row for row in table_el.iter() if _local(row.tag) == "tr"]
-    if len(rows) != 1:
+    if not _table_has_block_cell_content(table_el):
         return False
-    cells = [c for c in rows[0] if _local(c.tag) in {"td", "th"}]
-    return len(cells) == 1
-
-
-def _table_content_ratio(text_el: etree._Element, table_el: etree._Element) -> float:
-    total = len(_normalize_visible_text("".join(text_el.itertext())))
-    if total <= 0:
-        return 0.0
-    cell_text = "".join(
-        "".join(cell.itertext())
-        for row in table_el.iter()
-        if _local(row.tag) == "tr"
-        for cell in row
-        if _local(cell.tag) in {"td", "th"}
-    )
-    cell_len = len(_normalize_visible_text(cell_text))
-    return cell_len / total if total else 0.0
-
-
-def _outer_layout_table(text_el: etree._Element) -> Optional[etree._Element]:
-    non_title_children = [c for c in text_el if _local(c.tag) != "title"]
-    table_children = [c for c in non_title_children if _local(c.tag) == "table"]
-    if len(table_children) != 1:
-        return None
-    if len(non_title_children) != 1:
-        return None
-    table_el = table_children[0]
-    has_rows = any(_local(row.tag) == "tr" for row in table_el.iter())
-    if not has_rows:
-        return None
-    if _table_content_ratio(text_el, table_el) <= 0.60:
-        return None
-    return table_el
+    return len(rows) <= 1 or all(count <= 2 for count in row_cell_counts)
 
 
 def _paragraph_inner_html(paragraph_el: etree._Element) -> str:
@@ -176,23 +198,14 @@ def _paragraph_inner_html(paragraph_el: etree._Element) -> str:
         parts.append(_to_html(child))
         if child.tail:
             parts.append(html.escape(child.tail))
-    return "".join(parts)
+    inner = "".join(parts)
+    return _apply_style_wrappers(inner, paragraph_el.get("styleCode") or "")
 
 
-def _render_paragraph(
-    paragraph_el: etree._Element,
-    *,
-    section_depth: int,
-    seen_ids: dict[str, int],
-) -> str:
+def _render_paragraph(paragraph_el: etree._Element) -> str:
     inner = _paragraph_inner_html(paragraph_el)
-    visible_text = _normalize_visible_text("".join(paragraph_el.itertext()))
     if not inner.strip():
         return ""
-    if _is_single_bold_paragraph_source(paragraph_el) and _is_heading_like_text(visible_text):
-        tag_name = "h3" if section_depth >= 2 else "h2"
-        slug = _unique_slug(visible_text, seen_ids)
-        return f'<{tag_name} id="{slug}">{html.escape(visible_text)}</{tag_name}>'
     return f"<p>{inner}</p>"
 
 
@@ -208,22 +221,14 @@ def _render_unwrapped_table(
         return [table_html] if table_html.strip() else []
 
     rendered: list[str] = []
-    for row in table_el.xpath(".//*[local-name()='tr']"):
-        if _local(row.tag) != "tr":
-            continue
-        nearest_table_ancestor = next(
-            (anc for anc in row.iterancestors() if _local(anc.tag) == "table"),
-            None,
-        )
-        if nearest_table_ancestor is not table_el:
-            continue
-        for cell in row:
+    for row in _logical_table_rows(table_el):
+        for cell in _row_cells(row):
             if _local(cell.tag) not in {"td", "th"}:
                 continue
             if cell.text and cell.text.strip():
                 rendered.append(f"<p>{html.escape(cell.text)}</p>")
             for child in cell:
-                if _local(child.tag) == "table" and _is_single_cell_layout_table(child):
+                if _local(child.tag) == "table" and _is_layout_table(child):
                     rendered.extend(
                         _render_unwrapped_table(
                             child,
@@ -237,7 +242,7 @@ def _render_unwrapped_table(
                     continue
                 child_tag = _local(child.tag)
                 if child_tag == "paragraph":
-                    child_html = _render_paragraph(child, section_depth=section_depth, seen_ids=seen_ids)
+                    child_html = _render_paragraph(child)
                 else:
                     child_html = _to_html(child)
                 if child_html.strip():
@@ -254,11 +259,7 @@ def _promote_strong_only_paragraphs(root: etree._Element, seen_ids: dict[str, in
         visible_text = _normalize_visible_text("".join(p_el.itertext()))
         if not _is_heading_like_text(visible_text):
             continue
-        children = [child for child in p_el if isinstance(child.tag, str)]
-        if len(children) != 1 or _local(children[0].tag) != "strong":
-            continue
-        child_text = _normalize_visible_text("".join(children[0].itertext()))
-        if child_text != visible_text:
+        if not _paragraph_is_fully_bold_dom(p_el):
             continue
         h2_el = lxml_html.Element("h2")
         h2_el.set("id", _unique_slug(visible_text, seen_ids))
@@ -266,6 +267,27 @@ def _promote_strong_only_paragraphs(root: etree._Element, seen_ids: dict[str, in
         parent = p_el.getparent()
         if parent is not None:
             parent.replace(p_el, h2_el)
+
+
+def _paragraph_is_fully_bold_dom(p_el: etree._Element) -> bool:
+    if _normalize_visible_text(p_el.text or ""):
+        return False
+
+    children = [child for child in p_el if isinstance(child.tag, str)]
+    if not children:
+        return False
+
+    has_bold_text = False
+    for child in children:
+        child_tag = _local(child.tag)
+        if child_tag == "strong":
+            if _normalize_visible_text("".join(child.itertext())):
+                has_bold_text = True
+        elif child_tag != "br":
+            return False
+        if _normalize_visible_text(child.tail or ""):
+            return False
+    return has_bold_text
 
 
 def _remove_dash_empty_paragraphs(root: etree._Element) -> None:
@@ -319,10 +341,112 @@ def _strip_duplicated_leading_medguide_header(root: etree._Element, h1_text: str
         break
 
 
+def _is_generic_medguide_h1(el: etree._Element | None) -> bool:
+    if el is None or _local(el.tag) != "h1":
+        return False
+    return _normalize_visible_text("".join(el.itertext())).lower() == "medication guide"
+
+
+def _clone_with_tag(source_el: etree._Element, tag_name: str) -> etree._Element:
+    clone = deepcopy(source_el)
+    clone.tag = tag_name
+    return clone
+
+
+def _promote_medguide_title_block(root: etree._Element) -> None:
+    existing_h1 = next(
+        (child for child in root if isinstance(child.tag, str) and _local(child.tag) == "h1"),
+        None,
+    )
+    generic_h1 = _is_generic_medguide_h1(existing_h1)
+
+    candidate: Optional[etree._Element] = None
+    for child in root:
+        if not isinstance(child.tag, str):
+            continue
+        child_tag = _local(child.tag)
+        if child_tag == "h1":
+            continue
+        if child_tag != "p":
+            break
+        visible_text = _normalize_visible_text("".join(child.itertext()))
+        if not visible_text:
+            continue
+        if _APPROVAL_P_RE.match(visible_text) or _REVISED_P_RE.match(visible_text):
+            continue
+        candidate = child
+        break
+
+    if candidate is None or not _paragraph_is_fully_bold_dom(candidate):
+        return
+
+    visible_text = _normalize_visible_text("".join(candidate.itertext()))
+    if "medication guide" not in visible_text.lower():
+        return
+
+    title_h1 = _clone_with_tag(candidate, "h1")
+    parent = candidate.getparent()
+    if parent is None:
+        return
+
+    if generic_h1 and existing_h1 is not None:
+        parent.replace(existing_h1, title_h1)
+        parent.remove(candidate)
+        return
+
+    parent.replace(candidate, title_h1)
+    if generic_h1 and existing_h1 is not None and existing_h1.getparent() is parent:
+        parent.remove(existing_h1)
+
+
+def _extract_meta_strip(root: etree._Element) -> None:
+    meta_paragraphs: list[etree._Element] = []
+    for child in list(root):
+        if not isinstance(child.tag, str) or _local(child.tag) != "p":
+            continue
+        visible_text = _normalize_visible_text("".join(child.itertext()))
+        if _APPROVAL_P_RE.match(visible_text):
+            child.set("class", "medguide-approval")
+            meta_paragraphs.append(child)
+        elif _REVISED_P_RE.match(visible_text):
+            child.set("class", "medguide-revised")
+            meta_paragraphs.append(child)
+
+    if not meta_paragraphs:
+        return
+
+    meta_div = lxml_html.Element("div")
+    meta_div.set("class", "medguide-meta")
+    for paragraph in meta_paragraphs:
+        if paragraph.getparent() is root:
+            root.remove(paragraph)
+        meta_div.append(paragraph)
+
+    h1_index = next(
+        (index for index, child in enumerate(root) if isinstance(child.tag, str) and _local(child.tag) == "h1"),
+        None,
+    )
+    insert_at = 0 if h1_index is None else h1_index + 1
+    root.insert(insert_at, meta_div)
+
+
+def _bleach_allowed_attrs(tag: str, name: str, value: str) -> bool:
+    allowed_attrs = ALLOWED_ATTRS.get(tag, [])
+    if name not in allowed_attrs:
+        return False
+    if name != "class":
+        return True
+    allowed_values = _ALLOWED_CLASS_VALUES.get(tag, set())
+    class_values = [part for part in (value or "").split() if part]
+    return bool(class_values) and set(class_values).issubset(allowed_values)
+
+
 def _postprocess_rendered_html(combined_html: str, seen_ids: dict[str, int], h1_text: str) -> str:
     root = lxml_html.fragment_fromstring(combined_html or "", create_parent="div")
-    _promote_strong_only_paragraphs(root, seen_ids)
     _remove_dash_empty_paragraphs(root)
+    _promote_medguide_title_block(root)
+    _extract_meta_strip(root)
+    _promote_strong_only_paragraphs(root, seen_ids)
     _dedupe_and_trim_hr(root)
     _strip_duplicated_leading_medguide_header(root, h1_text)
     return "".join(
@@ -373,8 +497,7 @@ def _to_html(el: etree._Element) -> str:
 
     # ── paragraph → <p> ──────────────────────────────────────────────────
     if tag == "paragraph":
-        inner = _inner()
-        return f"<p>{inner}</p>" if inner.strip() else ""
+        return _render_paragraph(el)
 
     # ── list → <ul> or <ol> ──────────────────────────────────────────────
     if tag == "list":
@@ -465,15 +588,17 @@ def _render_text_element(
     parts: list[str] = []
     if text_el.text and text_el.text.strip():
         parts.append(f"<p>{html.escape(text_el.text)}</p>")
-    table_layout = _outer_layout_table(text_el)
-    if table_layout is not None:
-        parts.extend(
-            _render_unwrapped_table(table_layout, section_depth=section_depth, seen_ids=seen_ids)
-        )
-        return "\n".join(parts)
     for child in text_el:
-        if _local(child.tag) == "paragraph":
-            child_html = _render_paragraph(child, section_depth=section_depth, seen_ids=seen_ids)
+        child_tag = _local(child.tag)
+        if child_tag == "table" and _is_layout_table(child):
+            parts.extend(
+                _render_unwrapped_table(child, section_depth=section_depth, seen_ids=seen_ids)
+            )
+            if child.tail and child.tail.strip():
+                parts.append(f"<p>{html.escape(child.tail)}</p>")
+            continue
+        elif child_tag == "paragraph":
+            child_html = _render_paragraph(child)
         else:
             child_html = _to_html(child)
         if child_html.strip():
@@ -614,7 +739,7 @@ def _render_medguide_section(section: etree._Element) -> str:
             parts.append(child_html)
 
     combined = _postprocess_rendered_html("\n".join(parts), seen_ids=seen_ids, h1_text=h1_text_plain)
-    sanitized = bleach.clean(combined, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
+    sanitized = bleach.clean(combined, tags=ALLOWED_TAGS, attributes=_bleach_allowed_attrs, strip=True)
     return f"<article>{sanitized}</article>"
 
 

@@ -66,7 +66,7 @@ const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
 const MEDGUIDE_PROSE_CLASSES = [
   'max-w-3xl',
   '[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-900 [&_h1]:mb-4',
-  '[&_h2]:text-xl [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-10 [&_h2]:mb-3 [&_h2]:scroll-mt-24',
+  '[&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-slate-900 [&_h2]:mt-10 [&_h2]:mb-3 [&_h2]:scroll-mt-24',
   '[&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mt-6 [&_h3]:mb-2 [&_h3]:scroll-mt-24',
   '[&_p]:text-[15px] [&_p]:leading-7 [&_p]:text-slate-700 [&_p]:my-3',
   '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ul]:space-y-1',
@@ -74,6 +74,9 @@ const MEDGUIDE_PROSE_CLASSES = [
   '[&_li]:text-[15px] [&_li]:leading-7 [&_li]:text-slate-700',
   '[&_strong]:font-semibold [&_strong]:text-slate-900',
   '[&_em]:italic',
+  '[&_.medguide-meta]:border-b [&_.medguide-meta]:border-slate-200 [&_.medguide-meta]:pb-3 [&_.medguide-meta]:mb-6',
+  '[&_.medguide-approval]:text-xs [&_.medguide-approval]:text-slate-500 [&_.medguide-approval]:my-1',
+  '[&_.medguide-revised]:text-xs [&_.medguide-revised]:text-slate-500 [&_.medguide-revised]:my-1',
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4',
   '[&_table]:block [&_table]:overflow-x-auto',
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
@@ -237,21 +240,21 @@ export default async function MedicationGuidePage({
       {!isPro && (
         <div className="lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8">
           {/* Left rail — sticky TOC on desktop, accordion on mobile */}
-          <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
-            {/* Desktop: bare TOC */}
-            <div className="hidden lg:block no-print">
-              <MedguideToc html={guide?.medguide_html ?? ''} />
-            </div>
-            {/* Mobile: collapsible accordion */}
-            <details className="lg:hidden no-print mb-4 border border-slate-200 rounded-xl overflow-hidden">
-              <summary className="px-4 py-3 text-sm font-medium text-slate-700 cursor-pointer select-none bg-white hover:bg-slate-50">
-                On this page
-              </summary>
-              <div className="px-4 py-3 bg-white border-t border-slate-100">
-                <MedguideToc html={guide?.medguide_html ?? ''} />
-              </div>
-            </details>
-          </aside>
+             <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
+               {/* Desktop: bare TOC */}
+               <div className="hidden lg:block no-print">
+                 <MedguideToc html={guide?.medguide_html ?? ''} drugName={drugName} />
+               </div>
+               {/* Mobile: collapsible accordion */}
+               <details className="lg:hidden no-print mb-4 border border-slate-200 rounded-xl overflow-hidden">
+                 <summary className="px-4 py-3 text-sm font-medium text-slate-700 cursor-pointer select-none bg-white hover:bg-slate-50">
+                   On this page
+                 </summary>
+                 <div className="px-4 py-3 bg-white border-t border-slate-100">
+                   <MedguideToc html={guide?.medguide_html ?? ''} drugName={drugName} />
+                 </div>
+               </details>
+             </aside>
 
           {/* Content column */}
           <div className="space-y-6 min-w-0">
