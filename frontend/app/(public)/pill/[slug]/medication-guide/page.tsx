@@ -94,10 +94,24 @@ const MEDGUIDE_PROSE_CLASSES = [
   '[&_hr]:my-6 [&_hr]:border-slate-200',
 ].join(' ')
 const PRO_TOC_GRID_CLASSES = 'lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8'
-const PRO_HIGHLIGHTS_HEADER_CLASS =
-  "[&_.pro-highlights-header]:flex [&_.pro-highlights-header]:flex-col sm:[&_.pro-highlights-header]:flex-row sm:[&_.pro-highlights-header]:items-baseline sm:[&_.pro-highlights-header]:justify-between sm:[&_.pro-highlights-header]:gap-3 [&_.pro-highlights-header]:pb-3 [&_.pro-highlights-header]:mb-4 [&_.pro-highlights-header]:border-b [&_.pro-highlights-header]:border-blue-200 " +
-  "[&_.pro-highlights-title]:text-base [&_.pro-highlights-title]:font-bold [&_.pro-highlights-title]:text-slate-900 " +
-  "[&_.pro-highlights-meta]:text-sm [&_.pro-highlights-meta]:text-slate-500 [&_.pro-highlights-meta]:font-normal"
+const PRO_HIGHLIGHTS_HEADER_CLASS = [
+  '[&_.pro-highlights-header]:flex',
+  '[&_.pro-highlights-header]:flex-col',
+  'sm:[&_.pro-highlights-header]:flex-row',
+  'sm:[&_.pro-highlights-header]:items-baseline',
+  'sm:[&_.pro-highlights-header]:justify-between',
+  'sm:[&_.pro-highlights-header]:gap-3',
+  '[&_.pro-highlights-header]:pb-3',
+  '[&_.pro-highlights-header]:mb-4',
+  '[&_.pro-highlights-header]:border-b',
+  '[&_.pro-highlights-header]:border-blue-200',
+  '[&_.pro-highlights-title]:text-base',
+  '[&_.pro-highlights-title]:font-bold',
+  '[&_.pro-highlights-title]:text-slate-900',
+  '[&_.pro-highlights-meta]:text-sm',
+  '[&_.pro-highlights-meta]:text-slate-500',
+  '[&_.pro-highlights-meta]:font-normal',
+].join(' ')
 
 const PRO_PROSE_CLASSES = [
   'max-w-4xl',
@@ -145,6 +159,8 @@ const PRO_HIGHLIGHTS_PROSE_CLASSES = [
   '[&_a]:text-sky-700 [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:text-sky-900',
   '[&_.pro-section-ref]:text-sky-700 [&_.pro-section-ref]:no-underline hover:[&_.pro-section-ref]:underline [&_.pro-section-ref]:cursor-pointer [&_.pro-section-ref]:font-medium',
 ].join(' ')
+const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
+  `rounded-2xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-6 ${PRO_HIGHLIGHTS_HEADER_CLASS}`
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
   for (const value of values) {
@@ -343,9 +359,10 @@ export default async function MedicationGuidePage({
   if (!pill) notFound()
 
   const initialGuide = await fetchGuide(pill, requestedPro)
-  const hasMedguide = initialGuide?.has_medguide ?? Boolean(initialGuide?.medguide_html?.trim())
-  const isPro = !hasMedguide || requestedPro
-  const guide = isPro === requestedPro ? initialGuide : await fetchGuide(pill, true)
+  const hasMedguide = Boolean(initialGuide?.has_medguide)
+  const forcePro = !hasMedguide
+  const isPro = requestedPro || forcePro
+  const guide = forcePro && !requestedPro ? await fetchGuide(pill, true) : initialGuide
   const drugName = resolveDrugName({ guide, pill, slug })
   const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guide?.sections?.[key]))
   const professionalSections = Array.isArray(guide?.professional_sections)
@@ -487,9 +504,7 @@ export default async function MedicationGuidePage({
               <div className="space-y-6 min-w-0">
                 <MedguideMetaBar guide={guide} />
                 {guide?.professional_highlights_html && (
-                  <div
-                    className={`rounded-2xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-6 ${PRO_HIGHLIGHTS_HEADER_CLASS}`}
-                  >
+                  <div className={PRO_HIGHLIGHTS_CONTAINER_CLASSES}>
                     <div
                       className={PRO_HIGHLIGHTS_PROSE_CLASSES}
                       dangerouslySetInnerHTML={{ __html: guide.professional_highlights_html }}
@@ -511,9 +526,7 @@ export default async function MedicationGuidePage({
             <div className="space-y-6">
               <MedguideMetaBar guide={guide} />
               {guide?.professional_highlights_html && (
-                <div
-                  className={`rounded-2xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-6 ${PRO_HIGHLIGHTS_HEADER_CLASS}`}
-                >
+                <div className={PRO_HIGHLIGHTS_CONTAINER_CLASSES}>
                   <div
                     className={PRO_HIGHLIGHTS_PROSE_CLASSES}
                     dangerouslySetInnerHTML={{ __html: guide.professional_highlights_html }}

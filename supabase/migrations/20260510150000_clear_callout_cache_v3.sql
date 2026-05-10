@@ -1,4 +1,4 @@
--- Cache bust because boxed-warning HTML and pro-tab HTML rendering changed
+-- Cache bust because boxed warning HTML and pro-tab HTML rendering changed
 -- (dedupe LIs, WARNING heading, pro callout wrapper).
 -- Does NOT touch medguide_html — that's intentionally preserved since
 -- this PR makes no medguide rendering changes.

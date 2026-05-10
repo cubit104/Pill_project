@@ -10,8 +10,9 @@ def _boxed_section(text_inner: str) -> etree._Element:
     code_el = etree.SubElement(section, f"{{{_NS}}}code")
     code_el.set("code", "34066-1")
     text_el = etree.SubElement(section, f"{{{_NS}}}text")
-    text_el.append(etree.fromstring(f"<root xmlns='{_NS}'>{text_inner}</root>")[0])
-    for child in etree.fromstring(f"<root xmlns='{_NS}'>{text_inner}</root>")[1:]:
+    parsed = etree.fromstring(f"<root xmlns='{_NS}'>{text_inner}</root>")
+    text_el.append(parsed[0])
+    for child in parsed[1:]:
         text_el.append(child)
     return section
 

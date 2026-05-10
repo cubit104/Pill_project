@@ -614,9 +614,11 @@ def _dedupe_repeated_list_items(html_str: str) -> str:
 
     root = lxml_html.fragment_fromstring(html_str, create_parent="div")
     seen: set[str] = set()
+    # FDA warning bullets frequently repeat with minor terminal punctuation variance.
+    trailing_punctuation = ".:;,"
 
     for li in list(root.iter("li")):
-        text = (li.text_content() or "").strip().lower().rstrip(".:;,")
+        text = (li.text_content() or "").strip().lower().rstrip(trailing_punctuation)
         if not text:
             continue
         if text in seen:
