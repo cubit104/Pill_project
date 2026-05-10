@@ -766,6 +766,114 @@ def test_nested_tables_are_fully_removed_and_content_order_is_preserved():
     assert first_idx < nested_paragraph_idx < nested_list_idx < second_cell_idx
 
 
+def test_table_strip_preserves_all_cell_content():
+    html = """
+        <table>
+          <tr>
+            <td>
+              <p>First paragraph in left cell.</p>
+              <p>Second paragraph in left cell.</p>
+              <ul><li>Item A</li><li>Item B</li></ul>
+            </td>
+            <td>
+              <p>Right cell paragraph.</p>
+            </td>
+          </tr>
+          <tr>
+            <td><p>Bottom-left content.</p></td>
+            <td><p>Bottom-right content.</p></td>
+          </tr>
+        </table>
+    """
+
+    out = spl_medguide._strip_tables(html)
+
+    assert "<table" not in out
+    assert "First paragraph in left cell." in out
+    assert "Second paragraph in left cell." in out
+    assert "Item A" in out and "Item B" in out
+    assert "Right cell paragraph." in out
+    assert "Bottom-left content." in out
+    assert "Bottom-right content." in out
+    assert out.find("First paragraph") < out.find("Right cell paragraph")
+    assert out.find("Right cell paragraph") < out.find("Bottom-left content")
+
+
+def test_table_strip_handles_nested_tables():
+    html = """
+        <table><tr><td>
+          <p>Outer before nested.</p>
+          <table><tr><td><p>Nested content.</p></td></tr></table>
+          <p>Outer after nested.</p>
+        </td></tr></table>
+    """
+
+    out = spl_medguide._strip_tables(html)
+
+    assert "<table" not in out
+    assert "Outer before nested." in out
+    assert "Nested content." in out
+    assert "Outer after nested." in out
+    assert out.find("Outer before nested.") < out.find("Nested content.")
+    assert out.find("Nested content.") < out.find("Outer after nested.")
+
+
+def test_table_strip_preserves_cell_text_and_tails():
+    html = "<table><tr><td>Lead text <strong>bold</strong> trailing text</td></tr></table>"
+
+    out = spl_medguide._strip_tables(html)
+
+    assert "Lead text" in out
+    assert "<strong>bold</strong>" in out
+    assert "trailing text" in out
+
+
+def test_no_table_passthrough():
+    html = "<p>No tables here.</p><h2>Heading</h2><p>Body.</p>"
+    assert spl_medguide._strip_tables(html) == html
+
+
+def test_xarelto_style_table_strip_preserves_header_and_body_content():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>Medication Guide</title>'
+        f'<text>'
+        f'<table>'
+        f'<tr>'
+        f'<td><paragraph styleCode="bold">MEDICATION GUIDE<br/>XARELTO&#174;<br/>(rivaroxaban)<br/>tablets</paragraph></td>'
+        f'<td><paragraph> </paragraph></td>'
+        f'</tr>'
+        f'<tr>'
+        f'<td>This Medication Guide has been approved by the U.S. Food and Drug Administration.</td>'
+        f'<td>Revised: 06/2025</td>'
+        f'</tr>'
+        f'<tr>'
+        f'<td colspan="2">'
+        f'<paragraph styleCode="bold">What is the most important information I should know about XARELTO?</paragraph>'
+        f'<paragraph>XARELTO can cause bleeding which can be serious.</paragraph>'
+        f'<paragraph styleCode="bold">How should I take XARELTO?</paragraph>'
+        f'<list><item>Take XARELTO exactly as prescribed.</item><item>Do not stop taking XARELTO without talking to your doctor.</item></list>'
+        f'</td>'
+        f'</tr>'
+        f'</table>'
+        f'</text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-xarelto-regression"))
+
+    assert result is not None
+    assert result.count("MEDICATION GUIDE") == 1
+    assert "<table>" not in result
+    assert "<h1><strong>MEDICATION GUIDE<br>XARELTO®<br>(rivaroxaban)<br>tablets</strong></h1>" in result
+    assert "What is the most important information I should know about XARELTO?" in result
+    assert "XARELTO can cause bleeding which can be serious." in result
+    assert "Take XARELTO exactly as prescribed." in result
+    assert "Do not stop taking XARELTO without talking to your doctor." in result
+
+
 # ---------------------------------------------------------------------------
 # fetch_boxed_warning_html tests
 # ---------------------------------------------------------------------------
@@ -887,6 +995,35 @@ def test_fetch_boxed_warning_html_strips_all_tables():
     assert result is not None
     assert "<table>" not in result
     assert "<p>Risk of bleeding.</p>" in result
+
+
+def test_fetch_boxed_warning_html_preserves_all_table_content():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="34066-1"/>'
+        f'<text>'
+        f'<table>'
+        f'<tr><td><paragraph>Risk of bleeding.</paragraph></td><td><paragraph>Monitor patients carefully.</paragraph></td></tr>'
+        f'<tr><td colspan="2"><list><item>Discontinue in active bleeding.</item><item>Restart only when clinically appropriate.</item></list></td></tr>'
+        f'</table>'
+        f'</text>'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_boxed_warning_html("set-bw-table-rich"))
+
+    assert result is not None
+    assert "<table>" not in result
+    assert "Risk of bleeding." in result
+    assert "Monitor patients carefully." in result
+    assert "Discontinue in active bleeding." in result
+    assert "Restart only when clinically appropriate." in result
+    assert result.find("Risk of bleeding.") < result.find("Monitor patients carefully.")
 
 
 def test_fetch_boxed_warning_html_strips_section_refs_but_keeps_doses_percentages_and_years():
