@@ -214,7 +214,7 @@ def _row_to_response(
 def _build_professional_meta(professional: ProfessionalRendered) -> dict[str, Any]:
     return {
         "highlights_html": professional.highlights_html,
-        "sections": [[str(slug), str(label)] for slug, label in professional.sections],
+        "sections": [[slug, label] for slug, label in professional.sections],
     }
 
 

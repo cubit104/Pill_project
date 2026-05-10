@@ -129,7 +129,12 @@ const PRO_HIGHLIGHTS_PROSE_CLASSES = [
 ].join(' ')
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
-  return values.find((value): value is string => typeof value === 'string' && Boolean(value.trim()))?.trim() ?? null
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (trimmed) return trimmed
+  }
+  return null
 }
 
 // Keep FDA-style all-caps proprietary names as-is (e.g. XARELTO),
