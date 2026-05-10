@@ -387,7 +387,7 @@ export default async function MedicationGuidePage({
             </div>
           )}
 
-          {professionalSections.length >= 3 ? (
+          {professionalSections.length > 0 ? (
             <div className={PRO_TOC_GRID_CLASSES}>
               <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
                 <div className="hidden lg:block no-print">

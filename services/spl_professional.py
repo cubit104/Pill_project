@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
+from urllib.parse import urlparse
 
 import bleach
 import httpx
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 _DAILYMED_SPL_XML_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{spl_set_id}.xml"
 _DAILYMED_IMAGE_URL = "https://dailymed.nlm.nih.gov/dailymed/image.cfm?setid={spl_set_id}&type=img&name={filename}"
-_DAILYMED_IMAGE_PREFIX = "https://dailymed.nlm.nih.gov/"
+_DAILYMED_IMAGE_HOST = "dailymed.nlm.nih.gov"
 _HL7_NS = "urn:hl7-org:v3"
 _NS = f"{{{_HL7_NS}}}"
 _ANCHOR_HREF_RE = re.compile(r"^#[a-z0-9-]+$")
@@ -227,7 +228,8 @@ def _is_attr_allowed(tag: str, name: str, value: str) -> bool:
     if tag == "a" and name == "href":
         return bool(_ANCHOR_HREF_RE.fullmatch((value or "").strip()))
     if tag == "img" and name == "src":
-        return (value or "").startswith(_DAILYMED_IMAGE_PREFIX)
+        parsed = urlparse((value or "").strip())
+        return parsed.scheme == "https" and parsed.hostname == _DAILYMED_IMAGE_HOST
     return True
 
 
@@ -286,7 +288,7 @@ def _render_node(el: etree._Element, ctx: _RenderContext) -> str:
             if child_tag == "caption":
                 caption_inner = _caption_inner_with_ctx(child, ctx)
                 if caption_inner.strip():
-                    items.append(f"<strong>{caption_inner}</strong>")
+                    items.append(f"<li><strong>{caption_inner}</strong></li>")
             elif child_tag == "item":
                 item_inner = _item_inner_with_ctx(child, ctx)
                 if item_inner.strip():

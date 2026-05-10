@@ -149,11 +149,31 @@ def test_professional_renderer_hotlinks_images_to_dailymed():
 
 def test_sanitize_html_blocks_off_cdn_images():
     cleaned = spl_professional._sanitize_html(
-        '<section><img src="http://evil.example.com/x.jpg" alt="bad" /><img src="https://dailymed.nlm.nih.gov/image.jpg" alt="ok" /></section>'
+        '<section>'
+        '<img src="http://evil.example.com/x.jpg" alt="bad" />'
+        '<img src="https://dailymed.nlm.nih.gov.evil.com/x.jpg" alt="bad2" />'
+        '<img src="https://dailymed.nlm.nih.gov/image.jpg" alt="ok" />'
+        '</section>'
     )
 
     assert 'evil.example.com' not in cleaned
+    assert 'dailymed.nlm.nih.gov.evil.com' not in cleaned
     assert 'https://dailymed.nlm.nih.gov/image.jpg' in cleaned
+
+
+def test_professional_renderer_wraps_list_caption_in_list_item():
+    xml = _wrap_document(
+        _section(
+            '34068-7',
+            'Dosage and Administration',
+            '<text><list><caption>Adults</caption><item>Take once daily.</item></list></text>',
+        )
+    )
+    with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered('set-list-caption'))
+
+    assert rendered is not None
+    assert '<ul><li><strong>Adults</strong></li><li>Take once daily.</li></ul>' in rendered.article_html
 
 
 def test_professional_renderer_resolves_in_page_links():
