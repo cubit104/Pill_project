@@ -207,7 +207,7 @@ def _is_meaningful_html(fragment: str) -> bool:
 
 
 def _sanitize_html(fragment: str) -> str:
-    sanitized = bleach.clean(fragment, tags=_ALLOWED_TAGS, attributes=_allowed_attrs, strip=True)
+    sanitized = bleach.clean(fragment, tags=_ALLOWED_TAGS, attributes=_is_attr_allowed, strip=True)
     sanitized = re.sub(r"<img(?:(?!\ssrc=)[^>])*>", "", sanitized)
     return sanitized.strip()
 
@@ -216,7 +216,7 @@ def _strip_section_refs(html_str: str) -> str:
     return _SECTION_REF_RE.sub("", html_str or "")
 
 
-def _allowed_attrs(tag: str, name: str, value: str) -> bool:
+def _is_attr_allowed(tag: str, name: str, value: str) -> bool:
     if name not in _ALLOWED_ATTRS.get(tag, []):
         return False
     if tag == "a" and name == "href":

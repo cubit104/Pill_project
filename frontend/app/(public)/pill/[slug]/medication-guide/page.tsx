@@ -87,6 +87,7 @@ const MEDGUIDE_PROSE_CLASSES = [
   '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:align-top',
   '[&_hr]:my-6 [&_hr]:border-slate-200',
 ].join(' ')
+const PRO_TOC_GRID_CLASSES = 'lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8'
 
 const PRO_PROSE_CLASSES = [
   'max-w-4xl',
@@ -387,7 +388,7 @@ export default async function MedicationGuidePage({
           )}
 
           {professionalSections.length >= 3 ? (
-            <div className="lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8">
+            <div className={PRO_TOC_GRID_CLASSES}>
               <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
                 <div className="hidden lg:block no-print">
                   <ProfessionalToc sections={professionalSections} />

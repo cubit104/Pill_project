@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 type Section = { slug: string; label: string }
+const PRO_TOC_ROOT_MARGIN = '-100px 0px -60% 0px'
 
 export default function ProfessionalToc({ sections }: { sections: Section[] }) {
   const [activeId, setActiveId] = useState<string | null>(sections[0]?.slug ?? null)
@@ -31,7 +32,9 @@ export default function ProfessionalToc({ sections }: { sections: Section[] }) {
           setActiveId(visible[0].target.id)
         }
       },
-      { rootMargin: '-100px 0px -60% 0px', threshold: 0 }
+      // Match the consumer TOC feel: activate slightly before the heading reaches the top,
+      // then keep it active until it has mostly scrolled past the viewport.
+      { rootMargin: PRO_TOC_ROOT_MARGIN, threshold: 0 }
     )
 
     headings.forEach((element) => observer.observe(element))
