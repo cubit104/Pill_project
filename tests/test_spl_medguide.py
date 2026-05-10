@@ -393,7 +393,8 @@ def test_outer_layout_table_is_unwrapped_into_flat_blocks():
     assert result is not None
     assert "<table>" not in result
     assert "<p>First left cell paragraph.</p>" in result
-    assert "<p>Revised: 6/2025</p>" in result
+    assert '<div class="medguide-meta">' in result
+    assert '<p class="medguide-revised">Revised: 6/2025</p>' in result
     assert "<p>Second row paragraph.</p>" in result
 
 
@@ -416,6 +417,55 @@ def test_real_data_table_is_preserved_when_prose_dominates():
     assert "<table>" in result
     assert "<td>A</td>" in result
     assert "<td>B</td>" in result
+
+
+def test_pradaxa_style_two_tables_are_unwrapped_into_meta_and_rich_h1():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>Medication Guide</title>'
+        f'<text>'
+        f'<table><tbody><tr>'
+        f'<td><paragraph>This Medication Guide has been approved by the U.S. Food and Drug Administration.</paragraph></td>'
+        f'<td><paragraph>Revised: 6/2025</paragraph></td>'
+        f'</tr></tbody></table>'
+        f'<table><tbody><tr><td>'
+        f'<paragraph styleCode="bold">MEDICATION GUIDE<br/>PRADAXA (pra dax a)<br/>(dabigatran etexilate)<br/>Capsules</paragraph>'
+        f'<paragraph styleCode="bold">What is the most important information I should know about PRADAXA?</paragraph>'
+        f'<paragraph>Some body copy.</paragraph>'
+        f'</td></tr></tbody></table>'
+        f'</text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-pradaxa-layout"))
+    assert result is not None
+    assert "<table>" not in result
+    assert '<div class="medguide-meta">' in result
+    assert '<p class="medguide-approval">This Medication Guide has been approved by the U.S. Food and Drug Administration.</p>' in result
+    assert '<p class="medguide-revised">Revised: 6/2025</p>' in result
+    assert "<h1><strong>MEDICATION GUIDE<br>PRADAXA (pra dax a)<br>(dabigatran etexilate)<br>Capsules</strong></h1>" in result
+    assert '<h2 id="what-is-the-most-important-information-i-should-know-about-pradaxa">What is the most important information I should know about PRADAXA?</h2>' in result
+    assert "<h1>Medication Guide</h1>" not in result
+
+
+def test_real_data_table_with_header_cells_is_preserved():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text>'
+        f'<table><thead><tr><th>Column A</th><th>Column B</th></tr></thead>'
+        f'<tbody><tr><td><paragraph>Value A</paragraph></td><td><paragraph>Value B</paragraph></td></tr></tbody></table>'
+        f'</text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-header-table"))
+    assert result is not None
+    assert "<table>" in result
+    assert "<th>Column A</th>" in result
+    assert "<th>Column B</th>" in result
 
 
 def test_bold_question_paragraph_promoted_to_h2_with_slug():
@@ -446,6 +496,20 @@ def test_bold_non_question_heading_paragraph_promoted_to_h2():
     assert '<h2 id="general-information-about-plavix">General information about Plavix</h2>' in result
 
 
+def test_bold_colon_heading_is_promoted_to_h2():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text><paragraph styleCode="bold">Important Safety Information:</paragraph></text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-bold-colon"))
+    assert result is not None
+    assert '<h2 id="important-safety-information">Important Safety Information:</h2>' in result
+
+
 def test_long_bold_paragraph_is_not_promoted_to_heading():
     long_question = (
         "What is " + ("very " * 60) + "long guidance that should remain paragraph because it exceeds the heading length limits?"
@@ -462,6 +526,22 @@ def test_long_bold_paragraph_is_not_promoted_to_heading():
     assert result is not None
     assert "<h2" not in result
     assert "<p>" in result
+
+
+def test_consecutive_spl_paragraphs_are_not_merged():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text><paragraph>First paragraph.</paragraph><paragraph>Second paragraph.</paragraph></text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-paragraph-boundaries"))
+    assert result is not None
+    assert result.count("<p>") == 2
+    assert "<p>First paragraph.</p>" in result
+    assert "<p>Second paragraph.</p>" in result
 
 
 def test_duplicate_promoted_question_headings_get_unique_ids():
@@ -510,6 +590,25 @@ def test_empty_paragraph_is_removed():
     assert result is not None
     assert "<p>   </p>" not in result
     assert "<p>Content.</p>" in result
+
+
+def test_bold_medication_guide_preamble_becomes_h1_not_h2():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>Medication Guide</title>'
+        f'<text>'
+        f'<paragraph styleCode="bold">MEDICATION GUIDE<br/>XARELTO<br/>(rivaroxaban)<br/>tablets</paragraph>'
+        f'<paragraph styleCode="bold">What is XARELTO?</paragraph>'
+        f'</text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-title-preamble"))
+    assert result is not None
+    assert "<h1><strong>MEDICATION GUIDE<br>XARELTO<br>(rivaroxaban)<br>tablets</strong></h1>" in result
+    assert "<h2 id=\"medication-guide-xarelto-rivaroxaban-tablets\">" not in result
+    assert '<h2 id="what-is-xarelto">What is XARELTO?</h2>' in result
 
 
 def test_section_selection_first_match_with_promoted_headings_stays_stable():

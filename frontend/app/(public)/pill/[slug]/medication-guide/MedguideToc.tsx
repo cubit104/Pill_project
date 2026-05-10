@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { shortenTocLabel } from './shortenTocLabel.mjs'
 
 interface TocEntry {
   id: string
@@ -27,7 +28,7 @@ function extractHeadings(html: string): TocEntry[] {
   }
 }
 
-export default function MedguideToc({ html }: { html: string }) {
+export default function MedguideToc({ html, drugName }: { html: string; drugName: string }) {
   const [entries, setEntries] = useState<TocEntry[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)
@@ -108,14 +109,16 @@ export default function MedguideToc({ html }: { html: string }) {
               onClick={(e) => handleClick(e, id)}
               className={
                 activeId === id
-                  ? 'block text-sm text-sky-700 font-semibold leading-snug py-0.5'
-                  : 'block text-sm text-slate-600 hover:text-slate-900 leading-snug py-0.5'
-              }
-            >
-              {text}
-            </a>
-          </li>
-        ))}
+                  ? 'block whitespace-nowrap text-sm font-semibold text-sky-700 py-0.5'
+                  : 'block whitespace-nowrap text-sm font-medium text-slate-600 hover:text-slate-900 py-0.5'
+               }
+               title={text}
+               aria-label={text}
+             >
+               {shortenTocLabel(text, drugName)}
+             </a>
+           </li>
+         ))}
       </ul>
     </nav>
   )
