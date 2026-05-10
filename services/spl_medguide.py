@@ -11,11 +11,13 @@ from __future__ import annotations
 import html
 import logging
 import re
+import unicodedata
 from typing import Optional
 
 import bleach
 import httpx
 from lxml import etree
+from lxml import html as lxml_html
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,11 @@ _PATIENT_CONTENT_KEYWORDS = (
     "read this medication guide",
 )
 _SPL_UNCLASSIFIED_CODE = "42229-5"
+_HEADING_KEYWORD_RE = re.compile(
+    r"^\s*(what|who|how|when|why|where|before|after|general information about|important information about|read this medication guide)\b",
+    re.IGNORECASE,
+)
+_DASH_ONLY_P_RE = re.compile(r"^[\s\-–—_=]{3,}$")
 
 # Safe HTML tags allowed in output
 ALLOWED_TAGS = [
@@ -71,8 +78,10 @@ def _local(tag: str) -> str:
 
 def _slugify(text: str) -> str:
     """Convert heading text to a URL-safe id slug."""
-    slug = text.lower()
+    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    slug = ascii_text.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = re.sub(r"-{2,}", "-", slug)
     slug = slug.strip("-")
     return slug or "section"
 
@@ -81,10 +90,245 @@ def _unique_slug(text: str, seen: dict[str, int]) -> str:
     """Return a slugified id that is unique within *seen*."""
     base = _slugify(text)
     if base not in seen:
-        seen[base] = 0
+        seen[base] = 1
         return base
     seen[base] += 1
     return f"{base}-{seen[base]}"
+
+
+def _normalize_visible_text(text: str) -> str:
+    return " ".join((text or "").split()).strip()
+
+
+def _is_heading_like_text(text: str) -> bool:
+    normalized = _normalize_visible_text(text)
+    if not normalized:
+        return False
+    if len(normalized) > 200:
+        return False
+    if len(normalized.split()) > 25:
+        return False
+    return normalized.endswith("?") or bool(_HEADING_KEYWORD_RE.match(normalized))
+
+
+def _is_single_bold_paragraph_source(paragraph_el: etree._Element) -> bool:
+    style = (paragraph_el.get("styleCode") or "").lower()
+    if "bold" in style:
+        return True
+    children = list(paragraph_el)
+    if len(children) != 1:
+        return False
+    child = children[0]
+    if _local(child.tag) != "content":
+        return False
+    child_style = (child.get("styleCode") or "").lower()
+    if "bold" not in child_style:
+        return False
+    para_text = _normalize_visible_text("".join(paragraph_el.itertext()))
+    child_text = _normalize_visible_text("".join(child.itertext()))
+    return bool(para_text) and para_text == child_text
+
+
+def _is_single_cell_layout_table(table_el: etree._Element) -> bool:
+    rows = [row for row in table_el.iter() if _local(row.tag) == "tr"]
+    if len(rows) != 1:
+        return False
+    cells = [c for c in rows[0] if _local(c.tag) in {"td", "th"}]
+    return len(cells) == 1
+
+
+def _table_content_ratio(text_el: etree._Element, table_el: etree._Element) -> float:
+    total = len(_normalize_visible_text("".join(text_el.itertext())))
+    if total <= 0:
+        return 0.0
+    cell_text = "".join(
+        "".join(cell.itertext())
+        for row in table_el.iter()
+        if _local(row.tag) == "tr"
+        for cell in row
+        if _local(cell.tag) in {"td", "th"}
+    )
+    cell_len = len(_normalize_visible_text(cell_text))
+    return cell_len / total if total else 0.0
+
+
+def _outer_layout_table(text_el: etree._Element) -> Optional[etree._Element]:
+    non_title_children = [c for c in text_el if _local(c.tag) != "title"]
+    table_children = [c for c in non_title_children if _local(c.tag) == "table"]
+    if len(table_children) != 1:
+        return None
+    if len(non_title_children) != 1:
+        return None
+    table_el = table_children[0]
+    has_rows = any(_local(row.tag) == "tr" for row in table_el.iter())
+    if not has_rows:
+        return None
+    if _table_content_ratio(text_el, table_el) <= 0.60:
+        return None
+    return table_el
+
+
+def _paragraph_inner_html(paragraph_el: etree._Element) -> str:
+    parts: list[str] = []
+    if paragraph_el.text:
+        parts.append(html.escape(paragraph_el.text))
+    for child in paragraph_el:
+        parts.append(_to_html(child))
+        if child.tail:
+            parts.append(html.escape(child.tail))
+    return "".join(parts)
+
+
+def _render_paragraph(
+    paragraph_el: etree._Element,
+    *,
+    section_depth: int,
+    seen_ids: dict[str, int],
+) -> str:
+    inner = _paragraph_inner_html(paragraph_el)
+    visible_text = _normalize_visible_text("".join(paragraph_el.itertext()))
+    if not inner.strip():
+        return ""
+    if _is_single_bold_paragraph_source(paragraph_el) and _is_heading_like_text(visible_text):
+        tag_name = "h3" if section_depth >= 2 else "h2"
+        slug = _unique_slug(visible_text, seen_ids)
+        return f'<{tag_name} id="{slug}">{html.escape(visible_text)}</{tag_name}>'
+    return f"<p>{inner}</p>"
+
+
+def _render_unwrapped_table(
+    table_el: etree._Element,
+    *,
+    section_depth: int,
+    seen_ids: dict[str, int],
+    depth: int = 0,
+) -> list[str]:
+    if depth >= 3:
+        table_html = _to_html(table_el)
+        return [table_html] if table_html.strip() else []
+
+    rendered: list[str] = []
+    for row in table_el.xpath(".//*[local-name()='tr']"):
+        if _local(row.tag) != "tr":
+            continue
+        nearest_table_ancestor = next(
+            (anc for anc in row.iterancestors() if _local(anc.tag) == "table"),
+            None,
+        )
+        if nearest_table_ancestor is not table_el:
+            continue
+        for cell in row:
+            if _local(cell.tag) not in {"td", "th"}:
+                continue
+            if cell.text and cell.text.strip():
+                rendered.append(f"<p>{html.escape(cell.text)}</p>")
+            for child in cell:
+                if _local(child.tag) == "table" and _is_single_cell_layout_table(child):
+                    rendered.extend(
+                        _render_unwrapped_table(
+                            child,
+                            section_depth=section_depth,
+                            seen_ids=seen_ids,
+                            depth=depth + 1,
+                        )
+                    )
+                    if child.tail and child.tail.strip():
+                        rendered.append(f"<p>{html.escape(child.tail)}</p>")
+                    continue
+                child_tag = _local(child.tag)
+                if child_tag == "paragraph":
+                    child_html = _render_paragraph(child, section_depth=section_depth, seen_ids=seen_ids)
+                else:
+                    child_html = _to_html(child)
+                if child_html.strip():
+                    rendered.append(child_html)
+                if child.tail and child.tail.strip():
+                    rendered.append(f"<p>{html.escape(child.tail)}</p>")
+            if cell.tail and cell.tail.strip():
+                rendered.append(f"<p>{html.escape(cell.tail)}</p>")
+    return rendered
+
+
+def _promote_strong_only_paragraphs(root: etree._Element, seen_ids: dict[str, int]) -> None:
+    for p_el in list(root.xpath(".//p")):
+        visible_text = _normalize_visible_text("".join(p_el.itertext()))
+        if not _is_heading_like_text(visible_text):
+            continue
+        children = [child for child in p_el if isinstance(child.tag, str)]
+        if len(children) != 1 or _local(children[0].tag) != "strong":
+            continue
+        child_text = _normalize_visible_text("".join(children[0].itertext()))
+        if child_text != visible_text:
+            continue
+        h2_el = lxml_html.Element("h2")
+        h2_el.set("id", _unique_slug(visible_text, seen_ids))
+        h2_el.text = visible_text
+        parent = p_el.getparent()
+        if parent is not None:
+            parent.replace(p_el, h2_el)
+
+
+def _remove_dash_empty_paragraphs(root: etree._Element) -> None:
+    for p_el in list(root.xpath(".//p")):
+        visible_text = _normalize_visible_text("".join(p_el.itertext()))
+        if not visible_text or _DASH_ONLY_P_RE.fullmatch(visible_text):
+            parent = p_el.getparent()
+            if parent is not None:
+                parent.remove(p_el)
+
+
+def _dedupe_and_trim_hr(root: etree._Element) -> None:
+    for parent in root.iter():
+        children = [child for child in parent if isinstance(child.tag, str)]
+        prev_was_hr = False
+        for child in children:
+            if _local(child.tag) != "hr":
+                prev_was_hr = False
+                continue
+            if prev_was_hr:
+                parent.remove(child)
+                continue
+            prev_was_hr = True
+
+    while len(root) and isinstance(root[0].tag, str) and _local(root[0].tag) == "hr":
+        root.remove(root[0])
+    while len(root) and isinstance(root[-1].tag, str) and _local(root[-1].tag) == "hr":
+        root.remove(root[-1])
+
+
+def _strip_duplicated_leading_medguide_header(root: etree._Element, h1_text: str) -> None:
+    normalized_h1 = _normalize_visible_text(h1_text).lower()
+    if not normalized_h1:
+        return
+    if not normalized_h1.startswith("medication guide"):
+        return
+    for child in list(root):
+        if not isinstance(child.tag, str):
+            continue
+        tag = _local(child.tag)
+        if tag == "h1":
+            continue
+        if tag != "p":
+            break
+        text = _normalize_visible_text("".join(child.itertext())).lower()
+        if not text:
+            root.remove(child)
+            continue
+        if text.startswith("medication guide"):
+            root.remove(child)
+        break
+
+
+def _postprocess_rendered_html(combined_html: str, seen_ids: dict[str, int], h1_text: str) -> str:
+    root = lxml_html.fragment_fromstring(combined_html or "", create_parent="div")
+    _promote_strong_only_paragraphs(root, seen_ids)
+    _remove_dash_empty_paragraphs(root)
+    _dedupe_and_trim_hr(root)
+    _strip_duplicated_leading_medguide_header(root, h1_text)
+    return "".join(
+        etree.tostring(child, encoding="unicode", method="html")
+        for child in root
+    )
 
 
 def _safe_cell_attrs(el: etree._Element) -> str:
@@ -211,13 +455,27 @@ def _to_html(el: etree._Element) -> str:
     return _inner()
 
 
-def _render_text_element(text_el: etree._Element) -> str:
+def _render_text_element(
+    text_el: etree._Element,
+    *,
+    section_depth: int,
+    seen_ids: dict[str, int],
+) -> str:
     """Convert an SPL ``<text>`` element to an HTML string (unsanitized)."""
     parts: list[str] = []
     if text_el.text and text_el.text.strip():
         parts.append(f"<p>{html.escape(text_el.text)}</p>")
+    table_layout = _outer_layout_table(text_el)
+    if table_layout is not None:
+        parts.extend(
+            _render_unwrapped_table(table_layout, section_depth=section_depth, seen_ids=seen_ids)
+        )
+        return "\n".join(parts)
     for child in text_el:
-        child_html = _to_html(child)
+        if _local(child.tag) == "paragraph":
+            child_html = _render_paragraph(child, section_depth=section_depth, seen_ids=seen_ids)
+        else:
+            child_html = _to_html(child)
         if child_html.strip():
             parts.append(child_html)
         if child.tail and child.tail.strip():
@@ -228,6 +486,7 @@ def _render_text_element(text_el: etree._Element) -> str:
 def _walk_section(
     section: etree._Element,
     heading_level: int,
+    section_depth: int,
     seen_ids: dict[str, int],
 ) -> str:
     """Walk a subsection and emit semantic HTML.
@@ -265,7 +524,7 @@ def _walk_section(
             continue  # already handled above
 
         if child_tag == "text":
-            parts.append(_render_text_element(child))
+            parts.append(_render_text_element(child, section_depth=section_depth, seen_ids=seen_ids))
             continue
 
         if child_tag == "component":
@@ -274,7 +533,14 @@ def _walk_section(
                 gc_tag = _local(grandchild.tag)
                 if gc_tag == "section":
                     next_level = min(heading_level + 1, 3)
-                    parts.append(_walk_section(grandchild, next_level, seen_ids))
+                    parts.append(
+                        _walk_section(
+                            grandchild,
+                            next_level,
+                            section_depth=section_depth + 1,
+                            seen_ids=seen_ids,
+                        )
+                    )
                 else:
                     gc_html = _to_html(grandchild)
                     if gc_html.strip():
@@ -298,6 +564,7 @@ def _render_medguide_section(section: etree._Element) -> str:
     """
     parts: list[str] = []
     seen_ids: dict[str, int] = {}
+    h1_text_plain = ""
 
     # Medguide section title → <h1>
     title_el = section.find(f"{_NS}title")
@@ -312,6 +579,7 @@ def _render_medguide_section(section: etree._Element) -> str:
         title_text = "".join(title_parts)
         if title_text.strip():
             parts.append(f"<h1>{title_text}</h1>")
+            h1_text_plain = "".join(title_el.itertext())
 
     for child in section:
         child_tag = _local(child.tag)
@@ -320,14 +588,21 @@ def _render_medguide_section(section: etree._Element) -> str:
             continue  # already handled above
 
         if child_tag == "text":
-            parts.append(_render_text_element(child))
+            parts.append(_render_text_element(child, section_depth=1, seen_ids=seen_ids))
             continue
 
         if child_tag == "component":
             for grandchild in child:
                 gc_tag = _local(grandchild.tag)
                 if gc_tag == "section":
-                    parts.append(_walk_section(grandchild, heading_level=2, seen_ids=seen_ids))
+                    parts.append(
+                        _walk_section(
+                            grandchild,
+                            heading_level=2,
+                            section_depth=2,
+                            seen_ids=seen_ids,
+                        )
+                    )
                 else:
                     gc_html = _to_html(grandchild)
                     if gc_html.strip():
@@ -338,7 +613,7 @@ def _render_medguide_section(section: etree._Element) -> str:
         if child_html.strip():
             parts.append(child_html)
 
-    combined = "\n".join(parts)
+    combined = _postprocess_rendered_html("\n".join(parts), seen_ids=seen_ids, h1_text=h1_text_plain)
     sanitized = bleach.clean(combined, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
     return f"<article>{sanitized}</article>"
 
