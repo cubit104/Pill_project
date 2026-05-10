@@ -28,6 +28,7 @@ from services._spl_text_helpers import (
 logger = logging.getLogger(__name__)
 
 _DAILYMED_SPL_XML_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{spl_set_id}.xml"
+_DAILYMED_STANDALONE_MEDGUIDE_URL = "https://dailymed.nlm.nih.gov/dailymed/medguide.cfm?setid={spl_set_id}"
 
 _HL7_NS = "urn:hl7-org:v3"
 _NS = f"{{{_HL7_NS}}}"
@@ -1006,10 +1007,87 @@ def _select_medguide_section(tree: etree._Element) -> Optional[etree._Element]:
 # Public API
 # ---------------------------------------------------------------------------
 
+async def _fetch_standalone_medguide_html(spl_set_id: str) -> Optional[str]:
+    """Fallback: fetch standalone medguide HTML from DailyMed's medguide.cfm
+    endpoint when the inline SPL XML walker finds no medguide section.
+
+    DailyMed serves medguide content as a full HTML document using the FDA SPL
+    stylesheet.  The actual content lives in ``<div class="Section">`` containers.
+    All navigation chrome, scripts, and style links are stripped before the
+    content is run through the same post-processing pipeline as the inline path.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(
+                _DAILYMED_STANDALONE_MEDGUIDE_URL.format(spl_set_id=spl_set_id)
+            )
+        if response.status_code >= 400:
+            return None
+        if not response.content:
+            return None
+
+        doc = lxml_html.fromstring(response.content)
+
+        # Strip chrome elements: scripts, styles, navigation, iframes, etc.
+        for el in doc.xpath(
+            "//script | //style | //link | //meta | //iframe"
+            " | //header | //footer | //nav"
+        ):
+            parent = el.getparent()
+            if parent is not None:
+                parent.remove(el)
+
+        # DailyMed renders medguide content in <div class="Section"> elements
+        # via the FDA SPL stylesheet.  Fall back to full body if none are found.
+        content_containers = doc.xpath(
+            "//div[contains(@class,'Section')]"
+            " | //div[@id='content']"
+            " | //div[@id='main']"
+        )
+        if content_containers:
+            body_html = "".join(
+                lxml_html.tostring(div, encoding="unicode")
+                for div in content_containers
+            )
+        else:
+            body = doc.find(".//body")
+            if body is None:
+                return None
+            body_html = "".join(
+                lxml_html.tostring(child, encoding="unicode") for child in body
+            )
+
+        if not body_html.strip():
+            return None
+
+        # Run through the same post-processing pipeline as the inline path.
+        processed = _strip_tables(body_html)
+        processed = _postprocess_after_table_strip(processed, extract_meta_strip=True)
+        sanitized = bleach.clean(
+            processed, tags=ALLOWED_TAGS, attributes=_bleach_allowed_attrs, strip=True
+        )
+
+        if len(sanitized.strip()) < 50:
+            return None
+
+        return f"<article>{sanitized}</article>"
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch standalone medguide HTML for spl_set_id=%s: %s",
+            spl_set_id,
+            exc,
+            exc_info=True,
+        )
+        return None
+
+
 async def fetch_medguide_html(spl_set_id: str) -> Optional[str]:
     """Fetch SPL XML, isolate the patient Medication Guide subtree, render as
     sanitized semantic HTML (no <html>/<head>/<link>, no FDA stylesheet, no
     iframe wrapper). Returns None on miss/failure.
+
+    If the inline SPL XML walker finds no medguide section, falls back to the
+    standalone DailyMed ``medguide.cfm`` endpoint before returning None.
     """
     spl_set_id = (spl_set_id or "").strip()
     if not spl_set_id:
@@ -1025,10 +1103,8 @@ async def fetch_medguide_html(spl_set_id: str) -> Optional[str]:
         xml_tree = etree.fromstring(response.content, parser=parser)
 
         section = _select_medguide_section(xml_tree)
-        if section is None:
-            return None
-
-        return _render_medguide_section(section)
+        if section is not None:
+            return _render_medguide_section(section)
     except Exception as exc:
         logger.warning(
             "Failed to render medguide HTML for spl_set_id=%s: %s",
@@ -1037,6 +1113,10 @@ async def fetch_medguide_html(spl_set_id: str) -> Optional[str]:
             exc_info=True,
         )
         return None
+
+    # Inline SPL XML walker found no medguide section.
+    # Fall back to the standalone DailyMed medguide.cfm endpoint.
+    return await _fetch_standalone_medguide_html(spl_set_id)
 
 
 _BOXED_WARNING_LOINC = "34066-1"

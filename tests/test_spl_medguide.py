@@ -92,6 +92,32 @@ class _FakeClient:
         return resp
 
 
+class _FakeClientMultiUrl:
+    """Fake httpx.AsyncClient that dispatches responses by URL substring."""
+
+    def __init__(self, url_map: dict):
+        """url_map: {url_substring: (status_code, content_bytes)}"""
+        self._url_map = url_map
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return False
+
+    async def get(self, url):
+        for substring, (status_code, content) in self._url_map.items():
+            if substring in url:
+                resp = MagicMock()
+                resp.status_code = status_code
+                resp.content = content
+                return resp
+        resp = MagicMock()
+        resp.status_code = 404
+        resp.content = b""
+        return resp
+
+
 # ---------------------------------------------------------------------------
 # Section selection tests (unchanged behavior)
 # ---------------------------------------------------------------------------
@@ -872,6 +898,119 @@ def test_xarelto_style_table_strip_preserves_header_and_body_content():
     assert "XARELTO can cause bleeding which can be serious." in result
     assert "Take XARELTO exactly as prescribed." in result
     assert "Do not stop taking XARELTO without talking to your doctor." in result
+
+
+# ---------------------------------------------------------------------------
+# fetch_medguide_html standalone fallback tests
+# ---------------------------------------------------------------------------
+
+# SPL XML that has no medguide section (only a boxed-warning section)
+_NO_MEDGUIDE_SECTION_XML = (
+    f'<document xmlns="{_NS}">'
+    f'<component><structuredBody><component>'
+    f'<section><code code="34066-1"/><title>BOXED WARNING</title></section>'
+    f'</component></structuredBody></component>'
+    f'</document>'
+).encode()
+
+# Representative standalone medguide HTML as DailyMed's medguide.cfm would serve it
+_STANDALONE_MEDGUIDE_HTML = b"""<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="/dailymed/stylesheet/fda.css"/>
+  <script src="/dailymed/js/navigation.js"></script>
+  <style>.hide { display: none; }</style>
+  <meta charset="utf-8"/>
+  <title>DailyMed - PLAVIX- clopidogrel bisulfate tablet</title>
+</head>
+<body>
+  <header>
+    <nav>DailyMed Navigation Bar</nav>
+  </header>
+  <div class="Section">
+    <p><strong>MEDICATION GUIDE</strong></p>
+    <p>Clopidogrel (kloh-PID-oh-grel) Tablets</p>
+    <p>Read this Medication Guide carefully before you start taking clopidogrel
+    and each time you get a refill.</p>
+    <p>What is the most important information I should know about clopidogrel?</p>
+    <p>Clopidogrel can cause serious side effects, including bleeding that can be
+    life-threatening and sometimes lead to death.</p>
+  </div>
+  <footer>
+    <p>FDA Footer Content</p>
+  </footer>
+</body>
+</html>"""
+
+
+def test_fetch_medguide_html_uses_standalone_fallback_when_inline_returns_nothing():
+    """When the SPL XML walker finds no medguide section, falls back to medguide.cfm."""
+    url_map = {
+        "/dailymed/services/v2/spls/": (200, _NO_MEDGUIDE_SECTION_XML),
+        "/dailymed/medguide.cfm": (200, _STANDALONE_MEDGUIDE_HTML),
+    }
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClientMultiUrl(url_map)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("test-set-id"))
+
+    assert result is not None
+    assert result.startswith("<article>")
+    assert result.endswith("</article>")
+    assert "clopidogrel" in result.lower()
+    # FDA chrome must be stripped
+    assert "<link" not in result
+    assert "<script" not in result
+    assert "DailyMed Navigation Bar" not in result
+    assert "FDA Footer Content" not in result
+
+
+def test_fetch_medguide_html_returns_none_when_both_paths_fail():
+    """Returns None when SPL XML has no medguide and medguide.cfm returns 404."""
+    url_map = {
+        "/dailymed/services/v2/spls/": (200, _NO_MEDGUIDE_SECTION_XML),
+        "/dailymed/medguide.cfm": (404, b"Not Found"),
+    }
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClientMultiUrl(url_map)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("test-set-id"))
+
+    assert result is None
+
+
+def test_fetch_medguide_html_prefers_inline_over_standalone():
+    """When the SPL XML walker returns an inline medguide, standalone endpoint is never called."""
+    inline_xml = _minimal_spl_xml()  # Has a valid 42231-1 medguide section
+    standalone_called: list[str] = []
+
+    async def _noop_standalone(spl_set_id: str):
+        standalone_called.append(spl_set_id)
+        return None
+
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=inline_xml)):
+        with patch.object(spl_medguide, "_fetch_standalone_medguide_html", side_effect=_noop_standalone):
+            result = asyncio.run(spl_medguide.fetch_medguide_html("test-set-id"))
+
+    assert result is not None
+    assert result.startswith("<article>")
+    assert standalone_called == [], "standalone endpoint must not be called when inline path succeeds"
+
+
+def test_fetch_medguide_html_standalone_fallback_handles_empty_body():
+    """Returns None when medguide.cfm returns 200 with no extractable medguide content."""
+    empty_html = b"""<!DOCTYPE html>
+<html>
+<head><title>DailyMed</title></head>
+<body>
+  <header><nav>Navigation</nav></header>
+  <footer><p>Footer</p></footer>
+</body>
+</html>"""
+    url_map = {
+        "/dailymed/services/v2/spls/": (200, _NO_MEDGUIDE_SECTION_XML),
+        "/dailymed/medguide.cfm": (200, empty_html),
+    }
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClientMultiUrl(url_map)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("test-set-id"))
+
+    assert result is None
 
 
 # ---------------------------------------------------------------------------
