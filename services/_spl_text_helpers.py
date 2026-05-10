@@ -5,6 +5,14 @@ from lxml import html as lxml_html
 _LEADING_BULLET_RE = re.compile(r"^[\s]*[•●▪‧·∙►▶◦‣⁃]+[\s]*")
 
 
+def _is_blank_text(text: str) -> bool:
+    return not " ".join((text or "").split()).strip()
+
+
+def _serialize_children(root) -> str:
+    return ((root.text or "") + "".join(lxml_html.tostring(child, encoding="unicode") for child in root)).strip()
+
+
 def strip_leading_bullets(text: str) -> str:
     if not text:
         return text
@@ -33,9 +41,9 @@ def strip_leading_bullets_from_html(html_str: str) -> str:
                     parent.text = stripped
                 else:
                     parent.tail = stripped
-        if not " ".join("".join(el.itertext()).split()).strip():
+        if _is_blank_text("".join(el.itertext())):
             parent = el.getparent()
             if parent is not None:
                 parent.remove(el)
 
-    return ((root.text or "") + "".join(lxml_html.tostring(child, encoding="unicode") for child in root)).strip()
+    return _serialize_children(root)
