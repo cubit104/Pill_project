@@ -165,6 +165,8 @@ def _row_to_response(
 ) -> dict[str, Any]:
     """Convert a medication_guide row dict into API response shape."""
     professional_meta = row.get("professional_meta") if include_professional else None
+    # API callers may send different name fields depending on source:
+    # prefer branded/proprietary names, then generic/common identifiers.
     display_name = (
         row.get("brand_name")
         or row.get("proprietary_name")
