@@ -65,6 +65,7 @@ def test_full_professional_renderer_extracts_highlights_and_all_sections():
     xml = _wrap_document(*sections)
     with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(content=xml)):
         rendered = asyncio.run(spl_professional.fetch_professional_rendered('set-all'))
+        article_only = asyncio.run(spl_professional.fetch_professional_html('set-all'))
 
     assert rendered is not None
     assert rendered.highlights_html is not None
@@ -73,7 +74,7 @@ def test_full_professional_renderer_extracts_highlights_and_all_sections():
     assert len(rendered.sections) == len(spl_professional.PRO_SECTIONS) - 1
     assert rendered.article_html.count('<h2 id="') == len(spl_professional.PRO_SECTIONS) - 1
     assert 'id="highlights"' not in rendered.article_html
-    assert asyncio.run(spl_professional.fetch_professional_html('set-all')) == rendered.article_html
+    assert article_only == rendered.article_html
 
 
 def test_sparse_professional_renderer_only_includes_present_sections():

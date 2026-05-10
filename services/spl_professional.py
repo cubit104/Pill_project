@@ -9,8 +9,6 @@ import bleach
 import httpx
 from lxml import etree
 
-from services.spl_medguide import _caption_inner, _item_inner, _safe_cell_attrs, _slugify, _strip_section_refs
-
 logger = logging.getLogger(__name__)
 
 _DAILYMED_SPL_XML_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{spl_set_id}.xml"
@@ -19,6 +17,7 @@ _DAILYMED_IMAGE_PREFIX = "https://dailymed.nlm.nih.gov/"
 _HL7_NS = "urn:hl7-org:v3"
 _NS = f"{{{_HL7_NS}}}"
 _ANCHOR_HREF_RE = re.compile(r"^#[a-z0-9-]+$")
+_SECTION_REF_RE = re.compile(r"\s*\((?:\d+\.\d+(?:\.\d+)?(?:\s*,\s*\d+\.\d+(?:\.\d+)?)*)\)")
 
 PRO_SECTIONS = [
     ("42229-5", "highlights", "Highlights", "Highlights of Prescribing Information"),
@@ -107,6 +106,12 @@ def _local(tag: str) -> str:
 
 def _normalize_text(text: str) -> str:
     return " ".join((text or "").split()).strip()
+
+
+def _slugify(text: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (text or "").lower())
+    slug = re.sub(r"-{2,}", "-", slug)
+    return slug.strip("-") or "section"
 
 
 def _iter_section_children(section: etree._Element):
@@ -205,6 +210,10 @@ def _sanitize_html(fragment: str) -> str:
     sanitized = bleach.clean(fragment, tags=_ALLOWED_TAGS, attributes=_allowed_attrs, strip=True)
     sanitized = re.sub(r"<img(?:(?!\ssrc=)[^>])*>", "", sanitized)
     return sanitized.strip()
+
+
+def _strip_section_refs(html_str: str) -> str:
+    return _SECTION_REF_RE.sub("", html_str or "")
 
 
 def _allowed_attrs(tag: str, name: str, value: str) -> bool:
@@ -311,6 +320,50 @@ def _render_node(el: etree._Element, ctx: _RenderContext) -> str:
     if tag == "br":
         return "<br>"
     return inner
+
+
+def _safe_cell_attrs(el: etree._Element) -> str:
+    attrs = ""
+    colspan = el.get("colspan")
+    rowspan = el.get("rowspan")
+    if colspan:
+        attrs += f' colspan="{html.escape(colspan)}"'
+    if rowspan:
+        attrs += f' rowspan="{html.escape(rowspan)}"'
+    return attrs
+
+
+def _caption_inner(el: etree._Element) -> str:
+    parts: list[str] = []
+    if el.text:
+        parts.append(html.escape(el.text))
+    for child in el:
+        parts.append(_caption_inner(child) if _local(child.tag) == "caption" else _fallback_inner(child))
+        if child.tail:
+            parts.append(html.escape(child.tail))
+    return "".join(parts)
+
+
+def _item_inner(el: etree._Element) -> str:
+    parts: list[str] = []
+    if el.text:
+        parts.append(html.escape(el.text))
+    for child in el:
+        parts.append(_fallback_inner(child))
+        if child.tail:
+            parts.append(html.escape(child.tail))
+    return "".join(parts)
+
+
+def _fallback_inner(el: etree._Element) -> str:
+    parts: list[str] = []
+    if el.text:
+        parts.append(html.escape(el.text))
+    for child in el:
+        parts.append(_fallback_inner(child))
+        if child.tail:
+            parts.append(html.escape(child.tail))
+    return "".join(parts)
 
 
 def _caption_inner_with_ctx(el: etree._Element, ctx: _RenderContext) -> str:
