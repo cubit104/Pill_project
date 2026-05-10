@@ -16,7 +16,7 @@ from services.dailymed_client import DailyMedClient
 from services.dailymed_spl_client import fetch_spl_sections
 from services.openfda_client import OpenFDAClient, OpenFDAUpstreamError
 from services.spl_medguide import fetch_boxed_warning_html, fetch_medguide_html
-from services.spl_professional import fetch_professional_html
+from services.spl_professional import fetch_professional_rendered
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,7 @@ _GUIDE_COLUMNS = [
     "has_boxed_warning",
     "source_url",
     "professional_html",
+    "professional_meta",
     "medguide_html",
     "boxed_warning_html",
     "fetched_at",
@@ -163,6 +164,7 @@ def _row_to_response(
     include_boxed_warning: bool = False,
 ) -> dict[str, Any]:
     """Convert a medication_guide row dict into API response shape."""
+    professional_meta = row.get("professional_meta") if include_professional else None
     return {
         "rxcui": row.get("rxcui"),
         "ndc": row.get("ndc"),
@@ -186,6 +188,12 @@ def _row_to_response(
         },
         "source_url": row.get("source_url"),
         "professional_html": row.get("professional_html") if include_professional else None,
+        "professional_highlights_html": (
+            professional_meta.get("highlights_html") if isinstance(professional_meta, dict) else None
+        ),
+        "professional_sections": (
+            professional_meta.get("sections") if isinstance(professional_meta, dict) else None
+        ),
         "medguide_html": row.get("medguide_html") if include_medguide else None,
         "boxed_warning_html": row.get("boxed_warning_html") if include_boxed_warning else None,
         "fetched_at": _to_iso(row.get("fetched_at")),
@@ -314,6 +322,7 @@ def _update_guide(conn, payload: dict[str, Any], *, existing_id: int) -> dict[st
                 has_boxed_warning = :has_boxed_warning,
                 source_url = :source_url,
                 professional_html = COALESCE(:professional_html, professional_html),
+                professional_meta = COALESCE(:professional_meta, professional_meta),
                 medguide_html = COALESCE(:medguide_html, medguide_html),
                 boxed_warning_html = COALESCE(:boxed_warning_html, boxed_warning_html),
                 fetched_at = :fetched_at,
@@ -342,14 +351,14 @@ def _insert_guide(conn, payload: dict[str, Any]) -> dict[str, Any]:
                 overview, uses, dosage, how_to_take, side_effects,
                 warnings, interactions, contraindications, special_populations,
                 overdose, storage, pharmacology, manufacturer,
-                has_boxed_warning, source_url, professional_html, medguide_html, boxed_warning_html, fetched_at, updated_at
+                has_boxed_warning, source_url, professional_html, professional_meta, medguide_html, boxed_warning_html, fetched_at, updated_at
             )
             VALUES (
                 :rxcui, :ndc, :spl_set_id, :generic_name, :brand_name,
                 :overview, :uses, :dosage, :how_to_take, :side_effects,
                 :warnings, :interactions, :contraindications, :special_populations,
                 :overdose, :storage, :pharmacology, :manufacturer,
-                :has_boxed_warning, :source_url, :professional_html, :medguide_html, :boxed_warning_html, :fetched_at, :updated_at
+                :has_boxed_warning, :source_url, :professional_html, :professional_meta, :medguide_html, :boxed_warning_html, :fetched_at, :updated_at
             )
             RETURNING *
             """
@@ -406,13 +415,24 @@ async def build_guide(
         cached = _select_cached_row(conn, rxcui=rxcui, ndc=normalized_ndc)
         if cached and not force_refresh and not _is_stale(cached.get("fetched_at")):
             logger.debug("Medication guide cache hit for rxcui=%s ndc=%s", rxcui, normalized_ndc)
-            if include_professional and not cached.get("professional_html") and cached.get("spl_set_id"):
-                prof_html = await fetch_professional_html(str(cached["spl_set_id"]))
-                if prof_html and cached.get("id") is not None:
+            if (
+                include_professional
+                and cached.get("spl_set_id")
+                and (not cached.get("professional_html") or not cached.get("professional_meta"))
+            ):
+                professional = await fetch_professional_rendered(str(cached["spl_set_id"]))
+                if professional and cached.get("id") is not None:
                     with database.db_engine.begin() as write_conn:
                         cached = _update_guide(
                             write_conn,
-                            {**cached, "professional_html": prof_html},
+                            {
+                                **cached,
+                                "professional_html": professional.article_html,
+                                "professional_meta": {
+                                    "highlights_html": professional.highlights_html,
+                                    "sections": [list(item) for item in professional.sections],
+                                },
+                            },
                             existing_id=int(cached["id"]),
                         )
             if include_medguide and not cached.get("medguide_html") and cached.get("spl_set_id"):
@@ -514,7 +534,13 @@ async def build_guide(
                 )
 
         if include_professional:
-            mapped["professional_html"] = await fetch_professional_html(spl_set_id)
+            professional = await fetch_professional_rendered(spl_set_id)
+            if professional:
+                mapped["professional_html"] = professional.article_html
+                mapped["professional_meta"] = {
+                    "highlights_html": professional.highlights_html,
+                    "sections": [list(item) for item in professional.sections],
+                }
 
         if include_medguide:
             mapped["medguide_html"] = await fetch_medguide_html(spl_set_id)

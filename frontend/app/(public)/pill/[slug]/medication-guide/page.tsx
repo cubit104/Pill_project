@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import MedguideToc from './MedguideToc'
 import MedguideMetaBar from './MedguideMetaBar'
+import ProfessionalToc from './ProfessionalToc'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 
@@ -40,6 +41,8 @@ type GuideResponse = {
   has_boxed_warning?: boolean
   sections: GuideSections
   professional_html?: string | null
+  professional_highlights_html?: string | null
+  professional_sections?: Array<[string, string]> | null
   medguide_html?: string | null
   boxed_warning_html?: string | null
   source_url?: string | null
@@ -83,6 +86,39 @@ const MEDGUIDE_PROSE_CLASSES = [
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
   '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:align-top',
   '[&_hr]:my-6 [&_hr]:border-slate-200',
+].join(' ')
+
+const PRO_PROSE_CLASSES = [
+  'max-w-4xl',
+  '[&_h2]:text-2xl [&_h2]:font-bold [&_h2]:text-slate-900 [&_h2]:mt-12 [&_h2]:mb-4 [&_h2]:scroll-mt-24 [&_h2]:pb-2 [&_h2]:border-b [&_h2]:border-slate-200',
+  '[&_h3]:text-lg [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mt-8 [&_h3]:mb-3 [&_h3]:scroll-mt-24',
+  '[&_h4]:text-base [&_h4]:font-semibold [&_h4]:text-slate-700 [&_h4]:mt-5 [&_h4]:mb-2 [&_h4]:scroll-mt-24',
+  '[&_h5]:text-sm [&_h5]:font-semibold [&_h5]:text-slate-700 [&_h5]:mt-4 [&_h5]:mb-2 [&_h5]:scroll-mt-24',
+  '[&_h6]:text-sm [&_h6]:font-semibold [&_h6]:text-slate-700 [&_h6]:mt-4 [&_h6]:mb-2 [&_h6]:scroll-mt-24',
+  '[&_p]:text-[15px] [&_p]:leading-7 [&_p]:text-slate-700 [&_p]:my-3',
+  '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ul]:space-y-1',
+  '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_ol]:space-y-1',
+  '[&_li]:text-[15px] [&_li]:leading-7 [&_li]:text-slate-700',
+  '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:rounded-lg [&_table]:overflow-hidden',
+  '[&_table]:block sm:[&_table]:table [&_table]:overflow-x-auto',
+  '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
+  '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:align-top',
+  '[&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-lg [&_img]:my-4 [&_img]:border [&_img]:border-slate-200',
+  '[&_figure]:my-6',
+  '[&_figcaption]:text-sm [&_figcaption]:text-slate-500 [&_figcaption]:italic [&_figcaption]:mt-2 [&_figcaption]:text-center',
+  '[&_a]:text-sky-700 [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:text-sky-900',
+  '[&_strong]:font-semibold [&_strong]:text-slate-900',
+].join(' ')
+
+const PRO_HIGHLIGHTS_PROSE_CLASSES = [
+  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-4 [&_h2]:mb-2',
+  '[&_h3]:text-sm [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mt-3 [&_h3]:mb-1',
+  '[&_p]:text-sm [&_p]:leading-6 [&_p]:text-slate-700 [&_p]:my-2',
+  '[&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-2 [&_ul]:space-y-1 [&_ul]:text-sm',
+  '[&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-2 [&_ol]:space-y-1 [&_ol]:text-sm',
+  '[&_li]:text-sm [&_li]:leading-6 [&_li]:text-slate-700',
+  '[&_strong]:font-semibold [&_strong]:text-slate-900',
+  '[&_a]:text-sky-700 [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:text-sky-900',
 ].join(' ')
 
 function isHtmlContent(content: string): boolean {
@@ -141,6 +177,26 @@ function SectionFallback({
         <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-600">
           Medication guide content is not available right now.
         </div>
+      )}
+    </div>
+  )
+}
+
+function ProfessionalEmptyState({ guide }: { guide: GuideResponse | null }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center">
+      <p className="text-slate-600 mb-3">
+        Full prescribing information is not available for this medication in our cache.
+      </p>
+      {guide?.source_url && (
+        <a
+          href={guide.source_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 text-sky-700 font-semibold hover:text-sky-900"
+        >
+          View on DailyMed ↗
+        </a>
       )}
     </div>
   )
@@ -205,6 +261,13 @@ export default async function MedicationGuidePage({
   const guide = await fetchGuide(pill, isPro)
   const drugName = guide?.brand_name || guide?.generic_name || pill.medicine_name || 'Medication'
   const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guide?.sections?.[key]))
+  const professionalSections = Array.isArray(guide?.professional_sections)
+    ? guide.professional_sections.flatMap((entry) =>
+        Array.isArray(entry) && entry.length >= 2
+          ? [{ slug: String(entry[0]), label: String(entry[1]) }]
+          : []
+      )
+    : []
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
@@ -313,51 +376,60 @@ export default async function MedicationGuidePage({
       )}
 
       {isPro && (
-        <div>
-          {guide?.professional_html ? (
-            <>
-              <iframe
-                srcDoc={guide.professional_html}
-                className="w-full border-0 rounded-xl shadow-sm"
-                style={{ minHeight: '85vh' }}
-                sandbox="allow-scripts"
-                title={`${drugName} Full Prescribing Information`}
+        <>
+          {guide?.professional_highlights_html && (
+            <div className="rounded-2xl border border-blue-200 bg-blue-50/40 p-5 mb-6">
+              <div
+                className={PRO_HIGHLIGHTS_PROSE_CLASSES}
+                dangerouslySetInnerHTML={{ __html: guide.professional_highlights_html }}
               />
-              <div className="mt-4 text-sm text-slate-600">
-                {guide.source_url && (
-                  <a
-                    href={guide.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-sky-600 hover:underline"
-                  >
-                    View on DailyMed ↗
-                  </a>
-                )}
-                <p className="mt-2">Source: FDA Structured Product Labeling via DailyMed</p>
-              </div>
-            </>
-          ) : (
-            <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
-              <p className="text-4xl mb-3">📄</p>
-              <p className="text-lg font-semibold text-slate-800">Full Prescribing Information Not Available</p>
-              <p className="text-sm text-slate-500 mt-2 mb-4">
-                The structured product label could not be rendered.
-              </p>
-              {guide?.source_url && (
-                <a
-                  href={guide.source_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-sm text-sky-600 hover:underline"
-                >
-                  View on DailyMed ↗
-                </a>
-              )}
-              <p className="mt-4 text-xs text-slate-500">Source: FDA Structured Product Labeling via DailyMed</p>
             </div>
           )}
-        </div>
+
+          {professionalSections.length >= 3 ? (
+            <div className="lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8">
+              <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
+                <div className="hidden lg:block no-print">
+                  <ProfessionalToc sections={professionalSections} />
+                </div>
+                <details className="lg:hidden no-print mb-4 border border-slate-200 rounded-xl overflow-hidden">
+                  <summary className="px-4 py-3 text-sm font-medium text-slate-700 cursor-pointer select-none bg-white hover:bg-slate-50">
+                    On this page
+                  </summary>
+                  <div className="px-4 py-3 bg-white border-t border-slate-100">
+                    <ProfessionalToc sections={professionalSections} />
+                  </div>
+                </details>
+              </aside>
+
+              <div className="space-y-6 min-w-0">
+                <MedguideMetaBar guide={guide} />
+                {guide?.professional_html ? (
+                  <article
+                    id="pro-content"
+                    className={PRO_PROSE_CLASSES}
+                    dangerouslySetInnerHTML={{ __html: guide.professional_html }}
+                  />
+                ) : (
+                  <ProfessionalEmptyState guide={guide} />
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <MedguideMetaBar guide={guide} />
+              {guide?.professional_html ? (
+                <article
+                  id="pro-content"
+                  className={PRO_PROSE_CLASSES}
+                  dangerouslySetInnerHTML={{ __html: guide.professional_html }}
+                />
+              ) : (
+                <ProfessionalEmptyState guide={guide} />
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
