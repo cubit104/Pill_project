@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from lxml import html as lxml_html
 
+from services import spl_medguide
 from services import spl_professional
 
 _NS = "urn:hl7-org:v3"
@@ -252,6 +253,124 @@ def test_highlights_are_extracted_from_main_article():
     article_text = lxml_html.fromstring(f'<div>{rendered.article_html}</div>').text_content()
     assert 'Highlights of Prescribing Information' not in article_text
     assert rendered.sections == [('indications', 'Indications')]
+
+
+def test_strip_leading_bullets_in_highlights():
+    xml = _wrap_document(
+        _section(
+            "42229-5",
+            "Highlights of Prescribing Information",
+            "<text><paragraph>• Prior to initiation of WEGOVY injection</paragraph>"
+            "<list><item>• List point</item></list></text>",
+        ),
+        _section("34067-9", "Indications and Usage", "<text><paragraph>Main section.</paragraph></text>"),
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-bullets"))
+
+    assert rendered is not None
+    assert rendered.highlights_html is not None
+    assert "<p>Prior to initiation of WEGOVY injection</p>" in rendered.highlights_html
+    assert "<li>List point</li>" in rendered.highlights_html
+    assert "• Prior to initiation" not in rendered.highlights_html
+    assert "• List point" not in rendered.highlights_html
+
+
+def test_highlights_header_has_separator_classes():
+    xml = _wrap_document(
+        _section("42229-5", "Highlights of Prescribing Information", "<text><paragraph>Quick summary.</paragraph></text>"),
+        _section("34067-9", "Indications and Usage", "<text><paragraph>Main section.</paragraph></text>"),
+        effective_time="20260319",
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-header"))
+
+    assert rendered is not None
+    assert rendered.highlights_html is not None
+    assert 'class="pro-highlights-title"' in rendered.highlights_html
+    assert 'class="pro-highlights-meta"' in rendered.highlights_html
+
+
+def test_highlights_header_meta_omitted_when_no_date():
+    xml = _wrap_document(
+        _section("42229-5", "Highlights of Prescribing Information", "<text><paragraph>Quick summary.</paragraph></text>"),
+        _section("34067-9", "Indications and Usage", "<text><paragraph>Main section.</paragraph></text>"),
+        effective_time="",
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-header-nodate"))
+
+    assert rendered is not None
+    assert rendered.highlights_html is not None
+    assert 'class="pro-highlights-title"' in rendered.highlights_html
+    assert 'class="pro-highlights-meta"' not in rendered.highlights_html
+
+
+def test_linkify_numbered_section_ref():
+    html_str = "[see Warnings and Precautions (5.4)]"
+    output = spl_professional._linkify_section_refs(html_str)
+    assert output == '<a href="#warnings-precautions" class="pro-section-ref">[see Warnings and Precautions (5.4)]</a>'
+
+
+def test_linkify_multi_numbered_ref_uses_first():
+    html_str = "[see Contraindications (4), Warnings and Precautions (5.1)]"
+    output = spl_professional._linkify_section_refs(html_str)
+    assert output == '<a href="#contraindications" class="pro-section-ref">[see Contraindications (4), Warnings and Precautions (5.1)]</a>'
+
+
+def test_linkify_descriptive_only_ref():
+    html_str = "[see Boxed Warning]"
+    output = spl_professional._linkify_section_refs(html_str)
+    assert output == '<a href="#boxed-warning" class="pro-section-ref">[see Boxed Warning]</a>'
+
+
+def test_linkify_unknown_ref_kept_as_text():
+    html_str = "[see Section Foo]"
+    output = spl_professional._linkify_section_refs(html_str)
+    assert output == html_str
+
+
+def test_linkify_does_not_match_inline_brackets():
+    html_str = "[bracketed clarification]"
+    output = spl_professional._linkify_section_refs(html_str)
+    assert output == html_str
+
+
+def test_pro_article_body_also_linkified():
+    xml = _wrap_document(
+        _section(
+            "34084-4",
+            "Adverse Reactions",
+            "<text><paragraph><content styleCode=\"italics\">[see Adverse Reactions (6.1)]</content></paragraph></text>",
+        )
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-pro-linkified"))
+
+    assert rendered is not None
+    assert '<a href="#adverse-reactions" class="pro-section-ref">[see Adverse Reactions (6.1)]</a>' in rendered.article_html
+
+
+def test_consumer_medguide_not_linkified():
+    medguide_xml = (
+        f'<document xmlns="{_NS}">'
+        '<effectiveTime value="20240501"/>'
+        '<component><structuredBody>'
+        '<component><section>'
+        '<code code="42231-1"/>'
+        '<title>Medication Guide</title>'
+        '<text><paragraph>[see Warnings and Precautions (5.4)]</paragraph></text>'
+        '</section></component>'
+        '</structuredBody></component>'
+        '</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=medguide_xml)):
+        rendered = asyncio.run(spl_medguide.fetch_medguide_html("set-medguide-link-check"))
+
+    assert rendered is not None
+    assert "[see Warnings and Precautions (5.4)]" in rendered
+    assert "pro-section-ref" not in rendered
+    assert 'href="#warnings-precautions"' not in rendered
 
 
 def test_professional_renderer_unwraps_outer_layout_table_and_drops_fda_contents_block():

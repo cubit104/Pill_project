@@ -12,6 +12,8 @@ import httpx
 from lxml import etree
 from lxml import html as lxml_html
 
+from services._spl_text_helpers import strip_leading_bullets_from_html
+
 logger = logging.getLogger(__name__)
 
 _DAILYMED_SPL_XML_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{spl_set_id}.xml"
@@ -21,6 +23,11 @@ _HL7_NS = "urn:hl7-org:v3"
 _NS = f"{{{_HL7_NS}}}"
 _ANCHOR_HREF_RE = re.compile(r"^#[a-z0-9-]+$")
 _SECTION_REF_RE = re.compile(r"\s*\((?:\d+\.\d+(?:\.\d+)?(?:\s*,\s*\d+\.\d+(?:\.\d+)?)*)\)")
+_BRACKETED_REF_RE = re.compile(
+    r"\[((?:see\s+also|also\s+see|see)\b[^\]]*?)\]",
+    flags=re.IGNORECASE,
+)
+_NUMBERED_REF_RE = re.compile(r"\((\d+)(?:\.\d+(?:\.\d+)?)?\)")
 _FULL_PI_CONTENTS_RE = re.compile(r"^full prescribing information:\s*contents\b", re.IGNORECASE)
 _SECTIONS_OMITTED_RE = re.compile(
     r"^\*\s*sections or subsections omitted from the full prescribing information are not listed\.?\s*$",
@@ -49,6 +56,52 @@ PRO_SECTIONS = [
     ("34069-5", "how-supplied", "How Supplied", "How Supplied / Storage and Handling"),
     ("34076-0", "patient-counseling", "Patient Counseling", "Patient Counseling Information"),
 ]
+
+NUMBERED_SECTION_PREFIX_TO_SLUG = {
+    1: "indications",
+    2: "dosage",
+    3: "dosage-forms",
+    4: "contraindications",
+    5: "warnings-precautions",
+    6: "adverse-reactions",
+    7: "drug-interactions",
+    8: "specific-populations",
+    9: "drug-abuse-dependence",
+    10: "overdosage",
+    11: "description",
+    12: "clinical-pharmacology",
+    13: "nonclinical-toxicology",
+    14: "clinical-studies",
+    15: "references",
+    16: "how-supplied",
+    17: "patient-counseling",
+}
+
+_DESCRIPTIVE_NAME_TO_SLUG = {
+    "boxed warning": "boxed-warning",
+    "highlights": "highlights",
+    "indications": "indications",
+    "indications and usage": "indications",
+    "dosage and administration": "dosage",
+    "dosage forms and strengths": "dosage-forms",
+    "contraindications": "contraindications",
+    "warnings": "warnings-precautions",
+    "warnings and precautions": "warnings-precautions",
+    "adverse reactions": "adverse-reactions",
+    "drug interactions": "drug-interactions",
+    "use in specific populations": "specific-populations",
+    "drug abuse and dependence": "drug-abuse-dependence",
+    "overdosage": "overdosage",
+    "description": "description",
+    "clinical pharmacology": "clinical-pharmacology",
+    "nonclinical toxicology": "nonclinical-toxicology",
+    "clinical studies": "clinical-studies",
+    "references": "references",
+    "how supplied": "how-supplied",
+    "how supplied/storage and handling": "how-supplied",
+    "patient counseling information": "patient-counseling",
+    "patient counseling": "patient-counseling",
+}
 
 _ALLOWED_TAGS = [
     "div",
@@ -423,6 +476,26 @@ def _strip_section_refs(html_str: str) -> str:
     return _SECTION_REF_RE.sub("", html_str or "")
 
 
+def _linkify_section_refs(html_str: str) -> str:
+    def _replace_bracket(match: re.Match) -> str:
+        inner = match.group(1)
+        num_match = _NUMBERED_REF_RE.search(inner)
+        if not num_match:
+            stripped = re.sub(r"^\s*(?:see\s+also|also\s+see|see)\s+", "", inner, flags=re.IGNORECASE).strip().lower()
+            descriptive_slug = _DESCRIPTIVE_NAME_TO_SLUG.get(stripped)
+            if not descriptive_slug:
+                return match.group(0)
+            return f'<a href="#{descriptive_slug}" class="pro-section-ref">[{inner}]</a>'
+
+        section_prefix = int(num_match.group(1))
+        slug = NUMBERED_SECTION_PREFIX_TO_SLUG.get(section_prefix)
+        if not slug:
+            return match.group(0)
+        return f'<a href="#{slug}" class="pro-section-ref">[{inner}]</a>'
+
+    return _BRACKETED_REF_RE.sub(_replace_bracket, html_str or "")
+
+
 def _is_attr_allowed(tag: str, name: str, value: str) -> bool:
     if name not in _ALLOWED_ATTRS.get(tag, []):
         return False
@@ -729,11 +802,13 @@ def _render_highlights(section: etree._Element, ctx: _RenderContext, revision_da
     inner = "".join(body_parts)
     if not _is_meaningful_html(inner):
         return None
+    inner = strip_leading_bullets_from_html(inner)
+    inner = _linkify_section_refs(inner)
     meta_html = f'<span class="pro-highlights-meta">{html.escape(revision_date)}</span>' if revision_date else ""
     return _sanitize_html(
         '<div class="pro-highlights">'
         '<div class="pro-highlights-header">'
-        '<span>Highlights of Prescribing Information</span>'
+        '<span class="pro-highlights-title">Highlights of Prescribing Information</span>'
         f'{meta_html}'
         '</div>'
         f'<div class="pro-highlights-body">{inner}</div>'
@@ -792,6 +867,8 @@ async def fetch_professional_rendered(spl_set_id: str) -> Optional[ProfessionalR
             rendered = _render_section(section, slug=slug, heading=heading, ctx=ctx)
             if slug == "boxed-warning":
                 rendered = _strip_section_refs(rendered)
+            rendered = strip_leading_bullets_from_html(rendered)
+            rendered = _linkify_section_refs(rendered)
             sanitized = _strip_dash_empty_paragraphs_html(_sanitize_html(rendered))
             if not _is_meaningful_html(sanitized):
                 continue

@@ -20,6 +20,11 @@ import httpx
 from lxml import etree
 from lxml import html as lxml_html
 
+from services._spl_text_helpers import (
+    strip_leading_bullets as _strip_leading_bullets,
+    strip_leading_bullets_from_html as _strip_leading_bullets_from_html,
+)
+
 logger = logging.getLogger(__name__)
 
 _DAILYMED_SPL_XML_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{spl_set_id}.xml"
@@ -51,7 +56,6 @@ _BRACKET_REF_RE = re.compile(
     r"\s*\[(?:see\s+also|also\s+see|see)\b[^\]]*\]",
     flags=re.IGNORECASE,
 )
-_LEADING_BULLET_RE = re.compile(r"^[\s]*[•●▪‧·∙►▶◦‣⁃]+[\s]*")
 _APPROVAL_P_RE = re.compile(r"^\s*this medication guide has been approved", re.IGNORECASE)
 _REVISED_P_RE = re.compile(r"^\s*revised:", re.IGNORECASE)
 _ALLOWED_CLASS_VALUES: dict[str, set[str]] = {
@@ -572,42 +576,6 @@ def _strip_section_refs(html_str: str) -> str:
     out = re.sub(r"  +", " ", out)
     out = re.sub(r"\s+([.,;:])", r"\1", out)
     return out
-
-
-def _strip_leading_bullets(text: str) -> str:
-    if not text:
-        return text
-    return _LEADING_BULLET_RE.sub("", text)
-
-
-def _strip_leading_bullets_from_html(html_str: str) -> str:
-    if not html_str:
-        return html_str
-
-    root = lxml_html.fragment_fromstring(html_str, create_parent="div")
-    for el in list(root.xpath(".//p | .//li")):
-        text_nodes = el.xpath(".//text()[normalize-space()]")
-        if text_nodes:
-            first = text_nodes[0]
-            stripped = _strip_leading_bullets(str(first))
-            if stripped != str(first):
-                parent = first.getparent()
-                is_text = bool(getattr(first, "is_text", False))
-                is_tail = bool(getattr(first, "is_tail", False))
-                if is_text:
-                    parent.text = stripped
-                elif is_tail:
-                    parent.tail = stripped
-                elif parent.text == str(first):
-                    parent.text = stripped
-                else:
-                    parent.tail = stripped
-        if not _normalize_visible_text("".join(el.itertext())):
-            parent = el.getparent()
-            if parent is not None:
-                parent.remove(el)
-
-    return _serialize_children(root)
 
 
 def _dedupe_repeated_headings(html_str: str) -> str:
