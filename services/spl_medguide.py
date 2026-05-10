@@ -201,13 +201,7 @@ def _paragraph_inner_html(paragraph_el: etree._Element) -> str:
     return _apply_style_wrappers(inner, paragraph_el.get("styleCode") or "")
 
 
-def _render_paragraph(
-    paragraph_el: etree._Element,
-    *,
-    section_depth: int,
-    seen_ids: dict[str, int],
-) -> str:
-    del section_depth, seen_ids
+def _render_paragraph(paragraph_el: etree._Element) -> str:
     inner = _paragraph_inner_html(paragraph_el)
     if not inner.strip():
         return ""
@@ -247,7 +241,7 @@ def _render_unwrapped_table(
                     continue
                 child_tag = _local(child.tag)
                 if child_tag == "paragraph":
-                    child_html = _render_paragraph(child, section_depth=section_depth, seen_ids=seen_ids)
+                    child_html = _render_paragraph(child)
                 else:
                     child_html = _to_html(child)
                 if child_html.strip():
@@ -508,7 +502,7 @@ def _to_html(el: etree._Element) -> str:
 
     # ── paragraph → <p> ──────────────────────────────────────────────────
     if tag == "paragraph":
-        return _render_paragraph(el, section_depth=1, seen_ids={})
+        return _render_paragraph(el)
 
     # ── list → <ul> or <ol> ──────────────────────────────────────────────
     if tag == "list":
@@ -609,7 +603,7 @@ def _render_text_element(
                 parts.append(f"<p>{html.escape(child.tail)}</p>")
             continue
         elif child_tag == "paragraph":
-            child_html = _render_paragraph(child, section_depth=section_depth, seen_ids=seen_ids)
+            child_html = _render_paragraph(child)
         else:
             child_html = _to_html(child)
         if child_html.strip():
