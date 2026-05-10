@@ -299,13 +299,27 @@ def _paragraph_is_fully_bold_dom(p_el: etree._Element) -> bool:
     return has_bold_text
 
 
-def _remove_dash_empty_paragraphs(root: etree._Element) -> None:
+def _remove_empty_paragraphs(root: etree._Element) -> None:
     for p_el in list(root.xpath(".//p")):
         visible_text = _normalize_visible_text("".join(p_el.itertext()))
-        if not visible_text or _DASH_ONLY_P_RE.fullmatch(visible_text):
+        if not visible_text:
             parent = p_el.getparent()
             if parent is not None:
                 parent.remove(p_el)
+
+
+def _remove_dash_only_paragraphs(root: etree._Element) -> None:
+    for p_el in list(root.xpath(".//p")):
+        visible_text = _normalize_visible_text("".join(p_el.itertext()))
+        if _DASH_ONLY_P_RE.fullmatch(visible_text):
+            parent = p_el.getparent()
+            if parent is not None:
+                parent.remove(p_el)
+
+
+def _remove_dash_empty_paragraphs(root: etree._Element) -> None:
+    _remove_empty_paragraphs(root)
+    _remove_dash_only_paragraphs(root)
 
 
 def _dedupe_and_trim_hr(root: etree._Element) -> None:
@@ -469,45 +483,55 @@ def _serialize_children(root: etree._Element) -> str:
 
 
 def _strip_tables(html_str: str) -> str:
-    def _nearest_table_ancestor(el: etree._Element) -> Optional[etree._Element]:
-        """Return the closest ancestor <table> for *el*, or None if absent."""
-        parent = el.getparent()
-        while parent is not None:
-            if isinstance(parent.tag, str) and _local(parent.tag) == "table":
-                return parent
-            parent = parent.getparent()
-        return None
+    if not html_str or "<table" not in html_str.lower():
+        return html_str
 
-    root = lxml_html.fragment_fromstring(html_str or "", create_parent="div")
-    for table in reversed(list(root.xpath(".//table"))):
+    root = lxml_html.fragment_fromstring(html_str, create_parent="div")
+    tables = root.xpath(".//table")
+    tables.sort(key=lambda el: len(list(el.iterancestors())), reverse=True)
+
+    for table in tables:
         parent = table.getparent()
         if parent is None:
             continue
-        replacement_blocks: list[etree._Element] = []
-        for cell in (node for node in table.iter() if isinstance(node.tag, str) and _local(node.tag) in {"td", "th", "caption"}):
-            if _nearest_table_ancestor(cell) is not table:
-                continue
-            cell_text = _normalize_visible_text(cell.text or "")
-            if cell_text:
-                p_el = lxml_html.Element("p")
-                p_el.text = cell_text
-                replacement_blocks.append(p_el)
-            for child in list(cell):
-                cell.remove(child)
-                child_tail = child.tail
-                child.tail = None
-                replacement_blocks.append(child)
-                if _normalize_visible_text(child_tail or ""):
-                    tail_p = lxml_html.Element("p")
-                    tail_p.text = _normalize_visible_text(child_tail or "")
-                    replacement_blocks.append(tail_p)
 
         insert_at = parent.index(table)
-        for offset, block in enumerate(replacement_blocks):
-            parent.insert(insert_at + offset, block)
+        new_children: list[etree._Element] = []
+        table_tail = table.tail
+        table.tail = None
+
+        for cell in table.xpath(".//td | .//th | .//caption"):
+            if cell.text and cell.text.strip():
+                p_el = etree.Element("p")
+                p_el.text = cell.text
+                new_children.append(p_el)
+            for child in list(cell):
+                child_tail = child.tail
+                child.tail = None
+                new_children.append(child)
+                if child_tail and child_tail.strip():
+                    tail_p = lxml_html.Element("p")
+                    tail_p.text = child_tail
+                    new_children.append(tail_p)
+
+        for offset, node in enumerate(new_children):
+            parent.insert(insert_at + offset, node)
         parent.remove(table)
 
-    return _serialize_children(root)
+        if table_tail:
+            if new_children:
+                new_children[-1].tail = (new_children[-1].tail or "") + table_tail
+            elif insert_at > 0:
+                prev = parent[insert_at - 1]
+                prev.tail = (prev.tail or "") + table_tail
+            else:
+                parent.text = (parent.text or "") + table_tail
+
+    inner = (root.text or "") + "".join(
+        lxml_html.tostring(child, encoding="unicode")
+        for child in root
+    )
+    return inner
 
 
 def _collapse_consecutive_identical_h1(root: etree._Element) -> None:
@@ -529,7 +553,8 @@ def _collapse_consecutive_identical_h1(root: etree._Element) -> None:
 
 def _postprocess_after_table_strip(html_str: str, *, extract_meta_strip: bool) -> str:
     root = lxml_html.fragment_fromstring(html_str or "", create_parent="div")
-    _remove_dash_empty_paragraphs(root)
+    _remove_empty_paragraphs(root)
+    _remove_dash_only_paragraphs(root)
     if extract_meta_strip:
         _extract_meta_strip(root)
     _collapse_consecutive_identical_h1(root)
