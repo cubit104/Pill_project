@@ -93,6 +93,10 @@ const MEDGUIDE_PROSE_CLASSES = [
   '[&_hr]:my-6 [&_hr]:border-slate-200',
 ].join(' ')
 const PRO_TOC_GRID_CLASSES = 'lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8'
+const PRO_HIGHLIGHTS_HEADER_CLASS =
+  "[&_.pro-highlights-header]:flex [&_.pro-highlights-header]:flex-col sm:[&_.pro-highlights-header]:flex-row sm:[&_.pro-highlights-header]:items-baseline sm:[&_.pro-highlights-header]:justify-between sm:[&_.pro-highlights-header]:gap-3 [&_.pro-highlights-header]:mb-3 [&_.pro-highlights-header]:pb-3 [&_.pro-highlights-header]:border-b [&_.pro-highlights-header]:border-blue-200 " +
+  "[&_.pro-highlights-title]:text-base [&_.pro-highlights-title]:font-bold [&_.pro-highlights-title]:text-slate-900 " +
+  "[&_.pro-highlights-meta]:text-sm [&_.pro-highlights-meta]:text-slate-500 [&_.pro-highlights-meta]:font-normal"
 
 const PRO_PROSE_CLASSES = [
   'max-w-4xl',
@@ -114,6 +118,7 @@ const PRO_PROSE_CLASSES = [
   '[&_figcaption]:text-sm [&_figcaption]:text-slate-500 [&_figcaption]:italic [&_figcaption]:mt-2 [&_figcaption]:text-center',
   '[&_p_a]:text-sky-700 [&_p_a]:underline [&_p_a]:underline-offset-2 hover:[&_p_a]:text-sky-900',
   '[&_li_a]:text-sky-700 [&_li_a]:underline [&_li_a]:underline-offset-2 hover:[&_li_a]:text-sky-900',
+  '[&_.pro-section-ref]:text-sky-700 [&_.pro-section-ref]:no-underline hover:[&_.pro-section-ref]:underline [&_.pro-section-ref]:cursor-pointer [&_.pro-section-ref]:font-medium',
   '[&_strong]:font-semibold [&_strong]:text-slate-900',
 ].join(' ')
 
@@ -126,6 +131,7 @@ const PRO_HIGHLIGHTS_PROSE_CLASSES = [
   '[&_li]:text-sm [&_li]:leading-6 [&_li]:text-slate-700',
   '[&_strong]:font-semibold [&_strong]:text-slate-900',
   '[&_a]:text-sky-700 [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:text-sky-900',
+  '[&_.pro-section-ref]:text-sky-700 [&_.pro-section-ref]:no-underline hover:[&_.pro-section-ref]:underline [&_.pro-section-ref]:cursor-pointer [&_.pro-section-ref]:font-medium',
 ].join(' ')
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
@@ -445,7 +451,7 @@ export default async function MedicationGuidePage({
       {isPro && (
         <>
           {guide?.professional_highlights_html && (
-            <div className="rounded-2xl border border-blue-200 bg-blue-50/40 p-5 mb-6">
+            <div className={`rounded-2xl border border-blue-200 bg-blue-50/40 p-5 mb-6 ${PRO_HIGHLIGHTS_HEADER_CLASS}`}>
               <div
                 className={PRO_HIGHLIGHTS_PROSE_CLASSES}
                 dangerouslySetInnerHTML={{ __html: guide.professional_highlights_html }}
