@@ -384,7 +384,7 @@ def test_include_professional_lazy_fill_persists_meta():
         "highlights_html": "<div>Highlights</div>",
         "sections": [["indications", "Indications"], ["dosage", "Dosage"]],
     }
-    json.dumps(captured_payload["professional_meta"])
+    assert json.loads(json.dumps(captured_payload["professional_meta"])) == captured_payload["professional_meta"]
     assert result["professional_sections"] == [["indications", "Indications"], ["dosage", "Dosage"]]
 
 
