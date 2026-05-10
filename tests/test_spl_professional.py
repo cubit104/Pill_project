@@ -102,6 +102,35 @@ def test_sparse_professional_renderer_only_includes_present_sections():
     ]
 
 
+def test_walker_returns_html_when_sections_present():
+    xml = _wrap_document(
+        _section(
+            '34067-9',
+            'Indications and Usage',
+            '<text><paragraph>Indications.</paragraph></text>',
+        )
+    )
+    with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_professional.fetch_professional_html('set-indications'))
+
+    assert result is not None
+    assert '<h2 id="indications">Indications and Usage</h2>' in result
+
+
+def test_walker_returns_none_when_zero_sections_match():
+    xml = _wrap_document(
+        _section(
+            '99999-9',
+            'Non-matching section',
+            '<text><paragraph>No professional section match.</paragraph></text>',
+        )
+    )
+    with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_professional.fetch_professional_html('set-no-match'))
+
+    assert result is None
+
+
 def test_professional_renderer_preserves_real_data_tables():
     xml = _wrap_document(
         _section(

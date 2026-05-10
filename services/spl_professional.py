@@ -1,5 +1,6 @@
 import html
 import logging
+import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -745,6 +746,8 @@ async def fetch_professional_rendered(spl_set_id: str) -> Optional[ProfessionalR
     if not spl_set_id:
         return None
 
+    logger.info("fetch_professional_html start spl_set_id=%s", spl_set_id)
+
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             response = await client.get(_DAILYMED_SPL_XML_URL.format(spl_set_id=spl_set_id))
@@ -764,6 +767,10 @@ async def fetch_professional_rendered(spl_set_id: str) -> Optional[ProfessionalR
             indexed_sections.append((section, slug))
 
         if not selected_sections:
+            logger.warning(
+                "fetch_professional_html no matching professional sections spl_set_id=%s",
+                spl_set_id,
+            )
             return None
 
         section_anchors, link_targets = _build_section_anchor_maps(indexed_sections)
@@ -795,18 +802,22 @@ async def fetch_professional_rendered(spl_set_id: str) -> Optional[ProfessionalR
         if not article_html:
             return None
 
-        return ProfessionalRendered(
+        rendered = ProfessionalRendered(
             article_html=article_html,
             highlights_html=highlights_html,
             sections=rendered_sections,
         )
-    except Exception as exc:
-        logger.warning(
-            "Failed to render professional SPL HTML for spl_set_id=%s: %s",
+        logger.info(
+            "fetch_professional_html done spl_set_id=%s sections=%d html_len=%d",
             spl_set_id,
-            exc,
-            exc_info=True,
+            len(rendered_sections),
+            len(article_html),
         )
+        return rendered
+    except Exception:
+        logger.exception("fetch_professional_html failed for spl_set_id=%s", spl_set_id)
+        if os.getenv("PRO_RAISE_ON_ERROR") == "1":
+            raise
         return None
 
 

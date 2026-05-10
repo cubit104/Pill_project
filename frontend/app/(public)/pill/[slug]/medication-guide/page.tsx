@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import MedguideToc from './MedguideToc'
 import MedguideMetaBar from './MedguideMetaBar'
@@ -39,6 +40,9 @@ type GuideResponse = {
   ndc?: string
   generic_name?: string
   brand_name?: string
+  proprietary_name?: string
+  display_name?: string
+  name?: string
   has_boxed_warning?: boolean
   sections: GuideSections
   professional_html?: string | null
@@ -123,6 +127,44 @@ const PRO_HIGHLIGHTS_PROSE_CLASSES = [
   '[&_strong]:font-semibold [&_strong]:text-slate-900',
   '[&_a]:text-sky-700 [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:text-sky-900',
 ].join(' ')
+
+function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return null
+}
+
+function formatDrugName(value: string, keepAllCaps: boolean): string {
+  const trimmed = value.trim()
+  if (!trimmed) return trimmed
+  if (keepAllCaps && /^[A-Z0-9\s\-()]+$/.test(trimmed)) return trimmed
+  return trimmed
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (char) => char.toUpperCase())
+}
+
+function resolveDrugName({
+  guide,
+  pill,
+  slug,
+}: {
+  guide: GuideResponse | null
+  pill: PillInfo | null
+  slug: string
+}): string {
+  const brand = firstNonEmpty(guide?.brand_name, guide?.proprietary_name)
+  if (brand) return formatDrugName(brand, true)
+  const fallback = firstNonEmpty(
+    guide?.generic_name,
+    guide?.display_name,
+    guide?.name,
+    pill?.medicine_name,
+    pill?.brand_names,
+    decodeURIComponent(slug).replace(/-/g, ' ')
+  )
+  return formatDrugName(fallback || 'Medication', false)
+}
 
 function isHtmlContent(content: string): boolean {
   return /^<[a-z][a-z0-9-]*\b[^>]*>/i.test(content.trimStart())
@@ -247,6 +289,23 @@ async function fetchGuide(
   }
 }
 
+export async function generateMetadata({
+  params,
+  searchParams,
+}: {
+  params: PageParams
+  searchParams: SearchParams
+}): Promise<Metadata> {
+  const { slug } = await params
+  const { tab = 'consumer' } = await searchParams
+  const isPro = tab === 'pro'
+  const pill = await fetchPill(slug)
+  const guide = pill ? await fetchGuide(pill, isPro) : null
+  const drugName = resolveDrugName({ guide, pill, slug })
+  const title = `Medication Guide — ${drugName}`
+  return { title }
+}
+
 export default async function MedicationGuidePage({
   params,
   searchParams,
@@ -262,7 +321,7 @@ export default async function MedicationGuidePage({
   if (!pill) notFound()
 
   const guide = await fetchGuide(pill, isPro)
-  const drugName = guide?.brand_name || guide?.generic_name || pill.medicine_name || 'Medication'
+  const drugName = resolveDrugName({ guide, pill, slug })
   const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guide?.sections?.[key]))
   const professionalSections = Array.isArray(guide?.professional_sections)
     ? guide.professional_sections.flatMap((entry) =>
