@@ -223,6 +223,22 @@ def test_professional_renderer_resolves_in_page_links():
     assert '<a href="#indications">see (1)</a>' in rendered.article_html
 
 
+def test_pro_boxed_warning_wrapped_in_callout():
+    xml = _wrap_document(
+        _section(
+            "34066-1",
+            "Boxed Warning",
+            "<text><paragraph>WARNING: FETAL TOXICITY</paragraph><list><item>Item one.</item></list></text>",
+        ),
+        _section("34067-9", "Indications and Usage", "<text><paragraph>Indications.</paragraph></text>"),
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-boxed-callout"))
+
+    assert rendered is not None
+    assert '<aside class="pro-boxed-warning-callout" role="note" aria-label="Boxed Warning">' in rendered.article_html
+
+
 def test_professional_renderer_strips_unknown_link_targets():
     xml = _wrap_document(
         _section(
@@ -357,7 +373,7 @@ def test_consumer_medguide_not_linkified():
         '<effectiveTime value="20240501"/>'
         '<component><structuredBody>'
         '<component><section>'
-        '<code code="42231-1"/>'
+        '<code code="42230-3"/>'
         '<title>Medication Guide</title>'
         '<text><paragraph>[see Warnings and Precautions (5.4)]</paragraph></text>'
         '</section></component>'

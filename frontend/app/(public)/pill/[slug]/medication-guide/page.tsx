@@ -44,6 +44,7 @@ type GuideResponse = {
   display_name?: string
   name?: string
   has_boxed_warning?: boolean
+  has_medguide?: boolean
   sections: GuideSections
   professional_html?: string | null
   professional_highlights_html?: string | null
@@ -94,7 +95,7 @@ const MEDGUIDE_PROSE_CLASSES = [
 ].join(' ')
 const PRO_TOC_GRID_CLASSES = 'lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8'
 const PRO_HIGHLIGHTS_HEADER_CLASS =
-  "[&_.pro-highlights-header]:flex [&_.pro-highlights-header]:flex-col sm:[&_.pro-highlights-header]:flex-row sm:[&_.pro-highlights-header]:items-baseline sm:[&_.pro-highlights-header]:justify-between sm:[&_.pro-highlights-header]:gap-3 [&_.pro-highlights-header]:mb-3 [&_.pro-highlights-header]:pb-3 [&_.pro-highlights-header]:border-b [&_.pro-highlights-header]:border-blue-200 " +
+  "[&_.pro-highlights-header]:flex [&_.pro-highlights-header]:flex-col sm:[&_.pro-highlights-header]:flex-row sm:[&_.pro-highlights-header]:items-baseline sm:[&_.pro-highlights-header]:justify-between sm:[&_.pro-highlights-header]:gap-3 [&_.pro-highlights-header]:mb-4 [&_.pro-highlights-header]:pb-3 [&_.pro-highlights-header]:border-b [&_.pro-highlights-header]:border-blue-200 " +
   "[&_.pro-highlights-title]:text-base [&_.pro-highlights-title]:font-bold [&_.pro-highlights-title]:text-slate-900 " +
   "[&_.pro-highlights-meta]:text-sm [&_.pro-highlights-meta]:text-slate-500 [&_.pro-highlights-meta]:font-normal"
 
@@ -119,6 +120,10 @@ const PRO_PROSE_CLASSES = [
   '[&_p_a]:text-sky-700 [&_p_a]:underline [&_p_a]:underline-offset-2 hover:[&_p_a]:text-sky-900',
   '[&_li_a]:text-sky-700 [&_li_a]:underline [&_li_a]:underline-offset-2 hover:[&_li_a]:text-sky-900',
   '[&_.pro-section-ref]:text-sky-700 [&_.pro-section-ref]:no-underline hover:[&_.pro-section-ref]:underline [&_.pro-section-ref]:cursor-pointer [&_.pro-section-ref]:font-medium',
+  '[&_.pro-boxed-warning-callout]:my-6 [&_.pro-boxed-warning-callout]:rounded-2xl [&_.pro-boxed-warning-callout]:border-2 [&_.pro-boxed-warning-callout]:border-rose-300 [&_.pro-boxed-warning-callout]:bg-rose-50 [&_.pro-boxed-warning-callout]:p-5',
+  '[&_.pro-boxed-warning-label]:mb-3 [&_.pro-boxed-warning-label]:inline-flex [&_.pro-boxed-warning-label]:items-center [&_.pro-boxed-warning-label]:gap-2 [&_.pro-boxed-warning-label]:text-rose-900 [&_.pro-boxed-warning-label]:font-semibold',
+  '[&_.pro-boxed-warning-callout_h2]:mt-0 [&_.pro-boxed-warning-callout_h2]:text-rose-900 [&_.pro-boxed-warning-callout_h2]:border-0 [&_.pro-boxed-warning-callout_h2]:pb-0',
+  '[&_.pro-boxed-warning-callout_h3]:text-rose-900',
   '[&_strong]:font-semibold [&_strong]:text-slate-900',
 ].join(' ')
 
@@ -267,13 +272,8 @@ async function fetchPill(slug: string): Promise<PillInfo | null> {
   }
 }
 
-async function fetchGuide(
-  pill: PillInfo,
-  isPro: boolean
-): Promise<GuideResponse | null> {
-  const params = isPro
-    ? 'include_professional=true'
-    : 'include_medguide=true&include_professional=false&include_boxed_warning=true'
+async function fetchGuide(pill: PillInfo): Promise<GuideResponse | null> {
+  const params = 'include_medguide=true&include_professional=true&include_boxed_warning=true'
 
   try {
     if (pill.rxcui) {
@@ -308,9 +308,8 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params
   const { tab = 'consumer' } = await searchParams
-  const isPro = tab === 'pro'
   const pill = await fetchPill(slug)
-  const guide = pill ? await fetchGuide(pill, isPro) : null
+  const guide = pill ? await fetchGuide(pill) : null
   const drugName = resolveDrugName({ guide, pill, slug })
   const title = `Medication Guide — ${drugName}`
   return { title }
@@ -325,12 +324,13 @@ export default async function MedicationGuidePage({
 }) {
   const { slug } = await params
   const { tab = 'consumer' } = await searchParams
-  const isPro = tab === 'pro'
 
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
-  const guide = await fetchGuide(pill, isPro)
+  const guide = await fetchGuide(pill)
+  const hasMedguide = guide?.has_medguide !== false
+  const isPro = !hasMedguide || tab === 'pro'
   const drugName = resolveDrugName({ guide, pill, slug })
   const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guide?.sections?.[key]))
   const professionalSections = Array.isArray(guide?.professional_sections)
@@ -347,34 +347,38 @@ export default async function MedicationGuidePage({
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
         <p className="mt-2 text-slate-600 text-sm">
-          Patient-friendly guidance and full FDA prescribing information.
+          {hasMedguide
+            ? 'Patient-friendly guidance and full FDA prescribing information.'
+            : 'Full FDA prescribing information.'}
         </p>
       </div>
 
-      <div className="no-print flex border-b border-slate-200 mb-6">
-        <Link
-          href={`/pill/${slug}/medication-guide`}
-          className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            !isPro
-              ? 'border-sky-600 text-sky-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          💊 Medication Guide
-        </Link>
-        <Link
-          href={`/pill/${slug}/medication-guide?tab=pro`}
-          className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            isPro
-              ? 'border-sky-600 text-sky-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          🏥 Full Prescribing Information
-        </Link>
-      </div>
+      {hasMedguide && (
+        <div className="no-print flex border-b border-slate-200 mb-6">
+          <Link
+            href={`/pill/${slug}/medication-guide`}
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              !isPro
+                ? 'border-sky-600 text-sky-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            💊 Medication Guide
+          </Link>
+          <Link
+            href={`/pill/${slug}/medication-guide?tab=pro`}
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              isPro
+                ? 'border-sky-600 text-sky-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            🏥 Full Prescribing Information
+          </Link>
+        </div>
+      )}
 
-      {!isPro && (
+      {hasMedguide && !isPro && (
         <div className="lg:[&:has(nav)]:grid lg:[&:has(nav)]:grid-cols-[16rem_1fr] lg:[&:has(nav)]:gap-8">
           {/* Left rail — sticky TOC on desktop, accordion on mobile */}
           <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
@@ -405,7 +409,6 @@ export default async function MedicationGuidePage({
                 <summary className="flex items-center gap-2 cursor-pointer text-rose-900 font-semibold list-none [&::-webkit-details-marker]:hidden">
                   <span aria-hidden>⚠️</span>
                   <span>Boxed Warning</span>
-                  <span className="ml-auto text-xs font-normal text-rose-700/80">FDA</span>
                 </summary>
                 {guide?.boxed_warning_html ? (
                   <div
@@ -450,15 +453,6 @@ export default async function MedicationGuidePage({
 
       {isPro && (
         <>
-          {guide?.professional_highlights_html && (
-            <div className={`rounded-2xl border border-blue-200 bg-blue-50/40 p-5 mb-6 ${PRO_HIGHLIGHTS_HEADER_CLASS}`}>
-              <div
-                className={PRO_HIGHLIGHTS_PROSE_CLASSES}
-                dangerouslySetInnerHTML={{ __html: guide.professional_highlights_html }}
-              />
-            </div>
-          )}
-
           {hasProfessionalToc ? (
             <div className={PRO_TOC_GRID_CLASSES}>
               <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
@@ -477,6 +471,16 @@ export default async function MedicationGuidePage({
 
               <div className="space-y-6 min-w-0">
                 <MedguideMetaBar guide={guide} />
+                {guide?.professional_highlights_html && (
+                  <div
+                    className={`rounded-2xl border border-blue-200 border-l-4 border-l-sky-600 bg-gradient-to-br from-sky-50 to-blue-50 p-6 ${PRO_HIGHLIGHTS_HEADER_CLASS}`}
+                  >
+                    <div
+                      className={PRO_HIGHLIGHTS_PROSE_CLASSES}
+                      dangerouslySetInnerHTML={{ __html: guide.professional_highlights_html }}
+                    />
+                  </div>
+                )}
                 {guide?.professional_html ? (
                   <article
                     id="pro-content"
@@ -491,6 +495,16 @@ export default async function MedicationGuidePage({
           ) : (
             <div className="space-y-6">
               <MedguideMetaBar guide={guide} />
+              {guide?.professional_highlights_html && (
+                <div
+                  className={`rounded-2xl border border-blue-200 border-l-4 border-l-sky-600 bg-gradient-to-br from-sky-50 to-blue-50 p-6 ${PRO_HIGHLIGHTS_HEADER_CLASS}`}
+                >
+                  <div
+                    className={PRO_HIGHLIGHTS_PROSE_CLASSES}
+                    dangerouslySetInnerHTML={{ __html: guide.professional_highlights_html }}
+                  />
+                </div>
+              )}
               {guide?.professional_html ? (
                 <article
                   id="pro-content"

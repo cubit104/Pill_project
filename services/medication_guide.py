@@ -182,6 +182,7 @@ def _row_to_response(
         "brand_name": row.get("brand_name"),
         "display_name": display_name,
         "has_boxed_warning": bool(row.get("has_boxed_warning")),
+        "has_medguide": bool(row.get("medguide_html")),
         "sections": {
             "overview": row.get("overview"),
             "uses": row.get("uses"),
@@ -494,7 +495,7 @@ async def build_guide(
                         "include_professional lazy-fill fetch failed for spl_set_id=%s",
                         cached.get("spl_set_id"),
                     )
-            if include_medguide and not cached.get("medguide_html") and cached.get("spl_set_id"):
+            if not cached.get("medguide_html") and cached.get("spl_set_id"):
                 try:
                     mg_html = await fetch_medguide_html(str(cached["spl_set_id"]))
                     if mg_html and cached.get("id") is not None:
@@ -620,8 +621,14 @@ async def build_guide(
                     spl_set_id,
                 )
 
-        if include_medguide:
+        try:
             mapped["medguide_html"] = await fetch_medguide_html(spl_set_id)
+        except Exception:
+            logger.exception(
+                "medguide fetch failed for spl_set_id=%s",
+                spl_set_id,
+            )
+            mapped["medguide_html"] = None
 
         if include_boxed_warning:
             mapped["boxed_warning_html"] = await fetch_boxed_warning_html(spl_set_id)

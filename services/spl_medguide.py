@@ -1,7 +1,7 @@
 """Service for rendering the FDA patient Medication Guide section as native semantic HTML.
 
 Fetches SPL XML from DailyMed, isolates the patient-facing medguide ``<section>``
-subtree via LOINC priority (``42231-1`` → ``42230-3`` → Section 17 fallback), then
+subtree via Medication Guide LOINC codes (``42230-3`` or ``68498-5``), then
 walks the subtree to produce clean, Tailwind-styleable markup with no FDA stylesheet
 link, iframe wrapper, or ``<html>`` outer frame.
 """
@@ -46,6 +46,7 @@ _PATIENT_CONTENT_KEYWORDS = (
     "read this medication guide",
 )
 _SPL_UNCLASSIFIED_CODE = "42229-5"
+_MEDGUIDE_LOINC_CODES = ("42230-3", "68498-5")
 _HEADING_KEYWORD_RE = re.compile(
     r"^\s*(what|who|how|when|why|where|before|after|general information about|important information about|read this medication guide)\b",
     re.IGNORECASE,
@@ -583,13 +584,22 @@ def _dedupe_repeated_headings(html_str: str) -> str:
         return html_str
 
     root = lxml_html.fragment_fromstring(html_str, create_parent="div")
-    seen: set[str] = set()
+    seen_headings: set[str] = set()
+    seen_list_items: set[str] = set()
 
     for el in list(root.iter()):
         if not isinstance(el.tag, str):
             continue
         text = (el.text_content() or "").strip().lower().rstrip(".:;,")
         if not text:
+            continue
+        if el.tag == "li":
+            if text in seen_list_items:
+                parent = el.getparent()
+                if parent is not None:
+                    parent.remove(el)
+                continue
+            seen_list_items.add(text)
             continue
         is_heading_like = (
             el.tag in ("h1", "h2", "h3", "h4", "h5", "h6")
@@ -598,13 +608,32 @@ def _dedupe_repeated_headings(html_str: str) -> str:
         )
         if not is_heading_like:
             continue
-        if text in seen:
+        if text in seen_headings:
             parent = el.getparent()
             if parent is not None:
                 parent.remove(el)
         else:
-            seen.add(text)
+            seen_headings.add(text)
 
+    return _serialize_children(root)
+
+
+def _promote_warning_paragraphs_to_h3(html_str: str) -> str:
+    if not html_str:
+        return html_str
+
+    root = lxml_html.fragment_fromstring(html_str, create_parent="div")
+    for paragraph in list(root.xpath(".//p")):
+        text = _normalize_visible_text("".join(paragraph.itertext()))
+        if not re.match(r"^WARNING:\s", text):
+            continue
+        heading = lxml_html.Element("h3")
+        heading.set("class", "boxed-warning-heading")
+        heading.text = text
+        paragraph.addnext(heading)
+        parent = paragraph.getparent()
+        if parent is not None:
+            parent.remove(paragraph)
     return _serialize_children(root)
 
 
@@ -942,12 +971,12 @@ def _find_patient_subsection_in_section17(tree: etree._Element) -> Optional[etre
 
 
 def _select_medguide_section(tree: etree._Element) -> Optional[etree._Element]:
-    """Select the medguide section using LOINC priority: 42231-1 → 42230-3 → Section 17 fallback."""
-    for code in ("42231-1", "42230-3"):
+    """Select Medication Guide section by explicit LOINC codes only."""
+    for code in _MEDGUIDE_LOINC_CODES:
         section = _find_section_by_code(tree, code)
         if section is not None:
             return section
-    return _find_patient_subsection_in_section17(tree)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -996,13 +1025,13 @@ _BOXED_ALLOWED_TAGS = [
 
 _BOXED_ALLOWED_ATTRS: dict[str, list[str]] = {
     "h2": ["id"],
-    "h3": ["id"],
+    "h3": ["id", "class"],
     "div": ["class"],
     "td": ["colspan", "rowspan"],
     "th": ["colspan", "rowspan"],
 }
 
-_BOXED_ALLOWED_CLASS_VALUES: set[str] = {"boxed-warning-content"}
+_BOXED_ALLOWED_CLASS_VALUES: set[str] = {"boxed-warning-content", "boxed-warning-heading"}
 
 
 def _boxed_allowed_attrs(tag: str, name: str, value: str) -> bool:
@@ -1047,6 +1076,7 @@ def _render_boxed_warning_section(section: etree._Element) -> str:
     inner = _strip_tables(inner)
     inner = _strip_leading_bullets_from_html(inner)
     inner = _strip_section_refs(inner)
+    inner = _promote_warning_paragraphs_to_h3(inner)
     inner = _postprocess_after_table_strip(inner, extract_meta_strip=False)
     inner = _dedupe_repeated_headings(inner)
     sanitized = bleach.clean(

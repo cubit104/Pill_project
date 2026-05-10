@@ -164,6 +164,58 @@ def test_build_guide_cache_hit_skips_openfda_within_30_days():
     assert mock_client.fetch_label_by_rxcui.call_count == 0
 
 
+def test_has_medguide_false_when_null():
+    fresh_row = {
+        "id": 31,
+        "rxcui": "153165",
+        "ndc": "0071-0156-23",
+        "generic_name": "atorvastatin calcium",
+        "brand_name": "LIPITOR",
+        "overview": "cached overview",
+        "has_boxed_warning": False,
+        "medguide_html": None,
+        "source_url": "https://example.com",
+        "fetched_at": datetime.now(timezone.utc) - timedelta(days=1),
+    }
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=fresh_row
+    ):
+        result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client))
+
+    assert result["has_medguide"] is False
+
+
+def test_has_medguide_true_when_populated():
+    fresh_row = {
+        "id": 32,
+        "rxcui": "153165",
+        "ndc": "0071-0156-23",
+        "generic_name": "atorvastatin calcium",
+        "brand_name": "LIPITOR",
+        "overview": "cached overview",
+        "has_boxed_warning": False,
+        "medguide_html": "<article>Medication Guide</article>",
+        "source_url": "https://example.com",
+        "fetched_at": datetime.now(timezone.utc) - timedelta(days=1),
+    }
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=fresh_row
+    ):
+        result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client))
+
+    assert result["has_medguide"] is True
+
+
 def test_display_name_falls_back_to_generic_name_when_brand_missing():
     fresh_row = {
         "id": 2,

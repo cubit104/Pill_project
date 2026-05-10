@@ -44,7 +44,7 @@ def _wrap_in_doc(*sections: etree._Element) -> etree._Element:
 
 
 def _minimal_spl_xml(
-    code: str = "42231-1",
+    code: str = "42230-3",
     title: str = "MEDICATION GUIDE",
     extra_subsection: bool = False,
 ) -> bytes:
@@ -93,26 +93,14 @@ class _FakeClient:
 
 
 # ---------------------------------------------------------------------------
-# Section selection tests (unchanged behavior)
+# Section selection tests
 # ---------------------------------------------------------------------------
 
 
-def test_select_prefers_42231_1_over_42230_3():
-    """42231-1 is found first and returned instead of 42230-3."""
-    sec1 = _make_section("42231-1", title="MEDICATION GUIDE")
-    sec2 = _make_section("42230-3", title="PATIENT PACKAGE INSERT")
-    doc = _wrap_in_doc(sec1, sec2)
-
-    result = spl_medguide._select_medguide_section(doc)
-    assert result is not None
-    code_el = result.find(f"{{{_NS}}}code")
-    assert code_el is not None and code_el.get("code") == "42231-1"
-
-
-def test_select_falls_back_to_42230_3_when_no_42231_1():
-    """42230-3 is returned when 42231-1 is absent."""
-    sec = _make_section("42230-3", title="PATIENT PACKAGE INSERT")
-    doc = _wrap_in_doc(sec)
+def test_select_prefers_42230_3_over_68498_5():
+    sec1 = _make_section("42230-3", title="MEDICATION GUIDE")
+    sec2 = _make_section("68498-5", title="PATIENT LABELING")
+    doc = _wrap_in_doc(sec2, sec1)
 
     result = spl_medguide._select_medguide_section(doc)
     assert result is not None
@@ -120,33 +108,23 @@ def test_select_falls_back_to_42230_3_when_no_42231_1():
     assert code_el is not None and code_el.get("code") == "42230-3"
 
 
-def test_select_falls_back_to_section17_subsection_by_title():
-    """When neither primary code is present, a Section-17 subsection with a matching
-    title is returned."""
-    subsection = _make_section("34567-0", title="Medication Guide")
-    # wrap subsection inside section 17
-    sec17 = _make_section("34076-0")
-    inner_comp = etree.SubElement(sec17, f"{{{_NS}}}component")
-    inner_comp.append(subsection)
-    doc = _wrap_in_doc(sec17)
+def test_select_falls_back_to_68498_5_when_no_42230_3():
+    sec = _make_section("68498-5", title="PATIENT LABELING")
+    doc = _wrap_in_doc(sec)
 
     result = spl_medguide._select_medguide_section(doc)
     assert result is not None
-    title_el = result.find(f"{{{_NS}}}title")
-    assert title_el is not None and "medication guide" in title_el.text.lower()
+    code_el = result.find(f"{{{_NS}}}code")
+    assert code_el is not None and code_el.get("code") == "68498-5"
 
 
-def test_select_falls_back_to_section17_subsection_by_content():
-    """When neither primary code is present, a Section-17 subsection is picked if
-    its opening text contains 'medication guide'."""
-    subsection = _make_section("99999-9", text="MEDICATION GUIDE for some drug. Read carefully.")
-    sec17 = _make_section("34076-0")
-    inner_comp = etree.SubElement(sec17, f"{{{_NS}}}component")
-    inner_comp.append(subsection)
+def test_select_returns_none_when_no_supported_medguide_loinc():
+    sec17 = _make_section("34076-0", title="Patient Counseling Information")
+    subsection = _make_section("99999-9", text="Medication guide style prose but no LOINC section")
+    etree.SubElement(sec17, f"{{{_NS}}}component").append(subsection)
     doc = _wrap_in_doc(sec17)
-
     result = spl_medguide._select_medguide_section(doc)
-    assert result is not None
+    assert result is None
 
 
 def test_select_returns_none_when_no_match():
@@ -189,6 +167,20 @@ def test_fetch_medguide_html_returns_none_when_no_medguide_section():
     assert result is None
 
 
+def test_no_medguide_loinc_returns_none():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody>'
+        f'<component><section><code code="34066-1"/><title>BOXED WARNING</title></section></component>'
+        f'<component><section><code code="34068-7"/><title>Dosage</title></section></component>'
+        f'</structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-no-loinc"))
+    assert result is None
+
+
 def test_fetch_medguide_html_returns_none_on_network_exception():
     class _ErrorClient:
         async def __aenter__(self):
@@ -212,7 +204,7 @@ def test_fetch_medguide_html_returns_none_on_network_exception():
 
 def test_fetch_medguide_html_returns_article_wrapper():
     """Output starts with <article and contains an <h1> for the medguide title."""
-    xml_content = _minimal_spl_xml("42231-1", title="MEDICATION GUIDE")
+    xml_content = _minimal_spl_xml("42230-3", title="MEDICATION GUIDE")
     with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml_content)):
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
     assert result is not None
@@ -221,9 +213,27 @@ def test_fetch_medguide_html_returns_article_wrapper():
     assert "MEDICATION GUIDE" in result
 
 
+def test_medguide_loinc_42230_3_renders():
+    xml_content = _minimal_spl_xml("42230-3", title="MEDICATION GUIDE")
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml_content)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-42230"))
+    assert result is not None
+    assert result.startswith("<article")
+    assert "MEDICATION GUIDE" in result
+
+
+def test_medguide_loinc_68498_5_renders():
+    xml_content = _minimal_spl_xml("68498-5", title="PATIENT LABELING")
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml_content)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-68498"))
+    assert result is not None
+    assert result.startswith("<article")
+    assert "PATIENT LABELING" in result
+
+
 def test_fetch_medguide_html_no_iframe_no_fda_stylesheet():
     """Output contains no iframe wrapper, no <html>, no <link>, no FDA stylesheet URL."""
-    xml_content = _minimal_spl_xml("42231-1")
+    xml_content = _minimal_spl_xml("42230-3")
     with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml_content)):
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
     assert result is not None
@@ -241,7 +251,7 @@ def test_fetch_medguide_html_no_img_tags():
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component>'
         f'<section>'
-        f'<code code="42231-1"/>'
+        f'<code code="42230-3"/>'
         f'<title>MEDICATION GUIDE</title>'
         f'<text>'
         f'<renderMultiMedia referencedObject="img1"/>'
@@ -260,7 +270,7 @@ def test_fetch_medguide_html_no_img_tags():
 
 def test_fetch_medguide_html_subsection_titles_become_h2_with_slugified_ids():
     """Subsection <title> elements become <h2 id="..."> with slugified ids."""
-    xml_content = _minimal_spl_xml("42231-1", extra_subsection=True)
+    xml_content = _minimal_spl_xml("42230-3", extra_subsection=True)
     with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml_content)):
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
     assert result is not None
@@ -273,7 +283,7 @@ def test_fetch_medguide_html_slugified_ids_are_unique():
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component>'
         f'<section>'
-        f'<code code="42231-1"/>'
+        f'<code code="42230-3"/>'
         f'<title>MEDICATION GUIDE</title>'
         f'<component>'
         f'<section>'
@@ -300,7 +310,7 @@ def test_fetch_medguide_html_slugified_ids_are_unique():
 
 def test_fetch_medguide_html_paragraphs_become_p_tags():
     """SPL <paragraph> elements are converted to <p> tags."""
-    xml_content = _minimal_spl_xml("42231-1")
+    xml_content = _minimal_spl_xml("42230-3")
     with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml_content)):
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
     assert result is not None
@@ -314,7 +324,7 @@ def test_fetch_medguide_html_list_becomes_ul():
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component>'
         f'<section>'
-        f'<code code="42231-1"/>'
+        f'<code code="42230-3"/>'
         f'<title>MEDICATION GUIDE</title>'
         f'<text>'
         f'<list>'
@@ -339,7 +349,7 @@ def test_fetch_medguide_html_content_bold_becomes_strong():
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component>'
         f'<section>'
-        f'<code code="42231-1"/>'
+        f'<code code="42230-3"/>'
         f'<title>MEDICATION GUIDE</title>'
         f'<text>'
         f'<paragraph><content styleCode="bold">Important:</content> Read carefully.</paragraph>'
@@ -382,7 +392,7 @@ def test_outer_layout_table_is_unwrapped_into_flat_blocks():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text><table><tr><td><paragraph>First left cell paragraph.</paragraph></td>'
         f'<td><paragraph>Revised: 6/2025</paragraph></td></tr>'
         f'<tr><td><paragraph>Second row paragraph.</paragraph></td></tr></table></text>'
@@ -403,7 +413,7 @@ def test_tables_are_stripped_even_when_table_looks_like_data():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text>'
         f'<paragraph>{long_text}</paragraph>'
         f'<table><tr><td>A</td><td>B</td></tr></table>'
@@ -423,7 +433,7 @@ def test_pradaxa_style_two_tables_are_unwrapped_into_meta_and_rich_h1():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>Medication Guide</title>'
+        f'<code code="42230-3"/><title>Medication Guide</title>'
         f'<text>'
         f'<table><tbody><tr>'
         f'<td><paragraph>This Medication Guide has been approved by the U.S. Food and Drug Administration.</paragraph></td>'
@@ -453,7 +463,7 @@ def test_tables_with_header_cells_are_stripped():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text>'
         f'<table><thead><tr><th>Column A</th><th>Column B</th></tr></thead>'
         f'<tbody><tr><td><paragraph>Value A</paragraph></td><td><paragraph>Value B</paragraph></td></tr></tbody></table>'
@@ -472,7 +482,7 @@ def test_bold_question_paragraph_promoted_to_h2_with_slug():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text><paragraph><content styleCode="bold">What is Plavix?</content></paragraph></text>'
         f'</section></component></structuredBody></component></document>'
     ).encode()
@@ -486,7 +496,7 @@ def test_bold_non_question_heading_paragraph_promoted_to_h2():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text><paragraph styleCode="bold">General information about Plavix</paragraph></text>'
         f'</section></component></structuredBody></component></document>'
     ).encode()
@@ -500,7 +510,7 @@ def test_bold_colon_heading_is_promoted_to_h2():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text><paragraph styleCode="bold">Important Safety Information:</paragraph></text>'
         f'</section></component></structuredBody></component></document>'
     ).encode()
@@ -517,7 +527,7 @@ def test_long_bold_paragraph_is_not_promoted_to_heading():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text><paragraph styleCode="bold">{long_question}</paragraph></text>'
         f'</section></component></structuredBody></component></document>'
     ).encode()
@@ -532,7 +542,7 @@ def test_consecutive_spl_paragraphs_are_not_merged():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text><paragraph>First paragraph.</paragraph><paragraph>Second paragraph.</paragraph></text>'
         f'</section></component></structuredBody></component></document>'
     ).encode()
@@ -548,7 +558,7 @@ def test_duplicate_promoted_question_headings_get_unique_ids():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text>'
         f'<paragraph styleCode="bold">What is Plavix?</paragraph>'
         f'<paragraph styleCode="bold">What is Plavix?</paragraph>'
@@ -566,7 +576,7 @@ def test_dash_only_paragraph_is_removed():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text><paragraph>----------</paragraph><paragraph>Keep me.</paragraph></text>'
         f'</section></component></structuredBody></component></document>'
     ).encode()
@@ -581,7 +591,7 @@ def test_empty_paragraph_is_removed():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text><paragraph>   </paragraph><paragraph>Content.</paragraph></text>'
         f'</section></component></structuredBody></component></document>'
     ).encode()
@@ -596,7 +606,7 @@ def test_bold_medication_guide_preamble_becomes_h1_not_h2():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>Medication Guide</title>'
+        f'<code code="42230-3"/><title>Medication Guide</title>'
         f'<text>'
         f'<paragraph styleCode="bold">MEDICATION GUIDE<br/>XARELTO<br/>(rivaroxaban)<br/>tablets</paragraph>'
         f'<paragraph styleCode="bold">What is XARELTO?</paragraph>'
@@ -616,7 +626,7 @@ def test_section_selection_first_match_with_promoted_headings_stays_stable():
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody>'
         f'<component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text>'
         f'<paragraph styleCode="bold">What should I know?</paragraph>'
         f'<paragraph styleCode="bold">What should I know?</paragraph>'
@@ -648,7 +658,7 @@ def test_xarelto_two_form_header_unwrap():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>Medication Guide</title>'
+        f'<code code="42230-3"/><title>Medication Guide</title>'
         f'<text>'
         f'<table>'
         f'<tr>'
@@ -680,7 +690,7 @@ def test_layout_table_with_br_cells_is_unwrapped():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text>'
         f'<table>'
         f'<tr><td>Line one<br/>Line two<br/>Line three extra text for length</td></tr>'
@@ -700,7 +710,7 @@ def test_layout_table_too_short_text_is_also_stripped():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text>'
         f'<paragraph>Normal content here.</paragraph>'
         f'<table><tr><td>A<br/>B</td></tr></table>'
@@ -720,7 +730,7 @@ def test_layout_table_with_three_cells_per_row_is_unwrapped():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text>'
         f'<table>'
         f'<tr>'
@@ -743,7 +753,7 @@ def test_nested_tables_are_fully_removed_and_content_order_is_preserved():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<code code="42230-3"/><title>MEDICATION GUIDE</title>'
         f'<text>'
         f'<table><tr><td>'
         f'<paragraph>First paragraph.</paragraph>'
@@ -837,7 +847,7 @@ def test_xarelto_style_table_strip_preserves_header_and_body_content():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
-        f'<code code="42231-1"/><title>Medication Guide</title>'
+        f'<code code="42230-3"/><title>Medication Guide</title>'
         f'<text>'
         f'<table>'
         f'<tr>'
@@ -890,7 +900,7 @@ def test_fetch_boxed_warning_html_returns_none_when_no_section():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component>'
-        f'<section><code code="42231-1"/><title>MEDICATION GUIDE</title></section>'
+        f'<section><code code="42230-3"/><title>MEDICATION GUIDE</title></section>'
         f'</component></structuredBody></component>'
         f'</document>'
     ).encode()

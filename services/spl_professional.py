@@ -105,6 +105,7 @@ _DESCRIPTIVE_NAME_TO_SLUG = {
 
 _ALLOWED_TAGS = [
     "div",
+    "aside",
     "span",
     "section",
     "figure",
@@ -137,6 +138,7 @@ _ALLOWED_TAGS = [
 
 _ALLOWED_ATTRS: dict[str, list[str]] = {
     "div": ["class"],
+    "aside": ["class", "role", "aria-label"],
     "span": ["class"],
     "section": ["id", "class"],
     "figure": ["class"],
@@ -469,6 +471,50 @@ def _strip_dash_empty_paragraphs_html(fragment: str) -> str:
             parent = paragraph.getparent()
             if parent is not None:
                 parent.remove(paragraph)
+    return ((root.text or "") + "".join(lxml_html.tostring(child, encoding="unicode") for child in root)).strip()
+
+
+def _promote_warning_paragraphs_to_h3(fragment: str) -> str:
+    root = lxml_html.fragment_fromstring(fragment or "", create_parent="div")
+    for paragraph in list(root.xpath(".//p")):
+        text = _normalize_text("".join(paragraph.itertext()))
+        if not re.match(r"^WARNING:\s", text):
+            continue
+        heading = lxml_html.Element("h3")
+        heading.set("class", "boxed-warning-heading")
+        heading.text = text
+        paragraph.addnext(heading)
+        parent = paragraph.getparent()
+        if parent is not None:
+            parent.remove(paragraph)
+    return ((root.text or "") + "".join(lxml_html.tostring(child, encoding="unicode") for child in root)).strip()
+
+
+def _dedupe_boxed_warning_html(fragment: str) -> str:
+    root = lxml_html.fragment_fromstring(fragment or "", create_parent="div")
+    seen_headings: set[str] = set()
+    seen_list_items: set[str] = set()
+    for el in list(root.iter()):
+        if not isinstance(el.tag, str):
+            continue
+        text = _normalize_text("".join(el.itertext())).lower().rstrip(".:;,")
+        if not text:
+            continue
+        if el.tag == "li":
+            if text in seen_list_items:
+                parent = el.getparent()
+                if parent is not None:
+                    parent.remove(el)
+                continue
+            seen_list_items.add(text)
+            continue
+        if el.tag in {"h2", "h3", "h4", "h5", "h6"}:
+            if text in seen_headings:
+                parent = el.getparent()
+                if parent is not None:
+                    parent.remove(el)
+                continue
+            seen_headings.add(text)
     return ((root.text or "") + "".join(lxml_html.tostring(child, encoding="unicode") for child in root)).strip()
 
 
@@ -867,11 +913,21 @@ async def fetch_professional_rendered(spl_set_id: str) -> Optional[ProfessionalR
             rendered = _render_section(section, slug=slug, heading=heading, ctx=ctx)
             if slug == "boxed-warning":
                 rendered = _strip_section_refs(rendered)
+                rendered = _promote_warning_paragraphs_to_h3(rendered)
             rendered = strip_leading_bullets_from_html(rendered)
+            if slug == "boxed-warning":
+                rendered = _dedupe_boxed_warning_html(rendered)
             rendered = _linkify_section_refs(rendered)
             sanitized = _strip_dash_empty_paragraphs_html(_sanitize_html(rendered))
             if not _is_meaningful_html(sanitized):
                 continue
+            if slug == "boxed-warning":
+                sanitized = (
+                    '<aside class="pro-boxed-warning-callout" role="note" aria-label="Boxed Warning">'
+                    '<div class="pro-boxed-warning-label">⚠️ Boxed Warning</div>'
+                    f"{sanitized}"
+                    "</aside>"
+                )
             article_parts.append(sanitized)
             rendered_sections.append((slug, short_label))
 
