@@ -102,6 +102,7 @@ export default function PillDetailClient({
 }) {
   const router = useRouter()
   const [zoomImage, setZoomImage] = useState<string | null>(null)
+  const resolvedSlug = slug ?? pill?.slug
 
   const images = pill.images && pill.images.length > 0
     ? pill.images
@@ -428,6 +429,24 @@ export default function PillDetailClient({
             )}
           </dl>
         </div>
+
+        {resolvedSlug && (
+          <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mt-6">
+            <h2 className="text-xl font-semibold text-slate-900 mb-2">
+              Medication Information
+            </h2>
+            <p className="text-slate-600 mb-4">
+              Read the official FDA Medication Guide — written for patients, sourced from DailyMed.
+            </p>
+            <Link
+              href={`/pill/${resolvedSlug}/medication-guide`}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
+            >
+              Read Medication Guide
+              <span aria-hidden>→</span>
+            </Link>
+          </section>
+        )}
 
         {/* Similar-looking Pills (Confusion Risk) */}
         {similar && similar.length > 0 && (

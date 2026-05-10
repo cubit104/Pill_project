@@ -46,6 +46,7 @@ _HEADING_KEYWORD_RE = re.compile(
     re.IGNORECASE,
 )
 _DASH_ONLY_P_RE = re.compile(r"^[\s\-–—_=]{3,}$")
+_SECTION_REF_RE = re.compile(r"\s*\((?:\d+\.\d+(?:\.\d+)?(?:\s*,\s*\d+\.\d+(?:\.\d+)?)*)\)")
 _APPROVAL_P_RE = re.compile(r"^\s*this medication guide has been approved", re.IGNORECASE)
 _REVISED_P_RE = re.compile(r"^\s*revised:", re.IGNORECASE)
 _ALLOWED_CLASS_VALUES: dict[str, set[str]] = {
@@ -59,7 +60,6 @@ ALLOWED_TAGS = [
     "h1", "h2", "h3",
     "div",
     "p", "ul", "ol", "li", "strong", "em", "u", "br",
-    "table", "thead", "tbody", "tr", "th", "td", "caption",
     "hr",
 ]
 
@@ -458,10 +458,86 @@ def _postprocess_rendered_html(combined_html: str, seen_ids: dict[str, int], h1_
     _promote_strong_only_paragraphs(root, seen_ids)
     _dedupe_and_trim_hr(root)
     _strip_duplicated_leading_medguide_header(root, h1_text)
+    return _serialize_children(root)
+
+
+def _serialize_children(root: etree._Element) -> str:
     return "".join(
         etree.tostring(child, encoding="unicode", method="html")
         for child in root
     )
+
+
+def _strip_tables(html_str: str) -> str:
+    def _nearest_table_ancestor(el: etree._Element) -> Optional[etree._Element]:
+        """Return the closest ancestor <table> for *el*, or None if absent."""
+        parent = el.getparent()
+        while parent is not None:
+            if isinstance(parent.tag, str) and _local(parent.tag) == "table":
+                return parent
+            parent = parent.getparent()
+        return None
+
+    root = lxml_html.fragment_fromstring(html_str or "", create_parent="div")
+    for table in reversed(list(root.xpath(".//table"))):
+        parent = table.getparent()
+        if parent is None:
+            continue
+        replacement_blocks: list[etree._Element] = []
+        for cell in (node for node in table.iter() if isinstance(node.tag, str) and _local(node.tag) in {"td", "th", "caption"}):
+            if _nearest_table_ancestor(cell) is not table:
+                continue
+            cell_text = _normalize_visible_text(cell.text or "")
+            if cell_text:
+                p_el = lxml_html.Element("p")
+                p_el.text = cell_text
+                replacement_blocks.append(p_el)
+            for child in list(cell):
+                cell.remove(child)
+                child_tail = child.tail
+                child.tail = None
+                replacement_blocks.append(child)
+                if _normalize_visible_text(child_tail or ""):
+                    tail_p = lxml_html.Element("p")
+                    tail_p.text = _normalize_visible_text(child_tail or "")
+                    replacement_blocks.append(tail_p)
+
+        insert_at = parent.index(table)
+        for offset, block in enumerate(replacement_blocks):
+            parent.insert(insert_at + offset, block)
+        parent.remove(table)
+
+    return _serialize_children(root)
+
+
+def _collapse_consecutive_identical_h1(root: etree._Element) -> None:
+    for parent in root.iter():
+        prev_h1_text: Optional[str] = None
+        for child in list(parent):
+            if not isinstance(child.tag, str):
+                prev_h1_text = None
+                continue
+            if _local(child.tag) != "h1":
+                prev_h1_text = None
+                continue
+            current_text = _normalize_visible_text("".join(child.itertext())).lower()
+            if prev_h1_text is not None and current_text == prev_h1_text:
+                parent.remove(child)
+                continue
+            prev_h1_text = current_text
+
+
+def _postprocess_after_table_strip(html_str: str, *, extract_meta_strip: bool) -> str:
+    root = lxml_html.fragment_fromstring(html_str or "", create_parent="div")
+    _remove_dash_empty_paragraphs(root)
+    if extract_meta_strip:
+        _extract_meta_strip(root)
+    _collapse_consecutive_identical_h1(root)
+    return _serialize_children(root)
+
+
+def _strip_section_refs(html_str: str) -> str:
+    return _SECTION_REF_RE.sub("", html_str or "")
 
 
 def _safe_cell_attrs(el: etree._Element) -> str:
@@ -748,6 +824,8 @@ def _render_medguide_section(section: etree._Element) -> str:
             parts.append(child_html)
 
     combined = _postprocess_rendered_html("\n".join(parts), seen_ids=seen_ids, h1_text=h1_text_plain)
+    combined = _strip_tables(combined)
+    combined = _postprocess_after_table_strip(combined, extract_meta_strip=True)
     sanitized = bleach.clean(combined, tags=ALLOWED_TAGS, attributes=_bleach_allowed_attrs, strip=True)
     return f"<article>{sanitized}</article>"
 
@@ -846,7 +924,6 @@ _BOXED_WARNING_LOINC = "34066-1"
 _BOXED_ALLOWED_TAGS = [
     "div", "h2", "h3",
     "p", "ul", "ol", "li", "strong", "em", "u", "br",
-    "table", "thead", "tbody", "tr", "th", "td", "caption",
 ]
 
 _BOXED_ALLOWED_ATTRS: dict[str, list[str]] = {
@@ -899,6 +976,9 @@ def _render_boxed_warning_section(section: etree._Element) -> str:
             parts.append(child_html)
 
     inner = "\n".join(parts)
+    inner = _strip_tables(inner)
+    inner = _postprocess_after_table_strip(inner, extract_meta_strip=False)
+    inner = _strip_section_refs(inner)
     sanitized = bleach.clean(
         inner,
         tags=_BOXED_ALLOWED_TAGS,
