@@ -48,6 +48,8 @@ export default function MedguideToc({ html }: { html: string }) {
 
     const headingEls: Element[] = []
     entries.forEach(({ id }) => {
+      // CSS.escape is defensive — the backend _slugify already produces safe ids,
+      // but we guard here in case the HTML comes from an unexpected source.
       const el = contentEl.querySelector(`#${CSS.escape(id)}`)
       if (el) headingEls.push(el)
     })

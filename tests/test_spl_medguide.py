@@ -356,8 +356,10 @@ def test_fetch_medguide_html_content_bold_becomes_strong():
 
 def test_slugify_basic():
     """_slugify converts text to lowercase hyphenated slug."""
-    assert spl_medguide._slugify("What Is The Most Important Information?") == \
-        "what-is-the-most-important-information"
+    assert (
+        spl_medguide._slugify("What Is The Most Important Information?")
+        == "what-is-the-most-important-information"
+    )
 
 
 def test_slugify_collapses_repeated_separators():
