@@ -1046,6 +1046,37 @@ def test_fetch_boxed_warning_html_strips_section_refs_but_keeps_doses_percentage
     assert "(2023)" in result
 
 
+def test_fetch_boxed_warning_html_strips_leading_bullets_bracket_refs_and_duplicate_warning_heading():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="34066-1"/>'
+        f'<title>BOXED WARNING</title>'
+        f'<text>'
+        f'<paragraph>WARNING: RISK OF THYROID C-CELL TUMORS</paragraph>'
+        f'<paragraph>• In rodents, semaglutide causes dose-dependent and treatment-duration-dependent thyroid C-cell tumors at clinically relevant exposures [see Warnings and Precautions (5.1)].</paragraph>'
+        f'<paragraph>• OZEMPIC is contraindicated in patients with a personal or family history of MTC [see Contraindications (4), Warnings and Precautions (5.1)].</paragraph>'
+        f'<paragraph><content styleCode="bold">WARNING: RISK OF THYROID C-CELL TUMORS</content></paragraph>'
+        f'<paragraph>See full prescribing information for complete boxed warning.</paragraph>'
+        f'</text>'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_boxed_warning_html("set-bw-ozempic-style"))
+
+    assert result is not None
+    assert result.count("WARNING: RISK OF THYROID C-CELL TUMORS") == 1
+    assert "[see Warnings and Precautions (5.1)]" not in result
+    assert "[see Contraindications (4), Warnings and Precautions (5.1)]" not in result
+    assert "• In rodents" not in result
+    assert "• OZEMPIC is contraindicated" not in result
+    assert "In rodents, semaglutide causes dose-dependent" in result
+    assert "OZEMPIC is contraindicated in patients with a personal or family history of MTC" in result
+
+
 def test_strip_section_refs_matches_expected_patterns():
     text = "Risk (5.1) and monitoring (5.1, 5.2) and dosing (2.3.1) and list (2.4, 2.5, 2.6)."
     result = spl_medguide._strip_section_refs(text)
@@ -1063,3 +1094,47 @@ def test_strip_section_refs_keeps_non_section_parentheticals():
     assert "(2.5 mg)" in result
     assert "(2023)" in result
     assert "(see 5)" in result
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("• In rodents, semaglutide causes…", "In rodents, semaglutide causes…"),
+        ("●  Tests are available", "Tests are available"),
+        ("•", ""),
+    ],
+)
+def test_strip_leading_bullets(source: str, expected: str):
+    assert spl_medguide._strip_leading_bullets(source) == expected
+
+
+def test_strip_leading_bullets_keeps_inner_bullet():
+    source = "Bullet • inside"
+    assert spl_medguide._strip_leading_bullets(source) == source
+
+
+def test_strip_section_refs_removes_bracketed_see_refs_but_keeps_regular_brackets():
+    text = (
+        "Risk [see Warnings and Precautions (5.1)]. "
+        "Patients [see Contraindications (4), Warnings and Precautions (5.1)]. "
+        "More [see also Boxed Warning]. "
+        "This is a [bracketed clarification] kept as-is."
+    )
+    result = spl_medguide._strip_section_refs(text)
+    assert "[see Warnings and Precautions (5.1)]" not in result
+    assert "[see Contraindications (4), Warnings and Precautions (5.1)]" not in result
+    assert "[see also Boxed Warning]" not in result
+    assert "[bracketed clarification]" in result
+
+
+def test_dedupe_repeated_headings_handles_heading_tags_and_strong_paragraphs():
+    html = (
+        "<h2>WARNING: RISK OF X</h2>"
+        "<p>body text</p>"
+        "<p><strong>WARNING: RISK OF X.</strong></p>"
+        "<h3>WARNING: RISK OF Y</h3>"
+    )
+    result = spl_medguide._dedupe_repeated_headings(html)
+    assert "<h2>WARNING: RISK OF X</h2>" in result
+    assert "<p><strong>WARNING: RISK OF X.</strong></p>" not in result
+    assert "<h3>WARNING: RISK OF Y</h3>" in result
