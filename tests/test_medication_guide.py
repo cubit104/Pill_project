@@ -1065,6 +1065,83 @@ def test_has_medguide_false_when_html_whitespace():
     assert result["has_medguide"] is False
 
 
+def test_has_medguide_true_after_lazy_fill():
+    fresh_row = _fresh_row_with_spl({"medguide_html": None})
+    updated_row = {**fresh_row, "medguide_html": "<article>Medication guide</article>"}
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    write_conn = MagicMock()
+    engine = MagicMock()
+    read_cm = MagicMock()
+    read_cm.__enter__.return_value = MagicMock()
+    read_cm.__exit__.return_value = False
+    engine.connect.return_value = read_cm
+
+    write_cm = MagicMock()
+    write_cm.__enter__.return_value = write_conn
+    write_cm.__exit__.return_value = False
+    engine.begin.return_value = write_cm
+
+    with patch("services.medication_guide.database.db_engine", engine), patch(
+        "services.medication_guide._select_cached_row", return_value=fresh_row
+    ), patch(
+        "services.medication_guide.fetch_medguide_html",
+        new=AsyncMock(return_value="<article>Medication guide</article>"),
+    ) as mock_fetch, patch(
+        "services.medication_guide._update_guide",
+        return_value=updated_row,
+    ):
+        result = asyncio.run(
+            build_guide(rxcui="123456", include_professional=True, openfda_client=mock_client)
+        )
+
+    mock_fetch.assert_called_once_with("spl-set-xyz")
+    assert result["has_medguide"] is True
+    assert result["medguide_html"] is None
+
+
+def test_has_medguide_consistent_across_tab_param():
+    fresh_row = _fresh_row_with_spl({"medguide_html": None})
+    updated_row = {**fresh_row, "medguide_html": "<article>Medication guide</article>"}
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    def _run(**kwargs):
+        write_conn = MagicMock()
+        engine = MagicMock()
+        read_cm = MagicMock()
+        read_cm.__enter__.return_value = MagicMock()
+        read_cm.__exit__.return_value = False
+        engine.connect.return_value = read_cm
+
+        write_cm = MagicMock()
+        write_cm.__enter__.return_value = write_conn
+        write_cm.__exit__.return_value = False
+        engine.begin.return_value = write_cm
+
+        with patch("services.medication_guide.database.db_engine", engine), patch(
+            "services.medication_guide._select_cached_row", return_value=fresh_row
+        ), patch(
+            "services.medication_guide.fetch_medguide_html",
+            new=AsyncMock(return_value="<article>Medication guide</article>"),
+        ), patch(
+            "services.medication_guide._update_guide",
+            return_value=updated_row,
+        ):
+            return asyncio.run(build_guide(rxcui="123456", openfda_client=mock_client, **kwargs))
+
+    consumer_result = _run(include_medguide=True)
+    pro_result = _run(include_professional=True)
+
+    assert consumer_result["has_medguide"] is True
+    assert pro_result["has_medguide"] is True
+
+
 def test_include_boxed_warning_false_does_not_include_in_response():
     """include_boxed_warning=False (default) must not include boxed_warning_html."""
     cached_row = _fresh_row_with_spl({"boxed_warning_html": "<div>cached boxed warning</div>"})

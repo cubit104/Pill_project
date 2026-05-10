@@ -497,7 +497,11 @@ async def build_guide(
                         "include_professional lazy-fill fetch failed for spl_set_id=%s",
                         cached.get("spl_set_id"),
                     )
-            if include_medguide and not cached.get("medguide_html") and cached.get("spl_set_id"):
+            if (
+                (include_medguide or include_professional)
+                and not cached.get("medguide_html")
+                and cached.get("spl_set_id")
+            ):
                 try:
                     mg_html = await fetch_medguide_html(str(cached["spl_set_id"]))
                     if mg_html and cached.get("id") is not None:
@@ -625,6 +629,14 @@ async def build_guide(
 
         if include_medguide:
             mapped["medguide_html"] = await fetch_medguide_html(spl_set_id)
+        elif include_professional and not mapped.get("medguide_html"):
+            try:
+                mapped["medguide_html"] = await fetch_medguide_html(spl_set_id)
+            except Exception:
+                logger.exception(
+                    "include_professional medguide presence check failed for spl_set_id=%s",
+                    spl_set_id,
+                )
 
         if include_boxed_warning:
             mapped["boxed_warning_html"] = await fetch_boxed_warning_html(spl_set_id)
