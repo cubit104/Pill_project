@@ -41,6 +41,7 @@ type GuideResponse = {
   sections: GuideSections
   professional_html?: string | null
   medguide_html?: string | null
+  boxed_warning_html?: string | null
   source_url?: string | null
   fetched_at?: string | null
   disclaimer?: string | null
@@ -161,7 +162,7 @@ async function fetchGuide(
 ): Promise<GuideResponse | null> {
   const params = isPro
     ? 'include_professional=true'
-    : 'include_medguide=true&include_professional=false'
+    : 'include_medguide=true&include_professional=false&include_boxed_warning=true'
 
   try {
     if (pill.rxcui) {
@@ -238,41 +239,61 @@ export default async function MedicationGuidePage({
       </div>
 
       {!isPro && (
-        <div className="lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8">
+        <div className="lg:[&:has(nav)]:grid lg:[&:has(nav)]:grid-cols-[16rem_1fr] lg:[&:has(nav)]:gap-8">
           {/* Left rail — sticky TOC on desktop, accordion on mobile */}
-             <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
-               {/* Desktop: bare TOC */}
-               <div className="hidden lg:block no-print">
-                 <MedguideToc html={guide?.medguide_html ?? ''} drugName={drugName} />
-               </div>
-               {/* Mobile: collapsible accordion */}
-               <details className="lg:hidden no-print mb-4 border border-slate-200 rounded-xl overflow-hidden">
-                 <summary className="px-4 py-3 text-sm font-medium text-slate-700 cursor-pointer select-none bg-white hover:bg-slate-50">
-                   On this page
-                 </summary>
-                 <div className="px-4 py-3 bg-white border-t border-slate-100">
-                   <MedguideToc html={guide?.medguide_html ?? ''} drugName={drugName} />
-                 </div>
-               </details>
-             </aside>
+          <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
+            {/* Desktop: bare TOC */}
+            <div className="hidden lg:block no-print [&:not(:has(nav))]:!hidden">
+              <MedguideToc html={guide?.medguide_html ?? ''} drugName={drugName} />
+            </div>
+            {/* Mobile: collapsible accordion */}
+            <details className="lg:hidden no-print mb-4 border border-slate-200 rounded-xl overflow-hidden [&:not(:has(nav))]:!hidden">
+              <summary className="px-4 py-3 text-sm font-medium text-slate-700 cursor-pointer select-none bg-white hover:bg-slate-50">
+                On this page
+              </summary>
+              <div className="px-4 py-3 bg-white border-t border-slate-100">
+                <MedguideToc html={guide?.medguide_html ?? ''} drugName={drugName} />
+              </div>
+            </details>
+          </aside>
 
           {/* Content column */}
           <div className="space-y-6 min-w-0">
             <MedguideMetaBar guide={guide} />
 
             {guide?.has_boxed_warning && (
-              <div className="rounded-2xl border border-rose-300 bg-rose-50 p-4 text-rose-900">
-                <p className="font-semibold">⚠️ Boxed Warning</p>
-                <p className="text-sm mt-1">This medication includes an FDA boxed warning.</p>
-              </div>
+              <details
+                open
+                className="rounded-2xl border border-rose-300 bg-rose-50/60 px-5 py-4 [&[open]>summary]:mb-3"
+              >
+                <summary className="flex items-center gap-2 cursor-pointer text-rose-900 font-semibold list-none [&::-webkit-details-marker]:hidden">
+                  <span aria-hidden>⚠️</span>
+                  <span>Boxed Warning</span>
+                  <span className="ml-auto text-xs font-normal text-rose-700/80">FDA</span>
+                </summary>
+                {guide?.boxed_warning_html ? (
+                  <div
+                    className="boxed-warning-prose text-sm text-rose-950 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_strong]:font-semibold max-h-72 overflow-auto pr-2"
+                    dangerouslySetInnerHTML={{ __html: guide.boxed_warning_html }}
+                  />
+                ) : (
+                  <p className="text-sm text-rose-900/90">
+                    This medication includes an FDA boxed warning. See the Full Prescribing Information for details.
+                  </p>
+                )}
+              </details>
             )}
 
             <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
               <p className="font-semibold">Poison Help</p>
               <p className="text-sm mt-1">
-                In the U.S., call Poison Control at{' '}
-                <a href="tel:18002221222" className="underline">
+                If you suspect an overdose or accidental ingestion, call Poison Control:{' '}
+                <a href="tel:18002221222" className="underline font-medium">
                   1-800-222-1222
+                </a>{' '}
+                (free, 24/7, U.S.). For life-threatening symptoms, call{' '}
+                <a href="tel:911" className="underline font-medium">
+                  911
                 </a>
                 .
               </p>

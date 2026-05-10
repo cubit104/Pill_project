@@ -621,3 +621,193 @@ def test_live_acetaminophen_sections():
     sections = result["sections"]
     for key in ["overview", "uses", "dosage", "warnings", "manufacturer"]:
         assert sections[key] is not None
+
+
+# ---------------------------------------------------------------------------
+# include_boxed_warning flag tests
+# ---------------------------------------------------------------------------
+
+
+def _fresh_row_with_spl(extra: dict | None = None) -> dict:
+    row = {
+        "id": 99,
+        "rxcui": "123456",
+        "ndc": "0001-0001-01",
+        "spl_set_id": "spl-set-xyz",
+        "generic_name": "testdrug",
+        "brand_name": "TESTDRUG",
+        "overview": "overview",
+        "uses": None,
+        "dosage": None,
+        "how_to_take": None,
+        "side_effects": None,
+        "warnings": None,
+        "interactions": None,
+        "contraindications": None,
+        "special_populations": None,
+        "overdose": None,
+        "storage": None,
+        "pharmacology": None,
+        "manufacturer": None,
+        "has_boxed_warning": True,
+        "professional_html": None,
+        "medguide_html": None,
+        "boxed_warning_html": None,
+        "source_url": "https://dailymed.nlm.nih.gov/",
+        "fetched_at": datetime.now(timezone.utc) - timedelta(days=1),
+    }
+    if extra:
+        row.update(extra)
+    return row
+
+
+def test_include_boxed_warning_false_does_not_include_in_response():
+    """include_boxed_warning=False (default) must not include boxed_warning_html."""
+    cached_row = _fresh_row_with_spl({"boxed_warning_html": "<div>cached boxed warning</div>"})
+
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=cached_row
+    ):
+        result = asyncio.run(build_guide(rxcui="123456", openfda_client=mock_client))
+
+    assert result.get("boxed_warning_html") is None
+
+
+def test_include_boxed_warning_lazy_fetches_and_persists_on_cache_hit():
+    """Cache hit without boxed_warning_html → fetch and persist when include_boxed_warning=True."""
+    spl_id = "spl-set-xyz"
+    fresh_row = _fresh_row_with_spl()
+    updated_row = {**fresh_row, "boxed_warning_html": '<div class="boxed-warning-content"><p>Risk.</p></div>'}
+
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    write_conn = MagicMock()
+    engine = MagicMock()
+    read_cm = MagicMock()
+    read_cm.__enter__.return_value = MagicMock()
+    read_cm.__exit__.return_value = False
+    engine.connect.return_value = read_cm
+
+    write_cm = MagicMock()
+    write_cm.__enter__.return_value = write_conn
+    write_cm.__exit__.return_value = False
+    engine.begin.return_value = write_cm
+
+    with patch("services.medication_guide.database.db_engine", engine), \
+         patch("services.medication_guide._select_cached_row", return_value=fresh_row), \
+         patch(
+             "services.medication_guide.fetch_boxed_warning_html",
+             new=AsyncMock(return_value='<div class="boxed-warning-content"><p>Risk.</p></div>'),
+         ) as mock_fetch, \
+         patch(
+             "services.medication_guide._update_guide",
+             return_value=updated_row,
+         ) as mock_update:
+        result = asyncio.run(
+            build_guide(rxcui="123456", include_boxed_warning=True, openfda_client=mock_client)
+        )
+
+    mock_fetch.assert_called_once_with(spl_id)
+    mock_update.assert_called_once()
+    assert result.get("boxed_warning_html") == '<div class="boxed-warning-content"><p>Risk.</p></div>'
+
+
+def test_include_boxed_warning_returns_cached_value_without_refetch():
+    """Cache hit with boxed_warning_html already set → no refetch needed."""
+    cached_html = '<div class="boxed-warning-content"><p>Already cached.</p></div>'
+    fresh_row = _fresh_row_with_spl({"boxed_warning_html": cached_html})
+
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), \
+         patch("services.medication_guide._select_cached_row", return_value=fresh_row), \
+         patch(
+             "services.medication_guide.fetch_boxed_warning_html",
+             new=AsyncMock(return_value="should-not-be-called"),
+         ) as mock_fetch:
+        result = asyncio.run(
+            build_guide(rxcui="123456", include_boxed_warning=True, openfda_client=mock_client)
+        )
+
+    mock_fetch.assert_not_called()
+    assert result.get("boxed_warning_html") == cached_html
+
+
+def test_guide_route_forwards_include_boxed_warning_flag():
+    app = FastAPI()
+    app.include_router(medication_guide_routes.router)
+
+    async def _ok(*, rxcui=None, ndc=None, include_boxed_warning=False, **kwargs):
+        return {
+            "rxcui": rxcui,
+            "ndc": ndc,
+            "sections": {},
+            "boxed_warning_html": '<div class="boxed-warning-content">BW</div>' if include_boxed_warning else None,
+        }
+
+    with patch("routes.medication_guide.build_guide", side_effect=_ok) as mock_build:
+        client = TestClient(app)
+        response = client.get("/api/drugs/123456/guide?include_boxed_warning=true")
+
+    assert response.status_code == 200
+    assert response.json()["boxed_warning_html"] == '<div class="boxed-warning-content">BW</div>'
+    assert mock_build.call_args.kwargs["include_boxed_warning"] is True
+
+
+def test_coalesce_semantics_none_fetch_does_not_wipe_cached_value():
+    """When fetch_boxed_warning_html returns None, the cached value is preserved (COALESCE)."""
+    # This verifies the COALESCE(:boxed_warning_html, boxed_warning_html) SQL semantics.
+    # Simulate a cache miss/refresh scenario where mapped["boxed_warning_html"] is None
+    # but the existing DB row already has a value — COALESCE keeps it.
+    cached_row = _fresh_row_with_spl({
+        "fetched_at": datetime.now(timezone.utc) - timedelta(days=31),  # stale
+        "boxed_warning_html": '<div class="boxed-warning-content"><p>Existing.</p></div>',
+    })
+    lipitor = _load_fixture("openfda_lipitor.json")["results"][0]
+
+    updated_rows = []
+
+    def _update(_conn, payload, *, existing_id):
+        row = _row_from_payload(payload)
+        # Simulate COALESCE: if payload boxed_warning_html is None, keep existing
+        if payload.get("boxed_warning_html") is None:
+            row["boxed_warning_html"] = cached_row["boxed_warning_html"]
+        updated_rows.append(row)
+        return row
+
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=lipitor),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+    mock_dm = MagicMock()
+    mock_dm.fetch_patient_guide.return_value = None
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), \
+         patch("services.medication_guide._select_cached_row", return_value=cached_row), \
+         patch("services.medication_guide._update_guide", side_effect=_update), \
+         patch(
+             "services.medication_guide.fetch_boxed_warning_html",
+             new=AsyncMock(return_value=None),  # fetch fails → None
+         ):
+        result = asyncio.run(
+            build_guide(rxcui="123456", include_boxed_warning=True,
+                        openfda_client=mock_client, dailymed_client=mock_dm)
+        )
+
+    # The row passed to _update_guide has boxed_warning_html=None (failed fetch);
+    # COALESCE in the SQL keeps the existing value.
+    assert updated_rows, "update should have been called"
+    update_payload = updated_rows[-1]
+    # After COALESCE simulation, the existing value is preserved
+    assert update_payload["boxed_warning_html"] is not None

@@ -23,6 +23,7 @@ async def get_guide_by_rxcui(
     rxcui: str,
     include_professional: bool = Query(False),
     include_medguide: bool = Query(False),
+    include_boxed_warning: bool = Query(False),
 ):
     """Return medication guide for one RxCUI."""
     try:
@@ -30,6 +31,7 @@ async def get_guide_by_rxcui(
             rxcui=rxcui,
             include_professional=include_professional,
             include_medguide=include_medguide,
+            include_boxed_warning=include_boxed_warning,
         )
     except GuideNotFoundError:
         return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
@@ -45,6 +47,7 @@ async def get_guide_by_ndc(
     ndc: str,
     include_professional: bool = Query(False),
     include_medguide: bool = Query(False),
+    include_boxed_warning: bool = Query(False),
 ):
     """Return medication guide for one NDC."""
     try:
@@ -52,6 +55,7 @@ async def get_guide_by_ndc(
             ndc=ndc,
             include_professional=include_professional,
             include_medguide=include_medguide,
+            include_boxed_warning=include_boxed_warning,
         )
     except GuideValidationError:
         return JSONResponse(status_code=400, content={"error": "Invalid NDC format"})

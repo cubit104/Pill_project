@@ -634,3 +634,210 @@ def test_section_selection_first_match_with_promoted_headings_stays_stable():
     assert 'id="what-should-i-know"' in result
     assert 'id="what-should-i-know-2"' in result
     assert "What should not appear?" not in result
+
+
+def test_xarelto_two_form_header_unwrap():
+    """2-row, 2-cell table with no <th>, cells have <br>-based block content.
+
+    Ensures:
+    - table is unwrapped (no <table> in output)
+    - MEDICATION GUIDE block (first form) becomes <h1>
+    - "Revised: 06/2025" lands in medguide-revised meta
+    - "This Medication Guide has been approved..." lands in medguide-approval meta
+    """
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>Medication Guide</title>'
+        f'<text>'
+        f'<table>'
+        f'<tr>'
+        f'<td><content styleCode="bold">MEDICATION GUIDE<br/>XARELTO&#174;<br/>(rivaroxaban)<br/>tablets</content></td>'
+        f'<td><content styleCode="bold">MEDICATION GUIDE<br/>XARELTO&#174;<br/>(rivaroxaban)<br/>oral suspension</content></td>'
+        f'</tr>'
+        f'<tr>'
+        f'<td>This Medication Guide has been approved by the U.S. Food and Drug Administration.</td>'
+        f'<td>Revised: 06/2025</td>'
+        f'</tr>'
+        f'</table>'
+        f'</text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-xarelto-layout"))
+    assert result is not None
+    assert "<table>" not in result
+    assert "<h1>" in result
+    assert "MEDICATION GUIDE" in result
+    assert "XARELTO" in result
+    assert '<div class="medguide-meta">' in result
+    assert '<p class="medguide-approval">This Medication Guide has been approved by the U.S. Food and Drug Administration.</p>' in result
+    assert '<p class="medguide-revised">Revised: 06/2025</p>' in result
+
+
+def test_layout_table_with_br_cells_is_unwrapped():
+    """Table whose cells contain only <br> elements (no <paragraph>) is detected as layout."""
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text>'
+        f'<table>'
+        f'<tr><td>Line one<br/>Line two<br/>Line three extra text for length</td></tr>'
+        f'</table>'
+        f'</text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-br-cell"))
+    assert result is not None
+    assert "<table>" not in result
+    assert "Line one" in result
+
+
+def test_layout_table_too_short_text_is_preserved():
+    """Table with combined text ≤ 40 chars should NOT be unwrapped."""
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text>'
+        f'<paragraph>Normal content here.</paragraph>'
+        f'<table><tr><td>A<br/>B</td></tr></table>'
+        f'</text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-tiny-table"))
+    assert result is not None
+    # The table is tiny (≤ 40 chars) — should be preserved
+    assert "<table>" in result
+
+
+def test_layout_table_with_three_cells_per_row_is_unwrapped():
+    """Table with 3 cells per row (no <th>, with block content) should be unwrapped."""
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text>'
+        f'<table>'
+        f'<tr>'
+        f'<td><paragraph>First column with enough content to pass text length check.</paragraph></td>'
+        f'<td><paragraph>Second column content.</paragraph></td>'
+        f'<td><paragraph>Third column content.</paragraph></td>'
+        f'</tr>'
+        f'</table>'
+        f'</text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-three-cell"))
+    assert result is not None
+    assert "<table>" not in result
+    assert "First column" in result
+
+
+# ---------------------------------------------------------------------------
+# fetch_boxed_warning_html tests
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_boxed_warning_html_returns_none_on_http_error():
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(status_code=404)):
+        result = asyncio.run(spl_medguide.fetch_boxed_warning_html("set-abc"))
+    assert result is None
+
+
+def test_fetch_boxed_warning_html_returns_none_when_no_section():
+    """Returns None when SPL XML has no 34066-1 section."""
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section><code code="42231-1"/><title>MEDICATION GUIDE</title></section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_boxed_warning_html("set-abc"))
+    assert result is None
+
+
+def test_fetch_boxed_warning_html_renders_section_content():
+    """Returns sanitized HTML when a 34066-1 section is present."""
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="34066-1"/>'
+        f'<title>BOXED WARNING</title>'
+        f'<text><paragraph>This drug carries a serious risk of bleeding.</paragraph></text>'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_boxed_warning_html("set-bw"))
+    assert result is not None
+    assert result.startswith('<div class="boxed-warning-content">')
+    assert "serious risk of bleeding" in result
+    assert "<p>" in result
+
+
+def test_fetch_boxed_warning_html_sanitizes_disallowed_tags():
+    """Script tags and disallowed attributes are stripped from output."""
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="34066-1"/>'
+        f'<text><paragraph>Safe content.</paragraph></text>'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_boxed_warning_html("set-bw-safe"))
+    assert result is not None
+    assert "<script" not in result
+    assert "Safe content." in result
+
+
+def test_fetch_boxed_warning_html_returns_none_on_empty_section():
+    """Returns None when 34066-1 section renders no content."""
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="34066-1"/>'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_boxed_warning_html("set-bw-empty"))
+    assert result is None
+
+
+def test_fetch_boxed_warning_html_with_subsections():
+    """Subsections in a 34066-1 section become <h2> headings."""
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="34066-1"/>'
+        f'<component>'
+        f'<section>'
+        f'<title>Hemorrhage Risk</title>'
+        f'<text><paragraph>May cause life-threatening bleeding.</paragraph></text>'
+        f'</section>'
+        f'</component>'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_boxed_warning_html("set-bw-subsect"))
+    assert result is not None
+    assert '<h2 id="hemorrhage-risk">Hemorrhage Risk</h2>' in result
+    assert "life-threatening bleeding" in result
