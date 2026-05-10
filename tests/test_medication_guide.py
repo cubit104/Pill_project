@@ -1155,3 +1155,118 @@ def test_coalesce_semantics_none_fetch_does_not_wipe_cached_value():
     update_payload = updated_rows[-1]
     # After COALESCE simulation, the existing value is preserved
     assert update_payload["boxed_warning_html"] is not None
+
+
+def test_lazy_fill_db_write_failure_still_returns_rendered_html():
+    """If the DB write in the professional lazy-fill raises, the response still
+    includes the in-memory rendered HTML (200, not 500) and does not propagate
+    the database exception to the caller."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    fresh_row = {
+        "id": 99,
+        "rxcui": "153165",
+        "ndc": "0071-0156-23",
+        "generic_name": "atorvastatin calcium",
+        "brand_name": "LIPITOR",
+        "spl_set_id": "abc-123",
+        "overview": "cached overview",
+        "uses": None,
+        "dosage": None,
+        "how_to_take": None,
+        "side_effects": None,
+        "warnings": None,
+        "interactions": None,
+        "contraindications": None,
+        "special_populations": None,
+        "overdose": None,
+        "storage": None,
+        "pharmacology": None,
+        "manufacturer": None,
+        "has_boxed_warning": False,
+        "professional_html": None,
+        "professional_meta": None,
+        "source_url": "https://dailymed.nlm.nih.gov/",
+        "fetched_at": datetime.now(timezone.utc) - timedelta(days=1),
+    }
+    rendered = SimpleNamespace(
+        article_html="<section><h2 id='indications'>Indications</h2></section>",
+        highlights_html="<div>Highlights</div>",
+        sections=[("indications", "Indications")],
+    )
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=fresh_row
+    ), patch(
+        "services.medication_guide.fetch_professional_rendered",
+        new=AsyncMock(return_value=rendered),
+    ), patch(
+        "services.medication_guide._update_guide",
+        side_effect=SQLAlchemyError("JSONB binding failed: StatementError f405"),
+    ):
+        # Must not raise despite the DB write failing
+        result = asyncio.run(
+            build_guide(rxcui="153165", include_professional=True, openfda_client=mock_client)
+        )
+
+    # The in-memory rendered HTML must be returned even though it wasn't persisted
+    assert result["professional_html"] == rendered.article_html
+    assert result["professional_highlights_html"] == rendered.highlights_html
+    assert result["professional_sections"] == [["indications", "Indications"]]
+
+
+def test_serialize_jsonb_handles_dict_none_and_string():
+    """_serialize_jsonb converts dicts to JSON strings, passes None through,
+    and leaves already-serialised strings untouched."""
+    from services.medication_guide import _serialize_jsonb
+
+    assert _serialize_jsonb(None) is None
+    assert _serialize_jsonb({"a": 1}) == '{"a": 1}'
+    assert _serialize_jsonb('{"a": 1}') == '{"a": 1}'
+
+
+def test_insert_guide_serializes_professional_meta():
+    """_insert_guide converts a professional_meta dict to a JSON string before
+    passing it to SQLAlchemy so the CAST(:professional_meta AS JSONB) in the
+    SQL receives a string, not a raw dict (fixes StatementError f405)."""
+    import json as _json
+    from services.medication_guide import _insert_guide, _GUIDE_COLUMNS
+
+    captured_params: dict = {}
+
+    class _MockConn:
+        def execute(self, stmt, params):
+            captured_params.update(params)
+
+            class _MockResult:
+                def fetchone(_self):
+                    # Return a mapping-compatible object (like a SQLAlchemy Row)
+                    row_data = {k: params.get(k) for k in _GUIDE_COLUMNS}
+                    row_data["id"] = 1
+
+                    class _MockRow:
+                        _mapping = row_data
+
+                        def __iter__(self):
+                            return iter(row_data.values())
+
+                    return _MockRow()
+
+            return _MockResult()
+
+    payload = {
+        "rxcui": "123",
+        "professional_meta": {"highlights_html": "<div/>", "sections": [["a", "B"]]},
+    }
+
+    _insert_guide(_MockConn(), payload)
+
+    # The param bound to the SQL must be a JSON string, not a dict
+    meta_param = captured_params.get("professional_meta")
+    assert isinstance(meta_param, str), "professional_meta must be JSON-serialised before binding"
+    parsed = _json.loads(meta_param)
+    assert parsed["sections"] == [["a", "B"]]
