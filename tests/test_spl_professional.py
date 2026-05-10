@@ -1,53 +1,224 @@
 import asyncio
-from lxml import etree
+from unittest.mock import MagicMock, patch
+
+from lxml import html as lxml_html
 
 from services import spl_professional
 
+_NS = "urn:hl7-org:v3"
 
-def test_rewrite_relative_image_srcs_rewrites_only_relative():
-    html = (
-        '<img src="figure1.jpg">'
-        '<img src="./figure2.png">'
-        '<img src="https://example.com/figure3.jpg">'
-        '<img src="data:image/png;base64,abc">'
+
+class _FakeClient:
+    def __init__(self, status_code: int = 200, content: bytes = b"<document/>"):
+        self._status_code = status_code
+        self._content = content
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return False
+
+    async def get(self, _url):
+        response = MagicMock()
+        response.status_code = self._status_code
+        response.content = self._content
+        return response
+
+
+def _section(code: str, heading: str, inner: str = "", *, section_id: str | None = None) -> str:
+    id_attr = f' ID="{section_id}"' if section_id else ""
+    return (
+        f'<section{id_attr}>'
+        f'<code code="{code}"/>'
+        f'<title>{heading}</title>'
+        f'{inner}'
+        f'</section>'
     )
-    out = spl_professional._rewrite_relative_image_srcs(html, 'set-123')
-
-    assert 'src="https://dailymed.nlm.nih.gov/dailymed/image/upload/spl/set-123/figure1.jpg"' in out
-    assert 'src="https://dailymed.nlm.nih.gov/dailymed/image/upload/spl/set-123/figure2.png"' in out
-    assert 'src="https://example.com/figure3.jpg"' in out
-    assert 'src="data:image/png;base64,abc"' in out
 
 
-def test_fetch_professional_html_returns_none_when_transformer_missing(monkeypatch):
-    monkeypatch.setattr(spl_professional, '_get_transformer', lambda: None)
-    result = asyncio.run(spl_professional.fetch_professional_html('abc'))
+def _wrap_document(*sections: str, media: str = "", effective_time: str = "20240501") -> bytes:
+    body = "".join(f"<component>{section}</component>" for section in sections)
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<effectiveTime value="{effective_time}"/>'
+        f'{media}'
+        f'<component><structuredBody>{body}</structuredBody></component>'
+        f'</document>'
+    )
+    return xml.encode()
+
+
+def test_fetch_professional_html_returns_none_on_http_error():
+    with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(status_code=404)):
+        result = asyncio.run(spl_professional.fetch_professional_html('set-missing'))
     assert result is None
 
 
-def test_fetch_professional_html_renders_and_rewrites(monkeypatch):
-    class DummyTransformer:
-        def __call__(self, _xml_tree, **_kwargs):
-            return etree.HTML('<html><body><img src="figure1.jpg"><img src="https://example.com/a.jpg"></body></html>')
+def test_full_professional_renderer_extracts_highlights_and_all_sections():
+    sections = []
+    for code, slug, _label, heading in spl_professional.PRO_SECTIONS:
+        inner = '<text><paragraph>Body for section.</paragraph></text>'
+        if slug == 'highlights':
+            inner = '<text><paragraph>Quick summary.</paragraph></text>'
+        sections.append(_section(code, heading, inner, section_id=f'{slug}-id'))
 
-    class DummyResponse:
-        status_code = 200
-        content = b'<document></document>'
+    xml = _wrap_document(*sections)
+    with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered('set-all'))
+        article_only = asyncio.run(spl_professional.fetch_professional_html('set-all'))
 
-    class DummyClient:
-        async def __aenter__(self):
-            return self
+    assert rendered is not None
+    assert rendered.highlights_html is not None
+    assert 'Highlights of Prescribing Information' in rendered.highlights_html
+    assert 'Revised:' in rendered.highlights_html
+    assert len(rendered.sections) == len(spl_professional.PRO_SECTIONS) - 1
+    assert rendered.article_html.count('<h2 id="') == len(spl_professional.PRO_SECTIONS) - 1
+    assert 'id="highlights"' not in rendered.article_html
+    assert article_only == rendered.article_html
 
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
 
-        async def get(self, _url):
-            return DummyResponse()
+def test_sparse_professional_renderer_only_includes_present_sections():
+    xml = _wrap_document(
+        _section('34067-9', 'Indications and Usage', '<text><paragraph>Indications.</paragraph></text>'),
+        _section('34068-7', 'Dosage and Administration', '<text><paragraph>Dosage.</paragraph></text>'),
+        _section('34070-3', 'Contraindications', '<text><paragraph>Contra.</paragraph></text>'),
+        _section('34084-4', 'Adverse Reactions', '<text><paragraph>Adverse.</paragraph></text>'),
+        _section('34069-5', 'How Supplied', '<text><paragraph>Supply.</paragraph></text>'),
+    )
+    with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered('set-sparse'))
 
-    monkeypatch.setattr(spl_professional, '_get_transformer', lambda: DummyTransformer())
-    monkeypatch.setattr(spl_professional.httpx, 'AsyncClient', lambda timeout: DummyClient())
+    assert rendered is not None
+    assert rendered.highlights_html is None
+    assert rendered.article_html.count('<h2 id="') == 5
+    assert rendered.sections == [
+        ('indications', 'Indications'),
+        ('dosage', 'Dosage'),
+        ('contraindications', 'Contraindications'),
+        ('adverse-reactions', 'Adverse Reactions'),
+        ('how-supplied', 'How Supplied'),
+    ]
 
-    out = asyncio.run(spl_professional.fetch_professional_html('set-xyz'))
-    assert out is not None
-    assert 'https://dailymed.nlm.nih.gov/dailymed/image/upload/spl/set-xyz/figure1.jpg' in out
-    assert 'https://example.com/a.jpg' in out
+
+def test_professional_renderer_preserves_real_data_tables():
+    xml = _wrap_document(
+        _section(
+            '34090-1',
+            'Clinical Pharmacology',
+            '<text><table><thead><tr><th>Parameter</th><th>Value</th></tr></thead>'
+            '<tbody><tr><td>Half-life</td><td>12 hours</td></tr></tbody></table></text>',
+        )
+    )
+    with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered('set-table'))
+
+    assert rendered is not None
+    assert '<table>' in rendered.article_html
+    assert '<th>Parameter</th>' in rendered.article_html
+    assert '<td>12 hours</td>' in rendered.article_html
+
+
+def test_professional_renderer_hotlinks_images_to_dailymed():
+    media = (
+        '<observationMedia ID="MM1">'
+        '<value><reference value="figure1.jpg"/></value>'
+        '</observationMedia>'
+    )
+    xml = _wrap_document(
+        _section(
+            '34092-7',
+            'Clinical Studies',
+            '<text><paragraph>Study figure.</paragraph><renderMultiMedia referencedObject="MM1"/>'
+            '<caption>Figure 1. Study design.</caption></text>',
+        ),
+        media=media,
+    )
+    with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered('set-img'))
+
+    assert rendered is not None
+    assert '<figure class="pro-figure my-4">' in rendered.article_html
+    assert (
+        'src="https://dailymed.nlm.nih.gov/dailymed/image.cfm?setid=set-img&amp;type=img&amp;name=figure1.jpg"'
+        in rendered.article_html
+    )
+    assert 'loading="lazy"' in rendered.article_html
+    assert 'Figure 1. Study design.' in rendered.article_html
+
+
+def test_sanitize_html_blocks_off_cdn_images():
+    cleaned = spl_professional._sanitize_html(
+        '<section>'
+        '<img src="http://evil.example.com/x.jpg" alt="bad" />'
+        '<img src="https://dailymed.nlm.nih.gov.evil.com/x.jpg" alt="bad2" />'
+        '<img src="https://dailymed.nlm.nih.gov/image.jpg" alt="ok" />'
+        '</section>'
+    )
+
+    assert 'evil.example.com' not in cleaned
+    assert 'dailymed.nlm.nih.gov.evil.com' not in cleaned
+    assert 'https://dailymed.nlm.nih.gov/image.jpg' in cleaned
+
+
+def test_professional_renderer_wraps_list_caption_in_list_item():
+    xml = _wrap_document(
+        _section(
+            '34068-7',
+            'Dosage and Administration',
+            '<text><list><caption>Adults</caption><item>Take once daily.</item></list></text>',
+        )
+    )
+    with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered('set-list-caption'))
+
+    assert rendered is not None
+    assert '<ul><li><strong>Adults</strong></li><li>Take once daily.</li></ul>' in rendered.article_html
+
+
+def test_professional_renderer_resolves_in_page_links():
+    xml = _wrap_document(
+        _section(
+            '34066-1',
+            'Boxed Warning',
+            '<text><paragraph><linkHtml href="#section1">see (1)</linkHtml></paragraph></text>',
+        ),
+        _section('34067-9', 'Indications and Usage', '<text><paragraph>Indications.</paragraph></text>', section_id='section1'),
+    )
+    with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered('set-links'))
+
+    assert rendered is not None
+    assert '<a href="#indications">see (1)</a>' in rendered.article_html
+
+
+def test_professional_renderer_strips_unknown_link_targets():
+    xml = _wrap_document(
+        _section(
+            '34068-7',
+            'Dosage and Administration',
+            '<text><paragraph><linkHtml href="#missing">see dosage</linkHtml></paragraph></text>',
+        )
+    )
+    with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered('set-unknown-link'))
+
+    assert rendered is not None
+    assert '<a href=' not in rendered.article_html
+    assert 'see dosage' in rendered.article_html
+
+
+def test_highlights_are_extracted_from_main_article():
+    xml = _wrap_document(
+        _section('42229-5', 'Highlights of Prescribing Information', '<text><paragraph>Quick summary.</paragraph></text>'),
+        _section('34067-9', 'Indications and Usage', '<text><paragraph>Main section.</paragraph></text>'),
+    )
+    with patch.object(spl_professional.httpx, 'AsyncClient', return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered('set-highlights'))
+
+    assert rendered is not None
+    assert rendered.highlights_html is not None
+    assert 'Quick summary.' in rendered.highlights_html
+    article_text = lxml_html.fromstring(f'<div>{rendered.article_html}</div>').text_content()
+    assert 'Highlights of Prescribing Information' not in article_text
+    assert rendered.sections == [('indications', 'Indications')]
