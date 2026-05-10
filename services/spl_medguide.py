@@ -585,27 +585,36 @@ def _strip_leading_bullets_from_html(html_str: str) -> str:
         return html_str
 
     root = lxml_html.fragment_fromstring(html_str, create_parent="div")
+    empty_nodes: list[etree._Element] = []
+
+    def _first_nonempty_text_node(node: etree._Element) -> tuple[etree._Element, str, str] | None:
+        if node.text and node.text.strip():
+            return node, "text", node.text
+        for child in node:
+            found = _first_nonempty_text_node(child)
+            if found is not None:
+                return found
+            if child.tail and child.tail.strip():
+                return child, "tail", child.tail
+        return None
+
     for el in list(root.xpath(".//p | .//li")):
-        text_nodes = el.xpath(".//text()[normalize-space()]")
-        if text_nodes:
-            first = text_nodes[0]
-            stripped = _strip_leading_bullets(str(first))
-            if stripped != str(first):
-                parent = first.getparent()
-                is_text = bool(getattr(first, "is_text", False))
-                is_tail = bool(getattr(first, "is_tail", False))
-                if is_text:
-                    parent.text = stripped
-                elif is_tail:
-                    parent.tail = stripped
-                elif parent.text == str(first):
-                    parent.text = stripped
+        first = _first_nonempty_text_node(el)
+        if first is not None:
+            owner, attr, text_val = first
+            stripped = _strip_leading_bullets(text_val)
+            if stripped != text_val:
+                if attr == "text":
+                    owner.text = stripped
                 else:
-                    parent.tail = stripped
+                    owner.tail = stripped
         if not _normalize_visible_text("".join(el.itertext())):
-            parent = el.getparent()
-            if parent is not None:
-                parent.remove(el)
+            empty_nodes.append(el)
+
+    for el in empty_nodes:
+        parent = el.getparent()
+        if parent is not None:
+            parent.remove(el)
 
     return _serialize_children(root)
 
@@ -625,7 +634,7 @@ def _dedupe_repeated_headings(html_str: str) -> str:
             continue
         is_heading_like = (
             el.tag in ("h1", "h2", "h3", "h4", "h5", "h6")
-            or (el.tag == "p" and any(getattr(c, "tag", None) == "strong" for c in el))
+            or (el.tag == "p" and bool(el.xpath("./strong")))
             or (el.tag == "p" and el.getparent() is root and text.startswith("warning:"))
         )
         if not is_heading_like:
