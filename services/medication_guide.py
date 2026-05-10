@@ -16,7 +16,7 @@ from services.dailymed_client import DailyMedClient
 from services.dailymed_spl_client import fetch_spl_sections
 from services.openfda_client import OpenFDAClient, OpenFDAUpstreamError
 from services.spl_medguide import fetch_boxed_warning_html, fetch_medguide_html
-from services.spl_professional import fetch_professional_rendered
+from services.spl_professional import ProfessionalRendered, fetch_professional_rendered
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +209,7 @@ def _row_to_response(
     }
 
 
-def _build_professional_meta(professional) -> dict[str, Any]:
+def _build_professional_meta(professional: ProfessionalRendered) -> dict[str, Any]:
     return {
         "highlights_html": professional.highlights_html,
         "sections": [[str(slug), str(label)] for slug, label in professional.sections],

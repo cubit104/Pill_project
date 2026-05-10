@@ -130,7 +130,9 @@ const PRO_HIGHLIGHTS_PROSE_CLASSES = [
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
   for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (trimmed) return trimmed
   }
   return null
 }
