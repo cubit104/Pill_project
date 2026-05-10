@@ -16,7 +16,7 @@ from services.dailymed_client import DailyMedClient
 from services.dailymed_spl_client import fetch_spl_sections
 from services.openfda_client import OpenFDAClient, OpenFDAUpstreamError
 from services.spl_medguide import fetch_boxed_warning_html, fetch_medguide_html
-from services.spl_professional import fetch_professional_rendered
+from services.spl_professional import ProfessionalRendered, fetch_professional_rendered
 
 logger = logging.getLogger(__name__)
 
@@ -165,11 +165,21 @@ def _row_to_response(
 ) -> dict[str, Any]:
     """Convert a medication_guide row dict into API response shape."""
     professional_meta = row.get("professional_meta") if include_professional else None
+    # API callers may send different name fields depending on source:
+    # prefer branded/proprietary names, then generic/common identifiers.
+    display_name = (
+        row.get("brand_name")
+        or row.get("proprietary_name")
+        or row.get("generic_name")
+        or row.get("name")
+        or row.get("medicine_name")
+    )
     return {
         "rxcui": row.get("rxcui"),
         "ndc": row.get("ndc"),
         "generic_name": row.get("generic_name"),
         "brand_name": row.get("brand_name"),
+        "display_name": display_name,
         "has_boxed_warning": bool(row.get("has_boxed_warning")),
         "sections": {
             "overview": row.get("overview"),
@@ -198,6 +208,13 @@ def _row_to_response(
         "boxed_warning_html": row.get("boxed_warning_html") if include_boxed_warning else None,
         "fetched_at": _to_iso(row.get("fetched_at")),
         "disclaimer": DISCLAIMER,
+    }
+
+
+def _build_professional_meta(professional: ProfessionalRendered) -> dict[str, Any]:
+    return {
+        "highlights_html": professional.highlights_html,
+        "sections": [[slug, label] for slug, label in professional.sections],
     }
 
 
@@ -420,21 +437,24 @@ async def build_guide(
                 and cached.get("spl_set_id")
                 and (not cached.get("professional_html") or not cached.get("professional_meta"))
             ):
-                professional = await fetch_professional_rendered(str(cached["spl_set_id"]))
-                if professional and cached.get("id") is not None:
-                    with database.db_engine.begin() as write_conn:
-                        cached = _update_guide(
-                            write_conn,
-                            {
-                                **cached,
-                                "professional_html": professional.article_html,
-                                "professional_meta": {
-                                    "highlights_html": professional.highlights_html,
-                                    "sections": [list(item) for item in professional.sections],
+                try:
+                    professional = await fetch_professional_rendered(str(cached["spl_set_id"]))
+                    if professional and cached.get("id") is not None:
+                        with database.db_engine.begin() as write_conn:
+                            cached = _update_guide(
+                                write_conn,
+                                {
+                                    **cached,
+                                    "professional_html": professional.article_html,
+                                    "professional_meta": _build_professional_meta(professional),
                                 },
-                            },
-                            existing_id=int(cached["id"]),
-                        )
+                                existing_id=int(cached["id"]),
+                            )
+                except Exception:
+                    logger.exception(
+                        "include_professional lazy-fill failed for spl_set_id=%s",
+                        cached.get("spl_set_id"),
+                    )
             if include_medguide and not cached.get("medguide_html") and cached.get("spl_set_id"):
                 mg_html = await fetch_medguide_html(str(cached["spl_set_id"]))
                 if mg_html and cached.get("id") is not None:
@@ -534,13 +554,16 @@ async def build_guide(
                 )
 
         if include_professional:
-            professional = await fetch_professional_rendered(spl_set_id)
-            if professional:
-                mapped["professional_html"] = professional.article_html
-                mapped["professional_meta"] = {
-                    "highlights_html": professional.highlights_html,
-                    "sections": [list(item) for item in professional.sections],
-                }
+            try:
+                professional = await fetch_professional_rendered(spl_set_id)
+                if professional:
+                    mapped["professional_html"] = professional.article_html
+                    mapped["professional_meta"] = _build_professional_meta(professional)
+            except Exception:
+                logger.exception(
+                    "include_professional fetch failed for spl_set_id=%s",
+                    spl_set_id,
+                )
 
         if include_medguide:
             mapped["medguide_html"] = await fetch_medguide_html(spl_set_id)

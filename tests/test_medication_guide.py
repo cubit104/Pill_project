@@ -53,6 +53,10 @@ def _row_from_payload(payload: dict, *, fetched_at: datetime | None = None) -> d
     return row
 
 
+def _assert_json_serializable(payload: dict) -> None:
+    assert json.loads(json.dumps(payload)) == payload
+
+
 def test_build_guide_maps_openfda_fields_and_null_sections():
     lipitor = _load_fixture("openfda_lipitor.json")["results"][0]
     acet = _load_fixture("openfda_acetaminophen.json")["results"][0]
@@ -153,10 +157,48 @@ def test_build_guide_cache_hit_skips_openfda_within_30_days():
 
     assert result["sections"]["overview"] == "cached overview"
     assert result["professional_html"] is None
+    assert result["display_name"] == "LIPITOR"
     assert pro_result["professional_html"] == "<html><body>cached professional</body></html>"
     assert pro_result["professional_highlights_html"] == "<div>cached highlights</div>"
     assert pro_result["professional_sections"] == [["indications", "Indications"]]
     assert mock_client.fetch_label_by_rxcui.call_count == 0
+
+
+def test_display_name_falls_back_to_generic_name_when_brand_missing():
+    fresh_row = {
+        "id": 2,
+        "rxcui": "153165",
+        "ndc": "0071-0156-23",
+        "generic_name": "atorvastatin calcium",
+        "brand_name": None,
+        "overview": "cached overview",
+        "uses": "cached uses",
+        "dosage": "cached dosage",
+        "how_to_take": None,
+        "side_effects": "cached side effects",
+        "warnings": "cached warnings",
+        "interactions": None,
+        "contraindications": "cached contraindications",
+        "special_populations": None,
+        "overdose": None,
+        "storage": None,
+        "pharmacology": "cached pharmacology",
+        "manufacturer": "cached manufacturer",
+        "has_boxed_warning": False,
+        "source_url": "https://api.fda.gov/drug/label.json?search=spl_set_id:abc-123",
+        "fetched_at": datetime.now(timezone.utc) - timedelta(days=1),
+    }
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=fresh_row
+    ):
+        result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client))
+
+    assert result["display_name"] == "atorvastatin calcium"
 
 
 def test_include_professional_lazy_fetches_html_and_meta_on_cache_hit():
@@ -316,6 +358,134 @@ def test_include_professional_populates_professional_meta_on_cache_miss():
     }
     assert result["professional_highlights_html"] == rendered.highlights_html
     assert result["professional_sections"] == [["indications", "Indications"]]
+
+
+def test_include_professional_lazy_fill_persists_meta():
+    fresh_row = {
+        "id": 18,
+        "rxcui": "153165",
+        "ndc": "0071-0156-23",
+        "generic_name": "atorvastatin calcium",
+        "brand_name": "LIPITOR",
+        "spl_set_id": "abc-123",
+        "overview": "cached overview",
+        "uses": None,
+        "dosage": None,
+        "how_to_take": None,
+        "side_effects": None,
+        "warnings": None,
+        "interactions": None,
+        "contraindications": None,
+        "special_populations": None,
+        "overdose": None,
+        "storage": None,
+        "pharmacology": None,
+        "manufacturer": None,
+        "has_boxed_warning": False,
+        "professional_html": None,
+        "professional_meta": None,
+        "source_url": "https://api.fda.gov/drug/label.json?search=spl_set_id:abc-123",
+        "fetched_at": datetime.now(timezone.utc) - timedelta(days=1),
+    }
+    rendered = SimpleNamespace(
+        article_html="<section><h2 id=\"indications\">Indications and Usage</h2></section>",
+        highlights_html="<div>Highlights</div>",
+        sections=[("indications", "Indications"), ("dosage", "Dosage")],
+    )
+    captured_payload: dict = {}
+    updated_row = {
+        **fresh_row,
+        "professional_html": rendered.article_html,
+        "professional_meta": {
+            "highlights_html": rendered.highlights_html,
+            "sections": [["indications", "Indications"], ["dosage", "Dosage"]],
+        },
+    }
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    def _update(_conn, payload, *, existing_id):
+        assert existing_id == 18
+        captured_payload.update(payload)
+        return updated_row
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=fresh_row
+    ), patch(
+        "services.medication_guide.fetch_professional_rendered",
+        new=AsyncMock(return_value=rendered),
+    ), patch("services.medication_guide._update_guide", side_effect=_update):
+        result = asyncio.run(
+            build_guide(rxcui="153165", include_professional=True, openfda_client=mock_client)
+        )
+
+    assert captured_payload["professional_meta"] == {
+        "highlights_html": "<div>Highlights</div>",
+        "sections": [["indications", "Indications"], ["dosage", "Dosage"]],
+    }
+    _assert_json_serializable(captured_payload["professional_meta"])
+    assert result["professional_sections"] == [["indications", "Indications"], ["dosage", "Dosage"]]
+
+
+def test_include_professional_fetch_failure_does_not_break_other_includes():
+    fresh_row = {
+        "id": 28,
+        "rxcui": "153165",
+        "ndc": "0071-0156-23",
+        "generic_name": "atorvastatin calcium",
+        "brand_name": "LIPITOR",
+        "spl_set_id": "abc-123",
+        "overview": "cached overview",
+        "uses": None,
+        "dosage": None,
+        "how_to_take": None,
+        "side_effects": None,
+        "warnings": None,
+        "interactions": None,
+        "contraindications": None,
+        "special_populations": None,
+        "overdose": None,
+        "storage": None,
+        "pharmacology": None,
+        "manufacturer": None,
+        "has_boxed_warning": False,
+        "professional_html": None,
+        "professional_meta": None,
+        "medguide_html": None,
+        "source_url": "https://api.fda.gov/drug/label.json?search=spl_set_id:abc-123",
+        "fetched_at": datetime.now(timezone.utc) - timedelta(days=1),
+    }
+    updated_row = {**fresh_row, "medguide_html": "<article>Medication guide text</article>"}
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=fresh_row
+    ), patch(
+        "services.medication_guide.fetch_professional_rendered",
+        new=AsyncMock(side_effect=RuntimeError("boom")),
+    ), patch(
+        "services.medication_guide.fetch_medguide_html",
+        new=AsyncMock(return_value="<article>Medication guide text</article>"),
+    ) as mock_medguide_fetch, patch(
+        "services.medication_guide._update_guide", return_value=updated_row
+    ):
+        result = asyncio.run(
+            build_guide(
+                rxcui="153165",
+                include_professional=True,
+                include_medguide=True,
+                openfda_client=mock_client,
+            )
+        )
+
+    mock_medguide_fetch.assert_called_once_with("abc-123")
+    assert result["medguide_html"] == "<article>Medication guide text</article>"
+    assert result["professional_html"] is None
 
 
 def test_guide_route_forwards_include_professional_flag():
