@@ -592,9 +592,15 @@ def _strip_leading_bullets_from_html(html_str: str) -> str:
             stripped = _strip_leading_bullets(str(first))
             if stripped != str(first):
                 parent = first.getparent()
-                if first.is_text:
+                is_text = bool(getattr(first, "is_text", False))
+                is_tail = bool(getattr(first, "is_tail", False))
+                if is_text:
                     parent.text = stripped
-                elif first.is_tail:
+                elif is_tail:
+                    parent.tail = stripped
+                elif parent.text == str(first):
+                    parent.text = stripped
+                else:
                     parent.tail = stripped
         if not _normalize_visible_text("".join(el.itertext())):
             parent = el.getparent()
