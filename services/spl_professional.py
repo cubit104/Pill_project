@@ -8,6 +8,7 @@ from typing import Optional
 import bleach
 import httpx
 from lxml import etree
+from lxml import html as lxml_html
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,7 @@ def _find_section_by_code(tree: etree._Element, code: str) -> Optional[etree._El
 
 
 def _unique_anchor(base: str, seen: dict[str, int]) -> str:
-    cleaned = re.sub(r"[^a-z0-9-]+", "-", (base or "").lower()).strip("-") or "section"
+    cleaned = _slugify(base)
     if cleaned not in seen:
         seen[cleaned] = 1
         return cleaned
@@ -208,8 +209,12 @@ def _is_meaningful_html(fragment: str) -> bool:
 
 def _sanitize_html(fragment: str) -> str:
     sanitized = bleach.clean(fragment, tags=_ALLOWED_TAGS, attributes=_is_attr_allowed, strip=True)
-    sanitized = re.sub(r"<img(?:(?!\ssrc=)[^>])*>", "", sanitized)
-    return sanitized.strip()
+    root = lxml_html.fragment_fromstring(sanitized or "", create_parent="div")
+    for img in list(root.xpath(".//img[not(@src)]")):
+        parent = img.getparent()
+        if parent is not None:
+            parent.remove(img)
+    return ((root.text or "") + "".join(lxml_html.tostring(child, encoding="unicode") for child in root)).strip()
 
 
 def _strip_section_refs(html_str: str) -> str:

@@ -1,6 +1,7 @@
 import asyncio
-import re
 from unittest.mock import MagicMock, patch
+
+from lxml import html as lxml_html
 
 from services import spl_professional
 
@@ -198,5 +199,6 @@ def test_highlights_are_extracted_from_main_article():
     assert rendered is not None
     assert rendered.highlights_html is not None
     assert 'Quick summary.' in rendered.highlights_html
-    assert 'Highlights of Prescribing Information' not in re.sub(r'<[^>]+>', ' ', rendered.article_html)
+    article_text = lxml_html.fromstring(f'<div>{rendered.article_html}</div>').text_content()
+    assert 'Highlights of Prescribing Information' not in article_text
     assert rendered.sections == [('indications', 'Indications')]
