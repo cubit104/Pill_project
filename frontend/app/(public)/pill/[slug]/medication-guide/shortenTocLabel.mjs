@@ -23,7 +23,7 @@ function normalizeWhitespace(text) {
 }
 
 function escapeRegex(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return text.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
 }
 
 function stripDrugName(text, drugName) {

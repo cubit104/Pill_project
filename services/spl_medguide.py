@@ -8,6 +8,7 @@ link, iframe wrapper, or ``<html>`` outer frame.
 
 from __future__ import annotations
 
+from copy import deepcopy
 import html
 import logging
 import re
@@ -347,14 +348,8 @@ def _is_generic_medguide_h1(el: etree._Element | None) -> bool:
 
 
 def _clone_with_tag(source_el: etree._Element, tag_name: str) -> etree._Element:
-    clone = lxml_html.Element(tag_name)
-    for key, value in source_el.attrib.items():
-        clone.set(key, value)
-    if source_el.text:
-        clone.text = source_el.text
-    for child in list(source_el):
-        source_el.remove(child)
-        clone.append(child)
+    clone = deepcopy(source_el)
+    clone.tag = tag_name
     return clone
 
 
