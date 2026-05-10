@@ -268,7 +268,7 @@ def test_fetch_medguide_html_subsection_titles_become_h2_with_slugified_ids():
 
 
 def test_fetch_medguide_html_slugified_ids_are_unique():
-    """When two subsections share the same title, their ids get a -1 suffix."""
+    """When two subsections share the same title, their ids get a -2 suffix."""
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component>'
@@ -295,7 +295,7 @@ def test_fetch_medguide_html_slugified_ids_are_unique():
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
     assert result is not None
     assert 'id="important-info"' in result
-    assert 'id="important-info-1"' in result
+    assert 'id="important-info-2"' in result
 
 
 def test_fetch_medguide_html_paragraphs_become_p_tags():
@@ -374,5 +374,164 @@ def test_unique_slug_appends_counter_on_collision():
     slug2 = spl_medguide._unique_slug("Foo Bar", seen)
     slug3 = spl_medguide._unique_slug("Foo Bar", seen)
     assert slug1 == "foo-bar"
-    assert slug2 == "foo-bar-1"
-    assert slug3 == "foo-bar-2"
+    assert slug2 == "foo-bar-2"
+    assert slug3 == "foo-bar-3"
+
+
+def test_outer_layout_table_is_unwrapped_into_flat_blocks():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text><table><tr><td><paragraph>First left cell paragraph.</paragraph></td>'
+        f'<td><paragraph>Revised: 6/2025</paragraph></td></tr>'
+        f'<tr><td><paragraph>Second row paragraph.</paragraph></td></tr></table></text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-outer-table"))
+    assert result is not None
+    assert "<table>" not in result
+    assert "<p>First left cell paragraph.</p>" in result
+    assert "<p>Revised: 6/2025</p>" in result
+    assert "<p>Second row paragraph.</p>" in result
+
+
+def test_real_data_table_is_preserved_when_prose_dominates():
+    long_text = " ".join(["This paragraph is intentionally long for ratio checks."] * 12)
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text>'
+        f'<paragraph>{long_text}</paragraph>'
+        f'<table><tr><td>A</td><td>B</td></tr></table>'
+        f'<paragraph>{long_text}</paragraph>'
+        f'</text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-data-table"))
+    assert result is not None
+    assert "<table>" in result
+    assert "<td>A</td>" in result
+    assert "<td>B</td>" in result
+
+
+def test_bold_question_paragraph_promoted_to_h2_with_slug():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text><paragraph><content styleCode="bold">What is Plavix?</content></paragraph></text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-bold-question"))
+    assert result is not None
+    assert '<h2 id="what-is-plavix">What is Plavix?</h2>' in result
+
+
+def test_bold_non_question_heading_paragraph_promoted_to_h2():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text><paragraph styleCode="bold">General information about Plavix</paragraph></text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-bold-non-question"))
+    assert result is not None
+    assert '<h2 id="general-information-about-plavix">General information about Plavix</h2>' in result
+
+
+def test_long_bold_paragraph_is_not_promoted_to_heading():
+    long_question = (
+        "What is " + ("very " * 60) + "long guidance that should remain paragraph because it exceeds the heading length limits?"
+    )
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text><paragraph styleCode="bold">{long_question}</paragraph></text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-long-bold"))
+    assert result is not None
+    assert "<h2" not in result
+    assert "<p>" in result
+
+
+def test_duplicate_promoted_question_headings_get_unique_ids():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text>'
+        f'<paragraph styleCode="bold">What is Plavix?</paragraph>'
+        f'<paragraph styleCode="bold">What is Plavix?</paragraph>'
+        f'</text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-slug-unique"))
+    assert result is not None
+    assert 'id="what-is-plavix"' in result
+    assert 'id="what-is-plavix-2"' in result
+
+
+def test_dash_only_paragraph_is_removed():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text><paragraph>----------</paragraph><paragraph>Keep me.</paragraph></text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-dash-only"))
+    assert result is not None
+    assert "----------" not in result
+    assert "<p>Keep me.</p>" in result
+
+
+def test_empty_paragraph_is_removed():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text><paragraph>   </paragraph><paragraph>Content.</paragraph></text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-empty-paragraph"))
+    assert result is not None
+    assert "<p>   </p>" not in result
+    assert "<p>Content.</p>" in result
+
+
+def test_section_selection_first_match_with_promoted_headings_stays_stable():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody>'
+        f'<component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text>'
+        f'<paragraph styleCode="bold">What should I know?</paragraph>'
+        f'<paragraph styleCode="bold">What should I know?</paragraph>'
+        f'</text>'
+        f'</section></component>'
+        f'<component><section>'
+        f'<code code="42230-3"/><title>PATIENT PACKAGE INSERT</title>'
+        f'<text><paragraph styleCode="bold">What should not appear?</paragraph></text>'
+        f'</section></component>'
+        f'</structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-first-match"))
+    assert result is not None
+    assert 'id="what-should-i-know"' in result
+    assert 'id="what-should-i-know-2"' in result
+    assert "What should not appear?" not in result
