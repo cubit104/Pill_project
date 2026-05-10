@@ -458,6 +458,10 @@ def _postprocess_rendered_html(combined_html: str, seen_ids: dict[str, int], h1_
     _promote_strong_only_paragraphs(root, seen_ids)
     _dedupe_and_trim_hr(root)
     _strip_duplicated_leading_medguide_header(root, h1_text)
+    return _serialize_children(root)
+
+
+def _serialize_children(root: etree._Element) -> str:
     return "".join(
         etree.tostring(child, encoding="unicode", method="html")
         for child in root
@@ -471,7 +475,7 @@ def _strip_tables(html_str: str) -> str:
         if parent is None:
             continue
         replacement_blocks: list[etree._Element] = []
-        for cell in [node for node in table.iter() if isinstance(node.tag, str) and _local(node.tag) in {"td", "th", "caption"}]:
+        for cell in (node for node in table.iter() if isinstance(node.tag, str) and _local(node.tag) in {"td", "th", "caption"}):
             cell_text = _normalize_visible_text(cell.text or "")
             if cell_text:
                 p_el = lxml_html.Element("p")
@@ -492,10 +496,7 @@ def _strip_tables(html_str: str) -> str:
             parent.insert(insert_at + offset, block)
         parent.remove(table)
 
-    return "".join(
-        etree.tostring(child, encoding="unicode", method="html")
-        for child in root
-    )
+    return _serialize_children(root)
 
 
 def _collapse_consecutive_identical_h1(root: etree._Element) -> None:
@@ -521,10 +522,7 @@ def _postprocess_after_table_strip(html_str: str, *, extract_meta_strip: bool) -
     if extract_meta_strip:
         _extract_meta_strip(root)
     _collapse_consecutive_identical_h1(root)
-    return "".join(
-        etree.tostring(child, encoding="unicode", method="html")
-        for child in root
-    )
+    return _serialize_children(root)
 
 
 def _strip_section_refs(html_str: str) -> str:
