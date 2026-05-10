@@ -47,6 +47,11 @@ _HEADING_KEYWORD_RE = re.compile(
 )
 _DASH_ONLY_P_RE = re.compile(r"^[\s\-–—_=]{3,}$")
 _SECTION_REF_RE = re.compile(r"\s*\((?:\d+\.\d+(?:\.\d+)?(?:\s*,\s*\d+\.\d+(?:\.\d+)?)*)\)")
+_BRACKET_REF_RE = re.compile(
+    r"\s*\[(?:see\s+also|also\s+see|see)\b[^\]]*\]",
+    flags=re.IGNORECASE,
+)
+_LEADING_BULLET_RE = re.compile(r"^[\s]*[•●▪‧·∙►▶◦‣⁃]+[\s]*")
 _APPROVAL_P_RE = re.compile(r"^\s*this medication guide has been approved", re.IGNORECASE)
 _REVISED_P_RE = re.compile(r"^\s*revised:", re.IGNORECASE)
 _ALLOWED_CLASS_VALUES: dict[str, set[str]] = {
@@ -562,7 +567,77 @@ def _postprocess_after_table_strip(html_str: str, *, extract_meta_strip: bool) -
 
 
 def _strip_section_refs(html_str: str) -> str:
-    return _SECTION_REF_RE.sub("", html_str or "")
+    out = _BRACKET_REF_RE.sub("", html_str or "")
+    out = _SECTION_REF_RE.sub("", out)
+    out = re.sub(r"  +", " ", out)
+    out = re.sub(r"\s+([.,;:])", r"\1", out)
+    return out
+
+
+def _strip_leading_bullets(text: str) -> str:
+    if not text:
+        return text
+    return _LEADING_BULLET_RE.sub("", text)
+
+
+def _strip_leading_bullets_from_html(html_str: str) -> str:
+    if not html_str:
+        return html_str
+
+    root = lxml_html.fragment_fromstring(html_str, create_parent="div")
+    for el in list(root.xpath(".//p | .//li")):
+        text_nodes = el.xpath(".//text()[normalize-space()]")
+        if text_nodes:
+            first = text_nodes[0]
+            stripped = _strip_leading_bullets(str(first))
+            if stripped != str(first):
+                parent = first.getparent()
+                is_text = bool(getattr(first, "is_text", False))
+                is_tail = bool(getattr(first, "is_tail", False))
+                if is_text:
+                    parent.text = stripped
+                elif is_tail:
+                    parent.tail = stripped
+                elif parent.text == str(first):
+                    parent.text = stripped
+                else:
+                    parent.tail = stripped
+        if not _normalize_visible_text("".join(el.itertext())):
+            parent = el.getparent()
+            if parent is not None:
+                parent.remove(el)
+
+    return _serialize_children(root)
+
+
+def _dedupe_repeated_headings(html_str: str) -> str:
+    if not html_str:
+        return html_str
+
+    root = lxml_html.fragment_fromstring(html_str, create_parent="div")
+    seen: set[str] = set()
+
+    for el in list(root.iter()):
+        if not isinstance(el.tag, str):
+            continue
+        text = (el.text_content() or "").strip().lower().rstrip(".:;,")
+        if not text:
+            continue
+        is_heading_like = (
+            el.tag in ("h1", "h2", "h3", "h4", "h5", "h6")
+            or (el.tag == "p" and any(getattr(c, "tag", None) == "strong" for c in el))
+            or (el.tag == "p" and el.getparent() is root and text.startswith("warning:"))
+        )
+        if not is_heading_like:
+            continue
+        if text in seen:
+            parent = el.getparent()
+            if parent is not None:
+                parent.remove(el)
+        else:
+            seen.add(text)
+
+    return _serialize_children(root)
 
 
 def _safe_cell_attrs(el: etree._Element) -> str:
@@ -1002,8 +1077,10 @@ def _render_boxed_warning_section(section: etree._Element) -> str:
 
     inner = "\n".join(parts)
     inner = _strip_tables(inner)
-    inner = _postprocess_after_table_strip(inner, extract_meta_strip=False)
+    inner = _strip_leading_bullets_from_html(inner)
     inner = _strip_section_refs(inner)
+    inner = _postprocess_after_table_strip(inner, extract_meta_strip=False)
+    inner = _dedupe_repeated_headings(inner)
     sanitized = bleach.clean(
         inner,
         tags=_BOXED_ALLOWED_TAGS,
