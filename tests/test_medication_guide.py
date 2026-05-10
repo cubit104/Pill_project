@@ -53,6 +53,10 @@ def _row_from_payload(payload: dict, *, fetched_at: datetime | None = None) -> d
     return row
 
 
+def _assert_json_serializable(payload: dict) -> None:
+    assert json.loads(json.dumps(payload)) == payload
+
+
 def test_build_guide_maps_openfda_fields_and_null_sections():
     lipitor = _load_fixture("openfda_lipitor.json")["results"][0]
     acet = _load_fixture("openfda_acetaminophen.json")["results"][0]
@@ -158,6 +162,43 @@ def test_build_guide_cache_hit_skips_openfda_within_30_days():
     assert pro_result["professional_highlights_html"] == "<div>cached highlights</div>"
     assert pro_result["professional_sections"] == [["indications", "Indications"]]
     assert mock_client.fetch_label_by_rxcui.call_count == 0
+
+
+def test_display_name_falls_back_to_generic_name_when_brand_missing():
+    fresh_row = {
+        "id": 2,
+        "rxcui": "153165",
+        "ndc": "0071-0156-23",
+        "generic_name": "atorvastatin calcium",
+        "brand_name": None,
+        "overview": "cached overview",
+        "uses": "cached uses",
+        "dosage": "cached dosage",
+        "how_to_take": None,
+        "side_effects": "cached side effects",
+        "warnings": "cached warnings",
+        "interactions": None,
+        "contraindications": "cached contraindications",
+        "special_populations": None,
+        "overdose": None,
+        "storage": None,
+        "pharmacology": "cached pharmacology",
+        "manufacturer": "cached manufacturer",
+        "has_boxed_warning": False,
+        "source_url": "https://api.fda.gov/drug/label.json?search=spl_set_id:abc-123",
+        "fetched_at": datetime.now(timezone.utc) - timedelta(days=1),
+    }
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=fresh_row
+    ):
+        result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client))
+
+    assert result["display_name"] == "atorvastatin calcium"
 
 
 def test_include_professional_lazy_fetches_html_and_meta_on_cache_hit():
@@ -384,7 +425,7 @@ def test_include_professional_lazy_fill_persists_meta():
         "highlights_html": "<div>Highlights</div>",
         "sections": [["indications", "Indications"], ["dosage", "Dosage"]],
     }
-    assert json.loads(json.dumps(captured_payload["professional_meta"])) == captured_payload["professional_meta"]
+    _assert_json_serializable(captured_payload["professional_meta"])
     assert result["professional_sections"] == [["indications", "Indications"], ["dosage", "Dosage"]]
 
 
