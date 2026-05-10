@@ -424,6 +424,27 @@ def test_professional_renderer_drops_contents_link_table():
     assert "1 Indications" not in rendered.article_html
 
 
+def test_pro_boxed_warning_wrapped_in_callout():
+    xml = _wrap_document(
+        _section(
+            "34066-1",
+            "Boxed Warning",
+            "<text><paragraph>WARNING: Serious adverse effects.</paragraph></text>",
+        ),
+        _section(
+            "34067-9",
+            "Indications and Usage",
+            "<text><paragraph>Indications body.</paragraph></text>",
+        ),
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-boxed-callout"))
+
+    assert rendered is not None
+    assert '<aside class="pro-boxed-warning-callout" role="note" aria-label="Boxed Warning">' in rendered.article_html
+    assert "WARNING: Serious adverse effects." in rendered.article_html
+
+
 def test_professional_renderer_logs_warning_and_skips_missing_multimedia(caplog):
     xml = _wrap_document(
         _section(

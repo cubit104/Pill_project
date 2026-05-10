@@ -166,6 +166,8 @@ def _row_to_response(
 ) -> dict[str, Any]:
     """Convert a medication_guide row dict into API response shape."""
     professional_meta = row.get("professional_meta") if include_professional else None
+    medguide_html = row.get("medguide_html")
+    has_medguide = bool(medguide_html and str(medguide_html).strip())
     # API callers may send different name fields depending on source:
     # prefer branded/proprietary names, then generic/common identifiers.
     display_name = (
@@ -182,6 +184,7 @@ def _row_to_response(
         "brand_name": row.get("brand_name"),
         "display_name": display_name,
         "has_boxed_warning": bool(row.get("has_boxed_warning")),
+        "has_medguide": has_medguide,
         "sections": {
             "overview": row.get("overview"),
             "uses": row.get("uses"),
@@ -205,7 +208,7 @@ def _row_to_response(
         "professional_sections": (
             professional_meta.get("sections") if isinstance(professional_meta, dict) else None
         ),
-        "medguide_html": row.get("medguide_html") if include_medguide else None,
+        "medguide_html": medguide_html if include_medguide else None,
         "boxed_warning_html": row.get("boxed_warning_html") if include_boxed_warning else None,
         "fetched_at": _to_iso(row.get("fetched_at")),
         "disclaimer": DISCLAIMER,

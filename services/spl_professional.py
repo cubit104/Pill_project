@@ -105,6 +105,7 @@ _DESCRIPTIVE_NAME_TO_SLUG = {
 
 _ALLOWED_TAGS = [
     "div",
+    "aside",
     "span",
     "section",
     "figure",
@@ -137,6 +138,7 @@ _ALLOWED_TAGS = [
 
 _ALLOWED_ATTRS: dict[str, list[str]] = {
     "div": ["class"],
+    "aside": ["class", "role", "aria-label"],
     "span": ["class"],
     "section": ["id", "class"],
     "figure": ["class"],
@@ -867,6 +869,11 @@ async def fetch_professional_rendered(spl_set_id: str) -> Optional[ProfessionalR
             rendered = _render_section(section, slug=slug, heading=heading, ctx=ctx)
             if slug == "boxed-warning":
                 rendered = _strip_section_refs(rendered)
+                rendered = (
+                    '<aside class="pro-boxed-warning-callout" role="note" aria-label="Boxed Warning">'
+                    f"{rendered}"
+                    "</aside>"
+                )
             rendered = strip_leading_bullets_from_html(rendered)
             rendered = _linkify_section_refs(rendered)
             sanitized = _strip_dash_empty_paragraphs_html(_sanitize_html(rendered))

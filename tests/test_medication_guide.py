@@ -1005,6 +1005,66 @@ def _fresh_row_with_spl(extra: dict | None = None) -> dict:
     return row
 
 
+def test_has_medguide_true_when_html_present():
+    cached_row = _fresh_row_with_spl({"medguide_html": "<p>foo</p>"})
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=cached_row
+    ):
+        result = asyncio.run(build_guide(rxcui="123456", openfda_client=mock_client))
+
+    assert result["has_medguide"] is True
+
+
+def test_has_medguide_false_when_html_null():
+    cached_row = _fresh_row_with_spl({"medguide_html": None})
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=cached_row
+    ):
+        result = asyncio.run(build_guide(rxcui="123456", openfda_client=mock_client))
+
+    assert result["has_medguide"] is False
+
+
+def test_has_medguide_false_when_html_empty_string():
+    cached_row = _fresh_row_with_spl({"medguide_html": ""})
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=cached_row
+    ):
+        result = asyncio.run(build_guide(rxcui="123456", openfda_client=mock_client))
+
+    assert result["has_medguide"] is False
+
+
+def test_has_medguide_false_when_html_whitespace():
+    cached_row = _fresh_row_with_spl({"medguide_html": "   \n  "})
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=cached_row
+    ):
+        result = asyncio.run(build_guide(rxcui="123456", openfda_client=mock_client))
+
+    assert result["has_medguide"] is False
+
+
 def test_include_boxed_warning_false_does_not_include_in_response():
     """include_boxed_warning=False (default) must not include boxed_warning_html."""
     cached_row = _fresh_row_with_spl({"boxed_warning_html": "<div>cached boxed warning</div>"})

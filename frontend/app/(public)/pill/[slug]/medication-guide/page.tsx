@@ -44,6 +44,7 @@ type GuideResponse = {
   display_name?: string
   name?: string
   has_boxed_warning?: boolean
+  has_medguide?: boolean
   sections: GuideSections
   professional_html?: string | null
   professional_highlights_html?: string | null
@@ -93,10 +94,24 @@ const MEDGUIDE_PROSE_CLASSES = [
   '[&_hr]:my-6 [&_hr]:border-slate-200',
 ].join(' ')
 const PRO_TOC_GRID_CLASSES = 'lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8'
-const PRO_HIGHLIGHTS_HEADER_CLASS =
-  "[&_.pro-highlights-header]:flex [&_.pro-highlights-header]:flex-col sm:[&_.pro-highlights-header]:flex-row sm:[&_.pro-highlights-header]:items-baseline sm:[&_.pro-highlights-header]:justify-between sm:[&_.pro-highlights-header]:gap-3 [&_.pro-highlights-header]:mb-3 [&_.pro-highlights-header]:pb-3 [&_.pro-highlights-header]:border-b [&_.pro-highlights-header]:border-blue-200 " +
-  "[&_.pro-highlights-title]:text-base [&_.pro-highlights-title]:font-bold [&_.pro-highlights-title]:text-slate-900 " +
-  "[&_.pro-highlights-meta]:text-sm [&_.pro-highlights-meta]:text-slate-500 [&_.pro-highlights-meta]:font-normal"
+const PRO_HIGHLIGHTS_HEADER_CLASS = [
+  '[&_.pro-highlights-header]:flex',
+  '[&_.pro-highlights-header]:flex-col',
+  'sm:[&_.pro-highlights-header]:flex-row',
+  'sm:[&_.pro-highlights-header]:items-baseline',
+  'sm:[&_.pro-highlights-header]:justify-between',
+  'sm:[&_.pro-highlights-header]:gap-3',
+  '[&_.pro-highlights-header]:pb-3',
+  '[&_.pro-highlights-header]:mb-4',
+  '[&_.pro-highlights-header]:border-b',
+  '[&_.pro-highlights-header]:border-blue-200',
+  '[&_.pro-highlights-title]:text-base',
+  '[&_.pro-highlights-title]:font-bold',
+  '[&_.pro-highlights-title]:text-slate-900',
+  '[&_.pro-highlights-meta]:text-sm',
+  '[&_.pro-highlights-meta]:text-slate-500',
+  '[&_.pro-highlights-meta]:font-normal',
+].join(' ')
 
 const PRO_PROSE_CLASSES = [
   'max-w-4xl',
@@ -120,6 +135,17 @@ const PRO_PROSE_CLASSES = [
   '[&_li_a]:text-sky-700 [&_li_a]:underline [&_li_a]:underline-offset-2 hover:[&_li_a]:text-sky-900',
   '[&_.pro-section-ref]:text-sky-700 [&_.pro-section-ref]:no-underline hover:[&_.pro-section-ref]:underline [&_.pro-section-ref]:cursor-pointer [&_.pro-section-ref]:font-medium',
   '[&_strong]:font-semibold [&_strong]:text-slate-900',
+  '[&_.pro-boxed-warning-callout]:my-6',
+  '[&_.pro-boxed-warning-callout]:rounded-2xl',
+  '[&_.pro-boxed-warning-callout]:border-2',
+  '[&_.pro-boxed-warning-callout]:border-rose-300',
+  '[&_.pro-boxed-warning-callout]:bg-rose-50',
+  '[&_.pro-boxed-warning-callout]:p-5',
+  '[&_.pro-boxed-warning-callout_h2]:text-rose-900',
+  '[&_.pro-boxed-warning-callout_h3.boxed-warning-heading]:text-rose-900',
+  '[&_.pro-boxed-warning-callout_h3.boxed-warning-heading]:font-bold',
+  '[&_.pro-boxed-warning-callout_h3.boxed-warning-heading]:text-base',
+  '[&_.pro-boxed-warning-callout_h3.boxed-warning-heading]:my-3',
 ].join(' ')
 
 const PRO_HIGHLIGHTS_PROSE_CLASSES = [
@@ -133,6 +159,8 @@ const PRO_HIGHLIGHTS_PROSE_CLASSES = [
   '[&_a]:text-sky-700 [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:text-sky-900',
   '[&_.pro-section-ref]:text-sky-700 [&_.pro-section-ref]:no-underline hover:[&_.pro-section-ref]:underline [&_.pro-section-ref]:cursor-pointer [&_.pro-section-ref]:font-medium',
 ].join(' ')
+const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
+  `rounded-2xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-6 ${PRO_HIGHLIGHTS_HEADER_CLASS}`
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
   for (const value of values) {
@@ -325,12 +353,16 @@ export default async function MedicationGuidePage({
 }) {
   const { slug } = await params
   const { tab = 'consumer' } = await searchParams
-  const isPro = tab === 'pro'
+  const requestedPro = tab === 'pro'
 
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
-  const guide = await fetchGuide(pill, isPro)
+  const initialGuide = await fetchGuide(pill, requestedPro)
+  const hasMedguide = Boolean(initialGuide?.has_medguide)
+  const forcePro = !hasMedguide
+  const isPro = requestedPro || forcePro
+  const guide = forcePro && !requestedPro ? await fetchGuide(pill, true) : initialGuide
   const drugName = resolveDrugName({ guide, pill, slug })
   const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guide?.sections?.[key]))
   const professionalSections = Array.isArray(guide?.professional_sections)
@@ -347,32 +379,36 @@ export default async function MedicationGuidePage({
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
         <p className="mt-2 text-slate-600 text-sm">
-          Patient-friendly guidance and full FDA prescribing information.
+          {hasMedguide
+            ? 'Patient-friendly guidance and full FDA prescribing information.'
+            : 'Full FDA prescribing information.'}
         </p>
       </div>
 
-      <div className="no-print flex border-b border-slate-200 mb-6">
-        <Link
-          href={`/pill/${slug}/medication-guide`}
-          className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            !isPro
-              ? 'border-sky-600 text-sky-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          💊 Medication Guide
-        </Link>
-        <Link
-          href={`/pill/${slug}/medication-guide?tab=pro`}
-          className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            isPro
-              ? 'border-sky-600 text-sky-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          🏥 Full Prescribing Information
-        </Link>
-      </div>
+      {hasMedguide && (
+        <div className="no-print flex border-b border-slate-200 mb-6">
+          <Link
+            href={`/pill/${slug}/medication-guide`}
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              !isPro
+                ? 'border-sky-600 text-sky-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            💊 Medication Guide
+          </Link>
+          <Link
+            href={`/pill/${slug}/medication-guide?tab=pro`}
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              isPro
+                ? 'border-sky-600 text-sky-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            🏥 Full Prescribing Information
+          </Link>
+        </div>
+      )}
 
       {!isPro && (
         <div className="lg:[&:has(nav)]:grid lg:[&:has(nav)]:grid-cols-[16rem_1fr] lg:[&:has(nav)]:gap-8">
@@ -405,7 +441,6 @@ export default async function MedicationGuidePage({
                 <summary className="flex items-center gap-2 cursor-pointer text-rose-900 font-semibold list-none [&::-webkit-details-marker]:hidden">
                   <span aria-hidden>⚠️</span>
                   <span>Boxed Warning</span>
-                  <span className="ml-auto text-xs font-normal text-rose-700/80">FDA</span>
                 </summary>
                 {guide?.boxed_warning_html ? (
                   <div
@@ -450,15 +485,6 @@ export default async function MedicationGuidePage({
 
       {isPro && (
         <>
-          {guide?.professional_highlights_html && (
-            <div className={`rounded-2xl border border-blue-200 bg-blue-50/40 p-5 mb-6 ${PRO_HIGHLIGHTS_HEADER_CLASS}`}>
-              <div
-                className={PRO_HIGHLIGHTS_PROSE_CLASSES}
-                dangerouslySetInnerHTML={{ __html: guide.professional_highlights_html }}
-              />
-            </div>
-          )}
-
           {hasProfessionalToc ? (
             <div className={PRO_TOC_GRID_CLASSES}>
               <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
@@ -477,6 +503,14 @@ export default async function MedicationGuidePage({
 
               <div className="space-y-6 min-w-0">
                 <MedguideMetaBar guide={guide} />
+                {guide?.professional_highlights_html && (
+                  <div className={PRO_HIGHLIGHTS_CONTAINER_CLASSES}>
+                    <div
+                      className={PRO_HIGHLIGHTS_PROSE_CLASSES}
+                      dangerouslySetInnerHTML={{ __html: guide.professional_highlights_html }}
+                    />
+                  </div>
+                )}
                 {guide?.professional_html ? (
                   <article
                     id="pro-content"
@@ -491,6 +525,14 @@ export default async function MedicationGuidePage({
           ) : (
             <div className="space-y-6">
               <MedguideMetaBar guide={guide} />
+              {guide?.professional_highlights_html && (
+                <div className={PRO_HIGHLIGHTS_CONTAINER_CLASSES}>
+                  <div
+                    className={PRO_HIGHLIGHTS_PROSE_CLASSES}
+                    dangerouslySetInnerHTML={{ __html: guide.professional_highlights_html }}
+                  />
+                </div>
+              )}
               {guide?.professional_html ? (
                 <article
                   id="pro-content"
