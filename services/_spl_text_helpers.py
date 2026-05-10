@@ -5,7 +5,7 @@ from lxml import html as lxml_html
 _LEADING_BULLET_RE = re.compile(r"^[\s]*[•●▪‧·∙►▶◦‣⁃]+[\s]*")
 
 
-def _is_blank_text(text: str) -> bool:
+def _is_whitespace_only(text: str) -> bool:
     return not " ".join((text or "").split()).strip()
 
 
@@ -41,7 +41,7 @@ def strip_leading_bullets_from_html(html_str: str) -> str:
                     parent.text = stripped
                 else:
                     parent.tail = stripped
-        if _is_blank_text("".join(el.itertext())):
+        if _is_whitespace_only("".join(el.itertext())):
             parent = el.getparent()
             if parent is not None:
                 parent.remove(el)
