@@ -20,6 +20,12 @@ _HL7_NS = "urn:hl7-org:v3"
 _NS = f"{{{_HL7_NS}}}"
 _ANCHOR_HREF_RE = re.compile(r"^#[a-z0-9-]+$")
 _SECTION_REF_RE = re.compile(r"\s*\((?:\d+\.\d+(?:\.\d+)?(?:\s*,\s*\d+\.\d+(?:\.\d+)?)*)\)")
+_FULL_PI_CONTENTS_RE = re.compile(r"^full prescribing information:\s*contents\b", re.IGNORECASE)
+_SECTIONS_OMITTED_RE = re.compile(
+    r"^\*\s*sections or subsections omitted from the full prescribing information are not listed\.?\s*$",
+    re.IGNORECASE,
+)
+_DASH_ONLY_RE = re.compile(r"^-{2,}$")
 
 PRO_SECTIONS = [
     ("42229-5", "highlights", "Highlights", "Highlights of Prescribing Information"),
@@ -116,6 +122,11 @@ def _slugify(text: str) -> str:
     return slug.strip("-") or "section"
 
 
+def _slugify_section_title(text: str) -> str:
+    cleaned = re.sub(r"^\d+(?:\.\d+)*\s*", "", (text or "").strip())
+    return _slugify(cleaned or text)
+
+
 def _iter_section_children(section: etree._Element):
     for child in section:
         if isinstance(child.tag, str):
@@ -144,9 +155,13 @@ def _title_text(section: etree._Element) -> str:
     return _normalize_text("".join(title_el.itertext())) if title_el is not None else ""
 
 
-def _build_section_anchor_maps(sections: list[tuple[etree._Element, str]]) -> tuple[dict[int, str], dict[str, str]]:
+def _section_path(section: etree._Element) -> str:
+    return section.getroottree().getpath(section)
+
+
+def _build_section_anchor_maps(sections: list[tuple[etree._Element, str]]) -> tuple[dict[str, str], dict[str, str]]:
     seen: dict[str, int] = {}
-    section_anchors: dict[int, str] = {}
+    section_anchors: dict[str, str] = {}
     xml_targets: dict[str, str] = {}
 
     def _walk(section: etree._Element, *, top_slug: str, parent_anchor: str, level: int) -> None:
@@ -156,9 +171,9 @@ def _build_section_anchor_maps(sections: list[tuple[etree._Element, str]]) -> tu
         else:
             title = _title_text(section)
             if title:
-                anchor = _unique_anchor(f"{top_slug}-{_slugify(title)}", seen)
-        section_anchors[id(section)] = anchor
-        xml_id = section.get("ID")
+                anchor = _unique_anchor(f"{top_slug}-{_slugify_section_title(title)}", seen)
+        section_anchors[_section_path(section)] = anchor
+        xml_id = section.get("ID") or section.get("id")
         if xml_id:
             xml_targets[xml_id] = anchor
         for child in _iter_section_children(section):
@@ -175,13 +190,185 @@ def _build_section_anchor_maps(sections: list[tuple[etree._Element, str]]) -> tu
 
 def _build_media_map(tree: etree._Element) -> dict[str, str]:
     media: dict[str, str] = {}
-    for observation in tree.iter(f"{_NS}observationMedia"):
-        media_id = observation.get("ID")
-        reference = observation.find(f".//{_NS}reference")
+    for observation in tree.iter():
+        if not isinstance(observation.tag, str) or _local(observation.tag) != "observationMedia":
+            continue
+        media_id = observation.get("ID") or observation.get("id")
+        reference = next(
+            (
+                node
+                for node in observation.iter()
+                if isinstance(node.tag, str) and _local(node.tag) == "reference"
+            ),
+            None,
+        )
         filename = reference.get("value") if reference is not None else None
         if media_id and filename:
             media[media_id] = filename.split("/")[-1]
     return media
+
+
+def _logical_table_rows(table_el: etree._Element) -> list[etree._Element]:
+    rows: list[etree._Element] = []
+    for child in table_el:
+        child_tag = _local(child.tag)
+        if child_tag == "tr":
+            rows.append(child)
+        elif child_tag in {"thead", "tbody", "tfoot"}:
+            rows.extend(grandchild for grandchild in child if _local(grandchild.tag) == "tr")
+    return rows
+
+
+def _row_cells(row_el: etree._Element) -> list[etree._Element]:
+    return [child for child in row_el if _local(child.tag) in {"td", "th"}]
+
+
+def _is_layout_table(table_el: etree._Element) -> bool:
+    border = (table_el.get("border") or "").strip()
+    if border and border != "0":
+        return False
+
+    rows = _logical_table_rows(table_el)
+    if not rows:
+        return False
+
+    row_cell_counts: list[int] = []
+    has_block_cell_content = False
+    for row in rows:
+        cells = _row_cells(row)
+        if not cells:
+            continue
+        if any(_local(cell.tag) == "th" for cell in cells):
+            return False
+        row_cell_counts.append(len(cells))
+        for cell in cells:
+            if _local(cell.tag) != "td":
+                continue
+            if any(
+                _local(desc.tag) in {"paragraph", "list", "section", "table", "br"}
+                for desc in cell.iterdescendants()
+                if isinstance(desc.tag, str)
+            ):
+                has_block_cell_content = True
+
+    return bool(row_cell_counts) and all(count <= 3 for count in row_cell_counts) and has_block_cell_content
+
+
+def _paragraph_from_text(text: str) -> etree._Element | None:
+    normalized = _normalize_text(text or "")
+    if not normalized:
+        return None
+    paragraph = etree.Element("paragraph")
+    paragraph.text = normalized
+    return paragraph
+
+
+def _flatten_layout_table(table_el: etree._Element, *, depth: int = 0, max_depth: int = 2) -> list[etree._Element]:
+    flattened: list[etree._Element] = []
+    for row in _logical_table_rows(table_el):
+        for cell in _row_cells(row):
+            if _local(cell.tag) not in {"td", "th"}:
+                continue
+            text_paragraph = _paragraph_from_text(cell.text or "")
+            if text_paragraph is not None:
+                flattened.append(text_paragraph)
+            for child in cell:
+                if (
+                    _local(child.tag) == "table"
+                    and depth < max_depth
+                    and _is_layout_table(child)
+                ):
+                    flattened.extend(_flatten_layout_table(child, depth=depth + 1, max_depth=max_depth))
+                else:
+                    flattened.append(child)
+                tail_paragraph = _paragraph_from_text(child.tail or "")
+                if tail_paragraph is not None:
+                    flattened.append(tail_paragraph)
+    return flattened
+
+
+def _meaningful_children(el: etree._Element) -> list[etree._Element]:
+    return [child for child in el if isinstance(child.tag, str)]
+
+
+def _unwrap_outer_layout_blocks(text_el: etree._Element) -> list[etree._Element]:
+    meaningful = _meaningful_children(text_el)
+    if len(meaningful) == 1 and _local(meaningful[0].tag) == "table" and _is_layout_table(meaningful[0]):
+        return _flatten_layout_table(meaningful[0], depth=0, max_depth=2)
+    return meaningful
+
+
+def _is_dash_or_empty_paragraph(el: etree._Element) -> bool:
+    if _local(el.tag) != "paragraph":
+        return False
+    normalized = _normalize_text("".join(el.itertext()))
+    return not normalized or bool(_DASH_ONLY_RE.fullmatch(normalized))
+
+
+def _list_item_is_section_link_only(item_el: etree._Element) -> bool:
+    links = [
+        link
+        for link in item_el.iter()
+        if isinstance(link.tag, str) and _local(link.tag) == "linkHtml"
+    ]
+    if not links:
+        return False
+    if not all((link.get("href") or "").lower().startswith("#section") for link in links):
+        return False
+    item_text = _normalize_text("".join(item_el.itertext()))
+    links_text = _normalize_text(" ".join("".join(link.itertext()) for link in links))
+    return bool(item_text) and item_text == links_text
+
+
+def _is_fda_contents_link_list(el: etree._Element) -> bool:
+    if _local(el.tag) != "list":
+        return False
+    items = [child for child in _meaningful_children(el) if _local(child.tag) == "item"]
+    if not items:
+        return False
+    return all(_list_item_is_section_link_only(item) for item in items)
+
+
+def _is_fda_contents_table(el: etree._Element) -> bool:
+    if _local(el.tag) != "table":
+        return False
+    if any(_local(desc.tag) == "th" for desc in el.iterdescendants() if isinstance(desc.tag, str)):
+        return False
+    found_list = False
+    for node in el.iter():
+        if not isinstance(node.tag, str):
+            continue
+        local = _local(node.tag)
+        if local in {"tbody", "thead", "tfoot", "tr", "td", "table"}:
+            continue
+        if local == "list":
+            if not _is_fda_contents_link_list(node):
+                return False
+            found_list = True
+            continue
+        if local == "paragraph":
+            text = _normalize_text("".join(node.itertext()))
+            if not text:
+                continue
+            if _FULL_PI_CONTENTS_RE.match(text) or _SECTIONS_OMITTED_RE.fullmatch(text):
+                continue
+            return False
+        return False
+    return found_list
+
+
+def _should_drop_contents_node(el: etree._Element) -> bool:
+    if _is_dash_or_empty_paragraph(el):
+        return True
+    if _local(el.tag) == "paragraph":
+        text = _normalize_text("".join(el.itertext()))
+        if _FULL_PI_CONTENTS_RE.match(text):
+            return True
+        if _SECTIONS_OMITTED_RE.fullmatch(text):
+            return True
+    if _is_fda_contents_link_list(el):
+        return True
+    return _is_fda_contents_table(el)
 
 
 def _format_revision_date(tree: etree._Element) -> Optional[str]:
@@ -218,6 +405,17 @@ def _sanitize_html(fragment: str) -> str:
     return ((root.text or "") + "".join(lxml_html.tostring(child, encoding="unicode") for child in root)).strip()
 
 
+def _strip_dash_empty_paragraphs_html(fragment: str) -> str:
+    root = lxml_html.fragment_fromstring(fragment or "", create_parent="div")
+    for paragraph in list(root.xpath(".//p")):
+        text = _normalize_text("".join(paragraph.itertext()))
+        if not text or _DASH_ONLY_RE.fullmatch(text):
+            parent = paragraph.getparent()
+            if parent is not None:
+                parent.remove(paragraph)
+    return ((root.text or "") + "".join(lxml_html.tostring(child, encoding="unicode") for child in root)).strip()
+
+
 def _strip_section_refs(html_str: str) -> str:
     return _SECTION_REF_RE.sub("", html_str or "")
 
@@ -234,7 +432,7 @@ def _is_attr_allowed(tag: str, name: str, value: str) -> bool:
 
 
 class _RenderContext:
-    def __init__(self, *, spl_set_id: str, media_map: dict[str, str], link_targets: dict[str, str], section_anchors: dict[int, str]):
+    def __init__(self, *, spl_set_id: str, media_map: dict[str, str], link_targets: dict[str, str], section_anchors: dict[str, str]):
         self.spl_set_id = spl_set_id
         self.media_map = media_map
         self.link_targets = link_targets
@@ -397,6 +595,11 @@ def _render_multimedia(el: etree._Element, next_sibling: Optional[etree._Element
     media_id = (el.get("referencedObject") or "").strip()
     filename = ctx.media_map.get(media_id)
     if not filename:
+        logger.warning(
+            "Professional SPL multimedia reference unresolved (spl_set_id=%s, referencedObject=%s)",
+            ctx.spl_set_id,
+            media_id,
+        )
         return "", False
     caption_text = ""
     consumed_caption = False
@@ -411,7 +614,7 @@ def _render_multimedia(el: etree._Element, next_sibling: Optional[etree._Element
     ]
     if caption_text:
         figure_parts.append(
-            f'<figcaption class="text-sm text-slate-500 italic mt-2">{html.escape(caption_text)}</figcaption>'
+            f'<figcaption class="text-sm text-slate-500 italic mt-2 text-center">{html.escape(caption_text)}</figcaption>'
         )
     figure_parts.append("</figure>")
     return "".join(figure_parts), consumed_caption
@@ -421,7 +624,33 @@ def _render_text(text_el: etree._Element, ctx: _RenderContext) -> str:
     parts: list[str] = []
     if text_el.text and text_el.text.strip():
         parts.append(f"<p>{html.escape(text_el.text)}</p>")
-    parts.append(_render_children(text_el, ctx))
+    blocks = _unwrap_outer_layout_blocks(text_el)
+    index = 0
+    while index < len(blocks):
+        child = blocks[index]
+        if _should_drop_contents_node(child):
+            index += 1
+            continue
+        next_sibling = blocks[index + 1] if index + 1 < len(blocks) else None
+        if _local(child.tag) == "renderMultiMedia":
+            figure_html, consumed_caption = _render_multimedia(child, next_sibling, ctx)
+            if figure_html:
+                parts.append(figure_html)
+            if consumed_caption:
+                index += 2
+                continue
+            index += 1
+            continue
+        rendered = _render_node(child, ctx)
+        if rendered:
+            parts.append(rendered)
+        if child.tail:
+            tail_paragraph = _paragraph_from_text(child.tail)
+            if tail_paragraph is not None and not _is_dash_or_empty_paragraph(tail_paragraph):
+                tail_rendered = _render_node(tail_paragraph, ctx)
+                if tail_rendered:
+                    parts.append(tail_rendered)
+        index += 1
     return "".join(parts)
 
 
@@ -435,7 +664,7 @@ def _render_section(section: etree._Element, *, slug: str, heading: str, ctx: _R
         title_text = _normalize_text("".join(title_el.itertext()))
         if title_html.strip() and title_text:
             heading_level = min(2 + depth, 6)
-            anchor = ctx.section_anchors.get(id(section))
+            anchor = ctx.section_anchors.get(_section_path(section))
             id_attr = f' id="{anchor}"' if anchor else ""
             parts.append(f"<h{heading_level}{id_attr}>{title_html}</h{heading_level}>")
 
@@ -554,7 +783,7 @@ async def fetch_professional_rendered(spl_set_id: str) -> Optional[ProfessionalR
             rendered = _render_section(section, slug=slug, heading=heading, ctx=ctx)
             if slug == "boxed-warning":
                 rendered = _strip_section_refs(rendered)
-            sanitized = _sanitize_html(rendered)
+            sanitized = _strip_dash_empty_paragraphs_html(_sanitize_html(rendered))
             if not _is_meaningful_html(sanitized):
                 continue
             article_parts.append(sanitized)
