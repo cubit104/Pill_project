@@ -471,7 +471,7 @@ def _strip_tables(html_str: str) -> str:
         if parent is None:
             continue
         replacement_blocks: list[etree._Element] = []
-        for cell in table.xpath(".//td | .//th | .//caption"):
+        for cell in [node for node in table.iter() if isinstance(node.tag, str) and _local(node.tag) in {"td", "th", "caption"}]:
             cell_text = _normalize_visible_text(cell.text or "")
             if cell_text:
                 p_el = lxml_html.Element("p")
