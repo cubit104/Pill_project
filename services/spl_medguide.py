@@ -628,6 +628,13 @@ def _dedupe_repeated_list_items(html_str: str) -> str:
             continue
         seen.add(text)
 
+    for list_el in list(root.iter("ul", "ol")):
+        if any(getattr(child, "tag", None) == "li" for child in list_el):
+            continue
+        parent = list_el.getparent()
+        if parent is not None:
+            parent.remove(list_el)
+
     return _serialize_children(root)
 
 
