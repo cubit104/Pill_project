@@ -469,13 +469,24 @@ def _serialize_children(root: etree._Element) -> str:
 
 
 def _strip_tables(html_str: str) -> str:
+    def _nearest_table_ancestor(el: etree._Element) -> Optional[etree._Element]:
+        """Return the closest ancestor <table> for *el*, or None if absent."""
+        parent = el.getparent()
+        while parent is not None:
+            if isinstance(parent.tag, str) and _local(parent.tag) == "table":
+                return parent
+            parent = parent.getparent()
+        return None
+
     root = lxml_html.fragment_fromstring(html_str or "", create_parent="div")
-    for table in list(root.xpath(".//table")):
+    for table in reversed(list(root.xpath(".//table"))):
         parent = table.getparent()
         if parent is None:
             continue
         replacement_blocks: list[etree._Element] = []
         for cell in (node for node in table.iter() if isinstance(node.tag, str) and _local(node.tag) in {"td", "th", "caption"}):
+            if _nearest_table_ancestor(cell) is not table:
+                continue
             cell_text = _normalize_visible_text(cell.text or "")
             if cell_text:
                 p_el = lxml_html.Element("p")

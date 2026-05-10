@@ -757,6 +757,8 @@ def test_nested_tables_are_fully_removed_and_content_order_is_preserved():
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-nested-table"))
     assert result is not None
     assert "<table>" not in result
+    assert result.count("Nested paragraph.") == 1
+    assert result.count("Nested list item") == 1
     first_idx = result.index("First paragraph.")
     nested_paragraph_idx = result.index("Nested paragraph.")
     nested_list_idx = result.index("Nested list item")
