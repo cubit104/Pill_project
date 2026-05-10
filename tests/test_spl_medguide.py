@@ -1,9 +1,9 @@
-"""Tests for services.spl_medguide — section selection, XSLT rendering, and image rewriting."""
+"""Tests for services.spl_medguide — section selection, HTML rendering, and sanitization."""
 
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from lxml import etree
@@ -43,8 +43,57 @@ def _wrap_in_doc(*sections: etree._Element) -> etree._Element:
     return doc
 
 
+def _minimal_spl_xml(
+    code: str = "42231-1",
+    title: str = "MEDICATION GUIDE",
+    extra_subsection: bool = False,
+) -> bytes:
+    """Return a minimal SPL XML document containing one medguide section."""
+    subsection_xml = ""
+    if extra_subsection:
+        subsection_xml = (
+            "<component>"
+            "<section>"
+            "<title>What is the most important information I should know?</title>"
+            "<text><paragraph>Read carefully.</paragraph></text>"
+            "</section>"
+            "</component>"
+        )
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="{code}"/>'
+        f'<title>{title}</title>'
+        f'<text><paragraph>Read this guide carefully.</paragraph></text>'
+        f'{subsection_xml}'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    )
+    return xml.encode()
+
+
+class _FakeClient:
+    def __init__(self, status_code: int = 200, content: bytes = b"<document/>"):
+        self._status_code = status_code
+        self._content = content
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return False
+
+    async def get(self, _url):
+        resp = MagicMock()
+        resp.status_code = self._status_code
+        resp.content = self._content
+        return resp
+
+
 # ---------------------------------------------------------------------------
-# Section selection tests
+# Section selection tests (unchanged behavior)
 # ---------------------------------------------------------------------------
 
 
@@ -114,58 +163,14 @@ def test_select_returns_none_when_no_match():
 # ---------------------------------------------------------------------------
 
 
-class _FakeTransformer:
-    """Minimal XSLT callable that returns a trivial HTML tree."""
-
-    def __call__(self, _tree, **_kwargs):
-        return etree.HTML('<html><body><img src="fig.jpg"></body></html>')
-
-
-class _FakeClient:
-    def __init__(self, status_code: int = 200, content: bytes = b"<document/>"):
-        self._status_code = status_code
-        self._content = content
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *_):
-        return False
-
-    async def get(self, _url):
-        resp = MagicMock()
-        resp.status_code = self._status_code
-        resp.content = self._content
-        return resp
-
-
-def _minimal_spl_xml(code: str = "42231-1") -> bytes:
-    """Return a minimal SPL XML document containing one medguide section."""
-    ns = _NS
-    xml = (
-        f'<document xmlns="{_NS}">'
-        f'<component><structuredBody><component>'
-        f'<section>'
-        f'<code code="{code}"/>'
-        f'<title>MEDICATION GUIDE</title>'
-        f'<text>Read this guide carefully.</text>'
-        f'</section>'
-        f'</component></structuredBody></component>'
-        f'</document>'
-    )
-    return xml.encode()
-
-
 def test_fetch_medguide_html_returns_none_on_http_error():
-    with patch.object(spl_medguide, "_get_transformer", return_value=_FakeTransformer()), \
-         patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(status_code=404)):
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(status_code=404)):
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
     assert result is None
 
 
 def test_fetch_medguide_html_returns_none_on_server_error():
-    with patch.object(spl_medguide, "_get_transformer", return_value=_FakeTransformer()), \
-         patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(status_code=500)):
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(status_code=500)):
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
     assert result is None
 
@@ -179,14 +184,7 @@ def test_fetch_medguide_html_returns_none_when_no_medguide_section():
         f'</component></structuredBody></component>'
         f'</document>'
     ).encode()
-    with patch.object(spl_medguide, "_get_transformer", return_value=_FakeTransformer()), \
-         patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
-        result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
-    assert result is None
-
-
-def test_fetch_medguide_html_returns_none_when_transformer_missing():
-    with patch.object(spl_medguide, "_get_transformer", return_value=None):
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
     assert result is None
 
@@ -202,24 +200,177 @@ def test_fetch_medguide_html_returns_none_on_network_exception():
         async def get(self, _url):
             raise RuntimeError("network failure")
 
-    with patch.object(spl_medguide, "_get_transformer", return_value=_FakeTransformer()), \
-         patch.object(spl_medguide.httpx, "AsyncClient", return_value=_ErrorClient()):
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_ErrorClient()):
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
     assert result is None
 
 
 # ---------------------------------------------------------------------------
-# Image src rewriting
+# HTML rendering output format
 # ---------------------------------------------------------------------------
 
 
-def test_fetch_medguide_html_rewrites_image_srcs():
-    """Relative image src attrs are rewritten to the DailyMed CDN URL."""
-    spl_id = "my-spl-set-id"
-    xml_content = _minimal_spl_xml("42231-1")
-    with patch.object(spl_medguide, "_get_transformer", return_value=_FakeTransformer()), \
-         patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml_content)):
-        result = asyncio.run(spl_medguide.fetch_medguide_html(spl_id))
+def test_fetch_medguide_html_returns_article_wrapper():
+    """Output starts with <article and contains an <h1> for the medguide title."""
+    xml_content = _minimal_spl_xml("42231-1", title="MEDICATION GUIDE")
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml_content)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
     assert result is not None
-    expected_src = f"https://dailymed.nlm.nih.gov/dailymed/image/upload/spl/{spl_id}/fig.jpg"
-    assert expected_src in result
+    assert result.startswith("<article")
+    assert "<h1>" in result
+    assert "MEDICATION GUIDE" in result
+
+
+def test_fetch_medguide_html_no_iframe_no_fda_stylesheet():
+    """Output contains no iframe wrapper, no <html>, no <link>, no FDA stylesheet URL."""
+    xml_content = _minimal_spl_xml("42231-1")
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml_content)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
+    assert result is not None
+    assert "<html" not in result
+    assert "<link" not in result
+    assert "accessdata.fda.gov" not in result
+    assert "<iframe" not in result
+    assert 'table border' not in result
+
+
+def test_fetch_medguide_html_no_img_tags():
+    """Output contains no <img> tags (medguide is text-only in v1)."""
+    # Include a renderMultiMedia element in the SPL
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="42231-1"/>'
+        f'<title>MEDICATION GUIDE</title>'
+        f'<text>'
+        f'<renderMultiMedia referencedObject="img1"/>'
+        f'<paragraph>Text after image.</paragraph>'
+        f'</text>'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
+    assert result is not None
+    assert "<img" not in result
+    assert "Text after image." in result
+
+
+def test_fetch_medguide_html_subsection_titles_become_h2_with_slugified_ids():
+    """Subsection <title> elements become <h2 id="..."> with slugified ids."""
+    xml_content = _minimal_spl_xml("42231-1", extra_subsection=True)
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml_content)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
+    assert result is not None
+    assert '<h2 id="what-is-the-most-important-information-i-should-know">' in result
+
+
+def test_fetch_medguide_html_slugified_ids_are_unique():
+    """When two subsections share the same title, their ids get a -1 suffix."""
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="42231-1"/>'
+        f'<title>MEDICATION GUIDE</title>'
+        f'<component>'
+        f'<section>'
+        f'<title>Important Info</title>'
+        f'<text><paragraph>First.</paragraph></text>'
+        f'</section>'
+        f'</component>'
+        f'<component>'
+        f'<section>'
+        f'<title>Important Info</title>'
+        f'<text><paragraph>Second.</paragraph></text>'
+        f'</section>'
+        f'</component>'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
+    assert result is not None
+    assert 'id="important-info"' in result
+    assert 'id="important-info-1"' in result
+
+
+def test_fetch_medguide_html_paragraphs_become_p_tags():
+    """SPL <paragraph> elements are converted to <p> tags."""
+    xml_content = _minimal_spl_xml("42231-1")
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml_content)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
+    assert result is not None
+    assert "<p>" in result
+    assert "Read this guide carefully." in result
+
+
+def test_fetch_medguide_html_list_becomes_ul():
+    """SPL <list><item> elements are converted to <ul><li>."""
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="42231-1"/>'
+        f'<title>MEDICATION GUIDE</title>'
+        f'<text>'
+        f'<list>'
+        f'<item>First item</item>'
+        f'<item>Second item</item>'
+        f'</list>'
+        f'</text>'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
+    assert result is not None
+    assert "<ul>" in result
+    assert "<li>First item</li>" in result
+
+
+def test_fetch_medguide_html_content_bold_becomes_strong():
+    """SPL <content styleCode="bold"> becomes <strong>."""
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="42231-1"/>'
+        f'<title>MEDICATION GUIDE</title>'
+        f'<text>'
+        f'<paragraph><content styleCode="bold">Important:</content> Read carefully.</paragraph>'
+        f'</text>'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-abc"))
+    assert result is not None
+    assert "<strong>Important:</strong>" in result
+
+
+def test_slugify_basic():
+    """_slugify converts text to lowercase hyphenated slug."""
+    assert spl_medguide._slugify("What Is The Most Important Information?") == \
+        "what-is-the-most-important-information"
+
+
+def test_slugify_collapses_repeated_separators():
+    """Multiple non-alphanumeric chars collapse to a single dash."""
+    assert spl_medguide._slugify("Hello  -- World!") == "hello-world"
+
+
+def test_unique_slug_appends_counter_on_collision():
+    """Duplicate slugs get a 1-based counter suffix."""
+    seen: dict[str, int] = {}
+    slug1 = spl_medguide._unique_slug("Foo Bar", seen)
+    slug2 = spl_medguide._unique_slug("Foo Bar", seen)
+    slug3 = spl_medguide._unique_slug("Foo Bar", seen)
+    assert slug1 == "foo-bar"
+    assert slug2 == "foo-bar-1"
+    assert slug3 == "foo-bar-2"

@@ -1,3 +1,24 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 6rem;
+}
+
+@media print {
+  aside,
+  nav[aria-label="On this page"],
+  .no-print {
+    display: none !important;
+  }
+  article#medguide-content {
+    font-family: Georgia, serif;
+  }
+  a::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    color: #666;
+  }
+}
