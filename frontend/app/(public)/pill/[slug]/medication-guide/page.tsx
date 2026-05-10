@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import MedguideToc from './MedguideToc'
 import MedguideMetaBar from './MedguideMetaBar'
 import ProfessionalToc from './ProfessionalToc'
+import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 
@@ -270,7 +271,7 @@ export default async function MedicationGuidePage({
           : []
       )
     : []
-  const hasProfessionalToc = professionalSections.length >= 3
+  const hasProfessionalToc = professionalSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">

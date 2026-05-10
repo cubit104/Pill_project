@@ -251,6 +251,8 @@ def _is_layout_table(table_el: etree._Element) -> bool:
             ):
                 has_block_cell_content = True
 
+    # FDA page-frame layout tables are narrow navigation/content wrappers (typically 1-2 cells/row).
+    # Real clinical data tables generally exceed this width or use headers.
     return bool(row_cell_counts) and all(count <= 3 for count in row_cell_counts) and has_block_cell_content
 
 
