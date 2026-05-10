@@ -385,8 +385,8 @@ export default async function MedicationGuidePage({
         </p>
       </div>
 
-      {hasMedguide && (
-        <div className="no-print flex border-b border-slate-200 mb-6">
+      <div className="no-print flex border-b border-slate-200 mb-6">
+        {hasMedguide && (
           <Link
             href={`/pill/${slug}/medication-guide`}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
@@ -397,18 +397,18 @@ export default async function MedicationGuidePage({
           >
             💊 Medication Guide
           </Link>
-          <Link
-            href={`/pill/${slug}/medication-guide?tab=pro`}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              isPro
-                ? 'border-sky-600 text-sky-700'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            🏥 Full Prescribing Information
-          </Link>
-        </div>
-      )}
+        )}
+        <Link
+          href={`/pill/${slug}/medication-guide?tab=pro`}
+          className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            isPro
+              ? 'border-sky-600 text-sky-700'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          🏥 Full Prescribing Information
+        </Link>
+      </div>
 
       {!isPro && (
         <div className="lg:[&:has(nav)]:grid lg:[&:has(nav)]:grid-cols-[16rem_1fr] lg:[&:has(nav)]:gap-8">
