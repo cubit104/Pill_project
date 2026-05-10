@@ -398,7 +398,7 @@ def test_outer_layout_table_is_unwrapped_into_flat_blocks():
     assert "<p>Second row paragraph.</p>" in result
 
 
-def test_real_data_table_is_preserved_when_prose_dominates():
+def test_tables_are_stripped_even_when_table_looks_like_data():
     long_text = " ".join(["This paragraph is intentionally long for ratio checks."] * 12)
     xml = (
         f'<document xmlns="{_NS}">'
@@ -414,9 +414,9 @@ def test_real_data_table_is_preserved_when_prose_dominates():
     with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-data-table"))
     assert result is not None
-    assert "<table>" in result
-    assert "<td>A</td>" in result
-    assert "<td>B</td>" in result
+    assert "<table>" not in result
+    assert "<p>A</p>" in result
+    assert "<p>B</p>" in result
 
 
 def test_pradaxa_style_two_tables_are_unwrapped_into_meta_and_rich_h1():
@@ -449,7 +449,7 @@ def test_pradaxa_style_two_tables_are_unwrapped_into_meta_and_rich_h1():
     assert "<h1>Medication Guide</h1>" not in result
 
 
-def test_real_data_table_with_header_cells_is_preserved():
+def test_tables_with_header_cells_are_stripped():
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
@@ -463,9 +463,9 @@ def test_real_data_table_with_header_cells_is_preserved():
     with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-header-table"))
     assert result is not None
-    assert "<table>" in result
-    assert "<th>Column A</th>" in result
-    assert "<th>Column B</th>" in result
+    assert "<table>" not in result
+    assert "<p>Column A</p>" in result
+    assert "<p>Column B</p>" in result
 
 
 def test_bold_question_paragraph_promoted_to_h2_with_slug():
@@ -695,8 +695,8 @@ def test_layout_table_with_br_cells_is_unwrapped():
     assert "Line one" in result
 
 
-def test_layout_table_too_short_text_is_preserved():
-    """Table with combined text ≤ 40 chars should NOT be unwrapped."""
+def test_layout_table_too_short_text_is_also_stripped():
+    """All tables are removed, including tiny layout fragments."""
     xml = (
         f'<document xmlns="{_NS}">'
         f'<component><structuredBody><component><section>'
@@ -710,8 +710,9 @@ def test_layout_table_too_short_text_is_preserved():
     with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
         result = asyncio.run(spl_medguide.fetch_medguide_html("set-tiny-table"))
     assert result is not None
-    # The table is tiny (≤ 40 chars) — should be preserved
-    assert "<table>" in result
+    assert "<table>" not in result
+    assert "<p>A</p>" in result
+    assert "<p>B</p>" in result
 
 
 def test_layout_table_with_three_cells_per_row_is_unwrapped():
@@ -736,6 +737,31 @@ def test_layout_table_with_three_cells_per_row_is_unwrapped():
     assert result is not None
     assert "<table>" not in result
     assert "First column" in result
+
+
+def test_nested_tables_are_fully_removed_and_content_order_is_preserved():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component><section>'
+        f'<code code="42231-1"/><title>MEDICATION GUIDE</title>'
+        f'<text>'
+        f'<table><tr><td>'
+        f'<paragraph>First paragraph.</paragraph>'
+        f'<table><tr><td><paragraph>Nested paragraph.</paragraph></td></tr></table>'
+        f'<list><item>Nested list item</item></list>'
+        f'</td><td><paragraph>Second cell paragraph.</paragraph></td></tr></table>'
+        f'</text>'
+        f'</section></component></structuredBody></component></document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_medguide_html("set-nested-table"))
+    assert result is not None
+    assert "<table>" not in result
+    first_idx = result.index("First paragraph.")
+    nested_paragraph_idx = result.index("Nested paragraph.")
+    nested_list_idx = result.index("Nested list item")
+    second_cell_idx = result.index("Second cell paragraph.")
+    assert first_idx < nested_paragraph_idx < nested_list_idx < second_cell_idx
 
 
 # ---------------------------------------------------------------------------
@@ -841,3 +867,60 @@ def test_fetch_boxed_warning_html_with_subsections():
     assert result is not None
     assert '<h2 id="hemorrhage-risk">Hemorrhage Risk</h2>' in result
     assert "life-threatening bleeding" in result
+
+
+def test_fetch_boxed_warning_html_strips_all_tables():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="34066-1"/>'
+        f'<text><table><tr><td><paragraph>Risk of bleeding.</paragraph></td></tr></table></text>'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_boxed_warning_html("set-bw-table"))
+    assert result is not None
+    assert "<table>" not in result
+    assert "<p>Risk of bleeding.</p>" in result
+
+
+def test_fetch_boxed_warning_html_strips_section_refs_but_keeps_doses_percentages_and_years():
+    xml = (
+        f'<document xmlns="{_NS}">'
+        f'<component><structuredBody><component>'
+        f'<section>'
+        f'<code code="34066-1"/>'
+        f'<text><paragraph>See warnings (5.1, 5.2), dose (2.5 mg), rate (15%), and year (2023).</paragraph></text>'
+        f'</section>'
+        f'</component></structuredBody></component>'
+        f'</document>'
+    ).encode()
+    with patch.object(spl_medguide.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        result = asyncio.run(spl_medguide.fetch_boxed_warning_html("set-bw-refs"))
+    assert result is not None
+    assert "(5.1, 5.2)" not in result
+    assert "(2.5 mg)" in result
+    assert "(15%)" in result
+    assert "(2023)" in result
+
+
+def test_strip_section_refs_matches_expected_patterns():
+    text = "Risk (5.1) and monitoring (5.1, 5.2) and dosing (2.3.1) and list (2.4, 2.5, 2.6)."
+    result = spl_medguide._strip_section_refs(text)
+    assert "(5.1)" not in result
+    assert "(5.1, 5.2)" not in result
+    assert "(2.3.1)" not in result
+    assert "(2.4, 2.5, 2.6)" not in result
+
+
+def test_strip_section_refs_keeps_non_section_parentheticals():
+    text = "Keep (15%) (2 mg) (2.5 mg) (2023) (see 5)."
+    result = spl_medguide._strip_section_refs(text)
+    assert "(15%)" in result
+    assert "(2 mg)" in result
+    assert "(2.5 mg)" in result
+    assert "(2023)" in result
+    assert "(see 5)" in result
