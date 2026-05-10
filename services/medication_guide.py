@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from urllib.parse import quote
 
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 import database
 from ndc_normalize import normalize_ndc_to_11
@@ -231,6 +232,24 @@ def _row_as_dict(keys: list[str], row: Any) -> dict[str, Any]:
     return dict(zip(keys, row))
 
 
+def _serialize_jsonb(value: Any) -> Optional[str]:
+    """Serialize a Python dict to a JSON string for JSONB columns.
+
+    asyncpg and psycopg2 cannot bind a Python dict to a JSONB column when
+    using ``sqlalchemy.text()`` with named parameters — the driver has no
+    type inference context to know it should encode the value as JSON.
+    Passing a pre-serialised JSON string and using ``CAST(:col AS JSONB)``
+    in the SQL is the safest, driver-agnostic fix.
+    """
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return json.dumps(value)
+    # Already a string (e.g. already serialised by a previous call or read back
+    # from the DB as a string in some driver configurations).
+    return value
+
+
 def _select_cached_row(conn, *, rxcui: Optional[str], ndc: Optional[str]) -> Optional[dict[str, Any]]:
     """Load cached medication_guide row by rxcui or ndc."""
     if rxcui:
@@ -313,6 +332,9 @@ def _update_guide(conn, payload: dict[str, Any], *, existing_id: int) -> dict[st
     payload = dict(payload)
     payload = _payload_with_timestamps(payload)
     params = {col: payload.get(col) for col in _GUIDE_COLUMNS}
+    # JSONB columns must be passed as JSON strings; the CAST in the SQL handles
+    # the string→jsonb conversion so the driver never needs to infer the type.
+    params["professional_meta"] = _serialize_jsonb(params.get("professional_meta"))
     conn.execute(
         text(
             """
@@ -339,7 +361,7 @@ def _update_guide(conn, payload: dict[str, Any], *, existing_id: int) -> dict[st
                 has_boxed_warning = :has_boxed_warning,
                 source_url = :source_url,
                 professional_html = COALESCE(:professional_html, professional_html),
-                professional_meta = COALESCE(:professional_meta, professional_meta),
+                professional_meta = COALESCE(CAST(:professional_meta AS JSONB), professional_meta),
                 medguide_html = COALESCE(:medguide_html, medguide_html),
                 boxed_warning_html = COALESCE(:boxed_warning_html, boxed_warning_html),
                 fetched_at = :fetched_at,
@@ -360,6 +382,9 @@ def _insert_guide(conn, payload: dict[str, Any]) -> dict[str, Any]:
     """Insert one medication_guide row and return it."""
     payload = _payload_with_timestamps(payload)
     params = {col: payload.get(col) for col in _GUIDE_COLUMNS}
+    # JSONB columns must be serialised to a JSON string so the driver can bind
+    # them; CAST in the SQL converts the string to the JSONB column type.
+    params["professional_meta"] = _serialize_jsonb(params.get("professional_meta"))
     row = conn.execute(
         text(
             """
@@ -375,7 +400,7 @@ def _insert_guide(conn, payload: dict[str, Any]) -> dict[str, Any]:
                 :overview, :uses, :dosage, :how_to_take, :side_effects,
                 :warnings, :interactions, :contraindications, :special_populations,
                 :overdose, :storage, :pharmacology, :manufacturer,
-                :has_boxed_warning, :source_url, :professional_html, :professional_meta, :medguide_html, :boxed_warning_html, :fetched_at, :updated_at
+                :has_boxed_warning, :source_url, :professional_html, CAST(:professional_meta AS JSONB), :medguide_html, :boxed_warning_html, :fetched_at, :updated_at
             )
             RETURNING *
             """
@@ -439,40 +464,70 @@ async def build_guide(
             ):
                 try:
                     professional = await fetch_professional_rendered(str(cached["spl_set_id"]))
-                    if professional and cached.get("id") is not None:
-                        with database.db_engine.begin() as write_conn:
-                            cached = _update_guide(
-                                write_conn,
-                                {
-                                    **cached,
-                                    "professional_html": professional.article_html,
-                                    "professional_meta": _build_professional_meta(professional),
-                                },
-                                existing_id=int(cached["id"]),
-                            )
+                    if professional:
+                        new_payload = {
+                            **cached,
+                            "professional_html": professional.article_html,
+                            "professional_meta": _build_professional_meta(professional),
+                        }
+                        if cached.get("id") is not None:
+                            try:
+                                with database.db_engine.begin() as write_conn:
+                                    cached = _update_guide(
+                                        write_conn,
+                                        new_payload,
+                                        existing_id=int(cached["id"]),
+                                    )
+                            except SQLAlchemyError:
+                                logger.exception(
+                                    "include_professional lazy-fill DB write failed for spl_set_id=%s — "
+                                    "returning in-memory render without persistence",
+                                    cached.get("spl_set_id"),
+                                )
+                                # Use the in-memory rendered result even though the DB write failed
+                                # so the caller still receives the professional HTML this request.
+                                cached = new_payload
+                        else:
+                            cached = new_payload
                 except Exception:
                     logger.exception(
-                        "include_professional lazy-fill failed for spl_set_id=%s",
+                        "include_professional lazy-fill fetch failed for spl_set_id=%s",
                         cached.get("spl_set_id"),
                     )
             if include_medguide and not cached.get("medguide_html") and cached.get("spl_set_id"):
-                mg_html = await fetch_medguide_html(str(cached["spl_set_id"]))
-                if mg_html and cached.get("id") is not None:
-                    with database.db_engine.begin() as write_conn:
-                        cached = _update_guide(
-                            write_conn,
-                            {**cached, "medguide_html": mg_html},
-                            existing_id=int(cached["id"]),
-                        )
+                try:
+                    mg_html = await fetch_medguide_html(str(cached["spl_set_id"]))
+                    if mg_html and cached.get("id") is not None:
+                        with database.db_engine.begin() as write_conn:
+                            cached = _update_guide(
+                                write_conn,
+                                {**cached, "medguide_html": mg_html},
+                                existing_id=int(cached["id"]),
+                            )
+                    elif mg_html:
+                        cached = {**cached, "medguide_html": mg_html}
+                except (Exception, SQLAlchemyError):
+                    logger.exception(
+                        "include_medguide lazy-fill failed for spl_set_id=%s",
+                        cached.get("spl_set_id"),
+                    )
             if include_boxed_warning and not cached.get("boxed_warning_html") and cached.get("spl_set_id"):
-                bw_html = await fetch_boxed_warning_html(str(cached["spl_set_id"]))
-                if bw_html and cached.get("id") is not None:
-                    with database.db_engine.begin() as write_conn:
-                        cached = _update_guide(
-                            write_conn,
-                            {**cached, "boxed_warning_html": bw_html},
-                            existing_id=int(cached["id"]),
-                        )
+                try:
+                    bw_html = await fetch_boxed_warning_html(str(cached["spl_set_id"]))
+                    if bw_html and cached.get("id") is not None:
+                        with database.db_engine.begin() as write_conn:
+                            cached = _update_guide(
+                                write_conn,
+                                {**cached, "boxed_warning_html": bw_html},
+                                existing_id=int(cached["id"]),
+                            )
+                    elif bw_html:
+                        cached = {**cached, "boxed_warning_html": bw_html}
+                except (Exception, SQLAlchemyError):
+                    logger.exception(
+                        "include_boxed_warning lazy-fill failed for spl_set_id=%s",
+                        cached.get("spl_set_id"),
+                    )
             return _row_to_response(
                 cached,
                 include_professional=include_professional,
