@@ -84,7 +84,7 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
     return () => observer.disconnect()
   }, [entries])
 
-  if (entries.length === 0) return null
+  if (entries.length < 3) return null
 
   function handleClick(e: React.MouseEvent<HTMLAnchorElement>, id: string) {
     e.preventDefault()

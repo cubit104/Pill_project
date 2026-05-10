@@ -155,14 +155,21 @@ def _row_cells(row_el: etree._Element) -> list[etree._Element]:
     return [child for child in row_el if _local(child.tag) in {"td", "th"}]
 
 
+_BLOCK_CELL_TAGS = {"paragraph", "list", "br", "table"}
+
+
 def _table_has_block_cell_content(table_el: etree._Element) -> bool:
     for row in _logical_table_rows(table_el):
         for cell in _row_cells(row):
             if _local(cell.tag) != "td":
                 continue
-            if any(_local(desc.tag) in {"paragraph", "list"} for desc in cell.iterdescendants()):
+            if any(_local(desc.tag) in _BLOCK_CELL_TAGS for desc in cell.iterdescendants()):
                 return True
     return False
+
+
+def _table_combined_text_length(table_el: etree._Element) -> int:
+    return sum(len(t) for t in table_el.itertext())
 
 
 def _is_layout_table(table_el: etree._Element) -> bool:
@@ -185,9 +192,11 @@ def _is_layout_table(table_el: etree._Element) -> bool:
 
     if not row_cell_counts:
         return False
-    if not _table_has_block_cell_content(table_el):
+    if not all(count <= 3 for count in row_cell_counts):
         return False
-    return len(rows) <= 1 or all(count <= 2 for count in row_cell_counts)
+    if _table_combined_text_length(table_el) <= 40:
+        return False
+    return _table_has_block_cell_content(table_el)
 
 
 def _paragraph_inner_html(paragraph_el: etree._Element) -> str:
@@ -825,6 +834,110 @@ async def fetch_medguide_html(spl_set_id: str) -> Optional[str]:
     except Exception as exc:
         logger.warning(
             "Failed to render medguide HTML for spl_set_id=%s: %s",
+            spl_set_id,
+            exc,
+            exc_info=True,
+        )
+        return None
+
+
+_BOXED_WARNING_LOINC = "34066-1"
+
+_BOXED_ALLOWED_TAGS = [
+    "div", "h2", "h3",
+    "p", "ul", "ol", "li", "strong", "em", "u", "br",
+    "table", "thead", "tbody", "tr", "th", "td", "caption",
+]
+
+_BOXED_ALLOWED_ATTRS: dict[str, list[str]] = {
+    "h2": ["id"],
+    "h3": ["id"],
+    "div": ["class"],
+    "td": ["colspan", "rowspan"],
+    "th": ["colspan", "rowspan"],
+}
+
+_BOXED_ALLOWED_CLASS_VALUES: set[str] = {"boxed-warning-content"}
+
+
+def _boxed_allowed_attrs(tag: str, name: str, value: str) -> bool:
+    allowed = _BOXED_ALLOWED_ATTRS.get(tag, [])
+    if name not in allowed:
+        return False
+    if name != "class":
+        return True
+    class_values = [p for p in (value or "").split() if p]
+    return bool(class_values) and set(class_values).issubset(_BOXED_ALLOWED_CLASS_VALUES)
+
+
+def _render_boxed_warning_section(section: etree._Element) -> str:
+    """Render a 34066-1 boxed warning section as sanitized HTML."""
+    seen_ids: dict[str, int] = {}
+    parts: list[str] = []
+
+    for child in section:
+        child_tag = _local(child.tag)
+        if child_tag == "title":
+            continue
+        if child_tag == "text":
+            parts.append(_render_text_element(child, section_depth=1, seen_ids=seen_ids))
+            continue
+        if child_tag == "component":
+            for grandchild in child:
+                gc_tag = _local(grandchild.tag)
+                if gc_tag == "section":
+                    parts.append(
+                        _walk_section(grandchild, heading_level=2, section_depth=2, seen_ids=seen_ids)
+                    )
+                else:
+                    gc_html = _to_html(grandchild)
+                    if gc_html.strip():
+                        parts.append(gc_html)
+            continue
+        child_html = _to_html(child)
+        if child_html.strip():
+            parts.append(child_html)
+
+    inner = "\n".join(parts)
+    sanitized = bleach.clean(
+        inner,
+        tags=_BOXED_ALLOWED_TAGS,
+        attributes=_boxed_allowed_attrs,
+        strip=True,
+    )
+    return f'<div class="boxed-warning-content">{sanitized}</div>'
+
+
+async def fetch_boxed_warning_html(spl_set_id: str) -> Optional[str]:
+    """Fetch SPL XML, isolate the FDA Boxed Warning section (LOINC 34066-1),
+    render via the same structural walker as the medguide, sanitize, and return.
+    Returns None if no boxed warning section is present or on any failure.
+    """
+    spl_set_id = (spl_set_id or "").strip()
+    if not spl_set_id:
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(_DAILYMED_SPL_XML_URL.format(spl_set_id=spl_set_id))
+        if response.status_code >= 400:
+            return None
+
+        parser = etree.XMLParser(recover=True)
+        xml_tree = etree.fromstring(response.content, parser=parser)
+
+        section = _find_section_by_code(xml_tree, _BOXED_WARNING_LOINC)
+        if section is None:
+            return None
+
+        rendered = _render_boxed_warning_section(section)
+        stripped = rendered.replace('<div class="boxed-warning-content">', "").replace("</div>", "").strip()
+        if not stripped:
+            return None
+        return rendered
+    except Exception as exc:
+        logger.warning(
+            "Failed to render boxed warning HTML for spl_set_id=%s: %s",
             spl_set_id,
             exc,
             exc_info=True,

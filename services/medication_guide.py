@@ -15,7 +15,7 @@ from ndc_normalize import normalize_ndc_to_11
 from services.dailymed_client import DailyMedClient
 from services.dailymed_spl_client import fetch_spl_sections
 from services.openfda_client import OpenFDAClient, OpenFDAUpstreamError
-from services.spl_medguide import fetch_medguide_html
+from services.spl_medguide import fetch_boxed_warning_html, fetch_medguide_html
 from services.spl_professional import fetch_professional_html
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,7 @@ _GUIDE_COLUMNS = [
     "source_url",
     "professional_html",
     "medguide_html",
+    "boxed_warning_html",
     "fetched_at",
     "updated_at",
 ]
@@ -159,6 +160,7 @@ def _row_to_response(
     *,
     include_professional: bool = False,
     include_medguide: bool = False,
+    include_boxed_warning: bool = False,
 ) -> dict[str, Any]:
     """Convert a medication_guide row dict into API response shape."""
     return {
@@ -185,6 +187,7 @@ def _row_to_response(
         "source_url": row.get("source_url"),
         "professional_html": row.get("professional_html") if include_professional else None,
         "medguide_html": row.get("medguide_html") if include_medguide else None,
+        "boxed_warning_html": row.get("boxed_warning_html") if include_boxed_warning else None,
         "fetched_at": _to_iso(row.get("fetched_at")),
         "disclaimer": DISCLAIMER,
     }
@@ -312,6 +315,7 @@ def _update_guide(conn, payload: dict[str, Any], *, existing_id: int) -> dict[st
                 source_url = :source_url,
                 professional_html = COALESCE(:professional_html, professional_html),
                 medguide_html = COALESCE(:medguide_html, medguide_html),
+                boxed_warning_html = COALESCE(:boxed_warning_html, boxed_warning_html),
                 fetched_at = :fetched_at,
                 updated_at = :updated_at
             WHERE id = :id
@@ -338,14 +342,14 @@ def _insert_guide(conn, payload: dict[str, Any]) -> dict[str, Any]:
                 overview, uses, dosage, how_to_take, side_effects,
                 warnings, interactions, contraindications, special_populations,
                 overdose, storage, pharmacology, manufacturer,
-                has_boxed_warning, source_url, professional_html, medguide_html, fetched_at, updated_at
+                has_boxed_warning, source_url, professional_html, medguide_html, boxed_warning_html, fetched_at, updated_at
             )
             VALUES (
                 :rxcui, :ndc, :spl_set_id, :generic_name, :brand_name,
                 :overview, :uses, :dosage, :how_to_take, :side_effects,
                 :warnings, :interactions, :contraindications, :special_populations,
                 :overdose, :storage, :pharmacology, :manufacturer,
-                :has_boxed_warning, :source_url, :professional_html, :medguide_html, :fetched_at, :updated_at
+                :has_boxed_warning, :source_url, :professional_html, :medguide_html, :boxed_warning_html, :fetched_at, :updated_at
             )
             RETURNING *
             """
@@ -362,6 +366,7 @@ async def build_guide(
     force_refresh: bool = False,
     include_professional: bool = False,
     include_medguide: bool = False,
+    include_boxed_warning: bool = False,
     openfda_client: Optional[OpenFDAClient] = None,
     dailymed_client: Optional[DailyMedClient] = None,
 ) -> dict[str, Any]:
@@ -373,6 +378,7 @@ async def build_guide(
         force_refresh: If True, bypasses cache freshness checks.
         include_professional: If True, include rendered professional HTML.
         include_medguide: If True, include rendered medguide HTML.
+        include_boxed_warning: If True, include rendered boxed warning HTML.
         openfda_client: Optional injectable client for tests.
         dailymed_client: Optional injectable DailyMed client for tests.
 
@@ -418,10 +424,20 @@ async def build_guide(
                             {**cached, "medguide_html": mg_html},
                             existing_id=int(cached["id"]),
                         )
+            if include_boxed_warning and not cached.get("boxed_warning_html") and cached.get("spl_set_id"):
+                bw_html = await fetch_boxed_warning_html(str(cached["spl_set_id"]))
+                if bw_html and cached.get("id") is not None:
+                    with database.db_engine.begin() as write_conn:
+                        cached = _update_guide(
+                            write_conn,
+                            {**cached, "boxed_warning_html": bw_html},
+                            existing_id=int(cached["id"]),
+                        )
             return _row_to_response(
                 cached,
                 include_professional=include_professional,
                 include_medguide=include_medguide,
+                include_boxed_warning=include_boxed_warning,
             )
 
     logger.info(
@@ -503,6 +519,9 @@ async def build_guide(
         if include_medguide:
             mapped["medguide_html"] = await fetch_medguide_html(spl_set_id)
 
+        if include_boxed_warning:
+            mapped["boxed_warning_html"] = await fetch_boxed_warning_html(spl_set_id)
+
     existing_id = int(cached["id"]) if cached and cached.get("id") is not None else None
 
     if existing_id is None:
@@ -513,7 +532,12 @@ async def build_guide(
     if existing_id is not None:
         with database.db_engine.begin() as write_conn:
             row = _update_guide(write_conn, mapped, existing_id=existing_id)
-        return _row_to_response(row, include_professional=include_professional, include_medguide=include_medguide)
+        return _row_to_response(
+            row,
+            include_professional=include_professional,
+            include_medguide=include_medguide,
+            include_boxed_warning=include_boxed_warning,
+        )
 
     try:
         with database.db_engine.begin() as write_conn:
@@ -528,4 +552,9 @@ async def build_guide(
         with database.db_engine.begin() as write_conn:
             row = _update_guide(write_conn, mapped, existing_id=int(existing["id"]))
 
-    return _row_to_response(row, include_professional=include_professional, include_medguide=include_medguide)
+    return _row_to_response(
+        row,
+        include_professional=include_professional,
+        include_medguide=include_medguide,
+        include_boxed_warning=include_boxed_warning,
+    )
