@@ -362,7 +362,7 @@ export default async function MedicationGuidePage({
   const forcePro = !Boolean(initialGuide?.has_medguide)
   const isPro = requestedPro || forcePro
   const guide = forcePro && !requestedPro ? await fetchGuide(pill, true) : initialGuide
-  const hasMedguide = Boolean(guide?.has_medguide ?? initialGuide?.has_medguide)
+  const hasMedguide = Boolean(guide?.has_medguide)
   const drugName = resolveDrugName({ guide, pill, slug })
   const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guide?.sections?.[key]))
   const professionalSections = Array.isArray(guide?.professional_sections)
