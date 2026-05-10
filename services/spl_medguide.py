@@ -608,6 +608,49 @@ def _dedupe_repeated_headings(html_str: str) -> str:
     return _serialize_children(root)
 
 
+def _dedupe_repeated_list_items(html_str: str) -> str:
+    if not html_str:
+        return html_str
+
+    root = lxml_html.fragment_fromstring(html_str, create_parent="div")
+    seen: set[str] = set()
+
+    for li in list(root.iter("li")):
+        text = (li.text_content() or "").strip().lower().rstrip(".:;,")
+        if not text:
+            continue
+        if text in seen:
+            parent = li.getparent()
+            if parent is not None:
+                parent.remove(li)
+            continue
+        seen.add(text)
+
+    return _serialize_children(root)
+
+
+_BOXED_WARNING_HEADING_RE = re.compile(r"^WARNING:\s")
+
+
+def _promote_boxed_warning_headings(html_str: str) -> str:
+    if not html_str:
+        return html_str
+
+    root = lxml_html.fragment_fromstring(html_str, create_parent="div")
+    for paragraph in list(root.iter("p")):
+        paragraph_text = _normalize_visible_text(paragraph.text_content() or "")
+        if not _BOXED_WARNING_HEADING_RE.match(paragraph_text):
+            continue
+        heading = lxml_html.Element("h3")
+        heading.set("class", "boxed-warning-heading")
+        heading.text = paragraph_text
+        paragraph.addnext(heading)
+        parent = paragraph.getparent()
+        if parent is not None:
+            parent.remove(paragraph)
+    return _serialize_children(root)
+
+
 def _safe_cell_attrs(el: etree._Element) -> str:
     """Build a safe attribute string for <td>/<th> elements."""
     attrs = ""
@@ -996,13 +1039,13 @@ _BOXED_ALLOWED_TAGS = [
 
 _BOXED_ALLOWED_ATTRS: dict[str, list[str]] = {
     "h2": ["id"],
-    "h3": ["id"],
+    "h3": ["id", "class"],
     "div": ["class"],
     "td": ["colspan", "rowspan"],
     "th": ["colspan", "rowspan"],
 }
 
-_BOXED_ALLOWED_CLASS_VALUES: set[str] = {"boxed-warning-content"}
+_BOXED_ALLOWED_CLASS_VALUES: set[str] = {"boxed-warning-content", "boxed-warning-heading"}
 
 
 def _boxed_allowed_attrs(tag: str, name: str, value: str) -> bool:
@@ -1049,6 +1092,8 @@ def _render_boxed_warning_section(section: etree._Element) -> str:
     inner = _strip_section_refs(inner)
     inner = _postprocess_after_table_strip(inner, extract_meta_strip=False)
     inner = _dedupe_repeated_headings(inner)
+    inner = _dedupe_repeated_list_items(inner)
+    inner = _promote_boxed_warning_headings(inner)
     sanitized = bleach.clean(
         inner,
         tags=_BOXED_ALLOWED_TAGS,
