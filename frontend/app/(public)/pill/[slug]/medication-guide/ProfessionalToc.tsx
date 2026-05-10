@@ -1,12 +1,19 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
 
 type Section = { slug: string; label: string }
 const PRO_TOC_ROOT_MARGIN = '-100px 0px -60% 0px'
 
 export default function ProfessionalToc({ sections }: { sections: Section[] }) {
   const [activeId, setActiveId] = useState<string | null>(sections[0]?.slug ?? null)
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return
+    if (sections.length > 0) return
+    console.warn('ProfessionalToc: sections is empty; TOC will not render.')
+  }, [sections])
 
   useEffect(() => {
     setActiveId(sections[0]?.slug ?? null)
@@ -40,6 +47,8 @@ export default function ProfessionalToc({ sections }: { sections: Section[] }) {
     headings.forEach((element) => observer.observe(element))
     return () => observer.disconnect()
   }, [sections])
+
+  if (sections.length < MIN_PROFESSIONAL_TOC_SECTIONS) return null
 
   return (
     <nav aria-label="On this page">

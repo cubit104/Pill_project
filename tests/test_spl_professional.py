@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from unittest.mock import MagicMock, patch
 
 from lxml import html as lxml_html
@@ -222,3 +223,91 @@ def test_highlights_are_extracted_from_main_article():
     article_text = lxml_html.fromstring(f'<div>{rendered.article_html}</div>').text_content()
     assert 'Highlights of Prescribing Information' not in article_text
     assert rendered.sections == [('indications', 'Indications')]
+
+
+def test_professional_renderer_unwraps_outer_layout_table_and_drops_fda_contents_block():
+    outer_layout = (
+        "<text><table><tbody>"
+        "<tr>"
+        "<td>"
+        "<paragraph>FULL PRESCRIBING INFORMATION: CONTENTS*</paragraph>"
+        "<list>"
+        "<item><linkHtml href=\"#section1.1\">1.1 Acute Coronary Syndrome (ACS)</linkHtml></item>"
+        "<item><linkHtml href=\"#section14.1\">14.1 Acute Coronary Syndrome</linkHtml></item>"
+        "</list>"
+        "<paragraph>* Sections or subsections omitted from the full prescribing information are not listed.</paragraph>"
+        "</td>"
+        "<td><paragraph>----------</paragraph><paragraph>WARNING: Serious adverse effects.</paragraph></td>"
+        "</tr>"
+        "</tbody></table></text>"
+    )
+    xml = _wrap_document(
+        _section("42229-5", "Highlights of Prescribing Information", "<text><paragraph>Quick summary.</paragraph></text>"),
+        _section("34066-1", "Boxed Warning", outer_layout),
+        _section("34067-9", "Indications and Usage", "<text><paragraph>Indications body.</paragraph></text>", section_id="section1.1"),
+        _section("34092-7", "Clinical Studies", "<text><paragraph>Study body.</paragraph></text>", section_id="section14.1"),
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-layout"))
+
+    assert rendered is not None
+    assert "<table>" not in rendered.article_html
+    assert "FULL PRESCRIBING INFORMATION: CONTENTS" not in rendered.article_html
+    assert "Sections or subsections omitted from the full prescribing information are not listed" not in rendered.article_html
+    assert "WARNING: Serious adverse effects." in rendered.article_html
+    assert "----------" not in rendered.article_html
+
+
+def test_professional_renderer_drops_contents_link_table():
+    xml = _wrap_document(
+        _section(
+            "34068-7",
+            "Dosage and Administration",
+            "<text><table><tbody><tr><td>"
+            "<list><item><linkHtml href=\"#section1\">1 Indications</linkHtml></item></list>"
+            "</td></tr></tbody></table></text>",
+        )
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-contents-table"))
+
+    assert rendered is not None
+    assert "<table>" not in rendered.article_html
+    assert "1 Indications" not in rendered.article_html
+
+
+def test_professional_renderer_logs_warning_and_skips_missing_multimedia(caplog):
+    xml = _wrap_document(
+        _section(
+            "34092-7",
+            "Clinical Studies",
+            "<text><paragraph>Study figure.</paragraph><renderMultiMedia referencedObject=\"MM_MISSING\"/></text>",
+        )
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        with caplog.at_level(logging.WARNING):
+            rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-missing-img"))
+
+    assert rendered is not None
+    assert "<img " not in rendered.article_html
+    assert any("multimedia reference unresolved" in message.lower() for message in caplog.messages)
+
+
+def test_professional_renderer_uses_expected_subsection_slug():
+    xml = _wrap_document(
+        _section(
+            "34067-9",
+            "Indications and Usage",
+            "<text><paragraph>Indications body.</paragraph></text>"
+            "<component><section><title>1.1 Acute Coronary Syndrome (ACS)</title>"
+            "<text><paragraph>Subsection body.</paragraph></text></section></component>",
+        )
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-subslug"))
+
+    assert rendered is not None
+    assert (
+        '<h3 id="indications-acute-coronary-syndrome-acs">1.1 Acute Coronary Syndrome (ACS)</h3>'
+        in rendered.article_html
+    )

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import MedguideToc from './MedguideToc'
 import MedguideMetaBar from './MedguideMetaBar'
 import ProfessionalToc from './ProfessionalToc'
+import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 
@@ -107,7 +108,8 @@ const PRO_PROSE_CLASSES = [
   '[&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-lg [&_img]:my-4 [&_img]:border [&_img]:border-slate-200',
   '[&_figure]:my-6',
   '[&_figcaption]:text-sm [&_figcaption]:text-slate-500 [&_figcaption]:italic [&_figcaption]:mt-2 [&_figcaption]:text-center',
-  '[&_a]:text-sky-700 [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:text-sky-900',
+  '[&_p_a]:text-sky-700 [&_p_a]:underline [&_p_a]:underline-offset-2 hover:[&_p_a]:text-sky-900',
+  '[&_li_a]:text-sky-700 [&_li_a]:underline [&_li_a]:underline-offset-2 hover:[&_li_a]:text-sky-900',
   '[&_strong]:font-semibold [&_strong]:text-slate-900',
 ].join(' ')
 
@@ -269,6 +271,7 @@ export default async function MedicationGuidePage({
           : []
       )
     : []
+  const hasProfessionalToc = professionalSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
@@ -387,7 +390,7 @@ export default async function MedicationGuidePage({
             </div>
           )}
 
-          {professionalSections.length > 0 ? (
+          {hasProfessionalToc ? (
             <div className={PRO_TOC_GRID_CLASSES}>
               <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
                 <div className="hidden lg:block no-print">

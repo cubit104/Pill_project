@@ -274,6 +274,50 @@ def test_include_professional_reuses_cached_meta_without_refetch():
     assert result["professional_sections"] == [["indications", "Indications"]]
 
 
+def test_include_professional_populates_professional_meta_on_cache_miss():
+    lipitor = _load_fixture("openfda_lipitor.json")["results"][0]
+    rendered = SimpleNamespace(
+        article_html="<section><h2 id=\"indications\">Indications and Usage</h2></section>",
+        highlights_html="<div>Highlights</div>",
+        sections=[("indications", "Indications")],
+    )
+    inserted_payload: dict = {}
+
+    def _insert(_conn, payload):
+        inserted_payload.update(payload)
+        return _row_from_payload(payload)
+
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=lipitor),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+    mock_dm = MagicMock()
+    mock_dm.fetch_patient_guide.return_value = None
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", side_effect=[None, None]
+    ), patch(
+        "services.medication_guide.fetch_professional_rendered",
+        new=AsyncMock(return_value=rendered),
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert):
+        result = asyncio.run(
+            build_guide(
+                rxcui="153165",
+                include_professional=True,
+                openfda_client=mock_client,
+                dailymed_client=mock_dm,
+            )
+        )
+
+    assert inserted_payload["professional_html"] == rendered.article_html
+    assert inserted_payload["professional_meta"] == {
+        "highlights_html": rendered.highlights_html,
+        "sections": [["indications", "Indications"]],
+    }
+    assert result["professional_highlights_html"] == rendered.highlights_html
+    assert result["professional_sections"] == [["indications", "Indications"]]
+
+
 def test_guide_route_forwards_include_professional_flag():
     app = FastAPI()
     app.include_router(medication_guide_routes.router)
