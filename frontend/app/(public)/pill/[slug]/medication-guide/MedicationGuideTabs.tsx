@@ -26,11 +26,11 @@ export default function MedicationGuideTabs({
   }
 
   const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, currentTab: TabId) => {
-    if (tabs.length === 1) return
     const currentIndex = tabs.indexOf(currentTab)
     if (currentIndex < 0) return
 
     if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      if (tabs.length === 1) return
       event.preventDefault()
       const direction = event.key === 'ArrowRight' ? 1 : -1
       const nextIndex = (currentIndex + direction + tabs.length) % tabs.length

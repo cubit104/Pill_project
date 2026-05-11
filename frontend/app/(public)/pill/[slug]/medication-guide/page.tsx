@@ -73,7 +73,7 @@ type ConditionLink = {
   term: string
   slug: string
 }
-const SAFE_INTERNAL_PATH_RE = /^\/(?:drug|condition)\/(?:[a-z0-9]+-)*[a-z0-9]+$/
+const SAFE_INTERNAL_PATH_RE = /^\/(?:drug|condition)\/[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
   { key: 'overview', label: 'Overview' },
@@ -277,7 +277,7 @@ function linkifyText(
     const safeHref = target ? getSafeHref(target.href) : null
     if (target && safeHref) {
       parts.push(
-        <Link key={`link-${index}-${cursor}`} href={safeHref} className={LINK_CLASSES}>
+        <Link key={`link-${cursor}-${matchedText.length}`} href={safeHref} className={LINK_CLASSES}>
           {matchedText}
         </Link>
       )
