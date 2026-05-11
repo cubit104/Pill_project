@@ -26,6 +26,7 @@ export default function MedicationGuideTabs({
   }
 
   const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, currentTab: TabId) => {
+    if (tabs.length === 1) return
     const currentIndex = tabs.indexOf(currentTab)
     if (currentIndex < 0) return
 

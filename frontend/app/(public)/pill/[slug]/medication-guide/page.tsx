@@ -73,7 +73,7 @@ type ConditionLink = {
   term: string
   slug: string
 }
-const SAFE_INTERNAL_PATH_RE = /^\/(?:drug|condition)\/[a-z0-9]+(?:-[a-z0-9]+)*$/
+const SAFE_INTERNAL_PATH_RE = /^\/(?:drug|condition)\/(?:[a-z0-9]+-)*[a-z0-9]+$/
 
 const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
   { key: 'overview', label: 'Overview' },
