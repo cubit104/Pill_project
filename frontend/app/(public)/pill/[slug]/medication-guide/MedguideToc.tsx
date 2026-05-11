@@ -110,8 +110,8 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
               onClick={(e) => handleClick(e, id)}
               className={
                 activeId === id
-                  ? `${TOC_LINK_BASE_CLASSES} font-semibold text-sky-700`
-                  : `${TOC_LINK_BASE_CLASSES} font-medium text-slate-600 hover:text-slate-900`
+                  ? `${TOC_LINK_BASE_CLASSES} font-semibold text-emerald-800`
+                  : `${TOC_LINK_BASE_CLASSES} font-medium text-emerald-600 hover:text-emerald-800`
               }
               title={text}
               aria-label={text}

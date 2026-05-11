@@ -2,16 +2,22 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import type { ReactNode } from 'react'
-import MedguideToc from './MedguideToc'
 import MedguideMetaBar from './MedguideMetaBar'
+import MedguideToc from './MedguideToc'
 import MedicationGuideTabs from './MedicationGuideTabs'
 import ProfessionalToc from './ProfessionalToc'
+import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
 import { slugFromTag } from '../../../../lib/condition-utils'
 import { slugifyDrugName } from '../../../../lib/slug'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
-const LINK_CLASSES = 'text-sky-700 hover:underline'
+const LINK_CLASSES = 'text-emerald-600 hover:underline'
 const CONDITION_TITLE_PREFIX_RE = /^Medications for\s+/i
+// Keep plain-text heading detection conservative so normal sentence lines still linkify.
+const MAX_PLAIN_TEXT_HEADING_LENGTH = 80
+const PLAIN_TEXT_HEADING_RE = new RegExp(
+  `^[A-Z][A-Za-z0-9\\s'(),/-]{0,${MAX_PLAIN_TEXT_HEADING_LENGTH}}$`
+)
 
 type PageParams = Promise<{ slug: string }>
 type SearchParams = Promise<{ tab?: string }>
@@ -101,7 +107,7 @@ const MEDGUIDE_PROSE_CLASSES = [
   '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ul]:space-y-1',
   '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_ol]:space-y-1',
   '[&_li]:text-sm [&_li]:leading-relaxed [&_li]:text-slate-700',
-  '[&_a]:text-sky-700 [&_a:hover]:underline',
+  '[&_a]:text-emerald-600 [&_a:hover]:underline',
   '[&_strong]:font-semibold [&_strong]:text-slate-800',
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
@@ -117,7 +123,7 @@ const PRO_PROSE_CLASSES = [
   '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ul]:space-y-1',
   '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_ol]:space-y-1',
   '[&_li]:text-sm [&_li]:leading-relaxed [&_li]:text-slate-700',
-  '[&_a]:text-sky-700 [&_a:hover]:underline',
+  '[&_a]:text-emerald-600 [&_a:hover]:underline',
   '[&_strong]:font-semibold [&_strong]:text-slate-800',
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
@@ -127,7 +133,7 @@ const PRO_PROSE_CLASSES = [
 const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
   'rounded-xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-5'
 const PRO_HIGHLIGHTS_PROSE_CLASSES =
-  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mb-2 [&_h2]:mt-3 [&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_li]:text-sm [&_li]:text-slate-700 [&_a]:text-sky-700 [&_a:hover]:underline [&_strong]:font-semibold [&_strong]:text-slate-800'
+  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mb-2 [&_h2]:mt-3 [&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_li]:text-sm [&_li]:text-slate-700 [&_a]:text-emerald-600 [&_a:hover]:underline [&_strong]:font-semibold [&_strong]:text-slate-800'
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
   for (const value of values) {
@@ -266,30 +272,52 @@ function linkifyText(
   if (!regex) return text
 
   const targetByTerm = new Map(targets.map((target) => [target.term.toLowerCase(), target]))
-  const parts: ReactNode[] = []
-  let cursor = 0
+  const linkifyLine = (line: string, lineIndex: number): ReactNode => {
+    const trimmed = line.trim()
+    const startsWithCapital = /^[A-Z]/.test(trimmed)
+    // Plain-text sections can contain inline subheadings; keep those unlinked while
+    // still linkifying sentence-like body lines.
+    const isHeadingLine =
+      trimmed.length > 0 &&
+      startsWithCapital &&
+      !/[.!?]$/.test(trimmed) &&
+      (trimmed.endsWith(':') || PLAIN_TEXT_HEADING_RE.test(trimmed))
 
-  for (const match of text.matchAll(regex)) {
-    if (match.index === undefined) continue
-    const index = match.index
-    if (index > cursor) parts.push(text.slice(cursor, index))
+    if (isHeadingLine) return line
 
-    const matchedText = match[0]
-    const target = targetByTerm.get(matchedText.toLowerCase())
-    const safeHref = target ? getSafeHref(target.href) : null
-    if (target && safeHref) {
-      parts.push(
-        <Link key={`link-${cursor}-${matchedText.length}`} href={safeHref} className={LINK_CLASSES}>
-          {matchedText}
-        </Link>
-      )
-    } else {
-      parts.push(matchedText)
+    const parts: ReactNode[] = []
+    let cursor = 0
+
+    for (const match of line.matchAll(regex)) {
+      if (match.index === undefined) continue
+      const index = match.index
+      if (index > cursor) parts.push(line.slice(cursor, index))
+
+      const matchedText = match[0]
+      const target = targetByTerm.get(matchedText.toLowerCase())
+      const safeHref = target ? getSafeHref(target.href) : null
+      if (target && safeHref) {
+        parts.push(
+          <Link key={`link-${lineIndex}-${index}`} href={safeHref} className={LINK_CLASSES}>
+            {matchedText}
+          </Link>
+        )
+      } else {
+        parts.push(matchedText)
+      }
+      cursor = index + matchedText.length
     }
-    cursor = index + matchedText.length
+
+    if (cursor < line.length) parts.push(line.slice(cursor))
+    return <>{parts}</>
   }
 
-  if (cursor < text.length) parts.push(text.slice(cursor))
+  const parts: ReactNode[] = []
+  const lines = text.split('\n')
+  lines.forEach((line, index) => {
+    parts.push(linkifyLine(line, index))
+    if (index < lines.length - 1) parts.push('\n')
+  })
   return <>{parts}</>
 }
 
@@ -300,11 +328,12 @@ function linkifyHtmlContent(content: string, targets: LinkTarget[]): string {
   if (!regex) return content
 
   const targetByTerm = new Map(targets.map((target) => [target.term.toLowerCase(), target]))
-  const anchorChunks = content.split(/(<a\b[^>]*>[\s\S]*?<\/a>)/gi)
+  // Preserve existing anchors and heading blocks so heading text never receives injected links.
+  const protectedChunks = content.split(/(<a\b[^>]*>[\s\S]*?<\/a>|<h[1-4]\b[^>]*>[\s\S]*?<\/h[1-4]>)/gi)
 
-  return anchorChunks
+  return protectedChunks
     .map((chunk) => {
-      if (/^<a\b/i.test(chunk)) return chunk
+      if (/^<a\b/i.test(chunk) || /^<h[1-4]\b/i.test(chunk)) return chunk
       const tokens = chunk.split(/(<[^>]+>)/g)
       return tokens.map((token) => {
         if (token.startsWith('<')) return token
@@ -594,84 +623,90 @@ export default async function MedicationGuidePage({
   const linkedProfessionalHtml = professionalGuide?.professional_html
     ? linkifyHtmlContent(professionalGuide.professional_html, linkTargets)
     : null
+  const professionalTocSections = (professionalGuide?.professional_sections ?? [])
+    .map(([slugValue, labelValue]) => ({ slug: slugValue, label: labelValue }))
+    .filter((section) => section.slug && section.label)
+  const hasProfessionalToc = professionalTocSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
+  const hasConsumerToc =
+    (linkedMedguideHtml?.match(/<h[23]\b[^>]*id=/gi)?.length ?? 0) >= MIN_PROFESSIONAL_TOC_SECTIONS
 
-  const hasConsumerToc = (linkedMedguideHtml?.match(/<h[23]\b[^>]*id=/gi)?.length ?? 0) >= 3
-  const professionalTocSections = (professionalGuide?.professional_sections ?? []).map(([slug, label]) => ({
-    slug,
-    label,
-  }))
-  const hasProfessionalToc = professionalTocSections.length >= 3
   const drugSlug = slugifyDrugName(drugName)
 
   const consumerContent = (
     <div className="space-y-6">
       <MedguideMetaBar guide={consumerGuide} />
 
+      {consumerGuide?.has_boxed_warning && (
+        <details
+          open
+          className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-800 [&[open]>summary]:mb-3"
+        >
+          <summary className="flex items-center gap-2 cursor-pointer font-semibold list-none [&::-webkit-details-marker]:hidden">
+            <span aria-hidden>⚠️</span>
+            <span>Boxed Warning</span>
+          </summary>
+          {linkedBoxedWarningHtml ? (
+            <div
+              className="text-sm [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_strong]:font-semibold"
+              dangerouslySetInnerHTML={{ __html: linkedBoxedWarningHtml }}
+            />
+          ) : (
+            <p className="text-sm">
+              This medication includes an FDA boxed warning. See the Full Prescribing Information for details.
+            </p>
+          )}
+        </details>
+      )}
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-amber-800">
+        <p className="font-semibold">Poison Help</p>
+        <p className="text-sm mt-1 leading-relaxed">
+          If you suspect an overdose or accidental ingestion, call Poison Control:{' '}
+          <a href="tel:18002221222" className="underline font-medium">
+            1-800-222-1222
+          </a>{' '}
+          (free, 24/7, U.S.). For life-threatening symptoms, call{' '}
+          <a href="tel:911" className="underline font-medium">
+            911
+          </a>
+          .
+        </p>
+      </div>
+
+      {hasConsumerToc && (
+        <details className="no-print lg:hidden bg-white border border-slate-200 rounded-xl shadow-sm p-4 [&[open]>summary]:mb-3">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-800 list-none [&::-webkit-details-marker]:hidden">
+            On this page
+          </summary>
+          <MedguideToc html={linkedMedguideHtml ?? ''} drugName={drugName} />
+        </details>
+      )}
+
       <div className={hasConsumerToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
         {hasConsumerToc && (
-          <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-64">
+          <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-64">
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <MedguideToc html={linkedMedguideHtml ?? ''} drugName={drugName} />
             </div>
           </aside>
         )}
-
-        <div className="min-w-0 space-y-6">
-          {consumerGuide?.has_boxed_warning && (
-            <details
-              open
-              className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-800 [&[open]>summary]:mb-3"
-            >
-              <summary className="flex items-center gap-2 cursor-pointer font-semibold list-none [&::-webkit-details-marker]:hidden">
-                <span aria-hidden>⚠️</span>
-                <span>Boxed Warning</span>
-              </summary>
-              {linkedBoxedWarningHtml ? (
-                <div
-                  className="text-sm [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_strong]:font-semibold"
-                  dangerouslySetInnerHTML={{ __html: linkedBoxedWarningHtml }}
-                />
-              ) : (
-                <p className="text-sm">
-                  This medication includes an FDA boxed warning. See the Full Prescribing Information for details.
-                </p>
-              )}
-            </details>
+        <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+          {linkedMedguideHtml ? (
+            <article
+              id="medguide-content"
+              className={MEDGUIDE_PROSE_CLASSES}
+              dangerouslySetInnerHTML={{ __html: linkedMedguideHtml }}
+            />
+          ) : (
+            <SectionFallback
+              guide={consumerGuide}
+              hasRenderableSections={hasRenderableSections}
+              drugName={drugName}
+              conditionTags={conditionTags}
+              drugNames={drugNames}
+              linkTargets={linkTargets}
+            />
           )}
-
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-amber-800">
-            <p className="font-semibold">Poison Help</p>
-            <p className="text-sm mt-1 leading-relaxed">
-              If you suspect an overdose or accidental ingestion, call Poison Control:{' '}
-              <a href="tel:18002221222" className="underline font-medium">
-                1-800-222-1222
-              </a>{' '}
-              (free, 24/7, U.S.). For life-threatening symptoms, call{' '}
-              <a href="tel:911" className="underline font-medium">
-                911
-              </a>
-              .
-            </p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            {linkedMedguideHtml ? (
-              <article
-                id="medguide-content"
-                className={MEDGUIDE_PROSE_CLASSES}
-                dangerouslySetInnerHTML={{ __html: linkedMedguideHtml }}
-              />
-            ) : (
-              <SectionFallback
-                guide={consumerGuide}
-                hasRenderableSections={hasRenderableSections}
-                drugName={drugName}
-                conditionTags={conditionTags}
-                drugNames={drugNames}
-                linkTargets={linkTargets}
-              />
-            )}
-          </div>
         </div>
       </div>
     </div>
@@ -681,36 +716,42 @@ export default async function MedicationGuidePage({
     <div className="space-y-6">
       <MedguideMetaBar guide={professionalGuide} />
 
+      {hasProfessionalToc && (
+        <details className="no-print lg:hidden bg-white border border-slate-200 rounded-xl shadow-sm p-4 [&[open]>summary]:mb-3">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-800 list-none [&::-webkit-details-marker]:hidden">
+            On this page
+          </summary>
+          <ProfessionalToc sections={professionalTocSections} />
+        </details>
+      )}
+
       <div className={hasProfessionalToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
         {hasProfessionalToc && (
-          <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-64">
+          <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-64">
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <ProfessionalToc sections={professionalTocSections} />
             </div>
           </aside>
         )}
-
-        <div className="min-w-0">
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            {linkedProfessionalHighlightsHtml && (
-              <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
-                <div
-                  className={PRO_HIGHLIGHTS_PROSE_CLASSES}
-                  dangerouslySetInnerHTML={{ __html: linkedProfessionalHighlightsHtml }}
-                />
-              </div>
-            )}
-
-            {linkedProfessionalHtml ? (
-              <article
-                id="pro-content"
-                className={PRO_PROSE_CLASSES}
-                dangerouslySetInnerHTML={{ __html: linkedProfessionalHtml }}
+        <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+          {linkedProfessionalHighlightsHtml && (
+            <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
+              <div
+                className={PRO_HIGHLIGHTS_PROSE_CLASSES}
+                dangerouslySetInnerHTML={{ __html: linkedProfessionalHighlightsHtml }}
               />
-            ) : (
-              <ProfessionalEmptyState guide={professionalGuide} />
-            )}
-          </div>
+            </div>
+          )}
+
+          {linkedProfessionalHtml ? (
+            <article
+              id="pro-content"
+              className={PRO_PROSE_CLASSES}
+              dangerouslySetInnerHTML={{ __html: linkedProfessionalHtml }}
+            />
+          ) : (
+            <ProfessionalEmptyState guide={professionalGuide} />
+          )}
         </div>
       </div>
     </div>
