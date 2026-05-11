@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import MedguideToc from './MedguideToc'
 import MedguideMetaBar from './MedguideMetaBar'
 import MedicationGuideTabs from './MedicationGuideTabs'
+import ProfessionalToc from './ProfessionalToc'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
 import { slugFromTag } from '../../../../lib/condition-utils'
 import { slugifyDrugName } from '../../../../lib/slug'
@@ -66,6 +67,9 @@ type GuideResponse = {
   sections: GuideSections
   medguide_html?: string | null
   boxed_warning_html?: string | null
+  professional_html?: string | null
+  professional_highlights_html?: string | null
+  professional_sections?: Array<[string, string]> | null
   source_url?: string | null
   fetched_at?: string | null
   disclaimer?: string | null
@@ -111,6 +115,27 @@ const MEDGUIDE_PROSE_CLASSES = [
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
   '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:align-top',
 ].join(' ')
+
+const PRO_PROSE_CLASSES = [
+  '[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-900 [&_h1]:mb-4',
+  '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mt-8 [&_h2]:mb-3',
+  '[&_h3]:text-base [&_h3]:font-medium [&_h3]:text-slate-800 [&_h3]:mt-6 [&_h3]:mb-2',
+  '[&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:mt-5 [&_h4]:mb-2',
+  '[&_p]:text-sm [&_p]:leading-relaxed [&_p]:text-slate-700 [&_p]:my-3',
+  '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ul]:space-y-1',
+  '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_ol]:space-y-1',
+  '[&_li]:text-sm [&_li]:leading-relaxed [&_li]:text-slate-700',
+  '[&_a]:text-emerald-600 [&_a:hover]:underline',
+  '[&_strong]:font-semibold [&_strong]:text-slate-800',
+  '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
+  '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
+  '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:align-top',
+].join(' ')
+
+const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
+  'rounded-xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-5'
+const PRO_HIGHLIGHTS_PROSE_CLASSES =
+  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mb-2 [&_h2]:mt-3 [&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_li]:text-sm [&_li]:text-slate-700 [&_a]:text-emerald-600 [&_a:hover]:underline [&_strong]:font-semibold [&_strong]:text-slate-800'
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
   for (const value of values) {
@@ -524,13 +549,20 @@ export async function generateMetadata({
   const drugName = resolveDrugName({ guide, pill, slug })
   const hasMedicationGuideContent =
     Boolean(guide?.has_medguide) || Boolean(guide?.medguide_html?.trim())
+
+  if (!hasMedicationGuideContent) {
+    return {
+      title: `Professional Information — ${drugName}`,
+      description: `Read the FDA professional prescribing information for ${drugName}, including highlights and full prescribing details.`,
+      alternates: { canonical: `/pill/${encodeURIComponent(slug)}/professional-information` },
+      robots: { index: false, follow: true },
+    }
+  }
+
   return {
     title: `Medication Guide — ${drugName}`,
     description: `Read the FDA Medication Guide for ${drugName}, including key warnings and patient counseling information.`,
     alternates: { canonical: `/pill/${encodeURIComponent(slug)}/medication-guide` },
-    ...(!hasMedicationGuideContent && {
-      robots: { index: false, follow: true },
-    }),
   }
 }
 
@@ -559,6 +591,21 @@ export default async function MedicationGuidePage({
   const encodedSlug = encodeURIComponent(slug)
 
   if (!hasMedicationGuideContent) {
+    // Fetch professional data server-side for immediate rendering
+    const professionalData = await fetchGuide(pill, {
+      includeProfessional: true,
+      includeMedguide: false,
+      includeBoxedWarning: false,
+    })
+
+    const professionalTocSections = (professionalData?.professional_sections ?? [])
+      .map(([slugValue, labelValue]) => ({ slug: slugValue, label: labelValue }))
+      .filter((section) => section.slug && section.label)
+    const hasProfessionalToc = professionalTocSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
+    const hasProfessionalContent = Boolean(
+      professionalData?.professional_html?.trim() || professionalData?.professional_highlights_html?.trim()
+    )
+
     return (
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
         <nav aria-label="Breadcrumb">
@@ -579,31 +626,89 @@ export default async function MedicationGuidePage({
               </>
             )}
             <li aria-hidden="true" className="select-none">›</li>
-            <li className="text-slate-700 font-medium">Medication Guide</li>
+            <li className="text-slate-700 font-medium">Professional Information</li>
           </ol>
         </nav>
 
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Professional Information — {drugName}</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Full FDA prescribing details for healthcare professionals.
+          </p>
         </div>
 
         <MedicationGuideTabs
-          activeTab="consumer"
+          activeTab="pro"
           medicationGuideHref={null}
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 text-center space-y-4">
-          <p className="text-slate-700">
-            Medication Guide is not available for this medication.
-          </p>
-          <Link
-            href={`/pill/${encodedSlug}/professional-information`}
-            className="inline-flex items-center gap-2 text-sky-700 font-semibold hover:text-sky-900"
-          >
-            View Professional Information →
-          </Link>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          Medication Guide is not available for this medication, so full prescribing information is shown.
         </div>
+
+        <div className="space-y-6">
+          <MedguideMetaBar guide={professionalData} />
+
+          {hasProfessionalToc && (
+            <details className="no-print lg:hidden bg-white border border-slate-200 rounded-xl shadow-sm p-4 [&[open]>summary]:mb-3">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-800 list-none [&::-webkit-details-marker]:hidden">
+                On this page
+              </summary>
+              <ProfessionalToc sections={professionalTocSections} />
+            </details>
+          )}
+
+          <div className={hasProfessionalToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[14rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
+            {hasProfessionalToc && (
+              <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:w-56">
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <ProfessionalToc sections={professionalTocSections} />
+                </div>
+              </aside>
+            )}
+            <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+              {professionalData?.professional_highlights_html && (
+                <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
+                  <div
+                    className={PRO_HIGHLIGHTS_PROSE_CLASSES}
+                    dangerouslySetInnerHTML={{ __html: professionalData.professional_highlights_html }}
+                  />
+                </div>
+              )}
+
+              {professionalData?.professional_html ? (
+                <article
+                  id="pro-content"
+                  className={PRO_PROSE_CLASSES}
+                  dangerouslySetInnerHTML={{ __html: professionalData.professional_html }}
+                />
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
+                  <p className="text-sm text-slate-600 mb-3">
+                    Full prescribing information is not available for this medication in our cache.
+                  </p>
+                  {professionalData?.source_url && (
+                    <a
+                      href={professionalData.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-sky-700 font-semibold hover:text-sky-900"
+                    >
+                      View on DailyMed ↗
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {!hasProfessionalContent && (
+          <p className="text-xs text-slate-500">
+            Professional information is currently unavailable; this page remains available for navigation and source links.
+          </p>
+        )}
 
         <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>
