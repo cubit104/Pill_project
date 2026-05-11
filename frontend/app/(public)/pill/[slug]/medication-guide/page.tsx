@@ -2,8 +2,10 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import type { ReactNode } from 'react'
+import MedguideToc from './MedguideToc'
 import MedguideMetaBar from './MedguideMetaBar'
 import MedicationGuideTabs from './MedicationGuideTabs'
+import ProfessionalToc from './ProfessionalToc'
 import { slugFromTag } from '../../../../lib/condition-utils'
 import { slugifyDrugName } from '../../../../lib/slug'
 
@@ -593,66 +595,84 @@ export default async function MedicationGuidePage({
     ? linkifyHtmlContent(professionalGuide.professional_html, linkTargets)
     : null
 
+  const hasConsumerToc = (linkedMedguideHtml?.match(/<h[23]\b[^>]*id=/gi)?.length ?? 0) >= 3
+  const professionalTocSections = (professionalGuide?.professional_sections ?? []).map(([slug, label]) => ({
+    slug,
+    label,
+  }))
+  const hasProfessionalToc = professionalTocSections.length >= 3
   const drugSlug = slugifyDrugName(drugName)
 
   const consumerContent = (
     <div className="space-y-6">
       <MedguideMetaBar guide={consumerGuide} />
 
-      {consumerGuide?.has_boxed_warning && (
-        <details
-          open
-          className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-800 [&[open]>summary]:mb-3"
-        >
-          <summary className="flex items-center gap-2 cursor-pointer font-semibold list-none [&::-webkit-details-marker]:hidden">
-            <span aria-hidden>⚠️</span>
-            <span>Boxed Warning</span>
-          </summary>
-          {linkedBoxedWarningHtml ? (
-            <div
-              className="text-sm [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_strong]:font-semibold"
-              dangerouslySetInnerHTML={{ __html: linkedBoxedWarningHtml }}
-            />
-          ) : (
-            <p className="text-sm">
-              This medication includes an FDA boxed warning. See the Full Prescribing Information for details.
-            </p>
-          )}
-        </details>
-      )}
-
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-amber-800">
-        <p className="font-semibold">Poison Help</p>
-        <p className="text-sm mt-1 leading-relaxed">
-          If you suspect an overdose or accidental ingestion, call Poison Control:{' '}
-          <a href="tel:18002221222" className="underline font-medium">
-            1-800-222-1222
-          </a>{' '}
-          (free, 24/7, U.S.). For life-threatening symptoms, call{' '}
-          <a href="tel:911" className="underline font-medium">
-            911
-          </a>
-          .
-        </p>
-      </div>
-
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-        {linkedMedguideHtml ? (
-          <article
-            id="medguide-content"
-            className={MEDGUIDE_PROSE_CLASSES}
-            dangerouslySetInnerHTML={{ __html: linkedMedguideHtml }}
-          />
-        ) : (
-          <SectionFallback
-            guide={consumerGuide}
-            hasRenderableSections={hasRenderableSections}
-            drugName={drugName}
-            conditionTags={conditionTags}
-            drugNames={drugNames}
-            linkTargets={linkTargets}
-          />
+      <div className={hasConsumerToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
+        {hasConsumerToc && (
+          <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-64">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <MedguideToc html={linkedMedguideHtml ?? ''} drugName={drugName} />
+            </div>
+          </aside>
         )}
+
+        <div className="min-w-0 space-y-6">
+          {consumerGuide?.has_boxed_warning && (
+            <details
+              open
+              className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-800 [&[open]>summary]:mb-3"
+            >
+              <summary className="flex items-center gap-2 cursor-pointer font-semibold list-none [&::-webkit-details-marker]:hidden">
+                <span aria-hidden>⚠️</span>
+                <span>Boxed Warning</span>
+              </summary>
+              {linkedBoxedWarningHtml ? (
+                <div
+                  className="text-sm [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_strong]:font-semibold"
+                  dangerouslySetInnerHTML={{ __html: linkedBoxedWarningHtml }}
+                />
+              ) : (
+                <p className="text-sm">
+                  This medication includes an FDA boxed warning. See the Full Prescribing Information for details.
+                </p>
+              )}
+            </details>
+          )}
+
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-amber-800">
+            <p className="font-semibold">Poison Help</p>
+            <p className="text-sm mt-1 leading-relaxed">
+              If you suspect an overdose or accidental ingestion, call Poison Control:{' '}
+              <a href="tel:18002221222" className="underline font-medium">
+                1-800-222-1222
+              </a>{' '}
+              (free, 24/7, U.S.). For life-threatening symptoms, call{' '}
+              <a href="tel:911" className="underline font-medium">
+                911
+              </a>
+              .
+            </p>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+            {linkedMedguideHtml ? (
+              <article
+                id="medguide-content"
+                className={MEDGUIDE_PROSE_CLASSES}
+                dangerouslySetInnerHTML={{ __html: linkedMedguideHtml }}
+              />
+            ) : (
+              <SectionFallback
+                guide={consumerGuide}
+                hasRenderableSections={hasRenderableSections}
+                drugName={drugName}
+                conditionTags={conditionTags}
+                drugNames={drugNames}
+                linkTargets={linkTargets}
+              />
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -661,25 +681,37 @@ export default async function MedicationGuidePage({
     <div className="space-y-6">
       <MedguideMetaBar guide={professionalGuide} />
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-        {linkedProfessionalHighlightsHtml && (
-          <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
-            <div
-              className={PRO_HIGHLIGHTS_PROSE_CLASSES}
-              dangerouslySetInnerHTML={{ __html: linkedProfessionalHighlightsHtml }}
-            />
-          </div>
+      <div className={hasProfessionalToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8 lg:items-start' : undefined}>
+        {hasProfessionalToc && (
+          <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-64">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <ProfessionalToc sections={professionalTocSections} />
+            </div>
+          </aside>
         )}
 
-        {linkedProfessionalHtml ? (
-          <article
-            id="pro-content"
-            className={PRO_PROSE_CLASSES}
-            dangerouslySetInnerHTML={{ __html: linkedProfessionalHtml }}
-          />
-        ) : (
-          <ProfessionalEmptyState guide={professionalGuide} />
-        )}
+        <div className="min-w-0">
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+            {linkedProfessionalHighlightsHtml && (
+              <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
+                <div
+                  className={PRO_HIGHLIGHTS_PROSE_CLASSES}
+                  dangerouslySetInnerHTML={{ __html: linkedProfessionalHighlightsHtml }}
+                />
+              </div>
+            )}
+
+            {linkedProfessionalHtml ? (
+              <article
+                id="pro-content"
+                className={PRO_PROSE_CLASSES}
+                dangerouslySetInnerHTML={{ __html: linkedProfessionalHtml }}
+              />
+            ) : (
+              <ProfessionalEmptyState guide={professionalGuide} />
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )

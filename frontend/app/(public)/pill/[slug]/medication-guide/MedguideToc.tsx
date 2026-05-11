@@ -97,7 +97,7 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
   }
 
   return (
-    <nav aria-label="On this page">
+    <nav aria-label="On this page" className="w-full max-w-[16rem]">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">
         On this page
       </p>
@@ -109,16 +109,16 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
               onClick={(e) => handleClick(e, id)}
               className={
                 activeId === id
-                  ? 'block whitespace-nowrap text-sm font-semibold text-sky-700 py-0.5'
-                  : 'block whitespace-nowrap text-sm font-medium text-slate-600 hover:text-slate-900 py-0.5'
-               }
-               title={text}
-               aria-label={text}
-             >
-               {shortenTocLabel(text, drugName)}
-             </a>
-           </li>
-         ))}
+                  ? 'block break-words text-sm font-semibold text-sky-700 py-0.5'
+                  : 'block break-words text-sm font-medium text-slate-600 hover:text-slate-900 py-0.5'
+              }
+              title={text}
+              aria-label={text}
+            >
+              {shortenTocLabel(text, drugName)}
+            </a>
+          </li>
+        ))}
       </ul>
     </nav>
   )
