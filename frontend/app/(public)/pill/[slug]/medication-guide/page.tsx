@@ -260,7 +260,8 @@ function linkifyText(
   let cursor = 0
 
   for (const match of text.matchAll(regex)) {
-    const index = match.index ?? 0
+    if (match.index === undefined) continue
+    const index = match.index
     if (index > cursor) parts.push(text.slice(cursor, index))
 
     const matchedText = match[0]
@@ -307,7 +308,7 @@ function linkifyHtmlContent(content: string, targets: LinkTarget[]): string {
         const target = targetByTerm.get(match.toLowerCase())
         const safeHref = target ? getSafeHref(target.href) : null
         if (!target || !safeHref) return match
-        return `<a href="${safeHref}" class="text-sky-700 hover:underline">${escapeHtml(match)}</a>`
+        return `<a href="${escapeHtml(safeHref)}" class="text-sky-700 hover:underline">${escapeHtml(match)}</a>`
       })
     })
     .join('')
