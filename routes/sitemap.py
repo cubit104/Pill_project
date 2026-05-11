@@ -45,28 +45,28 @@ def _fetch_guide_page_slugs(conn) -> List[GuidePageSlug]:
             """
             SELECT
                 p.slug,
-                COALESCE(BTRIM(mg.medguide_html), '') <> '' AS has_medguide,
-                COALESCE(BTRIM(mg.professional_html), '') <> '' AS has_professional
+                (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
+                (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional
             FROM pillfinder p
             LEFT JOIN LATERAL (
                 SELECT medguide_html, professional_html
                 FROM medication_guide m
                 WHERE (
-                    p.rxcui IS NOT NULL AND p.rxcui <> '' AND m.rxcui = p.rxcui
+                    NULLIF(p.rxcui, '') IS NOT NULL AND m.rxcui = p.rxcui
                 ) OR (
-                    p.ndc11 IS NOT NULL AND p.ndc11 <> '' AND (
+                    NULLIF(p.ndc11, '') IS NOT NULL AND (
                         m.ndc = p.ndc11
                         OR REPLACE(COALESCE(m.ndc, ''), '-', '') = REPLACE(p.ndc11, '-', '')
                     )
                 ) OR (
-                    p.ndc9 IS NOT NULL AND p.ndc9 <> '' AND (
+                    NULLIF(p.ndc9, '') IS NOT NULL AND (
                         m.ndc = p.ndc9
                         OR REPLACE(COALESCE(m.ndc, ''), '-', '') = REPLACE(p.ndc9, '-', '')
                     )
                 )
                 ORDER BY
-                    CASE WHEN p.rxcui IS NOT NULL AND p.rxcui <> '' AND m.rxcui = p.rxcui THEN 0 ELSE 1 END,
-                    CASE WHEN p.ndc11 IS NOT NULL AND p.ndc11 <> '' AND (
+                    CASE WHEN NULLIF(p.rxcui, '') IS NOT NULL AND m.rxcui = p.rxcui THEN 0 ELSE 1 END,
+                    CASE WHEN NULLIF(p.ndc11, '') IS NOT NULL AND (
                         m.ndc = p.ndc11
                         OR REPLACE(COALESCE(m.ndc, ''), '-', '') = REPLACE(p.ndc11, '-', '')
                     ) THEN 0 ELSE 1 END,
@@ -169,7 +169,7 @@ def sitemap():
             f'  <url><loc>{base_url}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>\n'
             f'  <url><loc>{base_url}/search</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>\n'
             + "\n".join(urls)
-            + ("\n" if urls and guide_urls else "")
+            + ("\n" if guide_urls else "")
             + "\n".join(guide_urls)
             + "\n</urlset>"
         )

@@ -21,7 +21,11 @@ export default function MedicationGuideTabs({
 }) {
   return (
     <div className="no-print bg-white border border-slate-200 rounded-xl shadow-sm px-4 sm:px-6">
-      <nav className="flex gap-4 sm:gap-6 border-b border-slate-200" aria-label="Guide type">
+      <nav
+        role="navigation"
+        className="flex gap-4 sm:gap-6 border-b border-slate-200"
+        aria-label="Medication content tabs"
+      >
         {medicationGuideHref && (
           activeTab === 'consumer' ? (
             <span className={tabClasses(true)} aria-current="page">

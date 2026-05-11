@@ -532,18 +532,17 @@ export default async function MedicationGuidePage({
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
-  const [guideData, conditions] = await Promise.all([
-    fetchGuide(pill, {
-      includeProfessional: false,
-      includeMedguide: true,
-      includeBoxedWarning: true,
-    }),
-    fetchAllConditions(),
-  ])
+  const guideData = await fetchGuide(pill, {
+    includeProfessional: false,
+    includeMedguide: true,
+    includeBoxedWarning: true,
+  })
 
   const hasMedguide = Boolean(guideData?.has_medguide)
   const hasMedguideHtml = Boolean(guideData?.medguide_html?.trim())
-  if (!guideData || (!hasMedguide && !hasMedguideHtml)) notFound()
+  const hasMedicationGuideContent = hasMedguide || hasMedguideHtml
+  if (!guideData || !hasMedicationGuideContent) notFound()
+  const conditions = await fetchAllConditions()
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
   const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guideData?.sections?.[key]))
 
