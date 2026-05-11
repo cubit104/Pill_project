@@ -222,7 +222,22 @@ function buildLinkTargets({
 }
 
 function getSafeHref(href: string): string | null {
-  return SAFE_INTERNAL_PATH_RE.test(href) ? href : null
+  try {
+    const resolved = new URL(href, 'https://pillseek.com')
+    if (resolved.origin !== 'https://pillseek.com') return null
+    if (!SAFE_INTERNAL_PATH_RE.test(resolved.pathname)) return null
+    return resolved.pathname
+  } catch {
+    return null
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
 }
 
 function linkifyText(
@@ -269,6 +284,7 @@ function linkifyText(
 
 function linkifyHtmlContent(content: string, targets: LinkTarget[]): string {
   if (!content || targets.length === 0) return content
+  if (/<a\b/i.test(content)) return content
 
   const regex = makeLinkRegex(targets.map((target) => target.term))
   if (!regex) return content
@@ -291,7 +307,7 @@ function linkifyHtmlContent(content: string, targets: LinkTarget[]): string {
         const target = targetByTerm.get(match.toLowerCase())
         const safeHref = target ? getSafeHref(target.href) : null
         if (!target || !safeHref) return match
-        return `<a href="${safeHref}" class="text-sky-700 hover:underline">${match}</a>`
+        return `<a href="${safeHref}" class="text-sky-700 hover:underline">${escapeHtml(match)}</a>`
       })
     })
     .join('')
