@@ -2,8 +2,8 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import type { ReactNode } from 'react'
-import MedguideMetaBar from './MedguideMetaBar'
 import MedguideToc from './MedguideToc'
+import MedguideMetaBar from './MedguideMetaBar'
 import MedicationGuideTabs from './MedicationGuideTabs'
 import ProfessionalToc from './ProfessionalToc'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
@@ -13,12 +13,12 @@ import { slugifyDrugName } from '../../../../lib/slug'
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const LINK_CLASSES = 'text-emerald-600 hover:underline'
 const CONDITION_TITLE_PREFIX_RE = /^Medications for\s+/i
-// Keep plain-text heading detection conservative so normal sentence lines still linkify.
+// Keep plain-text heading detection conservative so normal sentence lines still linkify;
+// short title-like lines (up to 80 chars) are treated as headings and skipped.
 const MAX_PLAIN_TEXT_HEADING_LENGTH = 80
 const PLAIN_TEXT_HEADING_RE = new RegExp(
-  `^[A-Z][A-Za-z0-9\\s'(),/-]{0,${MAX_PLAIN_TEXT_HEADING_LENGTH}}$`
+  `^[A-Z][A-Za-z0-9\\s'(),./:;!?&\\-]{0,${MAX_PLAIN_TEXT_HEADING_LENGTH}}$`
 )
-const CONSUMER_TOC_HEADING_RE = /<h[23]\b[^>]*id\s*=\s*['"][^'"]+['"][^>]*>/i
 
 type PageParams = Promise<{ slug: string }>
 type SearchParams = Promise<{ tab?: string }>
@@ -288,6 +288,7 @@ function linkifyText(
 
     const parts: ReactNode[] = []
     let cursor = 0
+    let linkKeyIndex = 0
 
     for (const match of line.matchAll(regex)) {
       if (match.index === undefined) continue
@@ -299,10 +300,11 @@ function linkifyText(
       const safeHref = target ? getSafeHref(target.href) : null
       if (target && safeHref) {
         parts.push(
-          <Link key={`link-${lineIndex}-${index}`} href={safeHref} className={LINK_CLASSES}>
+          <Link key={`link-${lineIndex}-${linkKeyIndex}-${safeHref}`} href={safeHref} className={LINK_CLASSES}>
             {matchedText}
           </Link>
         )
+        linkKeyIndex += 1
       } else {
         parts.push(matchedText)
       }
@@ -627,9 +629,10 @@ export default async function MedicationGuidePage({
   const professionalTocSections = (professionalGuide?.professional_sections ?? [])
     .map(([slugValue, labelValue]) => ({ slug: slugValue, label: labelValue }))
     .filter((section) => section.slug && section.label)
+  // Mirror the TOC component threshold so layout wrappers only render when the nav will too.
   const hasProfessionalToc = professionalTocSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
-  // Consumer TOC mirrors MedguideToc extraction (h2/h3 only) to keep layout behavior consistent.
-  const hasConsumerToc = Boolean(linkedMedguideHtml && CONSUMER_TOC_HEADING_RE.test(linkedMedguideHtml))
+  const hasConsumerToc =
+    (linkedMedguideHtml?.match(/<h[23]\b[^>]*id=/gi)?.length ?? 0) >= MIN_PROFESSIONAL_TOC_SECTIONS
 
   const drugSlug = slugifyDrugName(drugName)
 
@@ -683,15 +686,15 @@ export default async function MedicationGuidePage({
         </details>
       )}
 
-      <div className={hasConsumerToc ? 'lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8' : ''}>
+      <div className={hasConsumerToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
         {hasConsumerToc && (
-          <aside className="no-print hidden lg:block">
-            <div className="lg:sticky lg:top-24 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-64">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <MedguideToc html={linkedMedguideHtml ?? ''} drugName={drugName} />
             </div>
           </aside>
         )}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+        <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
           {linkedMedguideHtml ? (
             <article
               id="medguide-content"
@@ -726,15 +729,15 @@ export default async function MedicationGuidePage({
         </details>
       )}
 
-      <div className={hasProfessionalToc ? 'lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8' : ''}>
+      <div className={hasProfessionalToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
         {hasProfessionalToc && (
-          <aside className="no-print hidden lg:block">
-            <div className="lg:sticky lg:top-24 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-64">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <ProfessionalToc sections={professionalTocSections} />
             </div>
           </aside>
         )}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+        <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
           {linkedProfessionalHighlightsHtml && (
             <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
               <div
