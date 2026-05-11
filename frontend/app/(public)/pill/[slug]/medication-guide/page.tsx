@@ -2,8 +2,8 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import type { ReactNode } from 'react'
-import MedguideMetaBar from './MedguideMetaBar'
 import MedguideToc from './MedguideToc'
+import MedguideMetaBar from './MedguideMetaBar'
 import MedicationGuideTabs from './MedicationGuideTabs'
 import ProfessionalToc from './ProfessionalToc'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
@@ -13,7 +13,8 @@ import { slugifyDrugName } from '../../../../lib/slug'
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const LINK_CLASSES = 'text-emerald-600 hover:underline'
 const CONDITION_TITLE_PREFIX_RE = /^Medications for\s+/i
-// Keep plain-text heading detection conservative so normal sentence lines still linkify.
+// Keep plain-text heading detection conservative so normal sentence lines still linkify;
+// short title-like lines (up to 80 chars) are treated as headings and skipped.
 const MAX_PLAIN_TEXT_HEADING_LENGTH = 80
 const PLAIN_TEXT_HEADING_RE = new RegExp(
   `^[A-Z][A-Za-z0-9\\s'(),/-]{0,${MAX_PLAIN_TEXT_HEADING_LENGTH}}$`
@@ -298,7 +299,7 @@ function linkifyText(
       const safeHref = target ? getSafeHref(target.href) : null
       if (target && safeHref) {
         parts.push(
-          <Link key={`link-${lineIndex}-${index}`} href={safeHref} className={LINK_CLASSES}>
+          <Link key={`link-${lineIndex}-${index}-${matchedText}`} href={safeHref} className={LINK_CLASSES}>
             {matchedText}
           </Link>
         )
@@ -626,6 +627,7 @@ export default async function MedicationGuidePage({
   const professionalTocSections = (professionalGuide?.professional_sections ?? [])
     .map(([slugValue, labelValue]) => ({ slug: slugValue, label: labelValue }))
     .filter((section) => section.slug && section.label)
+  // Mirror the TOC component threshold so layout wrappers only render when the nav will too.
   const hasProfessionalToc = professionalTocSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
   const hasConsumerToc =
     (linkedMedguideHtml?.match(/<h[23]\b[^>]*id=/gi)?.length ?? 0) >= MIN_PROFESSIONAL_TOC_SECTIONS
