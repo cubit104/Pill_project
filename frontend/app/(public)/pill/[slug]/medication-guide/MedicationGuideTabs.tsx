@@ -71,7 +71,7 @@ export default function MedicationGuideTabs({
               ref={medguideTabRef}
               onClick={() => setActiveTab('consumer')}
               onKeyDown={(event) => handleTabKeyDown(event, 'consumer')}
-              className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${
+              className={`px-1 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${
                 activeTab === 'consumer'
                   ? 'text-emerald-700 border-emerald-700'
                   : 'text-slate-500 border-transparent hover:text-slate-700'
@@ -90,7 +90,7 @@ export default function MedicationGuideTabs({
             ref={proTabRef}
             onClick={() => setActiveTab('pro')}
             onKeyDown={(event) => handleTabKeyDown(event, 'pro')}
-            className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${
+            className={`px-1 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${
               activeTab === 'pro'
                 ? 'text-emerald-700 border-emerald-700'
                 : 'text-slate-500 border-transparent hover:text-slate-700'

@@ -17,7 +17,7 @@ export default function MedguideMetaBar({ guide }: { guide: GuideResponse | null
   if (!formattedDate && !guide?.source_url) return null
 
   return (
-    <div className="no-print flex flex-wrap items-center gap-2 text-xs text-slate-500">
+    <div className="no-print flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
       {formattedDate && <span>Last updated · {formattedDate}</span>}
       {guide?.source_url && (
         <>

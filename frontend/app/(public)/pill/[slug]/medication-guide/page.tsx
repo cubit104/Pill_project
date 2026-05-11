@@ -132,7 +132,7 @@ const PRO_PROSE_CLASSES = [
 ].join(' ')
 
 const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
-  'rounded-xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-5'
+  'rounded-xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-4 sm:p-5'
 const PRO_HIGHLIGHTS_PROSE_CLASSES =
   '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mb-2 [&_h2]:mt-3 [&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_li]:text-sm [&_li]:text-slate-700 [&_a]:text-emerald-600 [&_a:hover]:underline [&_strong]:font-semibold [&_strong]:text-slate-800'
 
@@ -643,7 +643,7 @@ export default async function MedicationGuidePage({
       {consumerGuide?.has_boxed_warning && (
         <details
           open
-          className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-800 [&[open]>summary]:mb-3"
+          className="rounded-xl border border-amber-200 bg-amber-50 p-4 sm:p-5 text-amber-800 [&[open]>summary]:mb-3"
         >
           <summary className="flex items-center gap-2 cursor-pointer font-semibold list-none [&::-webkit-details-marker]:hidden">
             <span aria-hidden>⚠️</span>
@@ -662,7 +662,7 @@ export default async function MedicationGuidePage({
         </details>
       )}
 
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-amber-800">
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 sm:p-5 text-amber-800">
         <p className="font-semibold">Poison Help</p>
         <p className="text-sm mt-1 leading-relaxed">
           If you suspect an overdose or accidental ingestion, call Poison Control:{' '}
@@ -686,15 +686,15 @@ export default async function MedicationGuidePage({
         </details>
       )}
 
-      <div className={hasConsumerToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
+      <div className={hasConsumerToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[10rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
         {hasConsumerToc && (
-          <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-64">
+          <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-40">
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <MedguideToc html={linkedMedguideHtml ?? ''} drugName={drugName} />
             </div>
           </aside>
         )}
-        <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+        <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-4 sm:p-6 mb-6">
           {linkedMedguideHtml ? (
             <article
               id="medguide-content"
@@ -729,15 +729,15 @@ export default async function MedicationGuidePage({
         </details>
       )}
 
-      <div className={hasProfessionalToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
+      <div className={hasProfessionalToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[10rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
         {hasProfessionalToc && (
-          <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-64">
+          <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-40">
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <ProfessionalToc sections={professionalTocSections} />
             </div>
           </aside>
         )}
-        <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+        <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-4 sm:p-6 mb-6">
           {linkedProfessionalHighlightsHtml && (
             <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
               <div
@@ -762,7 +762,7 @@ export default async function MedicationGuidePage({
   )
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-3xl mx-auto px-4 py-6 sm:py-8 space-y-6">
       <nav aria-label="Breadcrumb">
         <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
           <li>
@@ -786,7 +786,7 @@ export default async function MedicationGuidePage({
       </nav>
 
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
         <p className="mt-2 text-sm text-slate-600">
           {hasMedguide
             ? 'Patient-friendly guidance and full FDA prescribing information.'
