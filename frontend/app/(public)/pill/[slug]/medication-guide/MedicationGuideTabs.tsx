@@ -105,7 +105,6 @@ export default function MedicationGuideTabs({
           id="medguide-panel"
           role="tabpanel"
           aria-labelledby="medguide-tab"
-          aria-hidden={activeTab !== 'consumer'}
           hidden={activeTab !== 'consumer'}
           className="transition-opacity duration-200"
         >
@@ -117,7 +116,6 @@ export default function MedicationGuideTabs({
         id="pro-panel"
         role="tabpanel"
         aria-labelledby="pro-tab"
-        aria-hidden={activeTab !== 'pro'}
         hidden={activeTab !== 'pro'}
         className="transition-opacity duration-200"
       >
