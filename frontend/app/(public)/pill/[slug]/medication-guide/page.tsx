@@ -1,10 +1,11 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import MedguideToc from './MedguideToc'
+import type { ReactNode } from 'react'
 import MedguideMetaBar from './MedguideMetaBar'
-import ProfessionalToc from './ProfessionalToc'
-import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
+import MedicationGuideTabs from './MedicationGuideTabs'
+import { slugifyDrugName } from '../../../../lib/slug'
+import { slugifyUrl } from '../../../../lib/url-utils'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 
@@ -17,6 +18,12 @@ type PillInfo = {
   ndc9?: string
   medicine_name?: string
   brand_names?: string
+}
+
+type ConditionListItem = {
+  slug: string
+  title: string
+  tag: string
 }
 
 type GuideSections = {
@@ -56,6 +63,11 @@ type GuideResponse = {
   disclaimer?: string | null
 }
 
+type LinkTarget = {
+  term: string
+  href: string
+}
+
 const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
   { key: 'overview', label: 'Overview' },
   { key: 'uses', label: 'Uses' },
@@ -72,95 +84,41 @@ const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
   { key: 'manufacturer', label: 'Manufacturer' },
 ]
 
-// Tailwind prose classes for the rendered medguide article
 const MEDGUIDE_PROSE_CLASSES = [
-  'max-w-3xl',
   '[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-900 [&_h1]:mb-4',
-  '[&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-slate-900 [&_h2]:mt-10 [&_h2]:mb-3 [&_h2]:scroll-mt-24',
-  '[&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mt-6 [&_h3]:mb-2 [&_h3]:scroll-mt-24',
-  '[&_p]:text-[15px] [&_p]:leading-7 [&_p]:text-slate-700 [&_p]:my-3',
+  '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mt-8 [&_h2]:mb-3',
+  '[&_h3]:text-base [&_h3]:font-medium [&_h3]:text-slate-800 [&_h3]:mt-6 [&_h3]:mb-2',
+  '[&_p]:text-sm [&_p]:leading-relaxed [&_p]:text-slate-700 [&_p]:my-3',
   '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ul]:space-y-1',
   '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_ol]:space-y-1',
-  '[&_li]:text-[15px] [&_li]:leading-7 [&_li]:text-slate-700',
-  '[&_strong]:font-semibold [&_strong]:text-slate-900',
-  '[&_em]:italic',
-  '[&_.medguide-meta]:border-b [&_.medguide-meta]:border-slate-200 [&_.medguide-meta]:pb-3 [&_.medguide-meta]:mb-6',
-  '[&_.medguide-approval]:text-xs [&_.medguide-approval]:text-slate-500 [&_.medguide-approval]:my-1',
-  '[&_.medguide-revised]:text-xs [&_.medguide-revised]:text-slate-500 [&_.medguide-revised]:my-1',
-  '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4',
-  '[&_table]:block [&_table]:overflow-x-auto',
+  '[&_li]:text-sm [&_li]:leading-relaxed [&_li]:text-slate-700',
+  '[&_a]:text-sky-700 hover:[&_a]:underline',
+  '[&_strong]:font-semibold [&_strong]:text-slate-800',
+  '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
   '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:align-top',
-  '[&_hr]:my-6 [&_hr]:border-slate-200',
-].join(' ')
-const PRO_TOC_GRID_CLASSES = 'lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8'
-const PRO_HIGHLIGHTS_HEADER_CLASS = [
-  '[&_.pro-highlights-header]:flex',
-  '[&_.pro-highlights-header]:flex-col',
-  'sm:[&_.pro-highlights-header]:flex-row',
-  'sm:[&_.pro-highlights-header]:items-baseline',
-  'sm:[&_.pro-highlights-header]:justify-between',
-  'sm:[&_.pro-highlights-header]:gap-3',
-  '[&_.pro-highlights-header]:pb-3',
-  '[&_.pro-highlights-header]:mb-4',
-  '[&_.pro-highlights-header]:border-b',
-  '[&_.pro-highlights-header]:border-blue-200',
-  '[&_.pro-highlights-title]:text-base',
-  '[&_.pro-highlights-title]:font-bold',
-  '[&_.pro-highlights-title]:text-slate-900',
-  '[&_.pro-highlights-meta]:text-sm',
-  '[&_.pro-highlights-meta]:text-slate-500',
-  '[&_.pro-highlights-meta]:font-normal',
 ].join(' ')
 
 const PRO_PROSE_CLASSES = [
-  'max-w-4xl',
-  '[&_h2]:text-2xl [&_h2]:font-bold [&_h2]:text-slate-900 [&_h2]:mt-12 [&_h2]:mb-4 [&_h2]:scroll-mt-24 [&_h2]:pb-2 [&_h2]:border-b [&_h2]:border-slate-200',
-  '[&_h3]:text-lg [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mt-8 [&_h3]:mb-3 [&_h3]:scroll-mt-24',
-  '[&_h4]:text-base [&_h4]:font-semibold [&_h4]:text-slate-700 [&_h4]:mt-5 [&_h4]:mb-2 [&_h4]:scroll-mt-24',
-  '[&_h5]:text-sm [&_h5]:font-semibold [&_h5]:text-slate-700 [&_h5]:mt-4 [&_h5]:mb-2 [&_h5]:scroll-mt-24',
-  '[&_h6]:text-sm [&_h6]:font-semibold [&_h6]:text-slate-700 [&_h6]:mt-4 [&_h6]:mb-2 [&_h6]:scroll-mt-24',
-  '[&_p]:text-[15px] [&_p]:leading-7 [&_p]:text-slate-700 [&_p]:my-3',
+  '[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-900 [&_h1]:mb-4',
+  '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mt-8 [&_h2]:mb-3',
+  '[&_h3]:text-base [&_h3]:font-medium [&_h3]:text-slate-800 [&_h3]:mt-6 [&_h3]:mb-2',
+  '[&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:mt-5 [&_h4]:mb-2',
+  '[&_p]:text-sm [&_p]:leading-relaxed [&_p]:text-slate-700 [&_p]:my-3',
   '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ul]:space-y-1',
   '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_ol]:space-y-1',
-  '[&_li]:text-[15px] [&_li]:leading-7 [&_li]:text-slate-700',
-  '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:rounded-lg [&_table]:overflow-hidden',
-  '[&_table]:block sm:[&_table]:table [&_table]:overflow-x-auto',
+  '[&_li]:text-sm [&_li]:leading-relaxed [&_li]:text-slate-700',
+  '[&_a]:text-sky-700 hover:[&_a]:underline',
+  '[&_strong]:font-semibold [&_strong]:text-slate-800',
+  '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
   '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:align-top',
-  '[&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-lg [&_img]:my-4 [&_img]:border [&_img]:border-slate-200',
-  '[&_figure]:my-6',
-  '[&_figcaption]:text-sm [&_figcaption]:text-slate-500 [&_figcaption]:italic [&_figcaption]:mt-2 [&_figcaption]:text-center',
-  '[&_p_a]:text-sky-700 [&_p_a]:underline [&_p_a]:underline-offset-2 hover:[&_p_a]:text-sky-900',
-  '[&_li_a]:text-sky-700 [&_li_a]:underline [&_li_a]:underline-offset-2 hover:[&_li_a]:text-sky-900',
-  '[&_.pro-section-ref]:text-sky-700 [&_.pro-section-ref]:no-underline hover:[&_.pro-section-ref]:underline [&_.pro-section-ref]:cursor-pointer [&_.pro-section-ref]:font-medium',
-  '[&_strong]:font-semibold [&_strong]:text-slate-900',
-  '[&_.pro-boxed-warning-callout]:my-6',
-  '[&_.pro-boxed-warning-callout]:rounded-2xl',
-  '[&_.pro-boxed-warning-callout]:border-2',
-  '[&_.pro-boxed-warning-callout]:border-rose-300',
-  '[&_.pro-boxed-warning-callout]:bg-rose-50',
-  '[&_.pro-boxed-warning-callout]:p-5',
-  '[&_.pro-boxed-warning-callout_h2]:text-rose-900',
-  '[&_.pro-boxed-warning-callout_h3.boxed-warning-heading]:text-rose-900',
-  '[&_.pro-boxed-warning-callout_h3.boxed-warning-heading]:font-bold',
-  '[&_.pro-boxed-warning-callout_h3.boxed-warning-heading]:text-base',
-  '[&_.pro-boxed-warning-callout_h3.boxed-warning-heading]:my-3',
 ].join(' ')
 
-const PRO_HIGHLIGHTS_PROSE_CLASSES = [
-  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-4 [&_h2]:mb-2',
-  '[&_h3]:text-sm [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mt-3 [&_h3]:mb-1',
-  '[&_p]:text-sm [&_p]:leading-6 [&_p]:text-slate-700 [&_p]:my-2',
-  '[&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-2 [&_ul]:space-y-1 [&_ul]:text-sm',
-  '[&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-2 [&_ol]:space-y-1 [&_ol]:text-sm',
-  '[&_li]:text-sm [&_li]:leading-6 [&_li]:text-slate-700',
-  '[&_strong]:font-semibold [&_strong]:text-slate-900',
-  '[&_a]:text-sky-700 [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:text-sky-900',
-  '[&_.pro-section-ref]:text-sky-700 [&_.pro-section-ref]:no-underline hover:[&_.pro-section-ref]:underline [&_.pro-section-ref]:cursor-pointer [&_.pro-section-ref]:font-medium',
-].join(' ')
 const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
-  `rounded-2xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-6 ${PRO_HIGHLIGHTS_HEADER_CLASS}`
+  'rounded-xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-5'
+const PRO_HIGHLIGHTS_PROSE_CLASSES =
+  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mb-2 [&_h2]:mt-3 [&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_li]:text-sm [&_li]:text-slate-700 [&_a]:text-sky-700 hover:[&_a]:underline [&_strong]:font-semibold [&_strong]:text-slate-800'
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
   for (const value of values) {
@@ -171,8 +129,6 @@ function firstNonEmpty(...values: Array<string | undefined | null>): string | nu
   return null
 }
 
-// Keep FDA-style all-caps proprietary names as-is (e.g. XARELTO),
-// while normalizing generic/common names to title case.
 function formatDrugName(value: string, keepAllCaps: boolean): string {
   const trimmed = value.trim()
   if (!trimmed) return trimmed
@@ -204,42 +160,196 @@ function resolveDrugName({
   return formatDrugName(fallback || 'Medication', false)
 }
 
+function normalizeTerms(terms: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of terms) {
+    const value = raw.trim()
+    if (!value) continue
+    const key = value.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(value)
+  }
+  return out.sort((a, b) => b.length - a.length)
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function makeLinkRegex(terms: string[]): RegExp | null {
+  if (terms.length === 0) return null
+  return new RegExp(`(?<![A-Za-z0-9])(${terms.map(escapeRegex).join('|')})(?![A-Za-z0-9])`, 'gi')
+}
+
+function splitBrandNames(value: string | undefined): string[] {
+  if (!value) return []
+  return value
+    .split(/[;,/]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
+function buildLinkTargets({
+  drugNames,
+  conditionTags,
+}: {
+  drugNames: string[]
+  conditionTags: string[]
+}): LinkTarget[] {
+  const targets: LinkTarget[] = []
+
+  for (const name of normalizeTerms(drugNames)) {
+    const slug = slugifyDrugName(name)
+    if (!slug) continue
+    targets.push({ term: name, href: `/drug/${slug}` })
+  }
+
+  for (const name of normalizeTerms(conditionTags)) {
+    const slug = slugifyUrl(name)
+    if (!slug) continue
+    targets.push({ term: name, href: `/condition/${slug}` })
+  }
+
+  const deduped = new Map<string, LinkTarget>()
+  for (const target of targets) {
+    const key = target.term.toLowerCase()
+    if (!deduped.has(key)) deduped.set(key, target)
+  }
+  return Array.from(deduped.values()).sort((a, b) => b.term.length - a.term.length)
+}
+
+function linkifyText(
+  text: string,
+  drugName: string,
+  conditionTags: string[],
+  additionalDrugNames: string[] = []
+): ReactNode {
+  if (!text) return text
+
+  const targets = buildLinkTargets({
+    drugNames: [drugName, ...additionalDrugNames],
+    conditionTags,
+  })
+  const regex = makeLinkRegex(targets.map((target) => target.term))
+  if (!regex) return text
+
+  const targetByTerm = new Map(targets.map((target) => [target.term.toLowerCase(), target]))
+  const parts: ReactNode[] = []
+  let cursor = 0
+
+  for (const match of text.matchAll(regex)) {
+    const index = match.index ?? 0
+    if (index > cursor) parts.push(text.slice(cursor, index))
+
+    const matchedText = match[0]
+    const target = targetByTerm.get(matchedText.toLowerCase())
+    if (target) {
+      parts.push(
+        <Link key={`${matchedText}-${index}`} href={target.href} className="text-sky-700 hover:underline">
+          {matchedText}
+        </Link>
+      )
+    } else {
+      parts.push(matchedText)
+    }
+    cursor = index + matchedText.length
+  }
+
+  if (cursor < text.length) parts.push(text.slice(cursor))
+  return <>{parts}</>
+}
+
+function linkifyHtmlContent(content: string, targets: LinkTarget[]): string {
+  if (!content || targets.length === 0) return content
+
+  const regex = makeLinkRegex(targets.map((target) => target.term))
+  if (!regex) return content
+
+  const targetByTerm = new Map(targets.map((target) => [target.term.toLowerCase(), target]))
+  const tokens = content.split(/(<[^>]+>)/g)
+  let insideAnchor = false
+
+  return tokens
+    .map((token) => {
+      if (token.startsWith('<')) {
+        if (/^<a\b/i.test(token)) insideAnchor = true
+        if (/^<\/a\b/i.test(token)) insideAnchor = false
+        return token
+      }
+
+      if (insideAnchor) return token
+
+      return token.replace(regex, (match) => {
+        const target = targetByTerm.get(match.toLowerCase())
+        if (!target) return match
+        return `<a href="${target.href}" class="text-sky-700 hover:underline">${match}</a>`
+      })
+    })
+    .join('')
+}
+
 function isHtmlContent(content: string): boolean {
   return /^<[a-z][a-z0-9-]*\b[^>]*>/i.test(content.trimStart())
 }
 
-function GuideHtml({ content }: { content: string }) {
+function GuideHtml({ content, linkTargets }: { content: string; linkTargets: LinkTarget[] }) {
   return (
     <div
-      className={[
-        '[&_ul]:list-disc [&_ul]:ml-4 [&_ul]:space-y-1 [&_ul]:my-2',
-        '[&_ol]:list-decimal [&_ol]:ml-4 [&_ol]:space-y-1 [&_ol]:my-2',
-        '[&_li]:text-sm [&_li]:text-slate-700 [&_li]:leading-relaxed',
-        '[&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2',
-        '[&_strong]:font-semibold [&_strong]:text-slate-800',
-        '[&_em]:italic',
-        '[&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:text-sm [&_h3]:mt-3 [&_h3]:mb-1',
-        '[&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:text-sm [&_h4]:mt-3 [&_h4]:mb-1',
-        '[&_hr]:border-slate-200 [&_hr]:my-4',
-        '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-3',
-        '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:text-sm [&_td]:text-slate-700 [&_td]:align-top',
-        '[&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:text-sm [&_th]:font-semibold [&_th]:bg-slate-50',
-      ].join(' ')}
-      dangerouslySetInnerHTML={{ __html: content }}
+      className={MEDGUIDE_PROSE_CLASSES}
+      dangerouslySetInnerHTML={{ __html: linkifyHtmlContent(content, linkTargets) }}
     />
   )
 }
 
-function GuideText({ content }: { content: string }) {
-  return <p className="text-slate-700 leading-7 whitespace-pre-line">{content}</p>
+function GuideText({
+  content,
+  drugName,
+  conditionTags,
+  drugNames,
+}: {
+  content: string
+  drugName: string
+  conditionTags: string[]
+  drugNames: string[]
+}) {
+  return (
+    <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">
+      {linkifyText(content, drugName, conditionTags, drugNames)}
+    </p>
+  )
 }
 
-function SectionBlock({ label, content }: { label: string; content?: string | null }) {
+function SectionBlock({
+  label,
+  content,
+  drugName,
+  conditionTags,
+  drugNames,
+  linkTargets,
+}: {
+  label: string
+  content?: string | null
+  drugName: string
+  conditionTags: string[]
+  drugNames: string[]
+  linkTargets: LinkTarget[]
+}) {
   if (!content) return null
   return (
-    <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-      <h2 className="text-lg font-semibold text-slate-900 mb-4">{label}</h2>
-      {isHtmlContent(content) ? <GuideHtml content={content} /> : <GuideText content={content} />}
+    <section className="py-4 border-b border-slate-100 last:border-b-0">
+      <h2 className="text-base font-semibold text-slate-800 mb-2">{label}</h2>
+      {isHtmlContent(content) ? (
+        <GuideHtml content={content} linkTargets={linkTargets} />
+      ) : (
+        <GuideText
+          content={content}
+          drugName={drugName}
+          conditionTags={conditionTags}
+          drugNames={drugNames}
+        />
+      )}
     </section>
   )
 }
@@ -247,19 +357,33 @@ function SectionBlock({ label, content }: { label: string; content?: string | nu
 function SectionFallback({
   guide,
   hasRenderableSections,
+  drugName,
+  conditionTags,
+  drugNames,
+  linkTargets,
 }: {
   guide: GuideResponse | null
   hasRenderableSections: boolean
+  drugName: string
+  conditionTags: string[]
+  drugNames: string[]
+  linkTargets: LinkTarget[]
 }) {
   return (
-    <div className="space-y-4">
+    <div>
       {SECTION_ORDER.map(({ key, label }) => (
-        <SectionBlock key={key} label={label} content={guide?.sections?.[key]} />
+        <SectionBlock
+          key={key}
+          label={label}
+          content={guide?.sections?.[key]}
+          drugName={drugName}
+          conditionTags={conditionTags}
+          drugNames={drugNames}
+          linkTargets={linkTargets}
+        />
       ))}
       {(!guide || !hasRenderableSections) && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-600">
-          Medication guide content is not available right now.
-        </div>
+        <div className="text-center text-sm text-slate-600">Medication guide content is not available right now.</div>
       )}
     </div>
   )
@@ -267,8 +391,8 @@ function SectionFallback({
 
 function ProfessionalEmptyState({ guide }: { guide: GuideResponse | null }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center">
-      <p className="text-slate-600 mb-3">
+    <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
+      <p className="text-sm text-slate-600 mb-3">
         Full prescribing information is not available for this medication in our cache.
       </p>
       {guide?.source_url && (
@@ -295,10 +419,7 @@ async function fetchPill(slug: string): Promise<PillInfo | null> {
   }
 }
 
-async function fetchGuide(
-  pill: PillInfo,
-  isPro: boolean
-): Promise<GuideResponse | null> {
+async function fetchGuide(pill: PillInfo, isPro: boolean): Promise<GuideResponse | null> {
   const params = isPro
     ? 'include_professional=true'
     : 'include_medguide=true&include_professional=false&include_boxed_warning=true'
@@ -327,6 +448,17 @@ async function fetchGuide(
   }
 }
 
+async function fetchAllConditions(): Promise<ConditionListItem[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/conditions`, { next: { revalidate: 86400 } })
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.conditions ?? []
+  } catch {
+    return []
+  }
+}
+
 export async function generateMetadata({
   params,
   searchParams,
@@ -340,8 +472,7 @@ export async function generateMetadata({
   const pill = await fetchPill(slug)
   const guide = pill ? await fetchGuide(pill, isPro) : null
   const drugName = resolveDrugName({ guide, pill, slug })
-  const title = `Medication Guide — ${drugName}`
-  return { title }
+  return { title: `Medication Guide — ${drugName}` }
 }
 
 export default async function MedicationGuidePage({
@@ -353,199 +484,196 @@ export default async function MedicationGuidePage({
 }) {
   const { slug } = await params
   const { tab = 'consumer' } = await searchParams
-  const requestedPro = tab === 'pro'
 
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
-  const initialGuide = await fetchGuide(pill, requestedPro)
-  const hasMedguide = Boolean(initialGuide?.has_medguide)
-  const forcePro = !hasMedguide
-  const isPro = requestedPro || forcePro
-  const guide = forcePro && !requestedPro ? await fetchGuide(pill, true) : initialGuide
-  const drugName = resolveDrugName({ guide, pill, slug })
-  const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guide?.sections?.[key]))
-  const professionalSections = Array.isArray(guide?.professional_sections)
-    ? guide.professional_sections.flatMap((entry) =>
-        Array.isArray(entry) && entry.length >= 2
-          ? [{ slug: String(entry[0]), label: String(entry[1]) }]
-          : []
-      )
-    : []
-  const hasProfessionalToc = professionalSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
+  const [consumerGuide, professionalGuide, conditions] = await Promise.all([
+    fetchGuide(pill, false),
+    fetchGuide(pill, true),
+    fetchAllConditions(),
+  ])
+
+  const hasMedguide = Boolean(consumerGuide?.has_medguide)
+  const guideForName = consumerGuide ?? professionalGuide
+  const drugName = resolveDrugName({ guide: guideForName, pill, slug })
+  const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(consumerGuide?.sections?.[key]))
+  const defaultTab = tab === 'pro' || !hasMedguide ? 'pro' : 'consumer'
+
+  const drugNames = normalizeTerms([
+    drugName,
+    guideForName?.brand_name ?? '',
+    guideForName?.generic_name ?? '',
+    guideForName?.proprietary_name ?? '',
+    guideForName?.display_name ?? '',
+    guideForName?.name ?? '',
+    pill.medicine_name ?? '',
+    ...splitBrandNames(pill.brand_names),
+  ])
+
+  const conditionTags = normalizeTerms(
+    conditions
+      .map((condition) => condition.title.replace(/^Medications for\s+/i, '').trim())
+      .filter(Boolean)
+  )
+
+  const linkTargets = buildLinkTargets({ drugNames, conditionTags })
+
+  const linkedMedguideHtml = consumerGuide?.medguide_html
+    ? linkifyHtmlContent(consumerGuide.medguide_html, linkTargets)
+    : null
+  const linkedBoxedWarningHtml = consumerGuide?.boxed_warning_html
+    ? linkifyHtmlContent(consumerGuide.boxed_warning_html, linkTargets)
+    : null
+  const linkedProfessionalHighlightsHtml = professionalGuide?.professional_highlights_html
+    ? linkifyHtmlContent(professionalGuide.professional_highlights_html, linkTargets)
+    : null
+  const linkedProfessionalHtml = professionalGuide?.professional_html
+    ? linkifyHtmlContent(professionalGuide.professional_html, linkTargets)
+    : null
+
+  const drugSlug = slugifyDrugName(drugName)
+
+  const consumerContent = (
+    <div className="space-y-6">
+      <MedguideMetaBar guide={consumerGuide} />
+
+      {consumerGuide?.has_boxed_warning && (
+        <details
+          open
+          className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-800 [&[open]>summary]:mb-3"
+        >
+          <summary className="flex items-center gap-2 cursor-pointer font-semibold list-none [&::-webkit-details-marker]:hidden">
+            <span aria-hidden>⚠️</span>
+            <span>Boxed Warning</span>
+          </summary>
+          {linkedBoxedWarningHtml ? (
+            <div
+              className="text-sm [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_strong]:font-semibold"
+              dangerouslySetInnerHTML={{ __html: linkedBoxedWarningHtml }}
+            />
+          ) : (
+            <p className="text-sm">
+              This medication includes an FDA boxed warning. See the Full Prescribing Information for details.
+            </p>
+          )}
+        </details>
+      )}
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-amber-800">
+        <p className="font-semibold">Poison Help</p>
+        <p className="text-sm mt-1 leading-relaxed">
+          If you suspect an overdose or accidental ingestion, call Poison Control:{' '}
+          <a href="tel:18002221222" className="underline font-medium">
+            1-800-222-1222
+          </a>{' '}
+          (free, 24/7, U.S.). For life-threatening symptoms, call{' '}
+          <a href="tel:911" className="underline font-medium">
+            911
+          </a>
+          .
+        </p>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+        {linkedMedguideHtml ? (
+          <article
+            id="medguide-content"
+            className={MEDGUIDE_PROSE_CLASSES}
+            dangerouslySetInnerHTML={{ __html: linkedMedguideHtml }}
+          />
+        ) : (
+          <SectionFallback
+            guide={consumerGuide}
+            hasRenderableSections={hasRenderableSections}
+            drugName={drugName}
+            conditionTags={conditionTags}
+            drugNames={drugNames}
+            linkTargets={linkTargets}
+          />
+        )}
+      </div>
+    </div>
+  )
+
+  const proContent = (
+    <div className="space-y-6">
+      <MedguideMetaBar guide={professionalGuide} />
+
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+        {linkedProfessionalHighlightsHtml && (
+          <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
+            <div
+              className={PRO_HIGHLIGHTS_PROSE_CLASSES}
+              dangerouslySetInnerHTML={{ __html: linkedProfessionalHighlightsHtml }}
+            />
+          </div>
+        )}
+
+        {linkedProfessionalHtml ? (
+          <article
+            id="pro-content"
+            className={PRO_PROSE_CLASSES}
+            dangerouslySetInnerHTML={{ __html: linkedProfessionalHtml }}
+          />
+        ) : (
+          <ProfessionalEmptyState guide={professionalGuide} />
+        )}
+      </div>
+    </div>
+  )
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+      <nav aria-label="Breadcrumb">
+        <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
+          <li>
+            <Link href="/" className="hover:text-sky-700 transition-colors">
+              Home
+            </Link>
+          </li>
+          {drugSlug && (
+            <>
+              <li aria-hidden="true" className="select-none">›</li>
+              <li>
+                <Link href={`/drug/${drugSlug}`} className="hover:text-sky-700 transition-colors">
+                  {drugName}
+                </Link>
+              </li>
+            </>
+          )}
+          <li aria-hidden="true" className="select-none">›</li>
+          <li className="text-slate-700 font-medium">Medication Guide</li>
+        </ol>
+      </nav>
+
       <div>
-        <h1 className="text-3xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
-        <p className="mt-2 text-slate-600 text-sm">
+        <h1 className="text-2xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
+        <p className="mt-2 text-sm text-slate-600">
           {hasMedguide
             ? 'Patient-friendly guidance and full FDA prescribing information.'
             : 'Full FDA prescribing information.'}
         </p>
       </div>
 
-      <div className="no-print flex border-b border-slate-200 mb-6">
-        {hasMedguide && (
-          <Link
-            href={`/pill/${slug}/medication-guide`}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              !isPro
-                ? 'border-sky-600 text-sky-700'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            💊 Medication Guide
+      <MedicationGuideTabs
+        hasMedguide={hasMedguide}
+        defaultTab={defaultTab}
+        consumerContent={consumerContent}
+        proContent={proContent}
+      />
+
+      <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>
+        <p className="text-xs text-amber-700 leading-relaxed">
+          This information is for educational purposes only and is not medical advice. Always consult your doctor,
+          pharmacist, or other licensed healthcare professional before starting, stopping, or changing any medicine.{' '}
+          <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
+            Read full medical disclaimer
           </Link>
-        )}
-        <Link
-          href={`/pill/${slug}/medication-guide?tab=pro`}
-          className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            isPro
-              ? 'border-sky-600 text-sky-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          🏥 Full Prescribing Information
-        </Link>
-      </div>
-
-      {!isPro && (
-        <div className="lg:[&:has(nav)]:grid lg:[&:has(nav)]:grid-cols-[16rem_1fr] lg:[&:has(nav)]:gap-8">
-          {/* Left rail — sticky TOC on desktop, accordion on mobile */}
-          <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
-            {/* Desktop: bare TOC */}
-            <div className="hidden lg:block no-print [&:not(:has(nav))]:!hidden">
-              <MedguideToc html={guide?.medguide_html ?? ''} drugName={drugName} />
-            </div>
-            {/* Mobile: collapsible accordion */}
-            <details className="lg:hidden no-print mb-4 border border-slate-200 rounded-xl overflow-hidden [&:not(:has(nav))]:!hidden">
-              <summary className="px-4 py-3 text-sm font-medium text-slate-700 cursor-pointer select-none bg-white hover:bg-slate-50">
-                On this page
-              </summary>
-              <div className="px-4 py-3 bg-white border-t border-slate-100">
-                <MedguideToc html={guide?.medguide_html ?? ''} drugName={drugName} />
-              </div>
-            </details>
-          </aside>
-
-          {/* Content column */}
-          <div className="space-y-6 min-w-0">
-            <MedguideMetaBar guide={guide} />
-
-            {guide?.has_boxed_warning && (
-              <details
-                open
-                className="rounded-2xl border border-rose-300 bg-rose-50/60 px-5 py-4 [&[open]>summary]:mb-3"
-              >
-                <summary className="flex items-center gap-2 cursor-pointer text-rose-900 font-semibold list-none [&::-webkit-details-marker]:hidden">
-                  <span aria-hidden>⚠️</span>
-                  <span>Boxed Warning</span>
-                </summary>
-                {guide?.boxed_warning_html ? (
-                  <div
-                    className="boxed-warning-prose text-sm text-rose-950 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_strong]:font-semibold max-h-72 overflow-auto pr-2"
-                    dangerouslySetInnerHTML={{ __html: guide.boxed_warning_html }}
-                  />
-                ) : (
-                  <p className="text-sm text-rose-900/90">
-                    This medication includes an FDA boxed warning. See the Full Prescribing Information for details.
-                  </p>
-                )}
-              </details>
-            )}
-
-            <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
-              <p className="font-semibold">Poison Help</p>
-              <p className="text-sm mt-1">
-                If you suspect an overdose or accidental ingestion, call Poison Control:{' '}
-                <a href="tel:18002221222" className="underline font-medium">
-                  1-800-222-1222
-                </a>{' '}
-                (free, 24/7, U.S.). For life-threatening symptoms, call{' '}
-                <a href="tel:911" className="underline font-medium">
-                  911
-                </a>
-                .
-              </p>
-            </div>
-
-            {guide?.medguide_html ? (
-              <article
-                id="medguide-content"
-                className={MEDGUIDE_PROSE_CLASSES}
-                dangerouslySetInnerHTML={{ __html: guide.medguide_html }}
-              />
-            ) : (
-              <SectionFallback guide={guide} hasRenderableSections={hasRenderableSections} />
-            )}
-          </div>
-        </div>
-      )}
-
-      {isPro && (
-        <>
-          {hasProfessionalToc ? (
-            <div className={PRO_TOC_GRID_CLASSES}>
-              <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
-                <div className="hidden lg:block no-print">
-                  <ProfessionalToc sections={professionalSections} />
-                </div>
-                <details className="lg:hidden no-print mb-4 border border-slate-200 rounded-xl overflow-hidden">
-                  <summary className="px-4 py-3 text-sm font-medium text-slate-700 cursor-pointer select-none bg-white hover:bg-slate-50">
-                    On this page
-                  </summary>
-                  <div className="px-4 py-3 bg-white border-t border-slate-100">
-                    <ProfessionalToc sections={professionalSections} />
-                  </div>
-                </details>
-              </aside>
-
-              <div className="space-y-6 min-w-0">
-                <MedguideMetaBar guide={guide} />
-                {guide?.professional_highlights_html && (
-                  <div className={PRO_HIGHLIGHTS_CONTAINER_CLASSES}>
-                    <div
-                      className={PRO_HIGHLIGHTS_PROSE_CLASSES}
-                      dangerouslySetInnerHTML={{ __html: guide.professional_highlights_html }}
-                    />
-                  </div>
-                )}
-                {guide?.professional_html ? (
-                  <article
-                    id="pro-content"
-                    className={PRO_PROSE_CLASSES}
-                    dangerouslySetInnerHTML={{ __html: guide.professional_html }}
-                  />
-                ) : (
-                  <ProfessionalEmptyState guide={guide} />
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <MedguideMetaBar guide={guide} />
-              {guide?.professional_highlights_html && (
-                <div className={PRO_HIGHLIGHTS_CONTAINER_CLASSES}>
-                  <div
-                    className={PRO_HIGHLIGHTS_PROSE_CLASSES}
-                    dangerouslySetInnerHTML={{ __html: guide.professional_highlights_html }}
-                  />
-                </div>
-              )}
-              {guide?.professional_html ? (
-                <article
-                  id="pro-content"
-                  className={PRO_PROSE_CLASSES}
-                  dangerouslySetInnerHTML={{ __html: guide.professional_html }}
-                />
-              ) : (
-                <ProfessionalEmptyState guide={guide} />
-              )}
-            </div>
-          )}
-        </>
-      )}
+          .
+        </p>
+      </section>
     </div>
   )
 }
