@@ -560,7 +560,7 @@ export default async function MedicationGuidePage({
 
   if (!hasMedicationGuideContent) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
         <nav aria-label="Breadcrumb">
           <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
             <li>
@@ -589,7 +589,7 @@ export default async function MedicationGuidePage({
 
         <MedicationGuideTabs
           activeTab="consumer"
-          medicationGuideHref={`/pill/${encodedSlug}/medication-guide`}
+          medicationGuideHref={null}
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
@@ -651,7 +651,7 @@ export default async function MedicationGuidePage({
   const drugSlug = slugifyDrugName(drugName)
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
       <nav aria-label="Breadcrumb">
         <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
           <li>
@@ -736,9 +736,9 @@ export default async function MedicationGuidePage({
           </details>
         )}
 
-        <div className={hasConsumerToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[10rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
+        <div className={hasConsumerToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[14rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
           {hasConsumerToc && (
-            <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-40">
+            <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-56">
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <MedguideToc html={linkedMedguideHtml ?? ''} drugName={drugName} />
               </div>
