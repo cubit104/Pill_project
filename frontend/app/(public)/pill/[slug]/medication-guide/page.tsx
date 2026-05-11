@@ -558,26 +558,25 @@ export default async function MedicationGuidePage({
   ])
 
   const hasMedguide = Boolean(guideData?.has_medguide)
-  const guideForName = guideData
+  const drugName = resolveDrugName({ guide: guideData, pill, slug })
   const consumerGuide = guideData
   const professionalGuide = guideData
-  const drugName = resolveDrugName({ guide: guideForName, pill, slug })
   const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(consumerGuide?.sections?.[key]))
   const defaultTab = tab === 'pro' || !hasMedguide ? 'pro' : 'consumer'
 
   const drugNames = normalizeTerms([
     drugName,
-    guideForName?.brand_name ?? '',
-    guideForName?.generic_name ?? '',
-    guideForName?.proprietary_name ?? '',
-    guideForName?.display_name ?? '',
-    guideForName?.name ?? '',
+    guideData?.brand_name ?? '',
+    guideData?.generic_name ?? '',
+    guideData?.proprietary_name ?? '',
+    guideData?.display_name ?? '',
+    guideData?.name ?? '',
     pill.medicine_name ?? '',
     ...splitBrandNames(pill.brand_names),
   ])
 
   const conditionLinks = buildConditionLinks(conditions)
-  const conditionTags = normalizeTerms(conditionLinks.map((condition) => condition.term))
+  const conditionTags = conditionLinks.map((condition) => condition.term)
 
   const linkTargets = buildLinkTargets({ drugNames, conditionLinks })
 
