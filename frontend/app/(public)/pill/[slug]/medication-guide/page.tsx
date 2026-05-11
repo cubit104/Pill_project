@@ -67,6 +67,7 @@ type LinkTarget = {
   term: string
   href: string
 }
+const SAFE_INTERNAL_PATH_RE = /^\/(?:drug|condition)\/[a-z0-9-]+$/
 
 const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
   { key: 'overview', label: 'Overview' },
@@ -220,6 +221,10 @@ function buildLinkTargets({
   return Array.from(deduped.values()).sort((a, b) => b.term.length - a.term.length)
 }
 
+function getSafeHref(href: string): string | null {
+  return SAFE_INTERNAL_PATH_RE.test(href) ? href : null
+}
+
 function linkifyText(
   text: string,
   drugName: string,
@@ -245,9 +250,10 @@ function linkifyText(
 
     const matchedText = match[0]
     const target = targetByTerm.get(matchedText.toLowerCase())
-    if (target) {
+    const safeHref = target ? getSafeHref(target.href) : null
+    if (target && safeHref) {
       parts.push(
-        <Link key={`${matchedText}-${index}`} href={target.href} className="text-sky-700 hover:underline">
+        <Link key={`${matchedText}-${index}`} href={safeHref} className="text-sky-700 hover:underline">
           {matchedText}
         </Link>
       )
@@ -283,8 +289,9 @@ function linkifyHtmlContent(content: string, targets: LinkTarget[]): string {
 
       return token.replace(regex, (match) => {
         const target = targetByTerm.get(match.toLowerCase())
-        if (!target) return match
-        return `<a href="${target.href}" class="text-sky-700 hover:underline">${match}</a>`
+        const safeHref = target ? getSafeHref(target.href) : null
+        if (!target || !safeHref) return match
+        return `<a href="${safeHref}" class="text-sky-700 hover:underline">${match}</a>`
       })
     })
     .join('')
