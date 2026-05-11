@@ -17,7 +17,7 @@ const CONDITION_TITLE_PREFIX_RE = /^Medications for\s+/i
 // short title-like lines (up to 80 chars) are treated as headings and skipped.
 const MAX_PLAIN_TEXT_HEADING_LENGTH = 80
 const PLAIN_TEXT_HEADING_RE = new RegExp(
-  `^[A-Z][A-Za-z0-9\\s'(),/-]{0,${MAX_PLAIN_TEXT_HEADING_LENGTH}}$`
+  `^[A-Z][A-Za-z0-9\\s'(),./:;!?&-]{0,${MAX_PLAIN_TEXT_HEADING_LENGTH}}$`
 )
 
 type PageParams = Promise<{ slug: string }>
@@ -288,6 +288,7 @@ function linkifyText(
 
     const parts: ReactNode[] = []
     let cursor = 0
+    let linkKeyIndex = 0
 
     for (const match of line.matchAll(regex)) {
       if (match.index === undefined) continue
@@ -299,10 +300,11 @@ function linkifyText(
       const safeHref = target ? getSafeHref(target.href) : null
       if (target && safeHref) {
         parts.push(
-          <Link key={`link-${lineIndex}-${index}-${matchedText}`} href={safeHref} className={LINK_CLASSES}>
+          <Link key={`link-${lineIndex}-${linkKeyIndex}`} href={safeHref} className={LINK_CLASSES}>
             {matchedText}
           </Link>
         )
+        linkKeyIndex += 1
       } else {
         parts.push(matchedText)
       }
