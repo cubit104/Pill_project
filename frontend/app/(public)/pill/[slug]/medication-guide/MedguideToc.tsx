@@ -109,7 +109,7 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
               onClick={(e) => handleClick(e, id)}
               className={
                 activeId === id
-                  ? 'block whitespace-nowrap text-sm font-semibold text-emerald-600 hover:text-emerald-800 py-0.5'
+                  ? 'block whitespace-nowrap text-sm font-semibold text-emerald-800 py-0.5'
                   : 'block whitespace-nowrap text-sm font-medium text-emerald-600 hover:text-emerald-800 py-0.5'
                 }
                 title={text}

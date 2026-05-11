@@ -13,6 +13,12 @@ import { slugifyDrugName } from '../../../../lib/slug'
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const LINK_CLASSES = 'text-emerald-600 hover:underline'
 const CONDITION_TITLE_PREFIX_RE = /^Medications for\s+/i
+// Keep plain-text heading detection conservative so normal sentence lines still linkify.
+const MAX_PLAIN_TEXT_HEADING_LENGTH = 80
+const PLAIN_TEXT_HEADING_RE = new RegExp(
+  `^[A-Z][A-Za-z0-9\\s'(),/-]{0,${MAX_PLAIN_TEXT_HEADING_LENGTH}}$`
+)
+const CONSUMER_TOC_HEADING_RE = /<h[23]\b[^>]*id\s*=\s*['"][^'"]+['"][^>]*>/i
 
 type PageParams = Promise<{ slug: string }>
 type SearchParams = Promise<{ tab?: string }>
@@ -269,10 +275,14 @@ function linkifyText(
   const targetByTerm = new Map(targets.map((target) => [target.term.toLowerCase(), target]))
   const linkifyLine = (line: string, lineIndex: number): ReactNode => {
     const trimmed = line.trim()
+    const startsWithCapital = /^[A-Z]/.test(trimmed)
+    // Plain-text sections can contain inline subheadings; keep those unlinked while
+    // still linkifying sentence-like body lines.
     const isHeadingLine =
       trimmed.length > 0 &&
+      startsWithCapital &&
       !/[.!?]$/.test(trimmed) &&
-      (trimmed.endsWith(':') || /^[A-Z][A-Za-z0-9\s'(),/-]{0,80}$/.test(trimmed))
+      (trimmed.endsWith(':') || PLAIN_TEXT_HEADING_RE.test(trimmed))
 
     if (isHeadingLine) return line
 
@@ -289,7 +299,7 @@ function linkifyText(
       const safeHref = target ? getSafeHref(target.href) : null
       if (target && safeHref) {
         parts.push(
-          <Link key={`link-${lineIndex}-${cursor}-${matchedText.length}`} href={safeHref} className={LINK_CLASSES}>
+          <Link key={`link-${lineIndex}-${index}`} href={safeHref} className={LINK_CLASSES}>
             {matchedText}
           </Link>
         )
@@ -319,9 +329,10 @@ function linkifyHtmlContent(content: string, targets: LinkTarget[]): string {
   if (!regex) return content
 
   const targetByTerm = new Map(targets.map((target) => [target.term.toLowerCase(), target]))
-  const opaqueChunks = content.split(/(<a\b[^>]*>[\s\S]*?<\/a>|<h[1-4]\b[^>]*>[\s\S]*?<\/h[1-4]>)/gi)
+  // Preserve existing anchors and heading blocks so heading text never receives injected links.
+  const protectedChunks = content.split(/(<a\b[^>]*>[\s\S]*?<\/a>|<h[1-4]\b[^>]*>[\s\S]*?<\/h[1-4]>)/gi)
 
-  return opaqueChunks
+  return protectedChunks
     .map((chunk) => {
       if (/^<a\b/i.test(chunk) || /^<h[1-4]\b/i.test(chunk)) return chunk
       const tokens = chunk.split(/(<[^>]+>)/g)
@@ -617,7 +628,8 @@ export default async function MedicationGuidePage({
     .map(([slugValue, labelValue]) => ({ slug: slugValue, label: labelValue }))
     .filter((section) => section.slug && section.label)
   const hasProfessionalToc = professionalTocSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
-  const hasConsumerToc = Boolean(linkedMedguideHtml && /<h[23]\b[^>]*id\s*=\s*['"][^'"]+['"][^>]*>/i.test(linkedMedguideHtml))
+  // Consumer TOC mirrors MedguideToc extraction (h2/h3 only) to keep layout behavior consistent.
+  const hasConsumerToc = Boolean(linkedMedguideHtml && CONSUMER_TOC_HEADING_RE.test(linkedMedguideHtml))
 
   const drugSlug = slugifyDrugName(drugName)
 
@@ -671,7 +683,7 @@ export default async function MedicationGuidePage({
         </details>
       )}
 
-      <div className={hasConsumerToc ? 'lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8' : undefined}>
+      <div className={hasConsumerToc ? 'lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8' : ''}>
         {hasConsumerToc && (
           <aside className="no-print hidden lg:block">
             <div className="lg:sticky lg:top-24 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -714,7 +726,7 @@ export default async function MedicationGuidePage({
         </details>
       )}
 
-      <div className={hasProfessionalToc ? 'lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8' : undefined}>
+      <div className={hasProfessionalToc ? 'lg:grid lg:grid-cols-[16rem_1fr] lg:gap-8' : ''}>
         {hasProfessionalToc && (
           <aside className="no-print hidden lg:block">
             <div className="lg:sticky lg:top-24 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">

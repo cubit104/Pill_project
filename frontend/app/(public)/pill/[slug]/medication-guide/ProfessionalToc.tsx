@@ -62,7 +62,7 @@ export default function ProfessionalToc({ sections }: { sections: Section[] }) {
               className={
                 'block text-sm transition-colors ' +
                 (activeId === section.slug
-                  ? 'text-emerald-600 hover:text-emerald-800 font-semibold'
+                  ? 'text-emerald-800 font-semibold'
                   : 'text-emerald-600 hover:text-emerald-800')
               }
               onClick={(event) => {
