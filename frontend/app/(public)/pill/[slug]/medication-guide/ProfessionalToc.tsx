@@ -51,7 +51,7 @@ export default function ProfessionalToc({ sections }: { sections: Section[] }) {
   if (sections.length < MIN_PROFESSIONAL_TOC_SECTIONS) return null
 
   return (
-    <nav aria-label="On this page">
+    <nav aria-label="On this page" className="w-full max-w-[16rem]">
       <div className="text-xs uppercase tracking-wide text-slate-500 mb-3">On this page</div>
       <ul className="space-y-1.5">
         {sections.map((section) => (
@@ -62,8 +62,8 @@ export default function ProfessionalToc({ sections }: { sections: Section[] }) {
               className={
                 'block text-sm transition-colors ' +
                 (activeId === section.slug
-                  ? 'text-sky-700 font-semibold'
-                  : 'text-slate-600 hover:text-slate-900')
+                  ? 'text-emerald-800 font-semibold'
+                  : 'text-emerald-600 hover:text-emerald-800')
               }
               onClick={(event) => {
                 event.preventDefault()
