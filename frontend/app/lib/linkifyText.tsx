@@ -1,6 +1,7 @@
 import React from 'react'
 import Link from 'next/link'
 import { slugifyDrugName } from './slug'
+import { slugFromTag } from './condition-utils'
 
 type LinkTarget = {
   phrase: string
@@ -8,17 +9,7 @@ type LinkTarget = {
 }
 
 function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function slugifyConditionName(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/'/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  return value.replace(/[-\\|{}()[\]^$+*?.]/g, '\\$&')
 }
 
 function buildTargets(
@@ -49,7 +40,7 @@ function buildTargets(
   }
 
   for (const condition of conditionTags) {
-    const slug = slugifyConditionName(condition)
+    const slug = slugFromTag(condition)
     addTarget(condition, slug ? `/condition/${slug}` : '')
   }
 
@@ -75,8 +66,11 @@ export function linkifyText(
 
   const pieces: React.ReactNode[] = []
   let lastIndex = 0
+  let match: RegExpExecArray | null = regex.exec(text)
 
-  text.replace(regex, (match, leadingBoundary: string, phraseMatch: string, offset: number) => {
+  while (match) {
+    const [fullMatch, leadingBoundary = '', matchedPhrase = ''] = match
+    const offset = match.index
     if (offset > lastIndex) {
       pieces.push(text.slice(lastIndex, offset))
     }
@@ -85,20 +79,20 @@ export function linkifyText(
       pieces.push(leadingBoundary)
     }
 
-    const target = targets.find((t) => t.phrase.toLowerCase() === phraseMatch.toLowerCase())
+    const target = targets.find((t) => t.phrase.toLowerCase() === matchedPhrase.toLowerCase())
     if (target) {
       pieces.push(
-        <Link key={`${offset}-${phraseMatch}`} href={target.href} className="text-sky-700 hover:underline">
-          {phraseMatch}
+        <Link key={`${offset}-${matchedPhrase}`} href={target.href} className="text-sky-700 hover:underline">
+          {matchedPhrase}
         </Link>,
       )
     } else {
-      pieces.push(phraseMatch)
+      pieces.push(matchedPhrase)
     }
 
-    lastIndex = offset + match.length
-    return match
-  })
+    lastIndex = offset + fullMatch.length
+    match = regex.exec(text)
+  }
 
   if (lastIndex < text.length) {
     pieces.push(text.slice(lastIndex))
@@ -106,4 +100,3 @@ export function linkifyText(
 
   return <>{pieces}</>
 }
-

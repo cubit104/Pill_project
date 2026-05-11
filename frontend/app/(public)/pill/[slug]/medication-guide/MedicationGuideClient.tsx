@@ -13,7 +13,7 @@ interface Props {
   medicationGuideContent: string
   professionalContent: string
   sourceUrl?: string
-  poisonHelpText?: string
+  warningContent?: string
   lastUpdatedIso?: string
   formattedDate?: string
   conditionTags?: string[]
@@ -25,7 +25,15 @@ type ContentBlock = {
   text: string
 }
 
+const DEFAULT_OVERDOSE_HELP_TEXT = 'In case of overdose, call Poison Help at 1-800-222-1222 right away.'
+const META_SEPARATOR = <span aria-hidden="true">·</span>
+
 function stripTags(value: string): string {
+  if (typeof window !== 'undefined') {
+    const parser = new window.DOMParser()
+    return (parser.parseFromString(value, 'text/html').body.textContent || '').replace(/\s+/g, ' ').trim()
+  }
+
   return value
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
@@ -36,6 +44,11 @@ function stripTags(value: string): string {
     .replace(/&gt;/gi, '>')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function buildFallbackSourceUrl(sourceUrl: string | undefined, slug: string): string {
+  if (sourceUrl) return sourceUrl
+  return slug ? `https://dailymed.nlm.nih.gov/dailymed/search.cfm?query=${encodeURIComponent(slug)}` : ''
 }
 
 function parseTextBlocks(raw: string): ContentBlock[] {
@@ -80,7 +93,7 @@ function parseTextBlocks(raw: string): ContentBlock[] {
   if (blocks.length > 0) return blocks
 
   const plain = raw.includes('<') ? stripTags(raw) : raw
-  const sections = plain.split(/\n\s*\n+/).map((line) => line.trim()).filter(Boolean)
+  const sections = plain.split(/\n\s*\n+/).map((section) => section.trim()).filter(Boolean)
   return sections.map((text) => ({ type: 'p', text }))
 }
 
@@ -143,7 +156,7 @@ export default function MedicationGuideClient({
   medicationGuideContent,
   professionalContent,
   sourceUrl,
-  poisonHelpText,
+  warningContent,
   lastUpdatedIso,
   formattedDate,
   conditionTags = [],
@@ -152,8 +165,9 @@ export default function MedicationGuideClient({
   const [activeTab, setActiveTab] = useState<TabId>('medication')
   const drugSlug = slugifyDrugName(drugName)
   const tabContent = activeTab === 'medication' ? medicationGuideContent : professionalContent
-  const fallbackSourceUrl = sourceUrl || (slug ? `https://dailymed.nlm.nih.gov/dailymed/search.cfm?query=${encodeURIComponent(slug)}` : '')
-  const warningText = poisonHelpText ? stripTags(poisonHelpText) : 'In case of overdose, call Poison Help at 1-800-222-1222 right away.'
+  const fallbackSourceUrl = buildFallbackSourceUrl(sourceUrl, slug)
+  const warningText = warningContent ? stripTags(warningContent) : DEFAULT_OVERDOSE_HELP_TEXT
+  const hasUpdatedDate = Boolean(formattedDate && lastUpdatedIso)
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -212,12 +226,12 @@ export default function MedicationGuideClient({
         </div>
 
         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-          {formattedDate && lastUpdatedIso && (
+          {hasUpdatedDate && (
             <span>
               Last updated <time dateTime={lastUpdatedIso}>{formattedDate}</time>
             </span>
           )}
-          <span>·</span>
+          {hasUpdatedDate && META_SEPARATOR}
           {fallbackSourceUrl ? (
             <a
               href={fallbackSourceUrl}
@@ -230,7 +244,7 @@ export default function MedicationGuideClient({
           ) : (
             <span>Source: DailyMed</span>
           )}
-          <span>·</span>
+          {(hasUpdatedDate || fallbackSourceUrl) && META_SEPARATOR}
           <button
             type="button"
             onClick={() => window.print()}
@@ -242,7 +256,7 @@ export default function MedicationGuideClient({
       </section>
 
       <section className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6 text-amber-800">
-        <h2 className="text-base font-semibold text-amber-800 mb-2">Poison Help / Safety</h2>
+        <h2 className="text-base font-semibold text-amber-800 mb-2">Safety Information</h2>
         <p className="text-sm leading-relaxed">{warningText}</p>
       </section>
 
@@ -274,4 +288,3 @@ export default function MedicationGuideClient({
     </div>
   )
 }
-

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import MedicationGuideClient from './MedicationGuideClient'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?)?$/
 
 interface PillLite {
   drug_name: string
@@ -40,7 +41,7 @@ async function fetchPill(slug: string): Promise<PillLite | null> {
     const raw = await res.json()
     return {
       drug_name: raw.drug_name ?? raw.medicine_name ?? 'Unknown',
-      spl_set_id: raw.spl_set_id ?? raw.setid ?? raw.spl_set_id_value ?? undefined,
+      spl_set_id: raw.spl_set_id ?? raw.setid,
       updated_at: raw.updated_at ?? undefined,
     }
   } catch {
@@ -114,10 +115,13 @@ export default async function MedicationGuidePage(
   ])
 
   const sourceUrl = pickFirstString(guide, ['source_url', 'dailymed_url', 'url'])
-  const poisonHelpText = pickFirstString(guide, ['poison_help_text', 'boxed_warning_html'])
+  const warningContent = pickFirstString(guide, ['poison_help_text', 'boxed_warning_html'])
 
   const rawUpdatedAt = pickFirstString(guide, ['updated_at', 'fetched_at']) || pill.updated_at || ''
-  const lastUpdatedIso = rawUpdatedAt && !Number.isNaN(Date.parse(rawUpdatedAt)) ? rawUpdatedAt : undefined
+  const lastUpdatedIso =
+    rawUpdatedAt && ISO_DATE_PATTERN.test(rawUpdatedAt)
+      ? rawUpdatedAt
+      : undefined
   const formattedDate = lastUpdatedIso
     ? new Date(lastUpdatedIso).toLocaleDateString('en-US', {
         year: 'numeric',
@@ -137,7 +141,7 @@ export default async function MedicationGuidePage(
       medicationGuideContent={medicationGuideContent}
       professionalContent={professionalContent}
       sourceUrl={sourceUrl}
-      poisonHelpText={poisonHelpText}
+      warningContent={warningContent}
       lastUpdatedIso={lastUpdatedIso}
       formattedDate={formattedDate}
       conditionTags={conditionTags}
