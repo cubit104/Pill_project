@@ -556,6 +556,7 @@ export default async function MedicationGuidePage({
 
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
   const drugSlugForUnavailable = slugifyDrugName(drugName)
+  const encodedSlug = encodeURIComponent(slug)
 
   if (!hasMedicationGuideContent) {
     return (
@@ -588,8 +589,8 @@ export default async function MedicationGuidePage({
 
         <MedicationGuideTabs
           activeTab="consumer"
-          medicationGuideHref={`/pill/${encodeURIComponent(slug)}/medication-guide`}
-          professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
+          medicationGuideHref={`/pill/${encodedSlug}/medication-guide`}
+          professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 text-center space-y-4">
@@ -597,7 +598,7 @@ export default async function MedicationGuidePage({
             Medication Guide is not available for this medication.
           </p>
           <Link
-            href={`/pill/${encodeURIComponent(slug)}/professional-information`}
+            href={`/pill/${encodedSlug}/professional-information`}
             className="inline-flex items-center gap-2 text-sky-700 font-semibold hover:text-sky-900"
           >
             View Professional Information →
