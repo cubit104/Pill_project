@@ -1,7 +1,7 @@
 <xsl:transform 
    xmlns:xsl="http://www.w3.org/1999/XSL/Transform" 
    xmlns:verb="http://informatik.hu-berlin.de/xml-verbatimatim" 
-   version="2.0" 
+   version="1.0" 
    exclude-result-prefixes="verb">
 <!--
 The contents of this file are subject to the Health Level-7 Public
@@ -214,4 +214,3 @@ Revision: $Id: xml-verbatim.xsl,v 1.8 2005/03/23 14:55:38 gschadow Exp $
   <xsl:template mode="xml-verbatim-ellips" match="/|@*|node()"/>
 
 </xsl:transform>
-

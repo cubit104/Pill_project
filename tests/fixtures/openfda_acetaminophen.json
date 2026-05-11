@@ -1,0 +1,19 @@
+{
+  "results": [
+    {
+      "description": ["Acetaminophen is an analgesic and antipyretic."],
+      "indications_and_usage": ["Temporarily reduces fever and relieves minor aches and pains."],
+      "dosage_and_administration": ["Adults and children 12 years and over: take 2 tablets every 6 hours."],
+      "warnings": ["Severe liver damage may occur if more than 8 tablets in 24 hours."],
+      "openfda": {
+        "rxcui": ["161"],
+        "product_ndc": ["50580-488-10"],
+        "spl_set_id": ["set-acetaminophen"],
+        "generic_name": ["acetaminophen"],
+        "brand_name": ["TYLENOL"],
+        "manufacturer_name": ["Johnson & Johnson"],
+        "spl_id": ["spl-003"]
+      }
+    }
+  ]
+}

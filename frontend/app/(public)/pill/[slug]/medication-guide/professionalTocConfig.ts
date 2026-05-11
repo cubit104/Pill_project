@@ -1,0 +1,1 @@
+export const MIN_PROFESSIONAL_TOC_SECTIONS = 3
