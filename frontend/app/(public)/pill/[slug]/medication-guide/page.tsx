@@ -21,7 +21,8 @@ const PLAIN_TEXT_HEADING_RE = new RegExp(
 )
 
 type PageParams = Promise<{ slug: string }>
-type SearchParams = Promise<{ tab?: string }>
+const PILL_REVALIDATE_SECONDS = 3600
+const GUIDE_REVALIDATE_SECONDS = 86400
 
 type PillInfo = {
   rxcui?: string
@@ -64,11 +65,11 @@ type GuideResponse = {
   has_boxed_warning?: boolean
   has_medguide?: boolean
   sections: GuideSections
+  medguide_html?: string | null
+  boxed_warning_html?: string | null
   professional_html?: string | null
   professional_highlights_html?: string | null
   professional_sections?: Array<[string, string]> | null
-  medguide_html?: string | null
-  boxed_warning_html?: string | null
   source_url?: string | null
   fetched_at?: string | null
   disclaimer?: string | null
@@ -450,26 +451,6 @@ function SectionFallback({
   )
 }
 
-function ProfessionalEmptyState({ guide }: { guide: GuideResponse | null }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
-      <p className="text-sm text-slate-600 mb-3">
-        Full prescribing information is not available for this medication in our cache.
-      </p>
-      {guide?.source_url && (
-        <a
-          href={guide.source_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 text-sky-700 font-semibold hover:text-sky-900"
-        >
-          View on DailyMed ↗
-        </a>
-      )}
-    </div>
-  )
-}
-
 function buildConditionLinks(conditions: ConditionListItem[]): ConditionLink[] {
   const links: ConditionLink[] = []
   for (const condition of conditions) {
@@ -503,7 +484,9 @@ function buildGuideQuery({
 
 async function fetchPill(slug: string): Promise<PillInfo | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, { cache: 'no-store' })
+    const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, {
+      next: { revalidate: PILL_REVALIDATE_SECONDS },
+    })
     if (!res.ok) return null
     return (await res.json()) as PillInfo
   } catch {
@@ -518,7 +501,7 @@ async function fetchGuide(pill: PillInfo, options: GuideFetchOptions): Promise<G
     if (pill.rxcui) {
       const res = await fetch(
         `${API_BASE}/api/drugs/${encodeURIComponent(pill.rxcui)}/guide?${params}`,
-        { cache: 'no-store' }
+        { next: { revalidate: GUIDE_REVALIDATE_SECONDS } }
       )
       if (res.ok) return (await res.json()) as GuideResponse
     }
@@ -527,7 +510,7 @@ async function fetchGuide(pill: PillInfo, options: GuideFetchOptions): Promise<G
     if (ndc) {
       const res = await fetch(
         `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(ndc)}/guide?${params}`,
-        { cache: 'no-store' }
+        { next: { revalidate: GUIDE_REVALIDATE_SECONDS } }
       )
       if (res.ok) return (await res.json()) as GuideResponse
     }
@@ -551,52 +534,199 @@ async function fetchAllConditions(): Promise<ConditionListItem[]> {
 
 export async function generateMetadata({
   params,
-  searchParams,
 }: {
   params: PageParams
-  searchParams: SearchParams
 }): Promise<Metadata> {
   const { slug } = await params
-  const { tab = 'consumer' } = await searchParams
-  const isPro = tab === 'pro'
   const pill = await fetchPill(slug)
-  const guide = pill ? await fetchGuide(pill, {
-    includeProfessional: isPro,
-    includeMedguide: !isPro,
-    includeBoxedWarning: !isPro,
-  }) : null
+  const guide = pill
+    ? await fetchGuide(pill, {
+        includeProfessional: false,
+        includeMedguide: true,
+        includeBoxedWarning: true,
+      })
+    : null
   const drugName = resolveDrugName({ guide, pill, slug })
-  return { title: `Medication Guide — ${drugName}` }
+  const hasMedicationGuideContent =
+    Boolean(guide?.has_medguide) || Boolean(guide?.medguide_html?.trim())
+
+  if (!hasMedicationGuideContent) {
+    return {
+      title: `Professional Information — ${drugName}`,
+      description: `Read the FDA professional prescribing information for ${drugName}, including highlights and full prescribing details.`,
+      alternates: { canonical: `/pill/${encodeURIComponent(slug)}/professional-information` },
+      robots: { index: false, follow: true },
+    }
+  }
+
+  return {
+    title: `Medication Guide — ${drugName}`,
+    description: `Read the FDA Medication Guide for ${drugName}, including key warnings and patient counseling information.`,
+    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/medication-guide` },
+  }
 }
 
 export default async function MedicationGuidePage({
   params,
-  searchParams,
 }: {
   params: PageParams
-  searchParams: SearchParams
 }) {
   const { slug } = await params
-  const { tab = 'consumer' } = await searchParams
 
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
-  const [guideData, conditions] = await Promise.all([
-    fetchGuide(pill, {
-      includeProfessional: true,
-      includeMedguide: true,
-      includeBoxedWarning: true,
-    }),
-    fetchAllConditions(),
-  ])
+  const guideData = await fetchGuide(pill, {
+    includeProfessional: false,
+    includeMedguide: true,
+    includeBoxedWarning: true,
+  })
 
   const hasMedguide = Boolean(guideData?.has_medguide)
+  const hasMedguideHtml = Boolean(guideData?.medguide_html?.trim())
+  const hasMedicationGuideContent = hasMedguide || hasMedguideHtml
+
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
-  const consumerGuide = guideData
-  const professionalGuide = guideData
-  const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(consumerGuide?.sections?.[key]))
-  const defaultTab = tab === 'pro' || !hasMedguide ? 'pro' : 'consumer'
+  const drugSlugForUnavailable = slugifyDrugName(drugName)
+  const encodedSlug = encodeURIComponent(slug)
+
+  if (!hasMedicationGuideContent) {
+    // Fetch professional data server-side for immediate rendering
+    const professionalData = await fetchGuide(pill, {
+      includeProfessional: true,
+      includeMedguide: false,
+      includeBoxedWarning: false,
+    })
+
+    const professionalTocSections = (professionalData?.professional_sections ?? [])
+      .map(([slugValue, labelValue]) => ({ slug: slugValue, label: labelValue }))
+      .filter((section) => section.slug && section.label)
+    const hasProfessionalToc = professionalTocSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
+    const hasProfessionalContent = Boolean(
+      professionalData?.professional_html?.trim() || professionalData?.professional_highlights_html?.trim()
+    )
+
+    return (
+      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+        <nav aria-label="Breadcrumb">
+          <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
+            <li>
+              <Link href="/" className="hover:text-sky-700 transition-colors">
+                Home
+              </Link>
+            </li>
+            {drugSlugForUnavailable && (
+              <>
+                <li aria-hidden="true" className="select-none">›</li>
+                <li>
+                  <Link href={`/drug/${drugSlugForUnavailable}`} className="hover:text-sky-700 transition-colors">
+                    {drugName}
+                  </Link>
+                </li>
+              </>
+            )}
+            <li aria-hidden="true" className="select-none">›</li>
+            <li className="text-slate-700 font-medium">Professional Information</li>
+          </ol>
+        </nav>
+
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Professional Information — {drugName}</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Full FDA prescribing details for healthcare professionals.
+          </p>
+        </div>
+
+        <MedicationGuideTabs
+          activeTab="pro"
+          medicationGuideHref={null}
+          professionalHref={`/pill/${encodedSlug}/professional-information`}
+        />
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          Medication Guide is not available for this medication, so full prescribing information is shown.
+        </div>
+
+        <div className="space-y-6">
+          <MedguideMetaBar guide={professionalData} />
+
+          {hasProfessionalToc && (
+            <details className="no-print lg:hidden bg-white border border-slate-200 rounded-xl shadow-sm p-4 [&[open]>summary]:mb-3">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-800 list-none [&::-webkit-details-marker]:hidden">
+                On this page
+              </summary>
+              <ProfessionalToc sections={professionalTocSections} />
+            </details>
+          )}
+
+          <div className={hasProfessionalToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[14rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
+            {hasProfessionalToc && (
+              <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:w-56">
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <ProfessionalToc sections={professionalTocSections} />
+                </div>
+              </aside>
+            )}
+            <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+              {professionalData?.professional_highlights_html && (
+                <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
+                  <div
+                    className={PRO_HIGHLIGHTS_PROSE_CLASSES}
+                    dangerouslySetInnerHTML={{ __html: professionalData.professional_highlights_html }}
+                  />
+                </div>
+              )}
+
+              {professionalData?.professional_html ? (
+                <article
+                  id="pro-content"
+                  className={PRO_PROSE_CLASSES}
+                  dangerouslySetInnerHTML={{ __html: professionalData.professional_html }}
+                />
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
+                  <p className="text-sm text-slate-600 mb-3">
+                    Full prescribing information is not available for this medication in our cache.
+                  </p>
+                  {professionalData?.source_url && (
+                    <a
+                      href={professionalData.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-sky-700 font-semibold hover:text-sky-900"
+                    >
+                      View on DailyMed ↗
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {!hasProfessionalContent && (
+          <p className="text-xs text-slate-500">
+            Professional information is currently unavailable; this page remains available for navigation and source links.
+          </p>
+        )}
+
+        <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>
+          <p className="text-xs text-amber-700 leading-relaxed">
+            This information is for educational purposes only and is not medical advice. Always consult your doctor,
+            pharmacist, or other licensed healthcare professional before starting, stopping, or changing any medicine.{' '}
+            <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
+              Read full medical disclaimer
+            </Link>
+            .
+          </p>
+        </section>
+      </div>
+    )
+  }
+
+  const conditions = await fetchAllConditions()
+  const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guideData?.sections?.[key]))
 
   const drugNames = normalizeTerms([
     drugName,
@@ -614,155 +744,20 @@ export default async function MedicationGuidePage({
 
   const linkTargets = buildLinkTargets({ drugNames, conditionLinks })
 
-  const linkedMedguideHtml = consumerGuide?.medguide_html
-    ? linkifyHtmlContent(consumerGuide.medguide_html, linkTargets)
+  const linkedMedguideHtml = guideData?.medguide_html
+    ? linkifyHtmlContent(guideData.medguide_html, linkTargets)
     : null
-  const linkedBoxedWarningHtml = consumerGuide?.boxed_warning_html
-    ? linkifyHtmlContent(consumerGuide.boxed_warning_html, linkTargets)
+  const linkedBoxedWarningHtml = guideData?.boxed_warning_html
+    ? linkifyHtmlContent(guideData.boxed_warning_html, linkTargets)
     : null
-  const linkedProfessionalHighlightsHtml = professionalGuide?.professional_highlights_html
-    ? linkifyHtmlContent(professionalGuide.professional_highlights_html, linkTargets)
-    : null
-  const linkedProfessionalHtml = professionalGuide?.professional_html
-    ? linkifyHtmlContent(professionalGuide.professional_html, linkTargets)
-    : null
-  const professionalTocSections = (professionalGuide?.professional_sections ?? [])
-    .map(([slugValue, labelValue]) => ({ slug: slugValue, label: labelValue }))
-    .filter((section) => section.slug && section.label)
-  // Mirror the TOC component threshold so layout wrappers only render when the nav will too.
-  const hasProfessionalToc = professionalTocSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
   const hasConsumerToc =
     (linkedMedguideHtml?.match(/<h[23]\b[^>]*id=/gi)?.length ?? 0) >= MIN_PROFESSIONAL_TOC_SECTIONS
 
   const drugSlug = slugifyDrugName(drugName)
 
-  const consumerContent = (
-    <div className="space-y-6">
-      <MedguideMetaBar guide={consumerGuide} />
-
-      {consumerGuide?.has_boxed_warning && (
-        <details
-          open
-          className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-800 [&[open]>summary]:mb-3"
-        >
-          <summary className="flex items-center gap-2 cursor-pointer font-semibold list-none [&::-webkit-details-marker]:hidden">
-            <span aria-hidden>⚠️</span>
-            <span>Boxed Warning</span>
-          </summary>
-          {linkedBoxedWarningHtml ? (
-            <div
-              className="text-sm [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_strong]:font-semibold"
-              dangerouslySetInnerHTML={{ __html: linkedBoxedWarningHtml }}
-            />
-          ) : (
-            <p className="text-sm">
-              This medication includes an FDA boxed warning. See the Full Prescribing Information for details.
-            </p>
-          )}
-        </details>
-      )}
-
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-amber-800">
-        <p className="font-semibold">Poison Help</p>
-        <p className="text-sm mt-1 leading-relaxed">
-          If you suspect an overdose or accidental ingestion, call Poison Control:{' '}
-          <a href="tel:18002221222" className="underline font-medium">
-            1-800-222-1222
-          </a>{' '}
-          (free, 24/7, U.S.). For life-threatening symptoms, call{' '}
-          <a href="tel:911" className="underline font-medium">
-            911
-          </a>
-          .
-        </p>
-      </div>
-
-      {hasConsumerToc && (
-        <details className="no-print lg:hidden bg-white border border-slate-200 rounded-xl shadow-sm p-4 [&[open]>summary]:mb-3">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-800 list-none [&::-webkit-details-marker]:hidden">
-            On this page
-          </summary>
-          <MedguideToc html={linkedMedguideHtml ?? ''} drugName={drugName} />
-        </details>
-      )}
-
-      <div className={hasConsumerToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[10rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
-        {hasConsumerToc && (
-          <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-40">
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <MedguideToc html={linkedMedguideHtml ?? ''} drugName={drugName} />
-            </div>
-          </aside>
-        )}
-        <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          {linkedMedguideHtml ? (
-            <article
-              id="medguide-content"
-              className={MEDGUIDE_PROSE_CLASSES}
-              dangerouslySetInnerHTML={{ __html: linkedMedguideHtml }}
-            />
-          ) : (
-            <SectionFallback
-              guide={consumerGuide}
-              hasRenderableSections={hasRenderableSections}
-              drugName={drugName}
-              conditionTags={conditionTags}
-              drugNames={drugNames}
-              linkTargets={linkTargets}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  )
-
-  const proContent = (
-    <div className="space-y-6">
-      <MedguideMetaBar guide={professionalGuide} />
-
-      {hasProfessionalToc && (
-        <details className="no-print lg:hidden bg-white border border-slate-200 rounded-xl shadow-sm p-4 [&[open]>summary]:mb-3">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-800 list-none [&::-webkit-details-marker]:hidden">
-            On this page
-          </summary>
-          <ProfessionalToc sections={professionalTocSections} />
-        </details>
-      )}
-
-      <div className={hasProfessionalToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[10rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
-        {hasProfessionalToc && (
-          <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-40">
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <ProfessionalToc sections={professionalTocSections} />
-            </div>
-          </aside>
-        )}
-        <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          {linkedProfessionalHighlightsHtml && (
-            <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
-              <div
-                className={PRO_HIGHLIGHTS_PROSE_CLASSES}
-                dangerouslySetInnerHTML={{ __html: linkedProfessionalHighlightsHtml }}
-              />
-            </div>
-          )}
-
-          {linkedProfessionalHtml ? (
-            <article
-              id="pro-content"
-              className={PRO_PROSE_CLASSES}
-              dangerouslySetInnerHTML={{ __html: linkedProfessionalHtml }}
-            />
-          ) : (
-            <ProfessionalEmptyState guide={professionalGuide} />
-          )}
-        </div>
-      </div>
-    </div>
-  )
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
       <nav aria-label="Breadcrumb">
         <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
           <li>
@@ -788,18 +783,93 @@ export default async function MedicationGuidePage({
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
         <p className="mt-2 text-sm text-slate-600">
-          {hasMedguide
-            ? 'Patient-friendly guidance and full FDA prescribing information.'
-            : 'Full FDA prescribing information.'}
+          Patient-friendly FDA guidance and safety information.
         </p>
       </div>
 
       <MedicationGuideTabs
-        hasMedguide={hasMedguide}
-        defaultTab={defaultTab}
-        consumerContent={consumerContent}
-        proContent={proContent}
+        activeTab="consumer"
+        medicationGuideHref={`/pill/${encodeURIComponent(slug)}/medication-guide`}
+        professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
       />
+
+      <div className="space-y-6">
+        <MedguideMetaBar guide={guideData} />
+
+        {guideData?.has_boxed_warning && (
+          <details
+            open
+            className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-800 [&[open]>summary]:mb-3"
+          >
+            <summary className="flex items-center gap-2 cursor-pointer font-semibold list-none [&::-webkit-details-marker]:hidden">
+              <span aria-hidden>⚠️</span>
+              <span>Boxed Warning</span>
+            </summary>
+            {linkedBoxedWarningHtml ? (
+              <div
+                className="text-sm [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_strong]:font-semibold"
+                dangerouslySetInnerHTML={{ __html: linkedBoxedWarningHtml }}
+              />
+            ) : (
+              <p className="text-sm">
+                This medication includes an FDA boxed warning. See the Full Prescribing Information for details.
+              </p>
+            )}
+          </details>
+        )}
+
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-amber-800">
+          <p className="font-semibold">Poison Help</p>
+          <p className="text-sm mt-1 leading-relaxed">
+            If you suspect an overdose or accidental ingestion, call Poison Control:{' '}
+            <a href="tel:18002221222" className="underline font-medium">
+              1-800-222-1222
+            </a>{' '}
+            (free, 24/7, U.S.). For life-threatening symptoms, call{' '}
+            <a href="tel:911" className="underline font-medium">
+              911
+            </a>
+            .
+          </p>
+        </div>
+
+        {hasConsumerToc && (
+          <details className="no-print lg:hidden bg-white border border-slate-200 rounded-xl shadow-sm p-4 [&[open]>summary]:mb-3">
+            <summary className="cursor-pointer text-sm font-semibold text-slate-800 list-none [&::-webkit-details-marker]:hidden">
+              On this page
+            </summary>
+            <MedguideToc html={linkedMedguideHtml ?? ''} drugName={drugName} />
+          </details>
+        )}
+
+        <div className={hasConsumerToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[14rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
+          {hasConsumerToc && (
+            <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-56">
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <MedguideToc html={linkedMedguideHtml ?? ''} drugName={drugName} />
+              </div>
+            </aside>
+          )}
+          <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+            {linkedMedguideHtml ? (
+              <article
+                id="medguide-content"
+                className={MEDGUIDE_PROSE_CLASSES}
+                dangerouslySetInnerHTML={{ __html: linkedMedguideHtml }}
+              />
+            ) : (
+              <SectionFallback
+                guide={guideData}
+                hasRenderableSections={hasRenderableSections}
+                drugName={drugName}
+                conditionTags={conditionTags}
+                drugNames={drugNames}
+                linkTargets={linkTargets}
+              />
+            )}
+          </div>
+        </div>
+      </div>
 
       <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
         <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>

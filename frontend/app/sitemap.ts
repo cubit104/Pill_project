@@ -45,9 +45,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ]
 
   try {
-    const [slugRes, classRes] = await Promise.all([
+    const [slugRes, classRes, guideSlugRes] = await Promise.all([
       fetch(`${API_BASE}/api/slugs`, { next: { revalidate: 86400 } }),
       fetch(`${API_BASE}/api/classes`, { next: { revalidate: 86400 } }),
+      fetch(`${API_BASE}/api/slugs/guide-pages`, { next: { revalidate: 86400 } }),
     ])
 
     if (!slugRes.ok) {
@@ -58,6 +59,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
 
     const slugs: string[] = await slugRes.json()
+    type GuideSlugEntry = { slug: string; has_medguide: boolean; has_professional: boolean }
+    const guideSlugs: GuideSlugEntry[] = guideSlugRes.ok
+      ? await guideSlugRes.json()
+      : []
 
     let classes: Array<{ slug: string }> = []
     if (!classRes.ok) {
@@ -81,7 +86,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.6,
     }))
 
-    return [...staticPages, ...pillPages, ...classPages]
+    const medicationGuidePages: MetadataRoute.Sitemap = guideSlugs
+      .filter((entry) => entry.slug && entry.has_medguide)
+      .map((entry) => ({
+        url: `${SITE_URL}/pill/${encodeURIComponent(entry.slug)}/medication-guide`,
+        changeFrequency: 'monthly' as const,
+        priority: 0.7,
+      }))
+
+    const professionalInfoPages: MetadataRoute.Sitemap = guideSlugs
+      .filter((entry) => entry.slug && entry.has_professional)
+      .map((entry) => ({
+        url: `${SITE_URL}/pill/${encodeURIComponent(entry.slug)}/professional-information`,
+        changeFrequency: 'monthly' as const,
+        priority: 0.7,
+      }))
+
+    return [...staticPages, ...pillPages, ...medicationGuidePages, ...professionalInfoPages, ...classPages]
   } catch (err) {
     console.error('[sitemap] Failed to fetch data from backend:', err)
     return staticPages

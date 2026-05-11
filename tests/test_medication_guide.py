@@ -513,6 +513,44 @@ def test_guide_route_forwards_include_professional_flag():
     assert mock_build.call_args.kwargs["include_professional"] is True
 
 
+def test_guide_route_sets_cache_control_header_for_rxcui():
+    app = FastAPI()
+    app.include_router(medication_guide_routes.router)
+
+    async def _ok(*, rxcui=None, ndc=None, **kwargs):
+        return {
+            "rxcui": rxcui,
+            "ndc": ndc,
+            "sections": {},
+        }
+
+    with patch("routes.medication_guide.build_guide", side_effect=_ok):
+        client = TestClient(app)
+        response = client.get("/api/drugs/153165/guide")
+
+    assert response.status_code == 200
+    assert response.headers.get("cache-control") == "public, max-age=3600, stale-while-revalidate=86400"
+
+
+def test_guide_route_sets_cache_control_header_for_ndc():
+    app = FastAPI()
+    app.include_router(medication_guide_routes.router)
+
+    async def _ok(*, rxcui=None, ndc=None, **kwargs):
+        return {
+            "rxcui": rxcui,
+            "ndc": ndc,
+            "sections": {},
+        }
+
+    with patch("routes.medication_guide.build_guide", side_effect=_ok):
+        client = TestClient(app)
+        response = client.get("/api/drugs/by-ndc/0071015623/guide")
+
+    assert response.status_code == 200
+    assert response.headers.get("cache-control") == "public, max-age=3600, stale-while-revalidate=86400"
+
+
 def test_build_guide_refetches_when_stale():
     old_row = {
         "id": 1,
