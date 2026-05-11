@@ -340,9 +340,11 @@ def test_api_pill_slug_meta_description_returned_when_set(client):
 def test_sitemap_returns_200(client):
     """GET /sitemap.xml should return 200 with XML content."""
     import database as db_module
-    mock_result = MagicMock()
-    mock_result.__iter__ = MagicMock(return_value=iter([("aspirin-500mg-0069-0020-01",)]))
-    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    slug_rows = MagicMock()
+    slug_rows.__iter__ = MagicMock(return_value=iter([("aspirin-500mg-0069-0020-01",)]))
+    guide_rows = MagicMock()
+    guide_rows.fetchall.return_value = [("aspirin-500mg-0069-0020-01", True, True)]
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = [slug_rows, guide_rows]
     response = client.get("/sitemap.xml")
     assert response.status_code == 200
 
@@ -350,9 +352,11 @@ def test_sitemap_returns_200(client):
 def test_sitemap_content_type(client):
     """GET /sitemap.xml should return XML content type."""
     import database as db_module
-    mock_result = MagicMock()
-    mock_result.__iter__ = MagicMock(return_value=iter([]))
-    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    slug_rows = MagicMock()
+    slug_rows.__iter__ = MagicMock(return_value=iter([]))
+    guide_rows = MagicMock()
+    guide_rows.fetchall.return_value = []
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = [slug_rows, guide_rows]
     response = client.get("/sitemap.xml")
     assert "xml" in response.headers.get("content-type", "")
 
@@ -360,11 +364,27 @@ def test_sitemap_content_type(client):
 def test_sitemap_contains_urlset(client):
     """GET /sitemap.xml should contain a urlset element."""
     import database as db_module
-    mock_result = MagicMock()
-    mock_result.__iter__ = MagicMock(return_value=iter([("some-slug",)]))
-    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    slug_rows = MagicMock()
+    slug_rows.__iter__ = MagicMock(return_value=iter([("some-slug",)]))
+    guide_rows = MagicMock()
+    guide_rows.fetchall.return_value = [("some-slug", True, True)]
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = [slug_rows, guide_rows]
     response = client.get("/sitemap.xml")
     assert b"urlset" in response.content
+
+
+def test_sitemap_contains_guide_urls_when_available(client):
+    import database as db_module
+    slug_rows = MagicMock()
+    slug_rows.__iter__ = MagicMock(return_value=iter([("some-slug",)]))
+    guide_rows = MagicMock()
+    guide_rows.fetchall.return_value = [("some-slug", True, True)]
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = [slug_rows, guide_rows]
+
+    response = client.get("/sitemap.xml")
+
+    assert b"/pill/some-slug/medication-guide" in response.content
+    assert b"/pill/some-slug/professional-information" in response.content
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +398,9 @@ def test_api_slugs_returns_200(client):
     mock_result.__iter__ = MagicMock(
         return_value=iter([("aspirin-500mg-01",), ("ibuprofen-200mg-02",)])
     )
-    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = mock_result
     response = client.get("/api/slugs")
     assert response.status_code == 200
 
@@ -390,7 +412,9 @@ def test_api_slugs_returns_list_of_strings(client):
     mock_result.__iter__ = MagicMock(
         return_value=iter([("aspirin-500mg-01",), ("ibuprofen-200mg-02",)])
     )
-    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = mock_result
     response = client.get("/api/slugs")
     data = response.json()
     assert isinstance(data, list)
@@ -404,11 +428,33 @@ def test_api_slugs_filters_null_values(client):
     mock_result.__iter__ = MagicMock(
         return_value=iter([("aspirin-500mg-01",), (None,), ("ibuprofen-200mg-02",)])
     )
-    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = mock_result
     response = client.get("/api/slugs")
     data = response.json()
     assert None not in data
     assert len(data) == 2
+
+
+def test_api_guide_page_slugs_returns_availability_payload(client):
+    import database as db_module
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = [
+        ("aspirin-500mg-01", True, False),
+        ("ibuprofen-200mg-02", False, True),
+    ]
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = mock_result
+
+    response = client.get("/api/slugs/guide-pages")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"slug": "aspirin-500mg-01", "has_medguide": True, "has_professional": False},
+        {"slug": "ibuprofen-200mg-02", "has_medguide": False, "has_professional": True},
+    ]
 
 
 def test_database_url_env_var_is_read():
@@ -701,4 +747,3 @@ def test_api_pill_similar_image_url_built_from_filename(client):
     data = response.json()
     assert len(data["similar"]) == 1
     assert data["similar"][0]["image_url"] == f"{IMAGE_BASE}/other.jpg"
-

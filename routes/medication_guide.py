@@ -16,6 +16,7 @@ from services.rxnorm_client import RxNormClient
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["medication-guide"])
+CACHE_CONTROL_HEADER = "public, max-age=3600, stale-while-revalidate=86400"
 
 
 @router.get("/api/drugs/{rxcui}/guide")
@@ -27,12 +28,13 @@ async def get_guide_by_rxcui(
 ):
     """Return medication guide for one RxCUI."""
     try:
-        return await build_guide(
+        payload = await build_guide(
             rxcui=rxcui,
             include_professional=include_professional,
             include_medguide=include_medguide,
             include_boxed_warning=include_boxed_warning,
         )
+        return JSONResponse(content=payload, headers={"Cache-Control": CACHE_CONTROL_HEADER})
     except GuideNotFoundError:
         return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
     except OpenFDAUpstreamError:
@@ -51,12 +53,13 @@ async def get_guide_by_ndc(
 ):
     """Return medication guide for one NDC."""
     try:
-        return await build_guide(
+        payload = await build_guide(
             ndc=ndc,
             include_professional=include_professional,
             include_medguide=include_medguide,
             include_boxed_warning=include_boxed_warning,
         )
+        return JSONResponse(content=payload, headers={"Cache-Control": CACHE_CONTROL_HEADER})
     except GuideValidationError:
         return JSONResponse(status_code=400, content={"error": "Invalid NDC format"})
     except GuideNotFoundError:
