@@ -755,6 +755,7 @@ export default async function MedicationGuidePage({
 
   const drugSlug = slugifyDrugName(drugName)
 
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
       <nav aria-label="Breadcrumb">
