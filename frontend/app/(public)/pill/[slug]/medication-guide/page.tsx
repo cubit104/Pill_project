@@ -4,10 +4,12 @@ import { notFound } from 'next/navigation'
 import type { ReactNode } from 'react'
 import MedguideMetaBar from './MedguideMetaBar'
 import MedicationGuideTabs from './MedicationGuideTabs'
+import { slugFromTag } from '../../../../lib/condition-utils'
 import { slugifyDrugName } from '../../../../lib/slug'
-import { slugifyUrl } from '../../../../lib/url-utils'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
+const LINK_CLASSES = 'text-sky-700 hover:underline'
+const CONDITION_TITLE_PREFIX_RE = /^Medications for\s+/i
 
 type PageParams = Promise<{ slug: string }>
 type SearchParams = Promise<{ tab?: string }>
@@ -67,7 +69,11 @@ type LinkTarget = {
   term: string
   href: string
 }
-const SAFE_INTERNAL_PATH_RE = /^\/(?:drug|condition)\/[a-z0-9-]+$/
+type ConditionLink = {
+  term: string
+  slug: string
+}
+const SAFE_INTERNAL_PATH_RE = /^\/(?:drug|condition)\/[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
   { key: 'overview', label: 'Overview' },
@@ -93,7 +99,7 @@ const MEDGUIDE_PROSE_CLASSES = [
   '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ul]:space-y-1',
   '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_ol]:space-y-1',
   '[&_li]:text-sm [&_li]:leading-relaxed [&_li]:text-slate-700',
-  '[&_a]:text-sky-700 hover:[&_a]:underline',
+  '[&_a]:text-sky-700 [&_a:hover]:underline',
   '[&_strong]:font-semibold [&_strong]:text-slate-800',
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
@@ -109,7 +115,7 @@ const PRO_PROSE_CLASSES = [
   '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ul]:space-y-1',
   '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_ol]:space-y-1',
   '[&_li]:text-sm [&_li]:leading-relaxed [&_li]:text-slate-700',
-  '[&_a]:text-sky-700 hover:[&_a]:underline',
+  '[&_a]:text-sky-700 [&_a:hover]:underline',
   '[&_strong]:font-semibold [&_strong]:text-slate-800',
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
@@ -119,7 +125,7 @@ const PRO_PROSE_CLASSES = [
 const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
   'rounded-xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-5'
 const PRO_HIGHLIGHTS_PROSE_CLASSES =
-  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mb-2 [&_h2]:mt-3 [&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_li]:text-sm [&_li]:text-slate-700 [&_a]:text-sky-700 hover:[&_a]:underline [&_strong]:font-semibold [&_strong]:text-slate-800'
+  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mb-2 [&_h2]:mt-3 [&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_li]:text-sm [&_li]:text-slate-700 [&_a]:text-sky-700 [&_a:hover]:underline [&_strong]:font-semibold [&_strong]:text-slate-800'
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
   for (const value of values) {
@@ -194,10 +200,10 @@ function splitBrandNames(value: string | undefined): string[] {
 
 function buildLinkTargets({
   drugNames,
-  conditionTags,
+  conditionLinks,
 }: {
   drugNames: string[]
-  conditionTags: string[]
+  conditionLinks: ConditionLink[]
 }): LinkTarget[] {
   const targets: LinkTarget[] = []
 
@@ -207,10 +213,9 @@ function buildLinkTargets({
     targets.push({ term: name, href: `/drug/${slug}` })
   }
 
-  for (const name of normalizeTerms(conditionTags)) {
-    const slug = slugifyUrl(name)
+  for (const { term, slug } of conditionLinks) {
     if (!slug) continue
-    targets.push({ term: name, href: `/condition/${slug}` })
+    targets.push({ term, href: `/condition/${slug}` })
   }
 
   const deduped = new Map<string, LinkTarget>()
@@ -250,7 +255,10 @@ function linkifyText(
 
   const targets = buildLinkTargets({
     drugNames: [drugName, ...additionalDrugNames],
-    conditionTags,
+    conditionLinks: normalizeTerms(conditionTags).map((tag) => ({
+      term: tag,
+      slug: slugFromTag(tag),
+    })),
   })
   const regex = makeLinkRegex(targets.map((target) => target.term))
   if (!regex) return text
@@ -269,7 +277,7 @@ function linkifyText(
     const safeHref = target ? getSafeHref(target.href) : null
     if (target && safeHref) {
       parts.push(
-        <Link key={`${matchedText}-${index}`} href={safeHref} className="text-sky-700 hover:underline">
+        <Link key={`link-${index}-${cursor}`} href={safeHref} className={LINK_CLASSES}>
           {matchedText}
         </Link>
       )
@@ -285,31 +293,26 @@ function linkifyText(
 
 function linkifyHtmlContent(content: string, targets: LinkTarget[]): string {
   if (!content || targets.length === 0) return content
-  if (/<a\b/i.test(content)) return content
 
   const regex = makeLinkRegex(targets.map((target) => target.term))
   if (!regex) return content
 
   const targetByTerm = new Map(targets.map((target) => [target.term.toLowerCase(), target]))
-  const tokens = content.split(/(<[^>]+>)/g)
-  let insideAnchor = false
+  const anchorChunks = content.split(/(<a\b[^>]*>[\s\S]*?<\/a>)/gi)
 
-  return tokens
-    .map((token) => {
-      if (token.startsWith('<')) {
-        if (/^<a\b/i.test(token)) insideAnchor = true
-        if (/^<\/a\b/i.test(token)) insideAnchor = false
-        return token
-      }
-
-      if (insideAnchor) return token
-
-      return token.replace(regex, (match) => {
-        const target = targetByTerm.get(match.toLowerCase())
-        const safeHref = target ? getSafeHref(target.href) : null
-        if (!target || !safeHref) return match
-        return `<a href="${escapeHtml(safeHref)}" class="text-sky-700 hover:underline">${escapeHtml(match)}</a>`
-      })
+  return anchorChunks
+    .map((chunk) => {
+      if (/^<a\b/i.test(chunk)) return chunk
+      const tokens = chunk.split(/(<[^>]+>)/g)
+      return tokens.map((token) => {
+        if (token.startsWith('<')) return token
+        return token.replace(regex, (match) => {
+          const target = targetByTerm.get(match.toLowerCase())
+          const safeHref = target ? getSafeHref(target.href) : null
+          if (!target || !safeHref) return match
+          return `<a href="${escapeHtml(safeHref)}" class="${LINK_CLASSES}">${escapeHtml(match)}</a>`
+        })
+      }).join('')
     })
     .join('')
 }
@@ -433,6 +436,37 @@ function ProfessionalEmptyState({ guide }: { guide: GuideResponse | null }) {
   )
 }
 
+function buildConditionLinks(conditions: ConditionListItem[]): ConditionLink[] {
+  const links: ConditionLink[] = []
+  for (const condition of conditions) {
+    const term = condition.title.replace(CONDITION_TITLE_PREFIX_RE, '').trim()
+    if (!term) continue
+    links.push({
+      term,
+      slug: condition.slug || slugFromTag(term),
+    })
+  }
+  return links
+}
+
+type GuideFetchOptions = {
+  includeProfessional: boolean
+  includeMedguide: boolean
+  includeBoxedWarning: boolean
+}
+
+function buildGuideQuery({
+  includeProfessional,
+  includeMedguide,
+  includeBoxedWarning,
+}: GuideFetchOptions): string {
+  const params = new URLSearchParams()
+  params.set('include_professional', includeProfessional ? 'true' : 'false')
+  params.set('include_medguide', includeMedguide ? 'true' : 'false')
+  params.set('include_boxed_warning', includeBoxedWarning ? 'true' : 'false')
+  return params.toString()
+}
+
 async function fetchPill(slug: string): Promise<PillInfo | null> {
   try {
     const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, { cache: 'no-store' })
@@ -443,10 +477,8 @@ async function fetchPill(slug: string): Promise<PillInfo | null> {
   }
 }
 
-async function fetchGuide(pill: PillInfo, isPro: boolean): Promise<GuideResponse | null> {
-  const params = isPro
-    ? 'include_professional=true'
-    : 'include_medguide=true&include_professional=false&include_boxed_warning=true'
+async function fetchGuide(pill: PillInfo, options: GuideFetchOptions): Promise<GuideResponse | null> {
+  const params = buildGuideQuery(options)
 
   try {
     if (pill.rxcui) {
@@ -494,7 +526,11 @@ export async function generateMetadata({
   const { tab = 'consumer' } = await searchParams
   const isPro = tab === 'pro'
   const pill = await fetchPill(slug)
-  const guide = pill ? await fetchGuide(pill, isPro) : null
+  const guide = pill ? await fetchGuide(pill, {
+    includeProfessional: isPro,
+    includeMedguide: !isPro,
+    includeBoxedWarning: !isPro,
+  }) : null
   const drugName = resolveDrugName({ guide, pill, slug })
   return { title: `Medication Guide — ${drugName}` }
 }
@@ -512,14 +548,19 @@ export default async function MedicationGuidePage({
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
-  const [consumerGuide, professionalGuide, conditions] = await Promise.all([
-    fetchGuide(pill, false),
-    fetchGuide(pill, true),
+  const [guideData, conditions] = await Promise.all([
+    fetchGuide(pill, {
+      includeProfessional: true,
+      includeMedguide: true,
+      includeBoxedWarning: true,
+    }),
     fetchAllConditions(),
   ])
 
-  const hasMedguide = Boolean(consumerGuide?.has_medguide)
-  const guideForName = consumerGuide ?? professionalGuide
+  const hasMedguide = Boolean(guideData?.has_medguide)
+  const guideForName = guideData
+  const consumerGuide = guideData
+  const professionalGuide = guideData
   const drugName = resolveDrugName({ guide: guideForName, pill, slug })
   const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(consumerGuide?.sections?.[key]))
   const defaultTab = tab === 'pro' || !hasMedguide ? 'pro' : 'consumer'
@@ -535,13 +576,10 @@ export default async function MedicationGuidePage({
     ...splitBrandNames(pill.brand_names),
   ])
 
-  const conditionTags = normalizeTerms(
-    conditions
-      .map((condition) => condition.title.replace(/^Medications for\s+/i, '').trim())
-      .filter(Boolean)
-  )
+  const conditionLinks = buildConditionLinks(conditions)
+  const conditionTags = normalizeTerms(conditionLinks.map((condition) => condition.term))
 
-  const linkTargets = buildLinkTargets({ drugNames, conditionTags })
+  const linkTargets = buildLinkTargets({ drugNames, conditionLinks })
 
   const linkedMedguideHtml = consumerGuide?.medguide_html
     ? linkifyHtmlContent(consumerGuide.medguide_html, linkTargets)
