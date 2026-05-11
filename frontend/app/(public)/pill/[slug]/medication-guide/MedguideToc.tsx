@@ -8,7 +8,7 @@ interface TocEntry {
   text: string
   level: 2 | 3
 }
-const TOC_LINK_BASE_CLASSES = 'block break-words text-sm py-0.5'
+const TOC_LINK_BASE_CLASSES = 'block break-words text-xs py-0.5'
 
 function extractHeadings(html: string): TocEntry[] {
   if (typeof window === 'undefined' || !html) return []
