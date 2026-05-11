@@ -109,12 +109,12 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
               onClick={(e) => handleClick(e, id)}
               className={
                 activeId === id
-                  ? 'block whitespace-nowrap text-sm font-semibold text-sky-700 py-0.5'
-                  : 'block whitespace-nowrap text-sm font-medium text-slate-600 hover:text-slate-900 py-0.5'
-               }
-               title={text}
-               aria-label={text}
-             >
+                  ? 'block whitespace-nowrap text-sm font-semibold text-emerald-600 hover:text-emerald-800 py-0.5'
+                  : 'block whitespace-nowrap text-sm font-medium text-emerald-600 hover:text-emerald-800 py-0.5'
+                }
+                title={text}
+                aria-label={text}
+              >
                {shortenTocLabel(text, drugName)}
              </a>
            </li>
