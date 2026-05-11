@@ -514,11 +514,23 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params
   const pill = await fetchPill(slug)
-  const drugName = resolveDrugName({ guide: null, pill, slug })
+  const guide = pill
+    ? await fetchGuide(pill, {
+        includeProfessional: false,
+        includeMedguide: true,
+        includeBoxedWarning: true,
+      })
+    : null
+  const drugName = resolveDrugName({ guide, pill, slug })
+  const hasMedicationGuideContent =
+    Boolean(guide?.has_medguide) || Boolean(guide?.medguide_html?.trim())
   return {
     title: `Medication Guide — ${drugName}`,
     description: `Read the FDA Medication Guide for ${drugName}, including key warnings and patient counseling information.`,
     alternates: { canonical: `/pill/${encodeURIComponent(slug)}/medication-guide` },
+    ...(!hasMedicationGuideContent && {
+      robots: { index: false, follow: true },
+    }),
   }
 }
 
@@ -541,9 +553,73 @@ export default async function MedicationGuidePage({
   const hasMedguide = Boolean(guideData?.has_medguide)
   const hasMedguideHtml = Boolean(guideData?.medguide_html?.trim())
   const hasMedicationGuideContent = hasMedguide || hasMedguideHtml
-  if (!guideData || !hasMedicationGuideContent) notFound()
-  const conditions = await fetchAllConditions()
+
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
+  const drugSlugForUnavailable = slugifyDrugName(drugName)
+
+  if (!hasMedicationGuideContent) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+        <nav aria-label="Breadcrumb">
+          <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
+            <li>
+              <Link href="/" className="hover:text-sky-700 transition-colors">
+                Home
+              </Link>
+            </li>
+            {drugSlugForUnavailable && (
+              <>
+                <li aria-hidden="true" className="select-none">›</li>
+                <li>
+                  <Link href={`/drug/${drugSlugForUnavailable}`} className="hover:text-sky-700 transition-colors">
+                    {drugName}
+                  </Link>
+                </li>
+              </>
+            )}
+            <li aria-hidden="true" className="select-none">›</li>
+            <li className="text-slate-700 font-medium">Medication Guide</li>
+          </ol>
+        </nav>
+
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
+        </div>
+
+        <MedicationGuideTabs
+          activeTab="consumer"
+          medicationGuideHref={`/pill/${encodeURIComponent(slug)}/medication-guide`}
+          professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
+        />
+
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 text-center space-y-4">
+          <p className="text-slate-700">
+            Medication Guide is not available for this medication.
+          </p>
+          <Link
+            href={`/pill/${encodeURIComponent(slug)}/professional-information`}
+            className="inline-flex items-center gap-2 text-sky-700 font-semibold hover:text-sky-900"
+          >
+            View Professional Information →
+          </Link>
+        </div>
+
+        <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>
+          <p className="text-xs text-amber-700 leading-relaxed">
+            This information is for educational purposes only and is not medical advice. Always consult your doctor,
+            pharmacist, or other licensed healthcare professional before starting, stopping, or changing any medicine.{' '}
+            <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
+              Read full medical disclaimer
+            </Link>
+            .
+          </p>
+        </section>
+      </div>
+    )
+  }
+
+  const conditions = await fetchAllConditions()
   const hasRenderableSections = SECTION_ORDER.some(({ key }) => Boolean(guideData?.sections?.[key]))
 
   const drugNames = normalizeTerms([
