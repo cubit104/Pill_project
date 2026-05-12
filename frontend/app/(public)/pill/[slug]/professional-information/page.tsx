@@ -169,8 +169,8 @@ export async function generateMetadata({
   const drugName = resolveDrugName({ guide: null, pill, slug })
 
   return {
-    title: `Professional Information — ${drugName}`,
-    description: `Read the FDA professional prescribing information for ${drugName}, including highlights and full prescribing details.`,
+    title: `${drugName}: Dosage, Adverse Reactions & MOA`,
+    description: `View FDA prescribing information for ${drugName}, including indications, dosage, adverse reactions, contraindications, pharmacology, and counseling.`,
     alternates: { canonical: `/pill/${encodeURIComponent(slug)}/professional-information` },
   }
 }
