@@ -17,6 +17,7 @@ import {
 } from './layoutStyles'
 import { slugFromTag } from '../../../../lib/condition-utils'
 import { slugifyDrugName } from '../../../../lib/slug'
+import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const LINK_CLASSES = 'text-emerald-600 hover:underline'
@@ -570,7 +571,7 @@ export async function generateMetadata({
 
   if (!hasMedicationGuideContent) {
     return {
-      title: `${drugName}: Dosage, Adverse Reactions & MOA`,
+      title: `${drugName} Professional Prescribing Information`,
       description: `View FDA prescribing information for ${drugName}, including indications, dosage, adverse reactions, contraindications, pharmacology, and counseling.`,
       alternates: { canonical: `/pill/${encodeURIComponent(slug)}/professional-information` },
       robots: { index: false, follow: true },
@@ -578,7 +579,7 @@ export async function generateMetadata({
   }
 
   return {
-    title: `${drugName}: Uses, Side Effects, Dosage & Warnings`,
+    title: `${drugName} Medication Guide, Warnings & FDA Label`,
     description: `Read the FDA Medication Guide for ${drugName}, including uses, dosage, side effects, warnings, and important safety information.`,
     alternates: { canonical: `/pill/${encodeURIComponent(slug)}/medication-guide` },
   }
@@ -624,7 +625,32 @@ export default async function MedicationGuidePage({
       professionalData?.professional_html?.trim() || professionalData?.professional_highlights_html?.trim()
     )
 
+    const proRxcui = professionalData?.rxcui ?? pill.rxcui
+    const proNdc = professionalData?.ndc ?? pill.ndc11 ?? pill.ndc9
+    const proSplSetId = pill.spl_set_id
+    const proFetchedAt = professionalData?.fetched_at
+
+    const proPageJsonLd = guidePageSchema({
+      drugName,
+      slug,
+      pageType: 'professional-information',
+      rxcui: proRxcui,
+      ndc: proNdc,
+      splSetId: proSplSetId,
+      genericName: professionalData?.generic_name,
+      brandName: professionalData?.brand_name ?? professionalData?.proprietary_name,
+      fetchedAt: proFetchedAt,
+    })
+    const proBreadcrumbs = breadcrumbSchema([
+      { name: 'Home', url: '/' },
+      ...(drugSlugForUnavailable ? [{ name: drugName, url: `/drug/${drugSlugForUnavailable}` }] : []),
+      { name: 'Professional Information', url: `/pill/${encodedSlug}/professional-information` },
+    ])
+
     return (
+      <>
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(proBreadcrumbs) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(proPageJsonLd) }} />
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
         <nav aria-label="Breadcrumb">
           <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
@@ -728,6 +754,28 @@ export default async function MedicationGuidePage({
           </p>
         )}
 
+        {(proSplSetId || proRxcui || proNdc || proFetchedAt || professionalData?.source_url) && (
+          <section className="border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1">
+            <h2 className="font-semibold text-slate-600 mb-2">Sources</h2>
+            {proSplSetId && <p><span className="font-medium">DailyMed SPL Set ID:</span> {proSplSetId}</p>}
+            {proRxcui && <p><span className="font-medium">RxCUI:</span> {proRxcui}</p>}
+            {proNdc && <p><span className="font-medium">NDC:</span> {proNdc}</p>}
+            {proFetchedAt && (
+              <p><span className="font-medium">Last fetched:</span>{' '}
+                {new Date(proFetchedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}
+              </p>
+            )}
+            {professionalData?.source_url && (
+              <p>
+                <span className="font-medium">Source:</span>{' '}
+                <a href={professionalData.source_url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">
+                  DailyMed ↗
+                </a>
+              </p>
+            )}
+          </section>
+        )}
+
         <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>
           <p className="text-xs text-amber-700 leading-relaxed">
@@ -740,6 +788,7 @@ export default async function MedicationGuidePage({
           </p>
         </section>
       </div>
+      </>
     )
   }
 
@@ -773,8 +822,31 @@ export default async function MedicationGuidePage({
 
   const drugSlug = slugifyDrugName(drugName)
 
+  const guideRxcui = guideData?.rxcui ?? pill.rxcui
+  const guideNdc = guideData?.ndc ?? pill.ndc11 ?? pill.ndc9
+  const guideSplSetId = pill.spl_set_id
+
+  const medguideJsonLd = guidePageSchema({
+    drugName,
+    slug,
+    pageType: 'medication-guide',
+    rxcui: guideRxcui,
+    ndc: guideNdc,
+    splSetId: guideSplSetId,
+    genericName: guideData?.generic_name,
+    brandName: guideData?.brand_name ?? guideData?.proprietary_name,
+    fetchedAt: guideData?.fetched_at,
+  })
+  const medguideBreadcrumbs = breadcrumbSchema([
+    { name: 'Home', url: '/' },
+    ...(drugSlug ? [{ name: drugName, url: `/drug/${drugSlug}` }] : []),
+    { name: 'Medication Guide', url: `/pill/${encodeURIComponent(slug)}/medication-guide` },
+  ])
 
   return (
+    <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(medguideBreadcrumbs) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(medguideJsonLd) }} />
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
       <nav aria-label="Breadcrumb">
         <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
@@ -889,6 +961,28 @@ export default async function MedicationGuidePage({
         </div>
       </div>
 
+      {(guideSplSetId || guideRxcui || guideNdc || guideData?.fetched_at || guideData?.source_url) && (
+        <section className="border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1">
+          <h2 className="font-semibold text-slate-600 mb-2">Sources</h2>
+          {guideSplSetId && <p><span className="font-medium">DailyMed SPL Set ID:</span> {guideSplSetId}</p>}
+          {guideRxcui && <p><span className="font-medium">RxCUI:</span> {guideRxcui}</p>}
+          {guideNdc && <p><span className="font-medium">NDC:</span> {guideNdc}</p>}
+          {guideData?.fetched_at && (
+            <p><span className="font-medium">Last fetched:</span>{' '}
+              {new Date(guideData.fetched_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}
+            </p>
+          )}
+          {guideData?.source_url && (
+            <p>
+              <span className="font-medium">Source:</span>{' '}
+              <a href={guideData.source_url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">
+                DailyMed ↗
+              </a>
+            </p>
+          )}
+        </section>
+      )}
+
       <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
         <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>
         <p className="text-xs text-amber-700 leading-relaxed">
@@ -901,5 +995,6 @@ export default async function MedicationGuidePage({
         </p>
       </section>
     </div>
+    </>
   )
 }
