@@ -118,13 +118,13 @@ const MEDGUIDE_PROSE_CLASSES = [
 
 const PRO_PROSE_CLASSES = [
   '[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-900 [&_h1]:mb-4',
-  '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mt-8 [&_h2]:mb-3',
-  '[&_h3]:text-base [&_h3]:font-medium [&_h3]:text-slate-800 [&_h3]:mt-6 [&_h3]:mb-2',
+  '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mt-10 [&_h2]:mb-4',
+  '[&_h3]:text-base [&_h3]:font-medium [&_h3]:text-slate-800 [&_h3]:mt-8 [&_h3]:mb-3',
   '[&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:mt-5 [&_h4]:mb-2',
-  '[&_p]:text-sm [&_p]:leading-relaxed [&_p]:text-slate-700 [&_p]:my-3',
-  '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ul]:space-y-1',
-  '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_ol]:space-y-1',
-  '[&_li]:text-sm [&_li]:leading-relaxed [&_li]:text-slate-700',
+  '[&_p]:text-sm [&_p]:leading-8 [&_p]:text-slate-700 [&_p]:my-4',
+  '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4 [&_ul]:space-y-2',
+  '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4 [&_ol]:space-y-2',
+  '[&_li]:text-sm [&_li]:leading-8 [&_li]:text-slate-700 [&_li]:my-2',
   '[&_a]:text-emerald-600 [&_a:hover]:underline',
   '[&_strong]:font-semibold [&_strong]:text-slate-800',
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
@@ -659,15 +659,15 @@ export default async function MedicationGuidePage({
             </details>
           )}
 
-          <div className={hasProfessionalToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[14rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
+          <div className={hasProfessionalToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[13rem_minmax(0,56rem)] lg:gap-8 lg:items-start lg:justify-center' : 'space-y-6'}>
             {hasProfessionalToc && (
-              <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:w-56">
+              <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:w-52">
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <ProfessionalToc sections={professionalTocSections} />
                 </div>
               </aside>
             )}
-            <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+            <div className={`min-w-0 w-full bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6 ${hasProfessionalToc ? '' : 'lg:max-w-[56rem] lg:mx-auto'}`}>
               {professionalData?.professional_highlights_html && (
                 <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
                   <div
@@ -842,9 +842,9 @@ export default async function MedicationGuidePage({
           </details>
         )}
 
-        <div className={hasConsumerToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[14rem_1fr] lg:gap-8 lg:items-start' : 'space-y-6'}>
+        <div className={hasConsumerToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[13rem_minmax(0,56rem)] lg:gap-8 lg:items-start lg:justify-center' : 'space-y-6'}>
           {hasConsumerToc && (
-            <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-56">
+            <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-52">
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <MedguideToc html={linkedMedguideHtml ?? ''} drugName={drugName} />
               </div>
