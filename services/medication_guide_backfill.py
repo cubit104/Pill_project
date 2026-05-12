@@ -15,7 +15,7 @@ from typing import Any, Callable, Optional
 from sqlalchemy import text
 
 import database
-from services.medication_guide import GuideNotFoundError, build_guide
+from services.medication_guide import GuideNotFoundError, GuideValidationError, build_guide
 
 logger = logging.getLogger(__name__)
 
@@ -98,39 +98,36 @@ def _pillfinder_has_ndc9(conn) -> bool:
     return bool(row)
 
 
-def _select_published_pills_sql(*, has_rxcui: bool, has_ndc9: bool, limit: Optional[int]) -> tuple[str, dict[str, Any]]:
-    if has_rxcui and has_ndc9:
-        sql = """
-            SELECT id, slug, medicine_name, ndc11, ndc9, rxcui
-            FROM public.pillfinder
-            WHERE published = TRUE
-              AND deleted_at IS NULL
-            ORDER BY id ASC
-        """
-    elif has_rxcui:
-        sql = """
-            SELECT id, slug, medicine_name, ndc11, NULL::text AS ndc9, rxcui
-            FROM public.pillfinder
-            WHERE published = TRUE
-              AND deleted_at IS NULL
-            ORDER BY id ASC
-        """
-    elif has_ndc9:
-        sql = """
-            SELECT id, slug, medicine_name, ndc11, ndc9, NULL::text AS rxcui
-            FROM public.pillfinder
-            WHERE published = TRUE
-              AND deleted_at IS NULL
-            ORDER BY id ASC
-        """
-    else:
-        sql = """
-            SELECT id, slug, medicine_name, ndc11, NULL::text AS ndc9, NULL::text AS rxcui
-            FROM public.pillfinder
-            WHERE published = TRUE
-              AND deleted_at IS NULL
-            ORDER BY id ASC
-        """
+def _pillfinder_has_spl_set_id(conn) -> bool:
+    row = conn.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'pillfinder'
+              AND column_name = 'spl_set_id'
+            LIMIT 1
+            """
+        )
+    ).fetchone()
+    return bool(row)
+
+
+def _select_published_pills_sql(
+    *, has_rxcui: bool, has_ndc9: bool, has_spl_set_id: bool, limit: Optional[int]
+) -> tuple[str, dict[str, Any]]:
+    spl_col = "spl_set_id" if has_spl_set_id else "NULL::text AS spl_set_id"
+    rxcui_col = "rxcui" if has_rxcui else "NULL::text AS rxcui"
+    ndc9_col = "ndc9" if has_ndc9 else "NULL::text AS ndc9"
+
+    sql = f"""
+        SELECT id, slug, medicine_name, ndc11, {ndc9_col}, {rxcui_col}, {spl_col}
+        FROM public.pillfinder
+        WHERE published = TRUE
+          AND deleted_at IS NULL
+        ORDER BY id ASC
+    """
     params: dict[str, Any] = {}
     if limit is not None:
         sql += "\nLIMIT :limit"
@@ -165,7 +162,12 @@ def _iter_published_pills(limit: Optional[int]):
         has_ndc9 = _pillfinder_has_ndc9(conn)
         if not has_ndc9:
             logger.warning("pillfinder.ndc9 column not found; ndc11-only NDC fallback will be used")
-        sql, params = _select_published_pills_sql(has_rxcui=has_rxcui, has_ndc9=has_ndc9, limit=limit)
+        has_spl_set_id = _pillfinder_has_spl_set_id(conn)
+        if not has_spl_set_id:
+            logger.debug("pillfinder.spl_set_id column not found; spl_set_id backfill path disabled")
+        sql, params = _select_published_pills_sql(
+            has_rxcui=has_rxcui, has_ndc9=has_ndc9, has_spl_set_id=has_spl_set_id, limit=limit
+        )
         result = conn.execution_options(stream_results=True).execute(text(sql), params)
         for row in result:
             yield dict(row._mapping)
@@ -266,9 +268,10 @@ async def run_backfill(
         rxcui = pill.get("rxcui")
         ndc11 = _clean_optional_text(pill.get("ndc11"))
         ndc9 = _clean_optional_text(pill.get("ndc9"))
+        spl_set_id = _clean_optional_text(pill.get("spl_set_id"))
         ndc = ndc11 or ndc9
 
-        if not rxcui and not ndc11 and not ndc9:
+        if not spl_set_id and not rxcui and not ndc11 and not ndc9:
             skipped += 1
             skipped_rows.append(
                 {
@@ -277,10 +280,14 @@ async def run_backfill(
                     "medicine_name": medicine_name,
                     "rxcui": "",
                     "ndc": "",
-                    "reason": "no rxcui, ndc11, or ndc9",
+                    "reason": "no rxcui, ndc11, ndc9, or spl_set_id",
                 }
             )
-            logger.info("Backfill skipped pill_id=%s slug=%s — no rxcui, ndc11, or ndc9", pill_id, slug)
+            logger.info(
+                "Backfill skipped pill_id=%s slug=%s — no rxcui, ndc11, ndc9, or spl_set_id",
+                pill_id,
+                slug,
+            )
             _emit_progress(
                 progress_callback,
                 processed=processed,
@@ -338,62 +345,171 @@ async def run_backfill(
             await asyncio.sleep(rate_limit_seconds)
         call_count += 1
 
+        result = None
+        match_type = None
+        last_exc: Optional[Exception] = None
+        status = "error"
+
         try:
-            result = await build_guide(
-                rxcui=str(rxcui) if rxcui else None,
-                ndc=str(ndc) if ndc else None,
-                force_refresh=force_refresh,
-                include_professional=True,
-                include_medguide=True,
-                include_boxed_warning=True,
-            )
-            matched += 1
-            if result.get("professional_html") or result.get("professional_highlights_html"):
-                professional_found += 1
-            if result.get("medguide_html") or result.get("has_medguide"):
-                medguide_found += 1
-            if result.get("boxed_warning_html") or result.get("has_boxed_warning"):
-                boxed_warning_found += 1
+            # Priority 1: spl_set_id
+            if spl_set_id and result is None:
+                try:
+                    result = await build_guide(
+                        spl_set_id=spl_set_id,
+                        force_refresh=force_refresh,
+                        include_professional=True,
+                        include_medguide=True,
+                        include_boxed_warning=True,
+                    )
+                    match_type = "spl_set_id"
+                except GuideNotFoundError as exc:
+                    logger.debug(
+                        "Backfill spl_set_id=%s not found for pill_id=%s slug=%s, trying rxcui/ndc",
+                        spl_set_id,
+                        pill_id,
+                        slug,
+                    )
+                    last_exc = exc
 
-            sections = result.get("sections") or {}
-            missing_sections = [key for key in SECTION_KEYS if not sections.get(key)]
-            row_base = {
-                "pill_id": pill_id,
-                "slug": slug,
-                "medicine_name": medicine_name,
-                "rxcui": result.get("rxcui") or rxcui or "",
-                "ndc": result.get("ndc") or ndc or "",
-                "brand_name": result.get("brand_name") or "",
-                "generic_name": result.get("generic_name") or "",
-            }
+            # Priority 2: rxcui (without NDC — avoids NDC validation errors)
+            if rxcui and result is None:
+                try:
+                    result = await build_guide(
+                        rxcui=str(rxcui),
+                        ndc=None,
+                        force_refresh=force_refresh,
+                        include_professional=True,
+                        include_medguide=True,
+                        include_boxed_warning=True,
+                    )
+                    match_type = "rxcui"
+                except GuideNotFoundError as exc:
+                    logger.debug(
+                        "Backfill rxcui=%s not found for pill_id=%s slug=%s, trying ndc",
+                        rxcui,
+                        pill_id,
+                        slug,
+                    )
+                    last_exc = exc
 
-            if missing_sections:
-                partial += 1
-                partial_rows.append(
-                    {
-                        **row_base,
-                        "missing_sections": ",".join(missing_sections),
-                    }
+            # Priority 3: ndc11
+            if ndc11 and result is None:
+                try:
+                    result = await build_guide(
+                        rxcui=None,
+                        ndc=ndc11,
+                        force_refresh=force_refresh,
+                        include_professional=True,
+                        include_medguide=True,
+                        include_boxed_warning=True,
+                    )
+                    match_type = "ndc11"
+                except GuideValidationError:
+                    logger.warning(
+                        "Backfill ndc11=%s invalid for pill_id=%s slug=%s, trying ndc9",
+                        ndc11,
+                        pill_id,
+                        slug,
+                    )
+                except GuideNotFoundError as exc:
+                    logger.debug(
+                        "Backfill ndc11=%s not found for pill_id=%s slug=%s, trying ndc9",
+                        ndc11,
+                        pill_id,
+                        slug,
+                    )
+                    last_exc = exc
+
+            # Priority 4: ndc9
+            if ndc9 and result is None:
+                try:
+                    result = await build_guide(
+                        rxcui=None,
+                        ndc=ndc9,
+                        force_refresh=force_refresh,
+                        include_professional=True,
+                        include_medguide=True,
+                        include_boxed_warning=True,
+                    )
+                    match_type = "ndc9"
+                except GuideValidationError:
+                    logger.warning(
+                        "Backfill ndc9=%s invalid for pill_id=%s slug=%s",
+                        ndc9,
+                        pill_id,
+                        slug,
+                    )
+                except GuideNotFoundError as exc:
+                    last_exc = exc
+
+            if result is not None:
+                logger.info(
+                    "Backfill matched pill_id=%s slug=%s match_type=%s",
+                    pill_id,
+                    slug,
+                    match_type,
                 )
-                status = "partial"
-            else:
-                complete += 1
-                complete_rows.append(row_base)
-                status = "complete"
-        except GuideNotFoundError:
-            not_found += 1
-            not_found_rows.append(
-                {
+                matched += 1
+                if result.get("professional_html") or result.get("professional_highlights_html"):
+                    professional_found += 1
+                if result.get("medguide_html") or result.get("has_medguide"):
+                    medguide_found += 1
+                if result.get("boxed_warning_html") or result.get("has_boxed_warning"):
+                    boxed_warning_found += 1
+
+                sections = result.get("sections") or {}
+                missing_sections = [key for key in SECTION_KEYS if not sections.get(key)]
+                row_base = {
                     "pill_id": pill_id,
                     "slug": slug,
                     "medicine_name": medicine_name,
-                    "rxcui": rxcui or "",
-                    "ndc": ndc or "",
-                    "brand_name": "",
-                    "generic_name": "",
+                    "rxcui": result.get("rxcui") or rxcui or "",
+                    "ndc": result.get("ndc") or ndc or "",
+                    "brand_name": result.get("brand_name") or "",
+                    "generic_name": result.get("generic_name") or "",
                 }
-            )
-            status = "not_found"
+
+                if missing_sections:
+                    partial += 1
+                    partial_rows.append(
+                        {
+                            **row_base,
+                            "missing_sections": ",".join(missing_sections),
+                        }
+                    )
+                    status = "partial"
+                else:
+                    complete += 1
+                    complete_rows.append(row_base)
+                    status = "complete"
+            elif last_exc is not None and isinstance(last_exc, GuideNotFoundError):
+                not_found += 1
+                not_found_rows.append(
+                    {
+                        "pill_id": pill_id,
+                        "slug": slug,
+                        "medicine_name": medicine_name,
+                        "rxcui": rxcui or "",
+                        "ndc": ndc or "",
+                        "brand_name": "",
+                        "generic_name": "",
+                    }
+                )
+                status = "not_found"
+            else:
+                # All candidates were skipped (e.g. all NDCs invalid, no rxcui/spl_set_id)
+                skipped += 1
+                skipped_rows.append(
+                    {
+                        "pill_id": pill_id,
+                        "slug": slug,
+                        "medicine_name": medicine_name,
+                        "rxcui": rxcui or "",
+                        "ndc": ndc or "",
+                        "reason": "all identifier candidates invalid or skipped",
+                    }
+                )
+                status = "skipped"
         except Exception as exc:  # noqa: BLE001
             errors += 1
             errors_rows.append(
