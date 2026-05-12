@@ -21,6 +21,9 @@ Returns the cached or refreshed guide by RxCUI.
 ### `GET /api/drugs/by-ndc/{ndc}/guide`
 Returns the cached or refreshed guide by NDC (normalized using `ndc_normalize.py`).
 
+### `GET /api/drugs/by-setid/{spl_set_id}/guide`
+Returns the cached or refreshed guide by exact DailyMed SPL Set ID.
+
 ### `GET /api/drugs/search?q={name}&limit=10`
 RxNorm approximate term resolver:
 
@@ -37,8 +40,17 @@ Pre-populate the `medication_guide` table for all published pills.
 
 ### CLI
 
-    # Test with 5 pills first
+    # Safe dry-run (default limit is 5)
+    python -m scripts.backfill_medication_guide --dry-run
+
+    # Live run with 5 pills
     python -m scripts.backfill_medication_guide --limit 5
+
+    # Resume larger runs with offsets
+    python -m scripts.backfill_medication_guide --limit 100 --offset 100
+
+    # Focus only on rows still missing professional information
+    python -m scripts.backfill_medication_guide --limit 100 --only-missing-professional
 
     # Full run
     python -m scripts.backfill_medication_guide
@@ -51,6 +63,7 @@ Reports are written to `./backfill_reports/`.
 ### Admin API
 
     POST /api/admin/medication-guide/backfill?limit=5
+    POST /api/admin/medication-guide/backfill?limit=100&offset=100&only_missing_professional=true
 
 Runs in the background. Returns `202 Accepted` immediately. Check server logs and the reports directory.
 

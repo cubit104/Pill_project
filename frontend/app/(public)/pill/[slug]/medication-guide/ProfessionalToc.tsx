@@ -60,7 +60,7 @@ export default function ProfessionalToc({ sections }: { sections: Section[] }) {
               href={`#${section.slug}`}
               title={section.label}
               className={
-                'block text-xs transition-colors ' +
+                'block py-1 text-xs leading-5 transition-colors ' +
                 (activeId === section.slug
                   ? 'text-emerald-800 font-semibold'
                   : 'text-emerald-600 hover:text-emerald-800')

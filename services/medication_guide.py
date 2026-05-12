@@ -253,6 +253,17 @@ def _serialize_jsonb(value: Any) -> Optional[str]:
     return value
 
 
+def _select_cached_row_by_spl_set_id(conn, spl_set_id: str) -> Optional[dict[str, Any]]:
+    """Load cached medication_guide row by spl_set_id."""
+    row = conn.execute(
+        text("SELECT * FROM public.medication_guide WHERE spl_set_id = :spl_set_id LIMIT 1"),
+        {"spl_set_id": spl_set_id},
+    ).fetchone()
+    if row:
+        return _row_as_dict(list(row._mapping.keys()), row)
+    return None
+
+
 def _select_cached_row(conn, *, rxcui: Optional[str], ndc: Optional[str]) -> Optional[dict[str, Any]]:
     """Load cached medication_guide row by rxcui or ndc."""
     if rxcui:
@@ -417,6 +428,7 @@ async def build_guide(
     *,
     rxcui: Optional[str] = None,
     ndc: Optional[str] = None,
+    spl_set_id: Optional[str] = None,
     force_refresh: bool = False,
     include_professional: bool = False,
     include_medguide: bool = False,
@@ -424,11 +436,12 @@ async def build_guide(
     openfda_client: Optional[OpenFDAClient] = None,
     dailymed_client: Optional[DailyMedClient] = None,
 ) -> dict[str, Any]:
-    """Resolve, cache, and return a medication guide by RxCUI or NDC.
+    """Resolve, cache, and return a medication guide by SPL Set ID, RxCUI, or NDC.
 
     Args:
         rxcui: Preferred lookup key.
         ndc: Fallback or primary lookup key when RxCUI is unavailable.
+        spl_set_id: Direct DailyMed SPL Set ID; takes priority over rxcui/ndc.
         force_refresh: If True, bypasses cache freshness checks.
         include_professional: If True, include rendered professional HTML.
         include_medguide: If True, include rendered medguide HTML.
@@ -440,10 +453,21 @@ async def build_guide(
         API response payload for one medication guide.
 
     Raises:
-        GuideNotFoundError: When openFDA has no label for the requested drug.
+        GuideNotFoundError: When no label can be found for the requested drug.
         OpenFDAUpstreamError: When openFDA fails after retries.
         GuideInternalError: When database is unavailable.
     """
+    # When spl_set_id is provided, skip NDC validation and bypass openFDA entirely.
+    if spl_set_id:
+        return await _build_guide_by_spl_set_id(
+            spl_set_id=spl_set_id,
+            force_refresh=force_refresh,
+            include_professional=include_professional,
+            include_medguide=include_medguide,
+            include_boxed_warning=include_boxed_warning,
+            dailymed_client=dailymed_client,
+        )
+
     if not rxcui and not ndc:
         raise GuideNotFoundError("No FDA label found for this drug")
 
@@ -560,12 +584,12 @@ async def build_guide(
     # Attempt to fetch structured HTML from DailyMed SPL XML.
     # Use spl_set_id from openFDA response first; fall back to the cached DB value
     # (openFDA often omits spl_set_id even when it exists in DailyMed).
-    spl_set_id = mapped.get("spl_set_id") or (cached.get("spl_set_id") if cached else None)
-    if spl_set_id:
+    resolved_spl_set_id = mapped.get("spl_set_id") or (cached.get("spl_set_id") if cached else None)
+    if resolved_spl_set_id:
         # Ensure the resolved spl_set_id is stored in the mapped payload too
         if not mapped.get("spl_set_id"):
-            mapped["spl_set_id"] = spl_set_id
-            encoded_set_id = quote(spl_set_id, safe="")
+            mapped["spl_set_id"] = resolved_spl_set_id
+            encoded_set_id = quote(resolved_spl_set_id, safe="")
             mapped["source_url"] = (
                 f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}"
             )
@@ -575,11 +599,11 @@ async def build_guide(
         # On failure, fall back to the existing DailyMed patient-guide text for overview.
         spl_sections: dict = {}
         try:
-            spl_sections = await fetch_spl_sections(spl_set_id)
+            spl_sections = await fetch_spl_sections(resolved_spl_set_id)
         except Exception:
             logger.warning(
                 "SPL sections fetch raised for spl_set_id=%s, using openFDA fallback",
-                spl_set_id,
+                resolved_spl_set_id,
                 exc_info=True,
             )
 
@@ -590,44 +614,44 @@ async def build_guide(
             if spl_sections.get("_has_boxed_warning"):
                 mapped["has_boxed_warning"] = True
             logger.info(
-                "DailyMed SPL HTML sections applied for spl_set_id=%s", spl_set_id
+                "DailyMed SPL HTML sections applied for spl_set_id=%s", resolved_spl_set_id
             )
         else:
             # Fall back to patient-guide plain text from DailyMed for overview only
             dm_client = dailymed_client or DailyMedClient()
             try:
-                dm_result = dm_client.fetch_patient_guide(spl_set_id)
+                dm_result = dm_client.fetch_patient_guide(resolved_spl_set_id)
                 if dm_result and dm_result.get("full_text"):
                     mapped["overview"] = dm_result["full_text"]
                     logger.info(
                         "DailyMed overview set for spl_set_id=%s (%d chars)",
-                        spl_set_id,
+                        resolved_spl_set_id,
                         len(mapped["overview"]),
                     )
             except Exception:
                 logger.warning(
                     "DailyMed fetch failed for spl_set_id=%s, using openFDA fallback",
-                    spl_set_id,
+                    resolved_spl_set_id,
                     exc_info=True,
                 )
 
         if include_professional:
             try:
-                professional = await fetch_professional_rendered(spl_set_id)
+                professional = await fetch_professional_rendered(resolved_spl_set_id)
                 if professional:
                     mapped["professional_html"] = professional.article_html
                     mapped["professional_meta"] = _build_professional_meta(professional)
             except Exception:
                 logger.exception(
                     "include_professional fetch failed for spl_set_id=%s",
-                    spl_set_id,
+                    resolved_spl_set_id,
                 )
 
         if include_medguide:
-            mapped["medguide_html"] = await fetch_medguide_html(spl_set_id)
+            mapped["medguide_html"] = await fetch_medguide_html(resolved_spl_set_id)
 
         if include_boxed_warning:
-            mapped["boxed_warning_html"] = await fetch_boxed_warning_html(spl_set_id)
+            mapped["boxed_warning_html"] = await fetch_boxed_warning_html(resolved_spl_set_id)
 
     existing_id = int(cached["id"]) if cached and cached.get("id") is not None else None
 
@@ -652,6 +676,221 @@ async def build_guide(
     except IntegrityError as exc:
         with database.db_engine.connect() as conn:
             existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
+        if not existing or existing.get("id") is None:
+            raise GuideInternalError(
+                "Integrity conflict detected but no existing medication_guide row could be resolved"
+            ) from exc
+        with database.db_engine.begin() as write_conn:
+            row = _update_guide(write_conn, mapped, existing_id=int(existing["id"]))
+
+    return _row_to_response(
+        row,
+        include_professional=include_professional,
+        include_medguide=include_medguide,
+        include_boxed_warning=include_boxed_warning,
+    )
+
+
+async def _build_guide_by_spl_set_id(
+    *,
+    spl_set_id: str,
+    force_refresh: bool = False,
+    include_professional: bool = False,
+    include_medguide: bool = False,
+    include_boxed_warning: bool = False,
+    dailymed_client: Optional[DailyMedClient] = None,
+) -> dict[str, Any]:
+    """Hydrate a medication guide directly from DailyMed using a known SPL Set ID.
+
+    Does not require rxcui or ndc; does not validate NDC.  Preserves any
+    existing rxcui/ndc/generic_name/brand_name metadata already in the cache.
+    """
+    if not database.db_engine and not database.connect_to_database():
+        raise GuideInternalError("Database connection not available")
+
+    with database.db_engine.connect() as conn:
+        cached = _select_cached_row_by_spl_set_id(conn, spl_set_id)
+
+    if cached and not force_refresh and not _is_stale(cached.get("fetched_at")):
+        logger.debug("Medication guide cache hit for spl_set_id=%s", spl_set_id)
+        # Lazy-fill missing HTML fields if spl_set_id is already known
+        if include_professional and cached.get("spl_set_id") and (
+            not cached.get("professional_html") or not cached.get("professional_meta")
+        ):
+            try:
+                professional = await fetch_professional_rendered(str(cached["spl_set_id"]))
+                if professional:
+                    new_payload = {
+                        **cached,
+                        "professional_html": professional.article_html,
+                        "professional_meta": _build_professional_meta(professional),
+                    }
+                    if cached.get("id") is not None:
+                        try:
+                            with database.db_engine.begin() as write_conn:
+                                cached = _update_guide(
+                                    write_conn, new_payload, existing_id=int(cached["id"])
+                                )
+                        except SQLAlchemyError:
+                            logger.exception(
+                                "include_professional lazy-fill DB write failed for spl_set_id=%s",
+                                cached.get("spl_set_id"),
+                            )
+                            cached = new_payload
+                    else:
+                        cached = new_payload
+            except Exception:
+                logger.exception(
+                    "include_professional lazy-fill fetch failed for spl_set_id=%s",
+                    cached.get("spl_set_id"),
+                )
+        if include_medguide and not cached.get("medguide_html") and cached.get("spl_set_id"):
+            try:
+                mg_html = await fetch_medguide_html(str(cached["spl_set_id"]))
+                if mg_html and cached.get("id") is not None:
+                    with database.db_engine.begin() as write_conn:
+                        cached = _update_guide(
+                            write_conn,
+                            {**cached, "medguide_html": mg_html},
+                            existing_id=int(cached["id"]),
+                        )
+                elif mg_html:
+                    cached = {**cached, "medguide_html": mg_html}
+            except (Exception, SQLAlchemyError):
+                logger.exception(
+                    "include_medguide lazy-fill failed for spl_set_id=%s",
+                    cached.get("spl_set_id"),
+                )
+        if include_boxed_warning and not cached.get("boxed_warning_html") and cached.get("spl_set_id"):
+            try:
+                bw_html = await fetch_boxed_warning_html(str(cached["spl_set_id"]))
+                if bw_html and cached.get("id") is not None:
+                    with database.db_engine.begin() as write_conn:
+                        cached = _update_guide(
+                            write_conn,
+                            {**cached, "boxed_warning_html": bw_html},
+                            existing_id=int(cached["id"]),
+                        )
+                elif bw_html:
+                    cached = {**cached, "boxed_warning_html": bw_html}
+            except (Exception, SQLAlchemyError):
+                logger.exception(
+                    "include_boxed_warning lazy-fill failed for spl_set_id=%s",
+                    cached.get("spl_set_id"),
+                )
+        return _row_to_response(
+            cached,
+            include_professional=include_professional,
+            include_medguide=include_medguide,
+            include_boxed_warning=include_boxed_warning,
+        )
+
+    logger.info(
+        "Medication guide fetch from DailyMed (cache %s) for spl_set_id=%s",
+        "stale" if cached else "miss",
+        spl_set_id,
+    )
+
+    # Start from any cached metadata so rxcui/ndc/names are preserved on re-hydration
+    encoded_set_id = quote(spl_set_id, safe="")
+    mapped: dict[str, Any] = {
+        "spl_set_id": spl_set_id,
+        "source_url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}",
+        # Preserve existing identifiers and names from cache where available
+        "rxcui": (cached or {}).get("rxcui"),
+        "ndc": (cached or {}).get("ndc"),
+        "generic_name": (cached or {}).get("generic_name"),
+        "brand_name": (cached or {}).get("brand_name"),
+        "has_boxed_warning": (cached or {}).get("has_boxed_warning") or False,
+    }
+
+    # Fetch structured HTML sections from DailyMed SPL XML
+    spl_sections: dict = {}
+    try:
+        spl_sections = await fetch_spl_sections(spl_set_id)
+    except Exception:
+        logger.warning(
+            "SPL sections fetch raised for spl_set_id=%s",
+            spl_set_id,
+            exc_info=True,
+        )
+
+    if spl_sections:
+        for key in SECTION_MAPPING:
+            if spl_sections.get(key):
+                mapped[key] = spl_sections[key]
+        if spl_sections.get("_has_boxed_warning"):
+            mapped["has_boxed_warning"] = True
+        logger.info("DailyMed SPL HTML sections applied for spl_set_id=%s", spl_set_id)
+    else:
+        # Fall back to patient-guide plain text for overview only
+        dm_client = dailymed_client or DailyMedClient()
+        try:
+            dm_result = dm_client.fetch_patient_guide(spl_set_id)
+            if dm_result and dm_result.get("full_text"):
+                mapped["overview"] = dm_result["full_text"]
+                logger.info(
+                    "DailyMed overview set for spl_set_id=%s (%d chars)",
+                    spl_set_id,
+                    len(mapped["overview"]),
+                )
+        except Exception:
+            logger.warning(
+                "DailyMed patient-guide fetch failed for spl_set_id=%s",
+                spl_set_id,
+                exc_info=True,
+            )
+
+    if include_professional:
+        try:
+            professional = await fetch_professional_rendered(spl_set_id)
+            if professional:
+                mapped["professional_html"] = professional.article_html
+                mapped["professional_meta"] = _build_professional_meta(professional)
+        except Exception:
+            logger.exception(
+                "include_professional fetch failed for spl_set_id=%s", spl_set_id
+            )
+
+    if include_medguide:
+        mapped["medguide_html"] = await fetch_medguide_html(spl_set_id)
+
+    if include_boxed_warning:
+        mapped["boxed_warning_html"] = await fetch_boxed_warning_html(spl_set_id)
+
+    # If sections and HTML are all None, this guide essentially has no content — treat as not found
+    section_values = [mapped.get(key) for key in SECTION_MAPPING]
+    if not any(section_values) and not mapped.get("professional_html") and not mapped.get("medguide_html"):
+        raise GuideNotFoundError(f"No DailyMed content found for spl_set_id={spl_set_id}")
+
+    existing_id = int(cached["id"]) if cached and cached.get("id") is not None else None
+
+    if existing_id is None:
+        # Try to find by spl_set_id again (race-condition guard) or rxcui/ndc
+        with database.db_engine.connect() as conn:
+            existing = _select_cached_row_by_spl_set_id(conn, spl_set_id)
+            if existing is None and (mapped.get("rxcui") or mapped.get("ndc")):
+                existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
+        existing_id = int(existing["id"]) if existing and existing.get("id") is not None else None
+
+    if existing_id is not None:
+        with database.db_engine.begin() as write_conn:
+            row = _update_guide(write_conn, mapped, existing_id=existing_id)
+        return _row_to_response(
+            row,
+            include_professional=include_professional,
+            include_medguide=include_medguide,
+            include_boxed_warning=include_boxed_warning,
+        )
+
+    try:
+        with database.db_engine.begin() as write_conn:
+            row = _insert_guide(write_conn, mapped)
+    except IntegrityError as exc:
+        with database.db_engine.connect() as conn:
+            existing = _select_cached_row_by_spl_set_id(conn, spl_set_id)
+            if existing is None and (mapped.get("rxcui") or mapped.get("ndc")):
+                existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
         if not existing or existing.get("id") is None:
             raise GuideInternalError(
                 "Integrity conflict detected but no existing medication_guide row could be resolved"

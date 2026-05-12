@@ -18,8 +18,14 @@ from fastapi.testclient import TestClient
 
 from routes.admin.auth import require_superuser
 from routes.admin import medication_guide_backfill as admin_backfill_route
-from services.medication_guide import GuideNotFoundError
-from services.medication_guide_backfill import run_backfill
+from services.medication_guide import (
+    GuideNotFoundError,
+    GuideValidationError,
+    _select_cached_row_by_spl_set_id,
+    build_guide as _build_guide,
+)
+from services.medication_guide_backfill import _select_published_pills_sql, run_backfill
+from tests.test_medication_guide import _DummyEngine, _row_from_payload
 
 
 SECTION_KEYS = [
@@ -39,13 +45,22 @@ SECTION_KEYS = [
 ]
 
 
-def _pill(pid: int, *, rxcui: str | None = "1", ndc11: str | None = "12345-6789-01") -> dict:
+def _pill(
+    pid: int,
+    *,
+    rxcui: str | None = "1",
+    ndc11: str | None = "12345-6789-01",
+    ndc9: str | None = None,
+    spl_set_id: str | None = None,
+) -> dict:
     return {
         "id": pid,
         "slug": f"drug-{pid}",
         "medicine_name": f"Drug {pid}",
         "rxcui": rxcui,
         "ndc11": ndc11,
+        "ndc9": ndc9,
+        "spl_set_id": spl_set_id,
     }
 
 
@@ -124,7 +139,7 @@ def test_mocked_error_does_not_crash(tmp_path):
 
 
 def test_skipped_row_with_no_ids(tmp_path):
-    pills = [_pill(1, rxcui=None, ndc11=None)]
+    pills = [_pill(1, rxcui=None, ndc11=None, ndc9=None, spl_set_id=None)]
     build_guide_mock = AsyncMock()
     with patch("services.medication_guide_backfill._count_published_pills", return_value=1), _patch_pills(pills), patch(
         "services.medication_guide_backfill.build_guide",
@@ -190,7 +205,42 @@ def test_dry_run_produces_reports_without_build_call(tmp_path):
         assert Path(summary.report_paths[key]).exists()
 
 
-def test_backfill_passes_rxcui_and_ndc_when_both_exist(tmp_path):
+def test_select_published_pills_sql_applies_limit_offset():
+    sql, params = _select_published_pills_sql(
+        has_rxcui=True,
+        has_ndc9=True,
+        has_spl_set_id=True,
+        limit=25,
+        offset=100,
+        only_missing_professional=False,
+    )
+
+    sql_lower = " ".join(sql.lower().split())
+    assert "order by pf.id asc" in sql_lower
+    assert "limit :limit" in sql_lower
+    assert "offset :offset" in sql_lower
+    assert params["limit"] == 25
+    assert params["offset"] == 100
+
+
+def test_select_published_pills_sql_can_filter_only_missing_professional():
+    sql, _ = _select_published_pills_sql(
+        has_rxcui=True,
+        has_ndc9=True,
+        has_spl_set_id=True,
+        limit=25,
+        offset=0,
+        only_missing_professional=True,
+    )
+
+    sql_lower = " ".join(sql.lower().split())
+    assert "not exists" in sql_lower
+    assert "professional_html is null" in sql_lower
+    assert "mg.spl_set_id = pf.spl_set_id" in sql
+
+
+def test_backfill_uses_rxcui_alone_when_rxcui_available(tmp_path):
+    """When rxcui is available, build_guide should be called with rxcui only (ndc=None)."""
     pills = [_pill(1, rxcui="123", ndc11="12345-6789-01")]
     build_guide_mock = AsyncMock(return_value=_guide(complete=True))
     with patch("services.medication_guide_backfill._count_published_pills", return_value=1), _patch_pills(pills), patch(
@@ -201,7 +251,24 @@ def test_backfill_passes_rxcui_and_ndc_when_both_exist(tmp_path):
 
     _, kwargs = build_guide_mock.call_args
     assert kwargs["rxcui"] == "123"
-    assert kwargs["ndc"] == "12345-6789-01"
+    assert kwargs.get("ndc") is None
+    assert kwargs["include_professional"] is True
+    assert kwargs["include_medguide"] is True
+    assert kwargs["include_boxed_warning"] is True
+
+
+def test_backfill_uses_ndc9_when_ndc11_missing(tmp_path):
+    pills = [_pill(1, rxcui=None, ndc11=None, ndc9="12345-678")]
+    build_guide_mock = AsyncMock(return_value=_guide(complete=True))
+    with patch("services.medication_guide_backfill._count_published_pills", return_value=1), _patch_pills(pills), patch(
+        "services.medication_guide_backfill.build_guide",
+        new=build_guide_mock,
+    ):
+        asyncio.run(run_backfill(limit=1, report_dir=tmp_path, rate_limit_seconds=0))
+
+    _, kwargs = build_guide_mock.call_args
+    assert kwargs.get("rxcui") is None
+    assert kwargs["ndc"] == "12345-678"
 
 
 def test_concurrent_run_rejection():
@@ -218,3 +285,158 @@ def test_concurrent_run_rejection():
     assert first.status_code == 202
     assert second.status_code == 409
     assert second.json() == {"error": "Backfill already in progress"}
+
+
+def test_admin_route_forwards_offset_and_missing_mode():
+    app = FastAPI()
+    app.include_router(admin_backfill_route.router)
+    app.dependency_overrides[require_superuser] = lambda: {"email": "super@test.com", "role": "superuser"}
+
+    with patch("routes.admin.medication_guide_backfill._try_start_backfill", new=AsyncMock(return_value=True)), patch(
+        "starlette.background.BackgroundTasks.add_task", return_value=None
+    ) as add_task:
+        client = TestClient(app)
+        response = client.post(
+            "/api/admin/medication-guide/backfill?limit=25&offset=50&only_missing_professional=true&dry_run=true"
+        )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["offset"] == 50
+    assert payload["only_missing_professional"] is True
+    kwargs = add_task.call_args.kwargs
+    assert kwargs["offset"] == 50
+    assert kwargs["only_missing_professional"] is True
+
+
+# --- New tests for spl_set_id support ---
+
+
+def test_backfill_prioritises_spl_set_id_over_rxcui(tmp_path):
+    """When spl_set_id is present, build_guide should be called with spl_set_id first."""
+    pills = [_pill(1, rxcui="123", ndc11="12345-6789-01", spl_set_id="aaa-bbb-ccc")]
+    build_guide_mock = AsyncMock(return_value=_guide(complete=True))
+    with patch("services.medication_guide_backfill._count_published_pills", return_value=1), _patch_pills(pills), patch(
+        "services.medication_guide_backfill.build_guide",
+        new=build_guide_mock,
+    ):
+        summary = asyncio.run(run_backfill(limit=1, report_dir=tmp_path, rate_limit_seconds=0))
+
+    assert summary.matched == 1
+    assert build_guide_mock.call_count == 1
+    _, kwargs = build_guide_mock.call_args
+    assert kwargs.get("spl_set_id") == "aaa-bbb-ccc"
+    assert "rxcui" not in kwargs or kwargs.get("rxcui") is None
+
+
+def test_backfill_falls_back_to_rxcui_when_spl_set_id_not_found(tmp_path):
+    """When spl_set_id raises GuideNotFoundError, fall back to rxcui."""
+    pills = [_pill(1, rxcui="123", spl_set_id="aaa-bbb-ccc")]
+    guide_result = _guide(complete=True)
+
+    async def _side_effect(**kwargs):
+        if kwargs.get("spl_set_id"):
+            raise GuideNotFoundError("not found")
+        return guide_result
+
+    build_guide_mock = AsyncMock(side_effect=_side_effect)
+    with patch("services.medication_guide_backfill._count_published_pills", return_value=1), _patch_pills(pills), patch(
+        "services.medication_guide_backfill.build_guide",
+        new=build_guide_mock,
+    ):
+        summary = asyncio.run(run_backfill(limit=1, report_dir=tmp_path, rate_limit_seconds=0))
+
+    assert summary.matched == 1
+    assert build_guide_mock.call_count == 2
+    # Second call should have used rxcui
+    _, second_kwargs = build_guide_mock.call_args
+    assert second_kwargs.get("rxcui") == "123"
+    assert second_kwargs.get("ndc") is None
+
+
+def test_backfill_invalid_ndc11_falls_through_to_ndc9(tmp_path):
+    """Invalid ndc11 should not count as a row error; ndc9 should be tried next."""
+    pills = [_pill(1, rxcui=None, ndc11="BADINDC", ndc9="12345-678")]
+    guide_result = _guide(complete=True)
+
+    async def _side_effect(**kwargs):
+        if kwargs.get("ndc") == "BADINDC":
+            raise GuideValidationError("Invalid NDC format")
+        return guide_result
+
+    build_guide_mock = AsyncMock(side_effect=_side_effect)
+    with patch("services.medication_guide_backfill._count_published_pills", return_value=1), _patch_pills(pills), patch(
+        "services.medication_guide_backfill.build_guide",
+        new=build_guide_mock,
+    ):
+        summary = asyncio.run(run_backfill(limit=1, report_dir=tmp_path, rate_limit_seconds=0))
+
+    assert summary.errors == 0
+    assert summary.matched == 1
+
+
+def test_backfill_invalid_ndc_with_valid_rxcui_does_not_error(tmp_path):
+    """Invalid NDC should not produce an error row when rxcui succeeds."""
+    pills = [_pill(1, rxcui="856373", ndc11="422910834", ndc9=None)]
+    build_guide_mock = AsyncMock(return_value=_guide(complete=True))
+    with patch("services.medication_guide_backfill._count_published_pills", return_value=1), _patch_pills(pills), patch(
+        "services.medication_guide_backfill.build_guide",
+        new=build_guide_mock,
+    ):
+        summary = asyncio.run(run_backfill(limit=1, report_dir=tmp_path, rate_limit_seconds=0))
+
+    assert summary.errors == 0
+    assert summary.matched == 1
+    # rxcui call should have been made first (with ndc=None)
+    _, kwargs = build_guide_mock.call_args
+    assert kwargs["rxcui"] == "856373"
+    assert kwargs.get("ndc") is None
+
+
+def test_build_guide_with_spl_set_id_hydrates_without_rxcui_or_ndc(tmp_path):
+    """build_guide(spl_set_id=...) should hydrate using DailyMed directly."""
+    spl_id = "test-spl-set-id-123"
+    dummy_section = "<p>Indications HTML</p>"
+
+    spl_sections_result = {"uses": dummy_section, "overview": "<p>Overview</p>"}
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), \
+         patch("services.medication_guide._select_cached_row_by_spl_set_id", return_value=None), \
+         patch("services.medication_guide.fetch_spl_sections", new=AsyncMock(return_value=spl_sections_result)), \
+         patch("services.medication_guide.fetch_professional_rendered", new=AsyncMock(return_value=None)), \
+         patch("services.medication_guide.fetch_medguide_html", new=AsyncMock(return_value=None)), \
+         patch("services.medication_guide.fetch_boxed_warning_html", new=AsyncMock(return_value=None)), \
+         patch("services.medication_guide._select_cached_row", return_value=None), \
+         patch("services.medication_guide._insert_guide", return_value=_row_from_payload({"spl_set_id": spl_id, "uses": dummy_section, "overview": "<p>Overview</p>"})):
+
+        result = asyncio.run(
+            _build_guide(
+                spl_set_id=spl_id,
+                include_professional=True,
+                include_medguide=True,
+                include_boxed_warning=True,
+            )
+        )
+
+    assert result is not None
+    sections = result.get("sections") or {}
+    assert sections.get("uses") == dummy_section
+
+
+def test_dry_run_report_includes_spl_set_id_and_identifier_candidate(tmp_path):
+    pills = [_pill(1, rxcui="123", ndc11="12345-6789-01", spl_set_id="aaa-bbb-ccc")]
+    with patch("services.medication_guide_backfill._count_published_pills", return_value=1), _patch_pills(pills):
+        summary = asyncio.run(
+            run_backfill(
+                limit=1,
+                offset=25,
+                only_missing_professional=True,
+                dry_run=True,
+                report_dir=tmp_path,
+            )
+        )
+
+    rows = _csv_rows(summary.report_paths["would_fetch"])
+    assert rows[0]["spl_set_id"] == "aaa-bbb-ccc"
+    assert rows[0]["match_type"] == "spl_set_id"
+    assert rows[0]["identifier_candidate"] == "aaa-bbb-ccc"

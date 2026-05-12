@@ -19,7 +19,8 @@ logging.basicConfig(
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Backfill medication guide rows for published pills.")
-    parser.add_argument("--limit", type=int, default=None, metavar="N", help="Process only N published pills.")
+    parser.add_argument("--limit", type=int, default=5, metavar="N", help="Process only N published pills (default: 5).")
+    parser.add_argument("--offset", type=int, default=0, metavar="N", help="Skip the first N matching pills before processing.")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -43,6 +44,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=0.25,
         help="Delay between openFDA calls when OPENFDA_API_KEY is not set (default: 0.25).",
     )
+    parser.add_argument(
+        "--only-missing-professional",
+        action="store_true",
+        default=False,
+        help="Process only pills without a matching medication_guide row or with missing professional_html.",
+    )
     return parser.parse_args(argv)
 
 
@@ -59,11 +66,15 @@ def _print_summary(summary, report_dir: Path) -> None:
     print("========================================")
     print(f"Total pills:         {summary.total_pills}")
     print(f"Processed:           {summary.processed}")
+    print(f"Matched:             {summary.matched:>4}  ({_pct(summary.matched, total):.1f}%)")
     print(f"Complete:            {summary.complete:>4}  ({_pct(summary.complete, total):.1f}%)")
     print(f"Partial:             {summary.partial:>4}  ({_pct(summary.partial, total):.1f}%)")
     print(f"Not found in FDA:    {summary.not_found:>4}  ({_pct(summary.not_found, total):.1f}%)")
     print(f"Skipped (no IDs):    {summary.skipped:>4}  ({_pct(summary.skipped, total):.1f}%)")
     print(f"Errors:              {summary.errors:>4}  ({_pct(summary.errors, total):.1f}%)")
+    print(f"Professional found:  {summary.professional_found:>4}")
+    print(f"Medguide found:      {summary.medguide_found:>4}")
+    print(f"Boxed warning found: {summary.boxed_warning_found:>4}")
     print(f"Duration:           {summary.duration_seconds:.1f}s")
     print(f"Reports written to: {report_dir}/")
     for key in ("complete", "partial", "not_found", "errors", "skipped", "would_fetch"):
@@ -80,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
     summary = asyncio.run(
         run_backfill(
             limit=args.limit,
+            offset=args.offset,
+            only_missing_professional=args.only_missing_professional,
             dry_run=args.dry_run,
             force_refresh=args.force,
             rate_limit_seconds=args.rate_limit_seconds,

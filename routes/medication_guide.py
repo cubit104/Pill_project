@@ -71,6 +71,31 @@ async def get_guide_by_ndc(
         return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
 
+@router.get("/api/drugs/by-setid/{spl_set_id}/guide")
+async def get_guide_by_setid(
+    spl_set_id: str,
+    include_professional: bool = Query(False),
+    include_medguide: bool = Query(False),
+    include_boxed_warning: bool = Query(False),
+):
+    """Return medication guide for one DailyMed SPL Set ID."""
+    try:
+        payload = await build_guide(
+            spl_set_id=spl_set_id,
+            include_professional=include_professional,
+            include_medguide=include_medguide,
+            include_boxed_warning=include_boxed_warning,
+        )
+        return JSONResponse(content=payload, headers={"Cache-Control": CACHE_CONTROL_HEADER})
+    except GuideNotFoundError:
+        return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
+    except OpenFDAUpstreamError:
+        return JSONResponse(status_code=502, content={"error": "Failed to fetch FDA label"})
+    except GuideInternalError as exc:
+        logger.error("Medication guide internal error (spl_set_id=%s): %s", spl_set_id, exc)
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+
+
 @router.get("/api/drugs/search")
 async def search_drugs(
     q: str = Query(..., min_length=1, description="Drug name query"),
