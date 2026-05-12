@@ -190,14 +190,10 @@ export async function generateMetadata(
     }
   }
 
-  const computedTitle = [
-    pill.color,
-    pill.shape,
-    pill.drug_name,
-    pill.strength,
-    'Pill',
-    pill.imprint ? `With Imprint ${pill.imprint}` : null,
-  ].filter(Boolean).join(' ')
+  const displayName = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : null
+  const computedTitle = displayName
+    ? [displayName, pill.strength, 'Pill Identifier, Images, NDC & RxCUI'].filter(Boolean).join(' ')
+    : [pill.color, pill.shape, 'Pill', pill.imprint ? `With Imprint ${pill.imprint}` : null].filter(Boolean).join(' ')
   const title = pill.meta_title || computedTitle
 
   const identificationSummary = buildIdentificationSummary(pill)
