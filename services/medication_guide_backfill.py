@@ -48,11 +48,15 @@ class BackfillProgress:
 class BackfillSummary:
     total_pills: int
     processed: int
+    matched: int
     complete: int
     partial: int
     not_found: int
     skipped: int
     errors: int
+    professional_found: int
+    medguide_found: int
+    boxed_warning_found: int
     duration_seconds: float
     report_paths: dict[str, str]
 
@@ -78,19 +82,53 @@ def _pillfinder_has_rxcui(conn) -> bool:
     return bool(row)
 
 
-def _select_published_pills_sql(*, has_rxcui: bool, limit: Optional[int]) -> tuple[str, dict[str, Any]]:
-    if has_rxcui:
+def _pillfinder_has_ndc9(conn) -> bool:
+    row = conn.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'pillfinder'
+              AND column_name = 'ndc9'
+            LIMIT 1
+            """
+        )
+    ).fetchone()
+    return bool(row)
+
+
+def _select_published_pills_sql(*, has_rxcui: bool, has_ndc9: bool, limit: Optional[int]) -> tuple[str, dict[str, Any]]:
+    if has_rxcui and has_ndc9:
         sql = """
-            SELECT id, slug, medicine_name, ndc11, rxcui
+            SELECT id, slug, medicine_name, ndc11, ndc9, rxcui
             FROM public.pillfinder
             WHERE published = TRUE
+              AND deleted_at IS NULL
+            ORDER BY id ASC
+        """
+    elif has_rxcui:
+        sql = """
+            SELECT id, slug, medicine_name, ndc11, NULL::text AS ndc9, rxcui
+            FROM public.pillfinder
+            WHERE published = TRUE
+              AND deleted_at IS NULL
+            ORDER BY id ASC
+        """
+    elif has_ndc9:
+        sql = """
+            SELECT id, slug, medicine_name, ndc11, ndc9, NULL::text AS rxcui
+            FROM public.pillfinder
+            WHERE published = TRUE
+              AND deleted_at IS NULL
             ORDER BY id ASC
         """
     else:
         sql = """
-            SELECT id, slug, medicine_name, ndc11, NULL::text AS rxcui
+            SELECT id, slug, medicine_name, ndc11, NULL::text AS ndc9, NULL::text AS rxcui
             FROM public.pillfinder
             WHERE published = TRUE
+              AND deleted_at IS NULL
             ORDER BY id ASC
         """
     params: dict[str, Any] = {}
@@ -106,8 +144,11 @@ def _count_published_pills(limit: Optional[int]) -> int:
         has_rxcui = _pillfinder_has_rxcui(conn)
         if not has_rxcui:
             logger.warning("pillfinder.rxcui column not found; falling back to NDC-only backfill")
+        has_ndc9 = _pillfinder_has_ndc9(conn)
+        if not has_ndc9:
+            logger.warning("pillfinder.ndc9 column not found; ndc11-only NDC fallback will be used")
         total = conn.execute(
-            text("SELECT COUNT(*) FROM public.pillfinder WHERE published = TRUE")
+            text("SELECT COUNT(*) FROM public.pillfinder WHERE published = TRUE AND deleted_at IS NULL")
         ).scalar() or 0
     total = int(total)
     if limit is not None:
@@ -121,7 +162,10 @@ def _iter_published_pills(limit: Optional[int]):
         has_rxcui = _pillfinder_has_rxcui(conn)
         if not has_rxcui:
             logger.warning("pillfinder.rxcui column not found; falling back to NDC-only backfill")
-        sql, params = _select_published_pills_sql(has_rxcui=has_rxcui, limit=limit)
+        has_ndc9 = _pillfinder_has_ndc9(conn)
+        if not has_ndc9:
+            logger.warning("pillfinder.ndc9 column not found; ndc11-only NDC fallback will be used")
+        sql, params = _select_published_pills_sql(has_rxcui=has_rxcui, has_ndc9=has_ndc9, limit=limit)
         result = conn.execution_options(stream_results=True).execute(text(sql), params)
         for row in result:
             yield dict(row._mapping)
@@ -201,7 +245,8 @@ async def run_backfill(
     skipped_rows: list[dict[str, Any]] = []
     would_fetch_rows: list[dict[str, Any]] = []
 
-    complete = partial = not_found = skipped = errors = 0
+    matched = complete = partial = not_found = skipped = errors = 0
+    professional_found = medguide_found = boxed_warning_found = 0
     processed = 0
     call_count = 0
     use_sleep = not bool(os.getenv("OPENFDA_API_KEY"))
@@ -212,7 +257,9 @@ async def run_backfill(
         slug = pill.get("slug")
         medicine_name = pill.get("medicine_name")
         rxcui = pill.get("rxcui")
-        ndc = pill.get("ndc11")
+        ndc11 = pill.get("ndc11")
+        ndc9 = pill.get("ndc9")
+        ndc = ndc11 or ndc9
 
         if not rxcui and not ndc:
             skipped += 1
@@ -223,10 +270,10 @@ async def run_backfill(
                     "medicine_name": medicine_name,
                     "rxcui": "",
                     "ndc": "",
-                    "reason": "no rxcui or ndc",
+                    "reason": "no rxcui, ndc11, or ndc9",
                 }
             )
-            logger.info("Backfill skipped pill_id=%s slug=%s — no rxcui or ndc", pill_id, slug)
+            logger.info("Backfill skipped pill_id=%s slug=%s — no rxcui, ndc11, or ndc9", pill_id, slug)
             _emit_progress(
                 progress_callback,
                 processed=processed,
@@ -289,7 +336,17 @@ async def run_backfill(
                 rxcui=str(rxcui) if rxcui else None,
                 ndc=str(ndc) if ndc else None,
                 force_refresh=force_refresh,
+                include_professional=True,
+                include_medguide=True,
+                include_boxed_warning=True,
             )
+            matched += 1
+            if result.get("professional_html") or result.get("professional_highlights_html"):
+                professional_found += 1
+            if result.get("medguide_html") or result.get("has_medguide"):
+                medguide_found += 1
+            if result.get("boxed_warning_html") or result.get("has_boxed_warning"):
+                boxed_warning_found += 1
 
             sections = result.get("sections") or {}
             missing_sections = [key for key in SECTION_KEYS if not sections.get(key)]
@@ -407,11 +464,15 @@ async def run_backfill(
     return BackfillSummary(
         total_pills=total,
         processed=processed,
+        matched=matched,
         complete=complete,
         partial=partial,
         not_found=not_found,
         skipped=skipped,
         errors=errors,
+        professional_found=professional_found,
+        medguide_found=medguide_found,
+        boxed_warning_found=boxed_warning_found,
         duration_seconds=duration,
         report_paths={
             "complete": str(complete_path),

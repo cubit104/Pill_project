@@ -39,13 +39,14 @@ SECTION_KEYS = [
 ]
 
 
-def _pill(pid: int, *, rxcui: str | None = "1", ndc11: str | None = "12345-6789-01") -> dict:
+def _pill(pid: int, *, rxcui: str | None = "1", ndc11: str | None = "12345-6789-01", ndc9: str | None = None) -> dict:
     return {
         "id": pid,
         "slug": f"drug-{pid}",
         "medicine_name": f"Drug {pid}",
         "rxcui": rxcui,
         "ndc11": ndc11,
+        "ndc9": ndc9,
     }
 
 
@@ -202,6 +203,23 @@ def test_backfill_passes_rxcui_and_ndc_when_both_exist(tmp_path):
     _, kwargs = build_guide_mock.call_args
     assert kwargs["rxcui"] == "123"
     assert kwargs["ndc"] == "12345-6789-01"
+    assert kwargs["include_professional"] is True
+    assert kwargs["include_medguide"] is True
+    assert kwargs["include_boxed_warning"] is True
+
+
+def test_backfill_uses_ndc9_when_ndc11_missing(tmp_path):
+    pills = [_pill(1, rxcui=None, ndc11=None, ndc9="12345-678")]
+    build_guide_mock = AsyncMock(return_value=_guide(complete=True))
+    with patch("services.medication_guide_backfill._count_published_pills", return_value=1), _patch_pills(pills), patch(
+        "services.medication_guide_backfill.build_guide",
+        new=build_guide_mock,
+    ):
+        asyncio.run(run_backfill(limit=1, report_dir=tmp_path, rate_limit_seconds=0))
+
+    _, kwargs = build_guide_mock.call_args
+    assert kwargs["rxcui"] is None
+    assert kwargs["ndc"] == "12345-678"
 
 
 def test_concurrent_run_rejection():
