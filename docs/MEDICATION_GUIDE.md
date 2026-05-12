@@ -37,7 +37,10 @@ Pre-populate the `medication_guide` table for all published pills.
 
 ### CLI
 
-    # Test with 5 pills first
+    # Safe dry-run (default limit is 5)
+    python -m scripts.backfill_medication_guide --dry-run
+
+    # Live run with 5 pills
     python -m scripts.backfill_medication_guide --limit 5
 
     # Full run
