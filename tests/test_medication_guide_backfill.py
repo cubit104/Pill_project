@@ -18,8 +18,14 @@ from fastapi.testclient import TestClient
 
 from routes.admin.auth import require_superuser
 from routes.admin import medication_guide_backfill as admin_backfill_route
-from services.medication_guide import GuideNotFoundError
+from services.medication_guide import (
+    GuideNotFoundError,
+    GuideValidationError,
+    _select_cached_row_by_spl_set_id,
+    build_guide as _build_guide,
+)
 from services.medication_guide_backfill import run_backfill
+from tests.test_medication_guide import _DummyEngine, _row_from_payload
 
 
 SECTION_KEYS = [
@@ -249,8 +255,6 @@ def test_concurrent_run_rejection():
 
 # --- New tests for spl_set_id support ---
 
-from services.medication_guide import GuideValidationError  # noqa: E402
-
 
 def test_backfill_prioritises_spl_set_id_over_rxcui(tmp_path):
     """When spl_set_id is present, build_guide should be called with spl_set_id first."""
@@ -335,13 +339,6 @@ def test_backfill_invalid_ndc_with_valid_rxcui_does_not_error(tmp_path):
 
 def test_build_guide_with_spl_set_id_hydrates_without_rxcui_or_ndc(tmp_path):
     """build_guide(spl_set_id=...) should hydrate using DailyMed directly."""
-    from services.medication_guide import (
-        GuideNotFoundError as _GNF,
-        _select_cached_row_by_spl_set_id,
-        build_guide as _build_guide,
-    )
-    from tests.test_medication_guide import _DummyEngine, _row_from_payload
-
     spl_id = "test-spl-set-id-123"
     dummy_section = "<p>Indications HTML</p>"
 
