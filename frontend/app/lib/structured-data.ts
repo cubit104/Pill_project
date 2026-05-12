@@ -188,6 +188,66 @@ export function medicalWebPageSchema(
   })
 }
 
+/**
+ * Build structured data for medication guide or professional information pages.
+ * Includes MedicalWebPage + Drug identifier block.
+ */
+export function guidePageSchema(opts: {
+  drugName: string
+  slug: string
+  pageType: 'medication-guide' | 'professional-information'
+  rxcui?: string | null
+  ndc?: string | null
+  splSetId?: string | null
+  genericName?: string | null
+  brandName?: string | null
+  fetchedAt?: string | null
+}) {
+  const { drugName, slug, pageType, rxcui, ndc, splSetId, genericName, brandName, fetchedAt } = opts
+
+  const pagePath = pageType === 'medication-guide'
+    ? `/pill/${encodeURIComponent(slug)}/medication-guide`
+    : `/pill/${encodeURIComponent(slug)}/professional-information`
+
+  const pageName = pageType === 'medication-guide'
+    ? `${drugName} Medication Guide`
+    : `${drugName} Professional Information`
+
+  const audience = pageType === 'medication-guide'
+    ? { '@type': 'Patient' as const }
+    : { '@type': 'MedicalAudience' as const, audienceType: 'Clinician' }
+
+  type PropertyValue = { '@type': 'PropertyValue'; name: string; value: string }
+  const identifier: PropertyValue[] = []
+  if (rxcui?.trim()) identifier.push({ '@type': 'PropertyValue', name: 'RxCUI', value: rxcui.trim() })
+  if (ndc?.trim()) identifier.push({ '@type': 'PropertyValue', name: 'NDC', value: ndc.trim() })
+  if (splSetId?.trim()) identifier.push({ '@type': 'PropertyValue', name: 'SPL Set ID', value: splSetId.trim() })
+
+  const about: Record<string, unknown> = { '@type': 'Drug', name: drugName }
+  if (genericName?.trim()) about['nonProprietaryName'] = genericName.trim()
+  if (brandName?.trim()) about['alternateName'] = brandName.trim()
+  if (identifier.length > 0) about['identifier'] = identifier
+
+  return stripUndefined({
+    '@context': 'https://schema.org' as const,
+    '@type': 'MedicalWebPage' as const,
+    name: pageName,
+    url: `${SITE_URL}${pagePath}`,
+    inLanguage: 'en-US',
+    isPartOf: { '@type': 'WebSite' as const, name: SITE_NAME, url: SITE_URL },
+    about,
+    audience,
+    dateModified: fetchedAt ?? undefined,
+    lastReviewed: fetchedAt ?? undefined,
+    publisher: {
+      '@type': 'Organization' as const,
+      name: SITE_NAME,
+      url: SITE_URL,
+      logo: { '@type': 'ImageObject' as const, url: `${SITE_URL}/icon.png` },
+    },
+  })
+}
+
 export function faqSchema(items: Array<{ question: string; answer: string }>) {
   return {
     '@context': 'https://schema.org',
