@@ -625,27 +625,27 @@ export default async function MedicationGuidePage({
       professionalData?.professional_html?.trim() || professionalData?.professional_highlights_html?.trim()
     )
 
+    const proRxcui = professionalData?.rxcui ?? pill.rxcui
+    const proNdc = professionalData?.ndc ?? pill.ndc11 ?? pill.ndc9
+    const proSplSetId = pill.spl_set_id
+    const proFetchedAt = professionalData?.fetched_at
+
     const proPageJsonLd = guidePageSchema({
       drugName,
       slug,
       pageType: 'professional-information',
-      rxcui: professionalData?.rxcui ?? pill.rxcui,
-      ndc: professionalData?.ndc ?? pill.ndc11 ?? pill.ndc9,
-      splSetId: pill.spl_set_id,
+      rxcui: proRxcui,
+      ndc: proNdc,
+      splSetId: proSplSetId,
       genericName: professionalData?.generic_name,
       brandName: professionalData?.brand_name ?? professionalData?.proprietary_name,
-      fetchedAt: professionalData?.fetched_at,
+      fetchedAt: proFetchedAt,
     })
     const proBreadcrumbs = breadcrumbSchema([
       { name: 'Home', url: '/' },
       ...(drugSlugForUnavailable ? [{ name: drugName, url: `/drug/${drugSlugForUnavailable}` }] : []),
       { name: 'Professional Information', url: `/pill/${encodedSlug}/professional-information` },
     ])
-
-    const proRxcui = professionalData?.rxcui ?? pill.rxcui
-    const proNdc = professionalData?.ndc ?? pill.ndc11 ?? pill.ndc9
-    const proSplSetId = pill.spl_set_id
-    const proFetchedAt = professionalData?.fetched_at
 
     return (
       <>
