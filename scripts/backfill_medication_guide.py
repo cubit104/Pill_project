@@ -8,6 +8,7 @@ import logging
 import sys
 from pathlib import Path
 
+from services.indexnow import IndexNowSubmissionError, submit_indexnow_urls_from_backfill_reports
 from services.medication_guide_backfill import run_backfill
 
 logging.basicConfig(
@@ -49,6 +50,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Process only pills without a matching medication_guide row or with missing professional_html.",
+    )
+    parser.add_argument(
+        "--submit-indexnow",
+        action="store_true",
+        default=False,
+        help="After a live run, submit changed complete/partial pill pages to IndexNow without failing the backfill if submission fails.",
     )
     return parser.parse_args(argv)
 
@@ -100,6 +107,31 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     _print_summary(summary, report_dir)
+
+    if args.submit_indexnow:
+        if args.dry_run:
+            logging.info("Skipping IndexNow submission because --dry-run was used.")
+        else:
+            report_paths = [
+                summary.report_paths.get("complete"),
+                summary.report_paths.get("partial"),
+            ]
+            try:
+                result = submit_indexnow_urls_from_backfill_reports(
+                    [Path(path) for path in report_paths if path],
+                    ignore_errors=True,
+                )
+                logging.info(
+                    "IndexNow summary after backfill: eligible=%d submitted=%d skipped=%d failed_batches=%d",
+                    result.total_urls,
+                    result.submitted_urls,
+                    result.skipped_urls,
+                    result.failed_batches,
+                )
+            except IndexNowSubmissionError as exc:
+                logging.warning("Skipping IndexNow submission: %s", exc)
+            except Exception as exc:  # noqa: BLE001
+                logging.warning("IndexNow submission failed but backfill succeeded: %s", exc, exc_info=True)
     return 1 if summary.errors > 0 else 0
 
 
