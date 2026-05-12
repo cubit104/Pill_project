@@ -20,6 +20,7 @@ logging.basicConfig(
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Backfill medication guide rows for published pills.")
     parser.add_argument("--limit", type=int, default=5, metavar="N", help="Process only N published pills (default: 5).")
+    parser.add_argument("--offset", type=int, default=0, metavar="N", help="Skip the first N matching pills before processing.")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -42,6 +43,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=0.25,
         help="Delay between openFDA calls when OPENFDA_API_KEY is not set (default: 0.25).",
+    )
+    parser.add_argument(
+        "--only-missing-professional",
+        action="store_true",
+        default=False,
+        help="Process only pills without a matching medication_guide row or with missing professional_html.",
     )
     return parser.parse_args(argv)
 
@@ -84,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
     summary = asyncio.run(
         run_backfill(
             limit=args.limit,
+            offset=args.offset,
+            only_missing_professional=args.only_missing_professional,
             dry_run=args.dry_run,
             force_refresh=args.force,
             rate_limit_seconds=args.rate_limit_seconds,

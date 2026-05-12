@@ -69,10 +69,19 @@ async def _finish_backfill() -> None:
         _is_running = False
 
 
-async def _run_backfill_job(*, limit: int | None, dry_run: bool, force: bool) -> None:
+async def _run_backfill_job(
+    *,
+    limit: int | None,
+    offset: int,
+    only_missing_professional: bool,
+    dry_run: bool,
+    force: bool,
+) -> None:
     try:
         summary = await run_backfill(
             limit=limit,
+            offset=offset,
+            only_missing_professional=only_missing_professional,
             dry_run=dry_run,
             force_refresh=force,
             report_dir=Path("./backfill_reports"),
@@ -88,6 +97,8 @@ async def _run_backfill_job(*, limit: int | None, dry_run: bool, force: bool) ->
 async def backfill_medication_guide(
     background_tasks: BackgroundTasks,
     limit: int | None = Query(default=None, ge=1),
+    offset: int = Query(default=0, ge=0),
+    only_missing_professional: bool = Query(default=False),
     dry_run: bool = Query(default=False),
     force: bool = Query(default=False),
     _admin=Depends(require_superuser),
@@ -95,10 +106,19 @@ async def backfill_medication_guide(
     if not await _try_start_backfill():
         return JSONResponse(status_code=409, content={"error": "Backfill already in progress"})
 
-    background_tasks.add_task(_run_backfill_job, limit=limit, dry_run=dry_run, force=force)
+    background_tasks.add_task(
+        _run_backfill_job,
+        limit=limit,
+        offset=offset,
+        only_missing_professional=only_missing_professional,
+        dry_run=dry_run,
+        force=force,
+    )
     return {
         "status": "started",
         "limit": limit,
+        "offset": offset,
+        "only_missing_professional": only_missing_professional,
         "dry_run": dry_run,
         "force": force,
         "message": "Backfill started in background. Check server logs and ./backfill_reports/ for results.",

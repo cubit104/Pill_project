@@ -33,6 +33,7 @@ const PILL_REVALIDATE_SECONDS = 3600
 const GUIDE_REVALIDATE_SECONDS = 86400
 
 type PillInfo = {
+  spl_set_id?: string
   rxcui?: string
   ndc11?: string
   ndc9?: string
@@ -507,6 +508,14 @@ async function fetchGuide(pill: PillInfo, options: GuideFetchOptions): Promise<G
   const params = buildGuideQuery(options)
 
   try {
+    if (pill.spl_set_id) {
+      const res = await fetch(
+        `${API_BASE}/api/drugs/by-setid/${encodeURIComponent(pill.spl_set_id)}/guide?${params}`,
+        { next: { revalidate: GUIDE_REVALIDATE_SECONDS } }
+      )
+      if (res.ok) return (await res.json()) as GuideResponse
+    }
+
     if (pill.rxcui) {
       const res = await fetch(
         `${API_BASE}/api/drugs/${encodeURIComponent(pill.rxcui)}/guide?${params}`,

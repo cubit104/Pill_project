@@ -115,27 +115,103 @@ def _pillfinder_has_spl_set_id(conn) -> bool:
 
 
 def _select_published_pills_sql(
-    *, has_rxcui: bool, has_ndc9: bool, has_spl_set_id: bool, limit: Optional[int]
+    *,
+    has_rxcui: bool,
+    has_ndc9: bool,
+    has_spl_set_id: bool,
+    limit: Optional[int],
+    offset: int,
+    only_missing_professional: bool,
 ) -> tuple[str, dict[str, Any]]:
     spl_col = "spl_set_id" if has_spl_set_id else "NULL::text AS spl_set_id"
     rxcui_col = "rxcui" if has_rxcui else "NULL::text AS rxcui"
     ndc9_col = "ndc9" if has_ndc9 else "NULL::text AS ndc9"
+    match_conditions = [
+        """
+        (
+            pf.ndc11 IS NOT NULL
+            AND TRIM(pf.ndc11) <> ''
+            AND (
+                mg.ndc = pf.ndc11
+                OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = REPLACE(pf.ndc11, '-', '')
+            )
+        )
+        """
+    ]
+    if has_spl_set_id:
+        match_conditions.insert(
+            0,
+            """
+            (
+                pf.spl_set_id IS NOT NULL
+                AND TRIM(pf.spl_set_id) <> ''
+                AND mg.spl_set_id = pf.spl_set_id
+            )
+            """,
+        )
+    if has_rxcui:
+        match_conditions.append(
+            """
+            (
+                pf.rxcui IS NOT NULL
+                AND TRIM(pf.rxcui) <> ''
+                AND mg.rxcui = pf.rxcui
+            )
+            """
+        )
+    if has_ndc9:
+        match_conditions.append(
+            """
+            (
+                pf.ndc9 IS NOT NULL
+                AND TRIM(pf.ndc9) <> ''
+                AND (
+                    mg.ndc = pf.ndc9
+                    OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = REPLACE(pf.ndc9, '-', '')
+                )
+            )
+            """
+        )
+    matching_guide_sql = " OR ".join(f"({condition.strip()})" for condition in match_conditions)
 
     sql = f"""
-        SELECT id, slug, medicine_name, ndc11, {ndc9_col}, {rxcui_col}, {spl_col}
-        FROM public.pillfinder
-        WHERE published = TRUE
-          AND deleted_at IS NULL
-        ORDER BY id ASC
+        SELECT pf.id, pf.slug, pf.medicine_name, pf.ndc11, {ndc9_col}, {rxcui_col}, {spl_col}
+        FROM public.pillfinder pf
+        WHERE pf.published = TRUE
+          AND pf.deleted_at IS NULL
     """
+    if only_missing_professional:
+        sql += f"""
+          AND (
+                NOT EXISTS (
+                    SELECT 1
+                    FROM public.medication_guide mg
+                    WHERE {matching_guide_sql}
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM public.medication_guide mg
+                    WHERE {matching_guide_sql}
+                      AND (mg.professional_html IS NULL OR BTRIM(mg.professional_html) = '')
+                )
+          )
+        """
+    sql += "\n        ORDER BY pf.id ASC"
     params: dict[str, Any] = {}
     if limit is not None:
-        sql += "\nLIMIT :limit"
+        sql += "\n        LIMIT :limit"
         params["limit"] = limit
+    sql += "\n        OFFSET :offset"
+    params["offset"] = offset
     return sql, params
 
 
-def _count_published_pills(limit: Optional[int]) -> int:
+def _count_published_pills(
+    limit: Optional[int],
+    *,
+    offset: int = 0,
+    only_missing_professional: bool = False,
+) -> int:
     _connect_db()
     with database.db_engine.connect() as conn:
         has_rxcui = _pillfinder_has_rxcui(conn)
@@ -144,16 +220,29 @@ def _count_published_pills(limit: Optional[int]) -> int:
         has_ndc9 = _pillfinder_has_ndc9(conn)
         if not has_ndc9:
             logger.warning("pillfinder.ndc9 column not found; ndc11-only NDC fallback will be used")
-        total = conn.execute(
-            text("SELECT COUNT(*) FROM public.pillfinder WHERE published = TRUE AND deleted_at IS NULL")
-        ).scalar() or 0
-    total = int(total)
+        has_spl_set_id = _pillfinder_has_spl_set_id(conn)
+        sql, params = _select_published_pills_sql(
+            has_rxcui=has_rxcui,
+            has_ndc9=has_ndc9,
+            has_spl_set_id=has_spl_set_id,
+            limit=None,
+            offset=0,
+            only_missing_professional=only_missing_professional,
+        )
+        offsetless_sql = sql.rsplit("OFFSET :offset", 1)[0].rstrip()
+        total = conn.execute(text(f"SELECT COUNT(*) FROM ({offsetless_sql}) AS selected_pills"), params).scalar() or 0
+    total = max(int(total) - offset, 0)
     if limit is not None:
         return min(total, limit)
     return total
 
 
-def _iter_published_pills(limit: Optional[int]):
+def _iter_published_pills(
+    limit: Optional[int],
+    *,
+    offset: int = 0,
+    only_missing_professional: bool = False,
+):
     _connect_db()
     with database.db_engine.connect() as conn:
         has_rxcui = _pillfinder_has_rxcui(conn)
@@ -166,7 +255,12 @@ def _iter_published_pills(limit: Optional[int]):
         if not has_spl_set_id:
             logger.debug("pillfinder.spl_set_id column not found; spl_set_id backfill path disabled")
         sql, params = _select_published_pills_sql(
-            has_rxcui=has_rxcui, has_ndc9=has_ndc9, has_spl_set_id=has_spl_set_id, limit=limit
+            has_rxcui=has_rxcui,
+            has_ndc9=has_ndc9,
+            has_spl_set_id=has_spl_set_id,
+            limit=limit,
+            offset=offset,
+            only_missing_professional=only_missing_professional,
         )
         result = conn.execution_options(stream_results=True).execute(text(sql), params)
         for row in result:
@@ -197,6 +291,19 @@ def _clean_optional_text(value: Any) -> Optional[str]:
         return None
     text_value = str(value).strip()
     return text_value or None
+
+
+def _identifier_candidates(*, spl_set_id: Optional[str], rxcui: Any, ndc11: Optional[str], ndc9: Optional[str]) -> list[tuple[str, str]]:
+    candidates: list[tuple[str, str]] = []
+    if spl_set_id:
+        candidates.append(("spl_set_id", spl_set_id))
+    if rxcui is not None and str(rxcui).strip():
+        candidates.append(("rxcui", str(rxcui).strip()))
+    if ndc11:
+        candidates.append(("ndc11", ndc11))
+    if ndc9:
+        candidates.append(("ndc9", ndc9))
+    return candidates
 
 
 def _emit_progress(
@@ -238,6 +345,8 @@ def _log_progress_milestone(
 async def run_backfill(
     *,
     limit: Optional[int] = None,
+    offset: int = 0,
+    only_missing_professional: bool = False,
     dry_run: bool = False,
     force_refresh: bool = False,
     rate_limit_seconds: float = 0.25,
@@ -245,7 +354,15 @@ async def run_backfill(
     progress_callback: Optional[Callable[[BackfillProgress], None]] = None,
 ) -> BackfillSummary:
     start = time.monotonic()
-    total = _count_published_pills(limit)
+    logger.info(
+        "Starting medication guide backfill limit=%s offset=%d dry_run=%s force_refresh=%s only_missing_professional=%s",
+        limit,
+        offset,
+        dry_run,
+        force_refresh,
+        only_missing_professional,
+    )
+    total = _count_published_pills(limit, offset=offset, only_missing_professional=only_missing_professional)
 
     complete_rows: list[dict[str, Any]] = []
     partial_rows: list[dict[str, Any]] = []
@@ -260,7 +377,7 @@ async def run_backfill(
     call_count = 0
     use_sleep = not bool(os.getenv("OPENFDA_API_KEY"))
 
-    for pill in _iter_published_pills(limit):
+    for pill in _iter_published_pills(limit, offset=offset, only_missing_professional=only_missing_professional):
         processed += 1
         pill_id = pill.get("id")
         slug = pill.get("slug")
@@ -270,6 +387,13 @@ async def run_backfill(
         ndc9 = _clean_optional_text(pill.get("ndc9"))
         spl_set_id = _clean_optional_text(pill.get("spl_set_id"))
         ndc = ndc11 or ndc9
+        candidates = _identifier_candidates(
+            spl_set_id=spl_set_id,
+            rxcui=rxcui,
+            ndc11=ndc11,
+            ndc9=ndc9,
+        )
+        default_match_type, default_identifier = candidates[0] if candidates else ("", "")
 
         if not spl_set_id and not rxcui and not ndc11 and not ndc9:
             skipped += 1
@@ -278,8 +402,11 @@ async def run_backfill(
                     "pill_id": pill_id,
                     "slug": slug,
                     "medicine_name": medicine_name,
+                    "spl_set_id": spl_set_id or "",
                     "rxcui": "",
                     "ndc": "",
+                    "match_type": "",
+                    "identifier_candidate": "",
                     "reason": "no rxcui, ndc11, ndc9, or spl_set_id",
                 }
             )
@@ -311,18 +438,24 @@ async def run_backfill(
                     "pill_id": pill_id,
                     "slug": slug,
                     "medicine_name": medicine_name,
+                    "spl_set_id": spl_set_id or "",
                     "rxcui": rxcui or "",
                     "ndc": ndc or "",
+                    "match_type": default_match_type,
+                    "identifier_candidate": default_identifier,
                     "brand_name": "",
                     "generic_name": "",
                 }
             )
             logger.info(
-                "Backfill dry-run would fetch pill_id=%s slug=%s rxcui=%s ndc=%s",
+                "Backfill dry-run would fetch pill_id=%s slug=%s spl_set_id=%s rxcui=%s ndc=%s identifier=%s:%s",
                 pill_id,
                 slug,
+                spl_set_id,
                 rxcui,
                 ndc,
+                default_match_type,
+                default_identifier,
             )
             _emit_progress(
                 progress_callback,
@@ -463,8 +596,11 @@ async def run_backfill(
                     "pill_id": pill_id,
                     "slug": slug,
                     "medicine_name": medicine_name,
+                    "spl_set_id": result.get("spl_set_id") or spl_set_id or "",
                     "rxcui": result.get("rxcui") or rxcui or "",
                     "ndc": result.get("ndc") or ndc or "",
+                    "match_type": match_type or "",
+                    "identifier_candidate": default_identifier,
                     "brand_name": result.get("brand_name") or "",
                     "generic_name": result.get("generic_name") or "",
                 }
@@ -489,8 +625,11 @@ async def run_backfill(
                         "pill_id": pill_id,
                         "slug": slug,
                         "medicine_name": medicine_name,
+                        "spl_set_id": spl_set_id or "",
                         "rxcui": rxcui or "",
                         "ndc": ndc or "",
+                        "match_type": default_match_type,
+                        "identifier_candidate": default_identifier,
                         "brand_name": "",
                         "generic_name": "",
                     }
@@ -504,8 +643,11 @@ async def run_backfill(
                         "pill_id": pill_id,
                         "slug": slug,
                         "medicine_name": medicine_name,
+                        "spl_set_id": spl_set_id or "",
                         "rxcui": rxcui or "",
                         "ndc": ndc or "",
+                        "match_type": default_match_type,
+                        "identifier_candidate": default_identifier,
                         "reason": "all identifier candidates invalid or skipped",
                     }
                 )
@@ -516,6 +658,11 @@ async def run_backfill(
                 {
                     "pill_id": pill_id,
                     "slug": slug,
+                    "spl_set_id": spl_set_id or "",
+                    "rxcui": rxcui or "",
+                    "ndc": ndc or "",
+                    "match_type": match_type or default_match_type,
+                    "identifier_candidate": default_identifier,
                     "error_type": type(exc).__name__,
                     "error_message": str(exc),
                 }
@@ -553,7 +700,7 @@ async def run_backfill(
 
     _write_csv(
         complete_path,
-        ["pill_id", "slug", "medicine_name", "rxcui", "ndc", "brand_name", "generic_name"],
+        ["pill_id", "slug", "medicine_name", "spl_set_id", "rxcui", "ndc", "match_type", "identifier_candidate", "brand_name", "generic_name"],
         complete_rows,
     )
     _write_csv(
@@ -562,8 +709,11 @@ async def run_backfill(
             "pill_id",
             "slug",
             "medicine_name",
+            "spl_set_id",
             "rxcui",
             "ndc",
+            "match_type",
+            "identifier_candidate",
             "brand_name",
             "generic_name",
             "missing_sections",
@@ -572,14 +722,22 @@ async def run_backfill(
     )
     _write_csv(
         not_found_path,
-        ["pill_id", "slug", "medicine_name", "rxcui", "ndc", "brand_name", "generic_name"],
+        ["pill_id", "slug", "medicine_name", "spl_set_id", "rxcui", "ndc", "match_type", "identifier_candidate", "brand_name", "generic_name"],
         not_found_rows,
     )
-    _write_csv(errors_path, ["pill_id", "slug", "error_type", "error_message"], errors_rows)
-    _write_csv(skipped_path, ["pill_id", "slug", "medicine_name", "rxcui", "ndc", "reason"], skipped_rows)
+    _write_csv(
+        errors_path,
+        ["pill_id", "slug", "spl_set_id", "rxcui", "ndc", "match_type", "identifier_candidate", "error_type", "error_message"],
+        errors_rows,
+    )
+    _write_csv(
+        skipped_path,
+        ["pill_id", "slug", "medicine_name", "spl_set_id", "rxcui", "ndc", "match_type", "identifier_candidate", "reason"],
+        skipped_rows,
+    )
     _write_csv(
         would_fetch_path,
-        ["pill_id", "slug", "medicine_name", "rxcui", "ndc", "brand_name", "generic_name"],
+        ["pill_id", "slug", "medicine_name", "spl_set_id", "rxcui", "ndc", "match_type", "identifier_candidate", "brand_name", "generic_name"],
         would_fetch_rows,
     )
 
