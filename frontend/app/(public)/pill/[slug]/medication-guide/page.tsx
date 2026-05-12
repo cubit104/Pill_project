@@ -552,16 +552,16 @@ export async function generateMetadata({
 
   if (!hasMedicationGuideContent) {
     return {
-      title: `Professional Information — ${drugName}`,
-      description: `Read the FDA professional prescribing information for ${drugName}, including highlights and full prescribing details.`,
+      title: `${drugName}: Dosage, Adverse Reactions & MOA`,
+      description: `View FDA prescribing information for ${drugName}, including indications, dosage, adverse reactions, contraindications, pharmacology, and counseling.`,
       alternates: { canonical: `/pill/${encodeURIComponent(slug)}/professional-information` },
       robots: { index: false, follow: true },
     }
   }
 
   return {
-    title: `Medication Guide — ${drugName}`,
-    description: `Read the FDA Medication Guide for ${drugName}, including key warnings and patient counseling information.`,
+    title: `${drugName}: Uses, Side Effects, Dosage & Warnings`,
+    description: `Read the FDA Medication Guide for ${drugName}, including uses, dosage, side effects, warnings, and important safety information.`,
     alternates: { canonical: `/pill/${encodeURIComponent(slug)}/medication-guide` },
   }
 }
