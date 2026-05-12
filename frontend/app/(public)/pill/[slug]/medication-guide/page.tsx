@@ -7,6 +7,14 @@ import MedguideMetaBar from './MedguideMetaBar'
 import MedicationGuideTabs from './MedicationGuideTabs'
 import ProfessionalToc from './ProfessionalToc'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
+import {
+  PRO_BOXED_WARNING_PROSE_CLASSES,
+  PRO_HIGHLIGHTS_CONTAINER_CLASSES,
+  PRO_HIGHLIGHTS_PROSE_CLASSES,
+  SHARED_CONTENT_ASIDE_CLASSES,
+  SHARED_CONTENT_CARD_CLASSES,
+  SHARED_CONTENT_GRID_CLASSES,
+} from './layoutStyles'
 import { slugFromTag } from '../../../../lib/condition-utils'
 import { slugifyDrugName } from '../../../../lib/slug'
 
@@ -103,12 +111,13 @@ const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
 
 const MEDGUIDE_PROSE_CLASSES = [
   '[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-900 [&_h1]:mb-4',
-  '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mt-8 [&_h2]:mb-3',
-  '[&_h3]:text-base [&_h3]:font-medium [&_h3]:text-slate-800 [&_h3]:mt-6 [&_h3]:mb-2',
-  '[&_p]:text-sm [&_p]:leading-relaxed [&_p]:text-slate-700 [&_p]:my-3',
-  '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ul]:space-y-1',
-  '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_ol]:space-y-1',
-  '[&_li]:text-sm [&_li]:leading-relaxed [&_li]:text-slate-700',
+  '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mt-10 [&_h2]:mb-4',
+  '[&_h3]:text-base [&_h3]:font-medium [&_h3]:text-slate-800 [&_h3]:mt-8 [&_h3]:mb-3',
+  '[&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:mt-5 [&_h4]:mb-2',
+  '[&_p]:text-sm [&_p]:leading-8 [&_p]:text-slate-700 [&_p]:my-4',
+  '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4 [&_ul]:space-y-2',
+  '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4 [&_ol]:space-y-2',
+  '[&_li]:text-sm [&_li]:leading-8 [&_li]:text-slate-700 [&_li]:my-2',
   '[&_a]:text-emerald-600 [&_a:hover]:underline',
   '[&_strong]:font-semibold [&_strong]:text-slate-800',
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
@@ -130,12 +139,12 @@ const PRO_PROSE_CLASSES = [
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
   '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:align-top',
+  PRO_BOXED_WARNING_PROSE_CLASSES,
 ].join(' ')
-
-const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
-  'rounded-xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-5'
-const PRO_HIGHLIGHTS_PROSE_CLASSES =
-  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mb-2 [&_h2]:mt-3 [&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_li]:text-sm [&_li]:text-slate-700 [&_a]:text-emerald-600 [&_a:hover]:underline [&_strong]:font-semibold [&_strong]:text-slate-800'
+const BOXED_WARNING_CARD_CLASSES =
+  'rounded-xl border border-rose-300 border-l-4 border-l-rose-600 bg-rose-50 p-5 text-rose-950 [&[open]>summary]:mb-3'
+const BOXED_WARNING_PROSE_CLASSES =
+  'text-sm [&_.boxed-warning-content]:space-y-0 [&_.boxed-warning-content_h2]:mt-5 [&_.boxed-warning-content_h2]:mb-3 [&_.boxed-warning-content_h2]:text-base [&_.boxed-warning-content_h2]:font-semibold [&_.boxed-warning-content_h2]:text-rose-900 [&_.boxed-warning-content_h3]:mt-4 [&_.boxed-warning-content_h3]:mb-2 [&_.boxed-warning-content_h3]:text-sm [&_.boxed-warning-content_h3]:font-semibold [&_.boxed-warning-content_h3]:text-rose-900 [&_.boxed-warning-content_p]:my-3 [&_.boxed-warning-content_p]:leading-8 [&_.boxed-warning-content_p]:text-rose-950 [&_.boxed-warning-content_ul]:my-3 [&_.boxed-warning-content_ul]:list-disc [&_.boxed-warning-content_ul]:pl-5 [&_.boxed-warning-content_ul]:space-y-2 [&_.boxed-warning-content_ol]:my-3 [&_.boxed-warning-content_ol]:list-decimal [&_.boxed-warning-content_ol]:pl-5 [&_.boxed-warning-content_ol]:space-y-2 [&_.boxed-warning-content_li]:my-2 [&_.boxed-warning-content_li]:leading-8 [&_.boxed-warning-content_li]:text-rose-950 [&_.boxed-warning-content_a]:text-rose-800 [&_.boxed-warning-content_a:hover]:text-rose-950 [&_.boxed-warning-content_strong]:font-semibold [&_.boxed-warning-content_strong]:text-rose-950'
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
   for (const value of values) {
@@ -377,7 +386,7 @@ function GuideText({
   drugNames: string[]
 }) {
   return (
-    <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">
+    <p className="my-4 whitespace-pre-line text-sm leading-8 text-slate-700">
       {linkifyText(content, drugName, conditionTags, drugNames)}
     </p>
   )
@@ -400,8 +409,8 @@ function SectionBlock({
 }) {
   if (!content) return null
   return (
-    <section className="py-4 border-b border-slate-100 last:border-b-0">
-      <h2 className="text-base font-semibold text-slate-800 mb-2">{label}</h2>
+    <section className="border-b border-slate-100 py-5 last:border-b-0">
+      <h2 className="mb-4 text-base font-semibold text-slate-800">{label}</h2>
       {isHtmlContent(content) ? (
         <GuideHtml content={content} linkTargets={linkTargets} />
       ) : (
@@ -659,15 +668,15 @@ export default async function MedicationGuidePage({
             </details>
           )}
 
-          <div className={hasProfessionalToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[13rem_minmax(0,56rem)] lg:gap-8 lg:items-start lg:justify-center' : 'space-y-6'}>
+          <div className={hasProfessionalToc ? SHARED_CONTENT_GRID_CLASSES : 'space-y-6'}>
             {hasProfessionalToc && (
-              <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:w-52">
+              <aside className={SHARED_CONTENT_ASIDE_CLASSES}>
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <ProfessionalToc sections={professionalTocSections} />
                 </div>
               </aside>
             )}
-            <div className={`min-w-0 w-full bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6 ${hasProfessionalToc ? '' : 'lg:max-w-[56rem] lg:mx-auto'}`}>
+            <div className={`${SHARED_CONTENT_CARD_CLASSES} ${hasProfessionalToc ? '' : 'lg:max-w-[60rem] lg:mx-auto'}`}>
               {professionalData?.professional_highlights_html && (
                 <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
                   <div
@@ -799,19 +808,19 @@ export default async function MedicationGuidePage({
         {guideData?.has_boxed_warning && (
           <details
             open
-            className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-800 [&[open]>summary]:mb-3"
+            className={BOXED_WARNING_CARD_CLASSES}
           >
-            <summary className="flex items-center gap-2 cursor-pointer font-semibold list-none [&::-webkit-details-marker]:hidden">
+            <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold text-rose-900 [&::-webkit-details-marker]:hidden">
               <span aria-hidden>⚠️</span>
               <span>Boxed Warning</span>
             </summary>
             {linkedBoxedWarningHtml ? (
               <div
-                className="text-sm [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_strong]:font-semibold"
+                className={BOXED_WARNING_PROSE_CLASSES}
                 dangerouslySetInnerHTML={{ __html: linkedBoxedWarningHtml }}
               />
             ) : (
-              <p className="text-sm">
+              <p className="text-sm leading-8 text-rose-950">
                 This medication includes an FDA boxed warning. See the Full Prescribing Information for details.
               </p>
             )}
@@ -842,15 +851,15 @@ export default async function MedicationGuidePage({
           </details>
         )}
 
-        <div className={hasConsumerToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[13rem_minmax(0,56rem)] lg:gap-8 lg:items-start lg:justify-center' : 'space-y-6'}>
+        <div className={hasConsumerToc ? SHARED_CONTENT_GRID_CLASSES : 'space-y-6'}>
           {hasConsumerToc && (
-            <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-52">
+            <aside className={SHARED_CONTENT_ASIDE_CLASSES}>
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <MedguideToc html={linkedMedguideHtml ?? ''} drugName={drugName} />
               </div>
             </aside>
           )}
-          <div className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+          <div className={`${SHARED_CONTENT_CARD_CLASSES} ${hasConsumerToc ? '' : 'lg:max-w-[60rem] lg:mx-auto'}`}>
             {linkedMedguideHtml ? (
               <article
                 id="medguide-content"

@@ -5,6 +5,14 @@ import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import ProfessionalToc from '../medication-guide/ProfessionalToc'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from '../medication-guide/professionalTocConfig'
+import {
+  PRO_BOXED_WARNING_PROSE_CLASSES,
+  PRO_HIGHLIGHTS_CONTAINER_CLASSES,
+  PRO_HIGHLIGHTS_PROSE_CLASSES,
+  SHARED_CONTENT_ASIDE_CLASSES,
+  SHARED_CONTENT_CARD_CLASSES,
+  SHARED_CONTENT_GRID_CLASSES,
+} from '../medication-guide/layoutStyles'
 import { slugifyDrugName } from '../../../../lib/slug'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
@@ -49,12 +57,8 @@ const PRO_PROSE_CLASSES = [
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
   '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:align-top',
+  PRO_BOXED_WARNING_PROSE_CLASSES,
 ].join(' ')
-
-const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
-  'rounded-xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-5'
-const PRO_HIGHLIGHTS_PROSE_CLASSES =
-  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mb-2 [&_h2]:mt-3 [&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_li]:text-sm [&_li]:text-slate-700 [&_a]:text-emerald-600 [&_a:hover]:underline [&_strong]:font-semibold [&_strong]:text-slate-800'
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
   for (const value of values) {
@@ -249,15 +253,15 @@ export default async function ProfessionalInformationPage({
           </details>
         )}
 
-        <div className={hasProfessionalToc ? 'space-y-6 lg:space-y-0 lg:grid lg:grid-cols-[13rem_minmax(0,56rem)] lg:gap-8 lg:items-start lg:justify-center' : 'space-y-6'}>
+        <div className={hasProfessionalToc ? SHARED_CONTENT_GRID_CLASSES : 'space-y-6'}>
           {hasProfessionalToc && (
-            <aside className="no-print hidden lg:block lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto w-full lg:w-52">
+            <aside className={SHARED_CONTENT_ASIDE_CLASSES}>
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <ProfessionalToc sections={professionalTocSections} />
               </div>
             </aside>
           )}
-          <div className={`min-w-0 w-full bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6 ${hasProfessionalToc ? '' : 'lg:max-w-[56rem] lg:mx-auto'}`}>
+          <div className={`${SHARED_CONTENT_CARD_CLASSES} ${hasProfessionalToc ? '' : 'lg:max-w-[60rem] lg:mx-auto'}`}>
             {guideData?.professional_highlights_html && (
               <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
                 <div
