@@ -24,7 +24,7 @@ from services.medication_guide import (
     _select_cached_row_by_spl_set_id,
     build_guide as _build_guide,
 )
-from services.medication_guide_backfill import run_backfill
+from services.medication_guide_backfill import _select_published_pills_sql, run_backfill
 from tests.test_medication_guide import _DummyEngine, _row_from_payload
 
 
@@ -205,6 +205,40 @@ def test_dry_run_produces_reports_without_build_call(tmp_path):
         assert Path(summary.report_paths[key]).exists()
 
 
+def test_select_published_pills_sql_applies_limit_offset():
+    sql, params = _select_published_pills_sql(
+        has_rxcui=True,
+        has_ndc9=True,
+        has_spl_set_id=True,
+        limit=25,
+        offset=100,
+        only_missing_professional=False,
+    )
+
+    sql_lower = " ".join(sql.lower().split())
+    assert "order by pf.id asc" in sql_lower
+    assert "limit :limit" in sql_lower
+    assert "offset :offset" in sql_lower
+    assert params["limit"] == 25
+    assert params["offset"] == 100
+
+
+def test_select_published_pills_sql_can_filter_only_missing_professional():
+    sql, _ = _select_published_pills_sql(
+        has_rxcui=True,
+        has_ndc9=True,
+        has_spl_set_id=True,
+        limit=25,
+        offset=0,
+        only_missing_professional=True,
+    )
+
+    sql_lower = " ".join(sql.lower().split())
+    assert "not exists" in sql_lower
+    assert "professional_html is null" in sql_lower
+    assert "mg.spl_set_id = pf.spl_set_id" in sql
+
+
 def test_backfill_uses_rxcui_alone_when_rxcui_available(tmp_path):
     """When rxcui is available, build_guide should be called with rxcui only (ndc=None)."""
     pills = [_pill(1, rxcui="123", ndc11="12345-6789-01")]
@@ -251,6 +285,28 @@ def test_concurrent_run_rejection():
     assert first.status_code == 202
     assert second.status_code == 409
     assert second.json() == {"error": "Backfill already in progress"}
+
+
+def test_admin_route_forwards_offset_and_missing_mode():
+    app = FastAPI()
+    app.include_router(admin_backfill_route.router)
+    app.dependency_overrides[require_superuser] = lambda: {"email": "super@test.com", "role": "superuser"}
+
+    with patch("routes.admin.medication_guide_backfill._try_start_backfill", new=AsyncMock(return_value=True)), patch(
+        "starlette.background.BackgroundTasks.add_task", return_value=None
+    ) as add_task:
+        client = TestClient(app)
+        response = client.post(
+            "/api/admin/medication-guide/backfill?limit=25&offset=50&only_missing_professional=true&dry_run=true"
+        )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["offset"] == 50
+    assert payload["only_missing_professional"] is True
+    kwargs = add_task.call_args.kwargs
+    assert kwargs["offset"] == 50
+    assert kwargs["only_missing_professional"] is True
 
 
 # --- New tests for spl_set_id support ---
@@ -365,3 +421,22 @@ def test_build_guide_with_spl_set_id_hydrates_without_rxcui_or_ndc(tmp_path):
     assert result is not None
     sections = result.get("sections") or {}
     assert sections.get("uses") == dummy_section
+
+
+def test_dry_run_report_includes_spl_set_id_and_identifier_candidate(tmp_path):
+    pills = [_pill(1, rxcui="123", ndc11="12345-6789-01", spl_set_id="aaa-bbb-ccc")]
+    with patch("services.medication_guide_backfill._count_published_pills", return_value=1), _patch_pills(pills):
+        summary = asyncio.run(
+            run_backfill(
+                limit=1,
+                offset=25,
+                only_missing_professional=True,
+                dry_run=True,
+                report_dir=tmp_path,
+            )
+        )
+
+    rows = _csv_rows(summary.report_paths["would_fetch"])
+    assert rows[0]["spl_set_id"] == "aaa-bbb-ccc"
+    assert rows[0]["match_type"] == "spl_set_id"
+    assert rows[0]["identifier_candidate"] == "aaa-bbb-ccc"

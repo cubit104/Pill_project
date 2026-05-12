@@ -551,6 +551,44 @@ def test_guide_route_sets_cache_control_header_for_ndc():
     assert response.headers.get("cache-control") == "public, max-age=3600, stale-while-revalidate=86400"
 
 
+def test_guide_route_forwards_setid_and_flags():
+    app = FastAPI()
+    app.include_router(medication_guide_routes.router)
+
+    async def _ok(
+        *,
+        spl_set_id=None,
+        include_professional=False,
+        include_medguide=False,
+        include_boxed_warning=False,
+        **kwargs,
+    ):
+        return {
+            "spl_set_id": spl_set_id,
+            "sections": {},
+            "professional_html": "<html></html>" if include_professional else None,
+            "medguide_html": "<article>medguide</article>" if include_medguide else None,
+            "boxed_warning_html": "<div>bw</div>" if include_boxed_warning else None,
+        }
+
+    with patch("routes.medication_guide.build_guide", side_effect=_ok) as mock_build:
+        client = TestClient(app)
+        response = client.get(
+            "/api/drugs/by-setid/abc-123/guide"
+            "?include_professional=true&include_medguide=true&include_boxed_warning=true"
+        )
+
+    assert response.status_code == 200
+    assert response.headers.get("cache-control") == "public, max-age=3600, stale-while-revalidate=86400"
+    assert response.json()["professional_html"] == "<html></html>"
+    assert response.json()["medguide_html"] == "<article>medguide</article>"
+    assert response.json()["boxed_warning_html"] == "<div>bw</div>"
+    assert mock_build.call_args.kwargs["spl_set_id"] == "abc-123"
+    assert mock_build.call_args.kwargs["include_professional"] is True
+    assert mock_build.call_args.kwargs["include_medguide"] is True
+    assert mock_build.call_args.kwargs["include_boxed_warning"] is True
+
+
 def test_build_guide_refetches_when_stale():
     old_row = {
         "id": 1,
