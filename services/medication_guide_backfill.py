@@ -257,11 +257,11 @@ async def run_backfill(
         slug = pill.get("slug")
         medicine_name = pill.get("medicine_name")
         rxcui = pill.get("rxcui")
-        ndc11 = pill.get("ndc11")
-        ndc9 = pill.get("ndc9")
+        ndc11 = (pill.get("ndc11") or "").strip() or None
+        ndc9 = (pill.get("ndc9") or "").strip() or None
         ndc = ndc11 or ndc9
 
-        if not rxcui and not ndc:
+        if not rxcui and not ndc11 and not ndc9:
             skipped += 1
             skipped_rows.append(
                 {
