@@ -343,7 +343,7 @@ def test_sitemap_returns_200(client):
     slug_rows = MagicMock()
     slug_rows.__iter__ = MagicMock(return_value=iter([("aspirin-500mg-0069-0020-01",)]))
     guide_rows = MagicMock()
-    guide_rows.fetchall.return_value = [("aspirin-500mg-0069-0020-01", True, True)]
+    guide_rows.fetchall.return_value = [("aspirin-500mg-0069-0020-01", True, True, False)]
     db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = [slug_rows, guide_rows]
     response = client.get("/sitemap.xml")
     assert response.status_code == 200
@@ -367,7 +367,7 @@ def test_sitemap_contains_urlset(client):
     slug_rows = MagicMock()
     slug_rows.__iter__ = MagicMock(return_value=iter([("some-slug",)]))
     guide_rows = MagicMock()
-    guide_rows.fetchall.return_value = [("some-slug", True, True)]
+    guide_rows.fetchall.return_value = [("some-slug", True, True, False)]
     db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = [slug_rows, guide_rows]
     response = client.get("/sitemap.xml")
     assert b"urlset" in response.content
@@ -378,13 +378,30 @@ def test_sitemap_contains_guide_urls_when_available(client):
     slug_rows = MagicMock()
     slug_rows.__iter__ = MagicMock(return_value=iter([("some-slug",)]))
     guide_rows = MagicMock()
-    guide_rows.fetchall.return_value = [("some-slug", True, True)]
+    guide_rows.fetchall.return_value = [("some-slug", True, True, False)]
     db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = [slug_rows, guide_rows]
 
     response = client.get("/sitemap.xml")
 
     assert b"/pill/some-slug/medication-guide" in response.content
     assert b"/pill/some-slug/professional-information" in response.content
+
+
+def test_sitemap_includes_medication_summary_only_when_no_official_medguide(client):
+    import database as db_module
+    slug_rows = MagicMock()
+    slug_rows.__iter__ = MagicMock(return_value=iter([("summary-slug",), ("official-slug",)]))
+    guide_rows = MagicMock()
+    guide_rows.fetchall.return_value = [
+        ("summary-slug", False, True, True),
+        ("official-slug", True, True, True),
+    ]
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = [slug_rows, guide_rows]
+
+    response = client.get("/sitemap.xml")
+
+    assert b"/pill/summary-slug/medication-summary" in response.content
+    assert b"/pill/official-slug/medication-summary" not in response.content
 
 
 # ---------------------------------------------------------------------------
@@ -441,8 +458,8 @@ def test_api_guide_page_slugs_returns_availability_payload(client):
     import database as db_module
     mock_result = MagicMock()
     mock_result.fetchall.return_value = [
-        ("aspirin-500mg-01", True, False),
-        ("ibuprofen-200mg-02", False, True),
+        ("aspirin-500mg-01", True, False, False),
+        ("ibuprofen-200mg-02", False, True, True),
     ]
     conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
     conn_mock.execute.side_effect = None
@@ -452,8 +469,18 @@ def test_api_guide_page_slugs_returns_availability_payload(client):
 
     assert response.status_code == 200
     assert response.json() == [
-        {"slug": "aspirin-500mg-01", "has_medguide": True, "has_professional": False},
-        {"slug": "ibuprofen-200mg-02", "has_medguide": False, "has_professional": True},
+        {
+            "slug": "aspirin-500mg-01",
+            "has_medguide": True,
+            "has_professional": False,
+            "has_medication_summary": False,
+        },
+        {
+            "slug": "ibuprofen-200mg-02",
+            "has_medguide": False,
+            "has_professional": True,
+            "has_medication_summary": True,
+        },
     ]
 
 
@@ -747,3 +774,117 @@ def test_api_pill_similar_image_url_built_from_filename(client):
     data = response.json()
     assert len(data["similar"]) == 1
     assert data["similar"][0]["image_url"] == f"{IMAGE_BASE}/other.jpg"
+
+
+# ---------------------------------------------------------------------------
+# /api/pill/{slug} — medication guide compat fallback
+# ---------------------------------------------------------------------------
+
+def _make_pill_slug_compat_engine(medguide_exists: bool, error_msg: str):
+    """Build a mock engine whose execute() simulates the migration-safety scenario.
+
+    The guide-flags query that selects medication_summary_html raises an
+    SQLAlchemyError (column does not exist).  The compat query that only
+    selects medguide_html succeeds and returns *medguide_exists*.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    mock_pill_row = (
+        "Plavix", "75", "Pink", "Round", "63653-1171-01", "174742",
+        None, "plavix-75-1171", None,
+    )
+    mock_columns = [
+        "medicine_name", "splimprint", "splcolor_text", "splshape_text",
+        "ndc11", "rxcui", "image_filename", "slug", "meta_description",
+    ]
+
+    def _execute(sql, params=None):
+        sql_str = str(sql).lower()
+
+        if "pillfinder" in sql_str:
+            r = MagicMock()
+            r.fetchone.return_value = mock_pill_row
+            r.keys.return_value = mock_columns
+            r.fetchall.return_value = []
+            return r
+
+        if "pill_ndcs" in sql_str:
+            r = MagicMock()
+            r.fetchone.return_value = None
+            r.fetchall.return_value = []
+            return r
+
+        if "medication_summary_html" in sql_str:
+            raise SQLAlchemyError(error_msg)
+
+        if "medguide_html" in sql_str:
+            # Use a plain tuple so bool(row[0]) works reliably without __getitem__ magic
+            compat_row = (medguide_exists,)
+            r = MagicMock()
+            r.fetchone.return_value = compat_row
+            r.fetchall.return_value = []
+            return r
+
+        if "drug_indications" in sql_str:
+            r = MagicMock()
+            r.fetchone.return_value = None
+            r.fetchall.return_value = []
+            return r
+
+        # Default: image aggregation queries, etc.
+        r = MagicMock()
+        r.fetchone.return_value = None
+        r.fetchall.return_value = []
+        r.__iter__ = lambda self: iter([])
+        return r
+
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_conn.execute.side_effect = _execute
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    return mock_engine
+
+
+def test_api_pill_slug_has_medguide_true_when_summary_column_missing(client):
+    """has_medguide=True must survive when medication_summary_html column is absent (missing migration)."""
+    import database as db_module
+
+    mock_engine = _make_pill_slug_compat_engine(
+        medguide_exists=True,
+        error_msg='column "medication_summary_html" does not exist',
+    )
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = mock_engine
+        response = client.get("/api/pill/plavix-75-1171")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["has_medguide"] is True
+    assert data["has_medication_summary"] is False
+
+
+def test_api_pill_slug_has_medguide_false_when_summary_column_missing_and_no_guide(client):
+    """has_medguide=False when medication_summary_html column absent and no official guide exists."""
+    import database as db_module
+
+    mock_engine = _make_pill_slug_compat_engine(
+        medguide_exists=False,
+        error_msg='column "medication_summary_html" does not exist',
+    )
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = mock_engine
+        response = client.get("/api/pill/plavix-75-1171")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["has_medguide"] is False
+    assert data["has_medication_summary"] is False

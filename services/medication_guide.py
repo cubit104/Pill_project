@@ -15,6 +15,7 @@ import database
 from ndc_normalize import normalize_ndc_to_11
 from services.dailymed_client import DailyMedClient
 from services.dailymed_spl_client import fetch_spl_sections
+from services.medication_summary import generate_medication_summary
 from services.openfda_client import OpenFDAClient, OpenFDAUpstreamError
 from services.spl_medguide import fetch_boxed_warning_html, fetch_medguide_html
 from services.spl_professional import ProfessionalRendered, fetch_professional_rendered
@@ -87,6 +88,10 @@ _GUIDE_COLUMNS = [
     "professional_meta",
     "medguide_html",
     "boxed_warning_html",
+    "medication_summary_json",
+    "medication_summary_html",
+    "medication_summary_source",
+    "medication_summary_generated_at",
     "fetched_at",
     "updated_at",
 ]
@@ -166,8 +171,17 @@ def _row_to_response(
 ) -> dict[str, Any]:
     """Convert a medication_guide row dict into API response shape."""
     professional_meta = row.get("professional_meta") if include_professional else None
+    medication_summary_json = _deserialize_jsonb(row.get("medication_summary_json"))
     medguide_html = row.get("medguide_html")
     has_medguide = bool(medguide_html and str(medguide_html).strip())
+    has_medication_summary = bool(
+        (row.get("medication_summary_html") and str(row.get("medication_summary_html")).strip())
+        or (
+            isinstance(medication_summary_json, dict)
+            and isinstance(medication_summary_json.get("questions"), list)
+            and len(medication_summary_json.get("questions")) > 0
+        )
+    )
     # API callers may send different name fields depending on source:
     # prefer branded/proprietary names, then generic/common identifiers.
     display_name = (
@@ -185,6 +199,7 @@ def _row_to_response(
         "display_name": display_name,
         "has_boxed_warning": bool(row.get("has_boxed_warning")),
         "has_medguide": has_medguide,
+        "has_medication_summary": has_medication_summary,
         "sections": {
             "overview": row.get("overview"),
             "uses": row.get("uses"),
@@ -210,6 +225,10 @@ def _row_to_response(
         ),
         "medguide_html": medguide_html if include_medguide else None,
         "boxed_warning_html": row.get("boxed_warning_html") if include_boxed_warning else None,
+        "medication_summary_json": medication_summary_json,
+        "medication_summary_html": row.get("medication_summary_html"),
+        "medication_summary_source": row.get("medication_summary_source"),
+        "medication_summary_generated_at": _to_iso(row.get("medication_summary_generated_at")),
         "fetched_at": _to_iso(row.get("fetched_at")),
         "disclaimer": DISCLAIMER,
     }
@@ -219,6 +238,16 @@ def _build_professional_meta(professional: ProfessionalRendered) -> dict[str, An
     return {
         "highlights_html": professional.highlights_html,
         "sections": [[slug, label] for slug, label in professional.sections],
+    }
+
+
+def _build_medication_summary_payload(row: dict[str, Any]) -> dict[str, Any]:
+    summary_json, summary_html = generate_medication_summary(row)
+    return {
+        "medication_summary_json": summary_json,
+        "medication_summary_html": summary_html,
+        "medication_summary_source": "fda_dailymed_professional_label",
+        "medication_summary_generated_at": datetime.now(timezone.utc),
     }
 
 
@@ -250,6 +279,19 @@ def _serialize_jsonb(value: Any) -> Optional[str]:
         return json.dumps(value)
     # Already a string (e.g. already serialised by a previous call or read back
     # from the DB as a string in some driver configurations).
+    return value
+
+
+def _deserialize_jsonb(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return None
     return value
 
 
@@ -349,6 +391,7 @@ def _update_guide(conn, payload: dict[str, Any], *, existing_id: int) -> dict[st
     # JSONB columns must be passed as JSON strings; the CAST in the SQL handles
     # the string→jsonb conversion so the driver never needs to infer the type.
     params["professional_meta"] = _serialize_jsonb(params.get("professional_meta"))
+    params["medication_summary_json"] = _serialize_jsonb(params.get("medication_summary_json"))
     conn.execute(
         text(
             """
@@ -378,6 +421,10 @@ def _update_guide(conn, payload: dict[str, Any], *, existing_id: int) -> dict[st
                 professional_meta = COALESCE(CAST(:professional_meta AS JSONB), professional_meta),
                 medguide_html = COALESCE(:medguide_html, medguide_html),
                 boxed_warning_html = COALESCE(:boxed_warning_html, boxed_warning_html),
+                medication_summary_json = COALESCE(CAST(:medication_summary_json AS JSONB), medication_summary_json),
+                medication_summary_html = COALESCE(:medication_summary_html, medication_summary_html),
+                medication_summary_source = COALESCE(:medication_summary_source, medication_summary_source),
+                medication_summary_generated_at = COALESCE(:medication_summary_generated_at, medication_summary_generated_at),
                 fetched_at = :fetched_at,
                 updated_at = :updated_at
             WHERE id = :id
@@ -399,6 +446,7 @@ def _insert_guide(conn, payload: dict[str, Any]) -> dict[str, Any]:
     # JSONB columns must be serialised to a JSON string so the driver can bind
     # them; CAST in the SQL converts the string to the JSONB column type.
     params["professional_meta"] = _serialize_jsonb(params.get("professional_meta"))
+    params["medication_summary_json"] = _serialize_jsonb(params.get("medication_summary_json"))
     row = conn.execute(
         text(
             """
@@ -407,14 +455,18 @@ def _insert_guide(conn, payload: dict[str, Any]) -> dict[str, Any]:
                 overview, uses, dosage, how_to_take, side_effects,
                 warnings, interactions, contraindications, special_populations,
                 overdose, storage, pharmacology, manufacturer,
-                has_boxed_warning, source_url, professional_html, professional_meta, medguide_html, boxed_warning_html, fetched_at, updated_at
+                has_boxed_warning, source_url, professional_html, professional_meta, medguide_html, boxed_warning_html,
+                medication_summary_json, medication_summary_html, medication_summary_source, medication_summary_generated_at,
+                fetched_at, updated_at
             )
             VALUES (
                 :rxcui, :ndc, :spl_set_id, :generic_name, :brand_name,
                 :overview, :uses, :dosage, :how_to_take, :side_effects,
                 :warnings, :interactions, :contraindications, :special_populations,
                 :overdose, :storage, :pharmacology, :manufacturer,
-                :has_boxed_warning, :source_url, :professional_html, CAST(:professional_meta AS JSONB), :medguide_html, :boxed_warning_html, :fetched_at, :updated_at
+                :has_boxed_warning, :source_url, :professional_html, CAST(:professional_meta AS JSONB), :medguide_html, :boxed_warning_html,
+                CAST(:medication_summary_json AS JSONB), :medication_summary_html, :medication_summary_source, :medication_summary_generated_at,
+                :fetched_at, :updated_at
             )
             RETURNING *
             """
@@ -497,6 +549,8 @@ async def build_guide(
                             "professional_html": professional.article_html,
                             "professional_meta": _build_professional_meta(professional),
                         }
+                        if not new_payload.get("medguide_html"):
+                            new_payload.update(_build_medication_summary_payload(new_payload))
                         if cached.get("id") is not None:
                             try:
                                 with database.db_engine.begin() as write_conn:
@@ -553,6 +607,24 @@ async def build_guide(
                 except (Exception, SQLAlchemyError):
                     logger.exception(
                         "include_boxed_warning lazy-fill failed for spl_set_id=%s",
+                        cached.get("spl_set_id"),
+                    )
+            if (
+                cached.get("professional_html")
+                and not cached.get("medguide_html")
+                and not cached.get("medication_summary_html")
+                and cached.get("id") is not None
+            ):
+                try:
+                    with database.db_engine.begin() as write_conn:
+                        cached = _update_guide(
+                            write_conn,
+                            {**cached, **_build_medication_summary_payload(cached)},
+                            existing_id=int(cached["id"]),
+                        )
+                except SQLAlchemyError:
+                    logger.exception(
+                        "medication_summary lazy-fill failed for spl_set_id=%s",
                         cached.get("spl_set_id"),
                     )
             return _row_to_response(
@@ -653,6 +725,9 @@ async def build_guide(
         if include_boxed_warning:
             mapped["boxed_warning_html"] = await fetch_boxed_warning_html(resolved_spl_set_id)
 
+        if mapped.get("professional_html") and not mapped.get("medguide_html"):
+            mapped.update(_build_medication_summary_payload(mapped))
+
     existing_id = int(cached["id"]) if cached and cached.get("id") is not None else None
 
     if existing_id is None:
@@ -725,6 +800,8 @@ async def _build_guide_by_spl_set_id(
                         "professional_html": professional.article_html,
                         "professional_meta": _build_professional_meta(professional),
                     }
+                    if not new_payload.get("medguide_html"):
+                        new_payload.update(_build_medication_summary_payload(new_payload))
                     if cached.get("id") is not None:
                         try:
                             with database.db_engine.begin() as write_conn:
@@ -776,6 +853,24 @@ async def _build_guide_by_spl_set_id(
             except (Exception, SQLAlchemyError):
                 logger.exception(
                     "include_boxed_warning lazy-fill failed for spl_set_id=%s",
+                    cached.get("spl_set_id"),
+                )
+        if (
+            cached.get("professional_html")
+            and not cached.get("medguide_html")
+            and not cached.get("medication_summary_html")
+            and cached.get("id") is not None
+        ):
+            try:
+                with database.db_engine.begin() as write_conn:
+                    cached = _update_guide(
+                        write_conn,
+                        {**cached, **_build_medication_summary_payload(cached)},
+                        existing_id=int(cached["id"]),
+                    )
+            except SQLAlchemyError:
+                logger.exception(
+                    "medication_summary lazy-fill failed for spl_set_id=%s",
                     cached.get("spl_set_id"),
                 )
         return _row_to_response(
@@ -857,6 +952,9 @@ async def _build_guide_by_spl_set_id(
 
     if include_boxed_warning:
         mapped["boxed_warning_html"] = await fetch_boxed_warning_html(spl_set_id)
+
+    if mapped.get("professional_html") and not mapped.get("medguide_html"):
+        mapped.update(_build_medication_summary_payload(mapped))
 
     # If sections and HTML are all None, this guide essentially has no content — treat as not found
     section_values = [mapped.get(key) for key in SECTION_MAPPING]

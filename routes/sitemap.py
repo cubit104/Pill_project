@@ -37,6 +37,7 @@ class GuidePageSlug(BaseModel):
     slug: str
     has_medguide: bool
     has_professional: bool
+    has_medication_summary: bool
 
 
 def _fetch_guide_page_slugs(conn) -> List[GuidePageSlug]:
@@ -46,10 +47,11 @@ def _fetch_guide_page_slugs(conn) -> List[GuidePageSlug]:
             SELECT
                 p.slug,
                 (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
-                (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional
+                (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional,
+                (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
             FROM pillfinder p
             LEFT JOIN LATERAL (
-                SELECT medguide_html, professional_html
+                SELECT medguide_html, professional_html, medication_summary_html
                 FROM medication_guide m
                 WHERE (
                     NULLIF(p.rxcui, '') IS NOT NULL AND m.rxcui = p.rxcui
@@ -85,6 +87,7 @@ def _fetch_guide_page_slugs(conn) -> List[GuidePageSlug]:
             slug=row[0],
             has_medguide=bool(row[1]),
             has_professional=bool(row[2]),
+            has_medication_summary=bool(row[3]),
         )
         for row in result
         if row[0]
@@ -162,6 +165,10 @@ def sitemap():
             if row.has_professional:
                 guide_urls.append(
                     f"  <url><loc>{base_url}/pill/{xml_escape(row.slug)}/professional-information</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>"
+                )
+            if row.has_medication_summary and not row.has_medguide:
+                guide_urls.append(
+                    f"  <url><loc>{base_url}/pill/{xml_escape(row.slug)}/medication-summary</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>"
                 )
         xml_content = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
