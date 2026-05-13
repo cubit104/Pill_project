@@ -53,6 +53,8 @@ def _truncate(text: str, limit: int = 700) -> str:
     clipped = stripped[:limit]
     if " " in clipped:
         clipped = clipped.rsplit(" ", 1)[0]
+    if clipped.endswith((".", "!", "?")):
+        return clipped
     return f"{clipped}."
 
 

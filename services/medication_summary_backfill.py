@@ -74,7 +74,6 @@ def _resolve_slugs(conn, *, rxcui: str | None, ndc: str | None, spl_set_id: str 
     if not any([rxcui, ndc, spl_set_id]):
         return []
 
-    clean_ndc = (ndc or "").replace("-", "")
     result = conn.execute(
         text(
             """
@@ -103,7 +102,7 @@ def _resolve_slugs(conn, *, rxcui: str | None, ndc: str | None, spl_set_id: str 
             "spl_set_id": (spl_set_id or "").strip(),
             "rxcui": (rxcui or "").strip(),
             "ndc": (ndc or "").strip(),
-            "clean_ndc": clean_ndc,
+            "clean_ndc": (ndc or "").replace("-", ""),
         },
     )
     return [row[0] for row in result if row[0]]

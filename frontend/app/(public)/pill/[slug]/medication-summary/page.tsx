@@ -12,6 +12,7 @@ const SAFETY_NOTICE =
   'This patient-friendly summary is based on FDA/DailyMed prescribing information. It is not a substitute for medical advice. Not every medication has a separate FDA Medication Guide.'
 const BOXED_WARNING_NOTICE =
   'This label includes a boxed warning. Review the full prescribing information and talk to a healthcare professional.'
+const SUMMARY_NOTICE_FALLBACK = 'Patient-friendly summary based on FDA/DailyMed prescribing information.'
 
 type PageParams = Promise<{ slug: string }>
 
@@ -137,7 +138,9 @@ async function fetchGuide(pill: PillInfo): Promise<GuideResponse | null> {
 function summaryQuestions(guide: GuideResponse | null): SummaryQA[] {
   const questions = guide?.medication_summary_json?.questions
   if (!Array.isArray(questions)) return []
-  return questions.filter((item) => item?.question && item?.answer)
+  return questions.filter(
+    (item): item is SummaryQA => item?.question != null && item?.answer != null
+  )
 }
 
 export async function generateMetadata({ params }: { params: PageParams }): Promise<Metadata> {
@@ -238,7 +241,9 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
 
         <div>
           <h1 className="text-2xl font-bold text-slate-900">{drugName} Medication Summary</h1>
-          <p className="mt-2 text-sm text-slate-600">{guideData?.medication_summary_json?.notice ?? 'Patient-friendly summary based on FDA/DailyMed prescribing information.'}</p>
+          <p className="mt-2 text-sm text-slate-600">
+            {guideData?.medication_summary_json?.notice ?? SUMMARY_NOTICE_FALLBACK}
+          </p>
         </div>
 
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
