@@ -292,6 +292,58 @@ def get_pill_by_slug(slug: str):
                 else:
                     logger.warning("pill_ndcs lookup failed for %s: %s", slug, _e)
 
+            guide_flags = {"has_medguide": False, "has_medication_summary": False}
+            try:
+                guide_row = conn.execute(
+                    text(
+                        """
+                        SELECT
+                            (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
+                            (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
+                        FROM public.medication_guide mg
+                        WHERE (
+                                :spl_set_id <> ''
+                                AND mg.spl_set_id = :spl_set_id
+                            ) OR (
+                                :rxcui <> ''
+                                AND mg.rxcui = :rxcui
+                            ) OR (
+                                :ndc11 <> ''
+                                AND (
+                                    mg.ndc = :ndc11
+                                    OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc11_clean
+                                )
+                            ) OR (
+                                :ndc9 <> ''
+                                AND (
+                                    mg.ndc = :ndc9
+                                    OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc9_clean
+                                )
+                            )
+                        ORDER BY
+                            CASE WHEN :spl_set_id <> '' AND mg.spl_set_id = :spl_set_id THEN 0 ELSE 1 END,
+                            CASE WHEN :rxcui <> '' AND mg.rxcui = :rxcui THEN 0 ELSE 1 END,
+                            mg.updated_at DESC NULLS LAST
+                        LIMIT 1
+                        """
+                    ),
+                    {
+                        "spl_set_id": str(pill_info.get("spl_set_id") or ""),
+                        "rxcui": str(pill_info.get("rxcui") or ""),
+                        "ndc11": str(pill_info.get("ndc11") or ""),
+                        "ndc9": str(pill_info.get("ndc9") or ""),
+                        "ndc11_clean": str(pill_info.get("ndc11") or "").replace("-", ""),
+                        "ndc9_clean": str(pill_info.get("ndc9") or "").replace("-", ""),
+                    },
+                ).fetchone()
+                if guide_row:
+                    guide_flags = {
+                        "has_medguide": bool(guide_row[0]),
+                        "has_medication_summary": bool(guide_row[1]),
+                    }
+            except SQLAlchemyError as _e:
+                logger.warning("Medication guide flag lookup failed for %s: %s", slug, _e)
+
             mapped = {
                 "drug_name": pill_info.get("medicine_name"),
                 "imprint": pill_info.get("splimprint"),
@@ -326,6 +378,8 @@ def get_pill_by_slug(slug: str):
                     or pill_info.get("last_updated")
                     or pill_info.get("ingested_at")
                 ),
+                "has_medguide": guide_flags["has_medguide"],
+                "has_medication_summary": guide_flags["has_medication_summary"],
                 "additional_ndcs": additional_ndcs,
                 "meta_description": pill_info.get("meta_description") or None,
                 "indication": None,

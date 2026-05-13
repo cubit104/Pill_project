@@ -343,7 +343,7 @@ def test_sitemap_returns_200(client):
     slug_rows = MagicMock()
     slug_rows.__iter__ = MagicMock(return_value=iter([("aspirin-500mg-0069-0020-01",)]))
     guide_rows = MagicMock()
-    guide_rows.fetchall.return_value = [("aspirin-500mg-0069-0020-01", True, True)]
+    guide_rows.fetchall.return_value = [("aspirin-500mg-0069-0020-01", True, True, False)]
     db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = [slug_rows, guide_rows]
     response = client.get("/sitemap.xml")
     assert response.status_code == 200
@@ -367,7 +367,7 @@ def test_sitemap_contains_urlset(client):
     slug_rows = MagicMock()
     slug_rows.__iter__ = MagicMock(return_value=iter([("some-slug",)]))
     guide_rows = MagicMock()
-    guide_rows.fetchall.return_value = [("some-slug", True, True)]
+    guide_rows.fetchall.return_value = [("some-slug", True, True, False)]
     db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = [slug_rows, guide_rows]
     response = client.get("/sitemap.xml")
     assert b"urlset" in response.content
@@ -378,13 +378,30 @@ def test_sitemap_contains_guide_urls_when_available(client):
     slug_rows = MagicMock()
     slug_rows.__iter__ = MagicMock(return_value=iter([("some-slug",)]))
     guide_rows = MagicMock()
-    guide_rows.fetchall.return_value = [("some-slug", True, True)]
+    guide_rows.fetchall.return_value = [("some-slug", True, True, False)]
     db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = [slug_rows, guide_rows]
 
     response = client.get("/sitemap.xml")
 
     assert b"/pill/some-slug/medication-guide" in response.content
     assert b"/pill/some-slug/professional-information" in response.content
+
+
+def test_sitemap_includes_medication_summary_only_when_no_official_medguide(client):
+    import database as db_module
+    slug_rows = MagicMock()
+    slug_rows.__iter__ = MagicMock(return_value=iter([("summary-slug",), ("official-slug",)]))
+    guide_rows = MagicMock()
+    guide_rows.fetchall.return_value = [
+        ("summary-slug", False, True, True),
+        ("official-slug", True, True, True),
+    ]
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = [slug_rows, guide_rows]
+
+    response = client.get("/sitemap.xml")
+
+    assert b"/pill/summary-slug/medication-summary" in response.content
+    assert b"/pill/official-slug/medication-summary" not in response.content
 
 
 # ---------------------------------------------------------------------------
@@ -441,8 +458,8 @@ def test_api_guide_page_slugs_returns_availability_payload(client):
     import database as db_module
     mock_result = MagicMock()
     mock_result.fetchall.return_value = [
-        ("aspirin-500mg-01", True, False),
-        ("ibuprofen-200mg-02", False, True),
+        ("aspirin-500mg-01", True, False, False),
+        ("ibuprofen-200mg-02", False, True, True),
     ]
     conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
     conn_mock.execute.side_effect = None
@@ -452,8 +469,18 @@ def test_api_guide_page_slugs_returns_availability_payload(client):
 
     assert response.status_code == 200
     assert response.json() == [
-        {"slug": "aspirin-500mg-01", "has_medguide": True, "has_professional": False},
-        {"slug": "ibuprofen-200mg-02", "has_medguide": False, "has_professional": True},
+        {
+            "slug": "aspirin-500mg-01",
+            "has_medguide": True,
+            "has_professional": False,
+            "has_medication_summary": False,
+        },
+        {
+            "slug": "ibuprofen-200mg-02",
+            "has_medguide": False,
+            "has_professional": True,
+            "has_medication_summary": True,
+        },
     ]
 
 

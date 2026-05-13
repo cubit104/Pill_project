@@ -45,6 +45,10 @@ export interface PillDetail extends PillResult {
   meta_description?: string
   /** Patient-friendly drug indication from drug_indications table. */
   indication?: DrugIndication | null
+  /** True when an official FDA/DailyMed Medication Guide HTML exists. */
+  has_medguide?: boolean
+  /** True when a fallback Medication Summary exists. */
+  has_medication_summary?: boolean
 }
 
 export interface SimilarPill {
