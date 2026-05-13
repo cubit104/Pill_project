@@ -292,7 +292,7 @@ def get_pill_by_slug(slug: str):
                 else:
                     logger.warning("pill_ndcs lookup failed for %s: %s", slug, _e)
 
-            _guide_params = {
+            guide_params = {
                 "spl_set_id": str(pill_info.get("spl_set_id") or ""),
                 "rxcui": str(pill_info.get("rxcui") or ""),
                 "ndc11": str(pill_info.get("ndc11") or ""),
@@ -303,7 +303,7 @@ def get_pill_by_slug(slug: str):
             # Static WHERE / ORDER clause reused by both the primary and compat queries.
             # All filter values are passed as named bind parameters — no user input is
             # interpolated into the SQL text.
-            _GUIDE_FILTER = """
+            guide_filter_clause = """
                         WHERE (
                                 :spl_set_id <> ''
                                 AND mg.spl_set_id = :spl_set_id
@@ -333,13 +333,15 @@ def get_pill_by_slug(slug: str):
             try:
                 guide_row = conn.execute(
                     text(
-                        "SELECT"
-                        " (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,"
-                        " (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary"
-                        " FROM public.medication_guide mg"
-                        + _GUIDE_FILTER
+                        """
+                        SELECT
+                            (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
+                            (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
+                        FROM public.medication_guide mg
+                        """
+                        + guide_filter_clause
                     ),
-                    _guide_params,
+                    guide_params,
                 ).fetchone()
                 if guide_row:
                     guide_flags = {
@@ -364,12 +366,14 @@ def get_pill_by_slug(slug: str):
                     try:
                         compat_row = conn.execute(
                             text(
-                                "SELECT"
-                                " (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide"
-                                " FROM public.medication_guide mg"
-                                + _GUIDE_FILTER
+                                """
+                                SELECT
+                                    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide
+                                FROM public.medication_guide mg
+                                """
+                                + guide_filter_clause
                             ),
-                            _guide_params,
+                            guide_params,
                         ).fetchone()
                         if compat_row:
                             guide_flags = {
