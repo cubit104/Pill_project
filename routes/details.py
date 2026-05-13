@@ -292,15 +292,18 @@ def get_pill_by_slug(slug: str):
                 else:
                     logger.warning("pill_ndcs lookup failed for %s: %s", slug, _e)
 
-            guide_flags = {"has_medguide": False, "has_medication_summary": False}
-            try:
-                guide_row = conn.execute(
-                    text(
-                        """
-                        SELECT
-                            (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
-                            (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
-                        FROM public.medication_guide mg
+            guide_params = {
+                "spl_set_id": str(pill_info.get("spl_set_id") or ""),
+                "rxcui": str(pill_info.get("rxcui") or ""),
+                "ndc11": str(pill_info.get("ndc11") or ""),
+                "ndc9": str(pill_info.get("ndc9") or ""),
+                "ndc11_clean": str(pill_info.get("ndc11") or "").replace("-", ""),
+                "ndc9_clean": str(pill_info.get("ndc9") or "").replace("-", ""),
+            }
+            # Static WHERE / ORDER clause reused by both the primary and compat queries.
+            # All filter values are passed as named bind parameters — no user input is
+            # interpolated into the SQL text.
+            guide_filter_clause = """
                         WHERE (
                                 :spl_set_id <> ''
                                 AND mg.spl_set_id = :spl_set_id
@@ -325,16 +328,20 @@ def get_pill_by_slug(slug: str):
                             CASE WHEN :rxcui <> '' AND mg.rxcui = :rxcui THEN 0 ELSE 1 END,
                             mg.updated_at DESC NULLS LAST
                         LIMIT 1
+            """
+            guide_flags = {"has_medguide": False, "has_medication_summary": False}
+            try:
+                guide_row = conn.execute(
+                    text(
                         """
+                        SELECT
+                            (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
+                            (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
+                        FROM public.medication_guide mg
+                        """
+                        + guide_filter_clause
                     ),
-                    {
-                        "spl_set_id": str(pill_info.get("spl_set_id") or ""),
-                        "rxcui": str(pill_info.get("rxcui") or ""),
-                        "ndc11": str(pill_info.get("ndc11") or ""),
-                        "ndc9": str(pill_info.get("ndc9") or ""),
-                        "ndc11_clean": str(pill_info.get("ndc11") or "").replace("-", ""),
-                        "ndc9_clean": str(pill_info.get("ndc9") or "").replace("-", ""),
-                    },
+                    guide_params,
                 ).fetchone()
                 if guide_row:
                     guide_flags = {
@@ -342,7 +349,52 @@ def get_pill_by_slug(slug: str):
                         "has_medication_summary": bool(guide_row[1]),
                     }
             except SQLAlchemyError as _e:
-                logger.warning("Medication guide flag lookup failed for %s: %s", slug, _e)
+                err_msg = str(_e).lower()
+                # Detect a missing-column error for the new medication_summary_html column
+                # (migration not yet applied).  Check the PostgreSQL error code (42703 =
+                # undefined_column) first; fall back to string matching for other drivers.
+                pg_code = getattr(getattr(_e, "orig", None), "pgcode", None)
+                _is_missing_summary_col = pg_code == "42703" or (
+                    "medication_summary_html" in err_msg
+                    and (
+                        "does not exist" in err_msg
+                        or "undefined" in err_msg
+                        or "no such column" in err_msg
+                    )
+                )
+                if _is_missing_summary_col:
+                    # Fall back to a compat query that only checks medguide_html so that
+                    # existing official Medication Guide cards are not broken.
+                    logger.debug(
+                        "medication_summary_html column not yet present, using compat query for %s: %s",
+                        slug,
+                        _e,
+                    )
+                    try:
+                        compat_row = conn.execute(
+                            text(
+                                """
+                                SELECT
+                                    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide
+                                FROM public.medication_guide mg
+                                """
+                                + guide_filter_clause
+                            ),
+                            guide_params,
+                        ).fetchone()
+                        if compat_row:
+                            guide_flags = {
+                                "has_medguide": bool(compat_row[0]),
+                                "has_medication_summary": False,
+                            }
+                    except SQLAlchemyError as _compat_e:
+                        logger.warning(
+                            "Medication guide compat flag lookup failed for %s: %s",
+                            slug,
+                            _compat_e,
+                        )
+                else:
+                    logger.warning("Medication guide flag lookup failed for %s: %s", slug, _e)
 
             mapped = {
                 "drug_name": pill_info.get("medicine_name"),
