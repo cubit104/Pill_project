@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
+import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, faqSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
@@ -245,6 +246,13 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
             {guideData?.medication_summary_json?.notice ?? SUMMARY_NOTICE_FALLBACK}
           </p>
         </div>
+
+        <MedicationGuideTabs
+          activeTab="consumer"
+          medicationGuideHref={null}
+          summaryHref={`/pill/${encodedSlug}/medication-summary`}
+          professionalHref={`/pill/${encodedSlug}/professional-information`}
+        />
 
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           {SAFETY_NOTICE}

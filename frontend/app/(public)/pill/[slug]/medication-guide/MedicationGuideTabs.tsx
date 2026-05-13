@@ -13,12 +13,17 @@ function tabClasses(active: boolean): string {
 export default function MedicationGuideTabs({
   activeTab,
   medicationGuideHref,
+  summaryHref = null,
   professionalHref,
 }: {
   activeTab: TabId
   medicationGuideHref: string | null
+  summaryHref?: string | null
   professionalHref: string
 }) {
+  const leftTabHref = summaryHref ?? medicationGuideHref
+  const leftTabLabel = summaryHref ? 'Medication Summary' : 'Medication Guide'
+
   return (
     <div className="no-print bg-white border border-slate-200 rounded-xl shadow-sm px-4 sm:px-6">
       <nav
@@ -26,14 +31,14 @@ export default function MedicationGuideTabs({
         className="flex gap-4 sm:gap-6 border-b border-slate-200"
         aria-label="Medication content tabs"
       >
-        {medicationGuideHref && (
+        {leftTabHref && (
           activeTab === 'consumer' ? (
             <span className={tabClasses(true)} aria-current="page">
-              Medication Guide
+              {leftTabLabel}
             </span>
           ) : (
-            <Link href={medicationGuideHref} className={tabClasses(false)}>
-              Medication Guide
+            <Link href={leftTabHref} className={tabClasses(false)}>
+              {leftTabLabel}
             </Link>
           )
         )}
