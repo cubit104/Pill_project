@@ -350,14 +350,21 @@ def get_pill_by_slug(slug: str):
                     }
             except SQLAlchemyError as _e:
                 err_msg = str(_e).lower()
-                # If only the new summary column is missing (migration not yet applied),
-                # fall back to a compat query that only checks medguide_html so that
-                # existing official Medication Guide cards are not broken.
-                if "medication_summary_html" in err_msg and (
-                    "does not exist" in err_msg
-                    or "undefined" in err_msg
-                    or "no such column" in err_msg
-                ):
+                # Detect a missing-column error for the new medication_summary_html column
+                # (migration not yet applied).  Check the PostgreSQL error code (42703 =
+                # undefined_column) first; fall back to string matching for other drivers.
+                pg_code = getattr(getattr(_e, "orig", None), "pgcode", None)
+                _is_missing_summary_col = pg_code == "42703" or (
+                    "medication_summary_html" in err_msg
+                    and (
+                        "does not exist" in err_msg
+                        or "undefined" in err_msg
+                        or "no such column" in err_msg
+                    )
+                )
+                if _is_missing_summary_col:
+                    # Fall back to a compat query that only checks medguide_html so that
+                    # existing official Medication Guide cards are not broken.
                     logger.debug(
                         "medication_summary_html column not yet present, using compat query for %s: %s",
                         slug,
