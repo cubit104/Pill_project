@@ -10,9 +10,11 @@ os.environ.setdefault("ALLOWED_ORIGINS", "http://testserver")
 os.environ.setdefault("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-key")
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from services.medication_guide import build_guide
 from services.medication_summary import generate_medication_summary
-from services.medication_summary_backfill import run_medication_summary_backfill
+from services.medication_summary_backfill import _resolve_slugs, run_medication_summary_backfill
 from tests.test_medication_guide import _DummyEngine
 
 
@@ -76,6 +78,102 @@ def test_summary_backfill_force_regenerates_existing_summary():
     assert normal.generated == 0
     assert normal.skipped_existing_summary == 1
     assert forced.generated == 1
+
+
+def test_resolve_slugs_avoids_missing_spl_set_id_column():
+    executed_sql: list[str] = []
+
+    class _FetchOneResult:
+        def __init__(self, row):
+            self._row = row
+
+        def fetchone(self):
+            return self._row
+
+    class _FakeConn:
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            executed_sql.append(sql)
+            if "information_schema.columns" in sql:
+                return _FetchOneResult(None)
+            return [("drug-a",)]
+
+    slugs = _resolve_slugs(_FakeConn(), spl_set_id="spl-1", rxcui="111", ndc="00011-111")
+
+    assert slugs == ["drug-a"]
+    slug_sql = executed_sql[-1]
+    assert "p.spl_set_id" not in slug_sql
+    assert "p.setid" not in slug_sql
+    assert "p.spl_set_id_value" not in slug_sql
+    assert "p.rxcui = :rxcui" in slug_sql
+
+
+def test_resolve_slugs_uses_detected_setid_column():
+    class _FetchOneResult:
+        def __init__(self, row):
+            self._row = row
+
+        def fetchone(self):
+            return self._row
+
+    captured_sql = {"value": ""}
+
+    class _FakeConn:
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            if "information_schema.columns" in sql:
+                return _FetchOneResult(("setid",))
+            captured_sql["value"] = sql
+            return [("drug-b",)]
+
+    slugs = _resolve_slugs(_FakeConn(), spl_set_id="spl-2", rxcui="222", ndc="00022-222")
+
+    assert slugs == ["drug-b"]
+    assert "p.setid = :spl_set_id" in captured_sql["value"]
+    assert "p.spl_set_id = :spl_set_id" not in captured_sql["value"]
+
+
+def test_summary_backfill_slug_resolution_failure_is_non_fatal_after_update():
+    rows = [
+        {
+            "id": 10,
+            "medguide_html": "",
+            "professional_html": "<p>Professional</p>",
+            "brand_name": "Drug",
+            "rxcui": "123",
+            "ndc": "0001-0001",
+            "spl_set_id": "abc",
+        }
+    ]
+
+    class _Conn:
+        def execute(self, *_args, **_kwargs):
+            return None
+
+    class _Ctx:
+        def __enter__(self):
+            return _Conn()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _Engine:
+        def begin(self):
+            return _Ctx()
+
+        def connect(self):
+            return _Ctx()
+
+    with patch("services.medication_summary_backfill._connect_db"), patch(
+        "services.medication_summary_backfill._iter_rows", return_value=iter(rows)
+    ), patch("services.medication_summary_backfill.database.db_engine", _Engine()), patch(
+        "services.medication_summary_backfill._resolve_slugs", side_effect=SQLAlchemyError("slug query failed")
+    ):
+        result = run_medication_summary_backfill(limit=10, offset=0, dry_run=False, force=False)
+
+    assert result.generated == 1
+    assert result.errors == 0
+    assert result.slugs_for_indexnow == []
 
 
 def test_build_guide_response_includes_medication_summary_fields():
