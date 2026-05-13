@@ -48,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Processed:                   {summary.processed}")
     print(f"Generated:                   {summary.generated}")
     print(f"Skipped has_medguide:        {summary.skipped_has_medguide}")
-    print(f"Skipped missing_professional:{summary.skipped_missing_professional}")
+    print(f"Skipped missing_professional: {summary.skipped_missing_professional}")
     print(f"Skipped existing_summary:    {summary.skipped_existing_summary}")
     print(f"Errors:                      {summary.errors}")
     print("========================================")
