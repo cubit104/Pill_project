@@ -44,11 +44,11 @@ export default function MedicationGuideTabs({
             <span className={tabClasses(true)} aria-current="page">
               Medication Summary
             </span>
-          ) : (
-            <Link href={summaryHref!} className={tabClasses(false)}>
+          ) : summaryHref ? (
+            <Link href={summaryHref} className={tabClasses(false)}>
               Medication Summary
             </Link>
-          )
+          ) : null
         )}
         {activeTab === 'pro' ? (
           <span className={tabClasses(true)} aria-current="page">
