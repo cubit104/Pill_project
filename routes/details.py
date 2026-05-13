@@ -300,7 +300,10 @@ def get_pill_by_slug(slug: str):
                 "ndc11_clean": str(pill_info.get("ndc11") or "").replace("-", ""),
                 "ndc9_clean": str(pill_info.get("ndc9") or "").replace("-", ""),
             }
-            _guide_where = """
+            # Static WHERE / ORDER clause reused by both the primary and compat queries.
+            # All filter values are passed as named bind parameters — no user input is
+            # interpolated into the SQL text.
+            _GUIDE_FILTER = """
                         WHERE (
                                 :spl_set_id <> ''
                                 AND mg.spl_set_id = :spl_set_id
@@ -330,13 +333,11 @@ def get_pill_by_slug(slug: str):
             try:
                 guide_row = conn.execute(
                     text(
-                        f"""
-                        SELECT
-                            (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
-                            (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
-                        FROM public.medication_guide mg
-                        {_guide_where}
-                        """
+                        "SELECT"
+                        " (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,"
+                        " (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary"
+                        " FROM public.medication_guide mg"
+                        + _GUIDE_FILTER
                     ),
                     _guide_params,
                 ).fetchone()
@@ -363,12 +364,10 @@ def get_pill_by_slug(slug: str):
                     try:
                         compat_row = conn.execute(
                             text(
-                                f"""
-                                SELECT
-                                    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide
-                                FROM public.medication_guide mg
-                                {_guide_where}
-                                """
+                                "SELECT"
+                                " (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide"
+                                " FROM public.medication_guide mg"
+                                + _GUIDE_FILTER
                             ),
                             _guide_params,
                         ).fetchone()

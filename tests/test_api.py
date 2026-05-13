@@ -818,8 +818,8 @@ def _make_pill_slug_compat_engine(medguide_exists: bool, error_msg: str):
             raise SQLAlchemyError(error_msg)
 
         if "medguide_html" in sql_str:
-            compat_row = MagicMock()
-            compat_row.__getitem__ = MagicMock(return_value=medguide_exists)
+            # Use a plain tuple so bool(row[0]) works reliably without __getitem__ magic
+            compat_row = (medguide_exists,)
             r = MagicMock()
             r.fetchone.return_value = compat_row
             r.fetchall.return_value = []
