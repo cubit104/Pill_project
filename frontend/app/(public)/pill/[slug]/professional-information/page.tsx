@@ -40,6 +40,8 @@ type GuideResponse = {
   display_name?: string
   name?: string
   has_medguide?: boolean
+  has_medication_summary?: boolean
+  medication_summary_html?: string | null
   professional_html?: string | null
   professional_highlights_html?: string | null
   professional_sections?: Array<[string, string]> | null
@@ -208,6 +210,9 @@ export default async function ProfessionalInformationPage({
     .filter((section) => section.slug && section.label)
   const hasProfessionalToc = professionalTocSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
   const hasMedguide = Boolean(guideData?.has_medguide)
+  const hasMedicationSummaryFallback = !hasMedguide && Boolean(
+    guideData?.has_medication_summary || guideData?.medication_summary_html?.trim()
+  )
   const hasProfessionalContent = Boolean(
     guideData?.professional_html?.trim() || guideData?.professional_highlights_html?.trim()
   )
@@ -273,6 +278,9 @@ export default async function ProfessionalInformationPage({
         activeTab="pro"
         medicationGuideHref={
           hasMedguide ? `/pill/${encodeURIComponent(slug)}/medication-guide` : null
+        }
+        summaryHref={
+          hasMedicationSummaryFallback ? `/pill/${encodeURIComponent(slug)}/medication-summary` : null
         }
         professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
       />
