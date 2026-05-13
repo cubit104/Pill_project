@@ -72,8 +72,15 @@ def main(argv: list[str] | None = None) -> int:
             )
         except IndexNowSubmissionError as exc:
             logger.warning("Skipping medication summary IndexNow submission: %s", exc)
+        except (ValueError, OSError) as exc:
+            logger.warning("Medication summary IndexNow failed (non-fatal): %s", exc)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Medication summary IndexNow failed (non-fatal): %s", exc, exc_info=True)
+            logger.warning(
+                "Medication summary IndexNow failed with unexpected %s (non-fatal): %s",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
 
     return 1 if summary.errors > 0 else 0
 

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 import database
 from services.medication_summary import generate_medication_summary
@@ -179,9 +180,25 @@ def run_medication_summary_backfill(
                     )
                 changed_slugs.update(slugs)
 
+        except SQLAlchemyError as exc:
+            errors += 1
+            logger.exception("Medication summary backfill database error for row id=%s: %s", row.get("id"), exc)
+        except (TypeError, ValueError, KeyError) as exc:
+            errors += 1
+            logger.exception(
+                "Medication summary backfill data error for row id=%s (%s): %s",
+                row.get("id"),
+                type(exc).__name__,
+                exc,
+            )
         except Exception as exc:  # noqa: BLE001
             errors += 1
-            logger.exception("Medication summary backfill failed for row id=%s: %s", row.get("id"), exc)
+            logger.exception(
+                "Medication summary backfill unexpected error for row id=%s (%s): %s",
+                row.get("id"),
+                type(exc).__name__,
+                exc,
+            )
 
     return MedicationSummaryBackfillResult(
         processed=processed,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
+from lxml import etree
 from lxml import html as lxml_html
 
 SUMMARY_SOURCE_NOTICE = (
@@ -40,7 +41,7 @@ def _clean_text(value: Any) -> str:
         try:
             root = lxml_html.fromstring(f"<div>{text_value}</div>")
             text_value = " ".join(root.text_content().split())
-        except Exception:
+        except (etree.ParserError, etree.XMLSyntaxError, ValueError, TypeError):
             text_value = " ".join(text_value.replace("<", " ").replace(">", " ").split())
     return " ".join(text_value.split())
 
@@ -70,7 +71,7 @@ def _extract_professional_section(professional_html: Any, keywords: tuple[str, .
 
     try:
         root = lxml_html.fromstring(f"<div>{professional_html}</div>")
-    except Exception:
+    except (etree.ParserError, etree.XMLSyntaxError, ValueError, TypeError):
         return ""
 
     heading_xpath = ".//h1|.//h2|.//h3|.//h4"
