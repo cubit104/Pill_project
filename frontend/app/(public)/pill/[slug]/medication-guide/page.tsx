@@ -624,6 +624,7 @@ export default async function MedicationGuidePage({
     const hasProfessionalContent = Boolean(
       professionalData?.professional_html?.trim() || professionalData?.professional_highlights_html?.trim()
     )
+    const hasSummaryContent = SECTION_ORDER.some(({ key }) => Boolean(guideData?.sections?.[key]))
 
     const proRxcui = professionalData?.rxcui ?? pill.rxcui
     const proNdc = professionalData?.ndc ?? pill.ndc11 ?? pill.ndc9
@@ -683,7 +684,10 @@ export default async function MedicationGuidePage({
 
         <MedicationGuideTabs
           activeTab="pro"
-          medicationGuideHref={null}
+          medicationGuideHref={
+            hasSummaryContent ? `/pill/${encodedSlug}/medication-summary` : null
+          }
+          medicationGuideLabel="Medication Summary"
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 

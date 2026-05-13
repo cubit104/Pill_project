@@ -40,6 +40,21 @@ type GuideResponse = {
   display_name?: string
   name?: string
   has_medguide?: boolean
+  sections?: {
+    overview?: string | null
+    uses?: string | null
+    dosage?: string | null
+    how_to_take?: string | null
+    side_effects?: string | null
+    warnings?: string | null
+    interactions?: string | null
+    contraindications?: string | null
+    special_populations?: string | null
+    overdose?: string | null
+    storage?: string | null
+    pharmacology?: string | null
+    manufacturer?: string | null
+  }
   professional_html?: string | null
   professional_highlights_html?: string | null
   professional_sections?: Array<[string, string]> | null
@@ -197,6 +212,7 @@ export default async function ProfessionalInformationPage({
   params: PageParams
 }) {
   const { slug } = await params
+  const encodedSlug = encodeURIComponent(slug)
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
@@ -208,9 +224,30 @@ export default async function ProfessionalInformationPage({
     .filter((section) => section.slug && section.label)
   const hasProfessionalToc = professionalTocSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
   const hasMedguide = Boolean(guideData?.has_medguide)
+  const hasSummaryContent = Boolean(
+    guideData?.sections?.overview?.trim() ||
+      guideData?.sections?.uses?.trim() ||
+      guideData?.sections?.dosage?.trim() ||
+      guideData?.sections?.how_to_take?.trim() ||
+      guideData?.sections?.side_effects?.trim() ||
+      guideData?.sections?.warnings?.trim() ||
+      guideData?.sections?.interactions?.trim() ||
+      guideData?.sections?.contraindications?.trim() ||
+      guideData?.sections?.special_populations?.trim() ||
+      guideData?.sections?.overdose?.trim() ||
+      guideData?.sections?.storage?.trim() ||
+      guideData?.sections?.pharmacology?.trim() ||
+      guideData?.sections?.manufacturer?.trim()
+  )
   const hasProfessionalContent = Boolean(
     guideData?.professional_html?.trim() || guideData?.professional_highlights_html?.trim()
   )
+  const leftTabHref = hasMedguide
+    ? `/pill/${encodedSlug}/medication-guide`
+    : hasSummaryContent
+      ? `/pill/${encodedSlug}/medication-summary`
+      : null
+  const leftTabLabel = hasMedguide ? 'Medication Guide' : 'Medication Summary'
 
   const drugSlug = slugifyDrugName(drugName)
 
@@ -232,7 +269,7 @@ export default async function ProfessionalInformationPage({
   const proBreadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
     ...(drugSlug ? [{ name: drugName, url: `/drug/${drugSlug}` }] : []),
-    { name: 'Professional Information', url: `/pill/${encodeURIComponent(slug)}/professional-information` },
+    { name: 'Professional Information', url: `/pill/${encodedSlug}/professional-information` },
   ])
 
   return (
@@ -271,10 +308,9 @@ export default async function ProfessionalInformationPage({
 
       <MedicationGuideTabs
         activeTab="pro"
-        medicationGuideHref={
-          hasMedguide ? `/pill/${encodeURIComponent(slug)}/medication-guide` : null
-        }
-        professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
+        medicationGuideHref={leftTabHref}
+        medicationGuideLabel={leftTabLabel}
+        professionalHref={`/pill/${encodedSlug}/professional-information`}
       />
 
       <div className="space-y-6">

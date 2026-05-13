@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-type TabId = 'consumer' | 'pro'
+type TabId = 'consumer' | 'summary' | 'pro'
 
 function tabClasses(active: boolean): string {
   return `px-1 py-3 text-sm font-medium border-b-2 transition-colors ${
@@ -13,12 +13,16 @@ function tabClasses(active: boolean): string {
 export default function MedicationGuideTabs({
   activeTab,
   medicationGuideHref,
+  medicationGuideLabel = 'Medication Guide',
   professionalHref,
 }: {
   activeTab: TabId
   medicationGuideHref: string | null
+  medicationGuideLabel?: string
   professionalHref: string
 }) {
+  const isLeftTabActive = activeTab === 'consumer' || activeTab === 'summary'
+
   return (
     <div className="no-print bg-white border border-slate-200 rounded-xl shadow-sm px-4 sm:px-6">
       <nav
@@ -27,13 +31,13 @@ export default function MedicationGuideTabs({
         aria-label="Medication content tabs"
       >
         {medicationGuideHref && (
-          activeTab === 'consumer' ? (
+          isLeftTabActive ? (
             <span className={tabClasses(true)} aria-current="page">
-              Medication Guide
+              {medicationGuideLabel}
             </span>
           ) : (
             <Link href={medicationGuideHref} className={tabClasses(false)}>
-              Medication Guide
+              {medicationGuideLabel}
             </Link>
           )
         )}
