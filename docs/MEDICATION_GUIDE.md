@@ -6,6 +6,9 @@ This backend feature fetches medication guide sections from openFDA `/drug/label
 
 - `OPENFDA_API_KEY` (optional): if set, appended to openFDA requests for higher rate limits.
 - `RUN_LIVE_OPENFDA_TESTS=1` (optional): enables live integration tests marked with `@pytest.mark.live`.
+- `SITE_URL` (optional): public site URL for sitemap and IndexNow submission defaults.
+- `INDEXNOW_KEY` (optional): enables `python -m scripts.submit_indexnow` and `--submit-indexnow`.
+- `INDEXNOW_KEY_LOCATION` (optional): overrides the default `{SITE_URL}/{INDEXNOW_KEY}.txt` verification URL.
 
 ## Cache policy
 
@@ -57,6 +60,15 @@ Pre-populate the `medication_guide` table for all published pills.
 
     # Force refresh of all rows (ignore 30-day cache)
     python -m scripts.backfill_medication_guide --force
+
+    # After a live run, submit changed complete/partial pages to IndexNow
+    python -m scripts.backfill_medication_guide --limit 100 --submit-indexnow
+
+    # Submit a single updated page to IndexNow
+    python -m scripts.submit_indexnow --url https://pillseek.com/pill/trazodone-hydrochloride-pliva-434-7
+
+    # Expand URLs from a complete or partial backfill report
+    python -m scripts.submit_indexnow --from-backfill-report backfill_reports/complete-20260512T171743Z.csv
 
 Reports are written to `./backfill_reports/`.
 

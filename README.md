@@ -86,6 +86,8 @@ cp .env.example .env
 | `IMAGE_BASE` | Base URL for pill images on Supabase storage | No (has default) |
 | `ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins | No (defaults to `https://pill0project.onrender.com,https://pill-project.vercel.app,https://pillseek.com,https://www.pillseek.com`) |
 | `SITE_URL` | Public site URL used in sitemap | No (defaults to `https://pillseek.com`) |
+| `INDEXNOW_KEY` | IndexNow verification/submission key | No |
+| `INDEXNOW_KEY_LOCATION` | Public IndexNow key file URL (defaults to `{SITE_URL}/{INDEXNOW_KEY}.txt`) | No |
 
 ### 4. Build the frontend
 
@@ -121,6 +123,8 @@ This runs `pip install -r requirements.txt` and then builds the Next.js frontend
    - `IMAGE_BASE` — Supabase storage base URL
    - `ALLOWED_ORIGINS` — your deployed frontend URL (e.g. `https://pillseek.com`)
    - `SITE_URL` — `https://pillseek.com`
+   - `INDEXNOW_KEY` — generated IndexNow key
+   - `INDEXNOW_KEY_LOCATION` — optional override, otherwise `{SITE_URL}/{INDEXNOW_KEY}.txt`
 
 2. Set **Build Command** in Render dashboard:
    ```bash
@@ -232,4 +236,3 @@ Both projects share the same Supabase database and Render backend (`API_BASE_URL
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
