@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
+import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, faqSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
@@ -188,11 +189,54 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
   }
 
   const questions = summaryQuestions(guideData)
-  if (questions.length === 0) notFound()
-
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
   const encodedSlug = encodeURIComponent(slug)
   const drugSlug = slugifyDrugName(drugName)
+
+  if (questions.length === 0) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+        <nav aria-label="Breadcrumb">
+          <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
+            <li>
+              <Link href="/" className="hover:text-sky-700 transition-colors">Home</Link>
+            </li>
+            {drugSlug && (
+              <>
+                <li aria-hidden="true" className="select-none">›</li>
+                <li>
+                  <Link href={`/drug/${drugSlug}`} className="hover:text-sky-700 transition-colors">{drugName}</Link>
+                </li>
+              </>
+            )}
+            <li aria-hidden="true" className="select-none">›</li>
+            <li className="text-slate-700 font-medium">Medication Summary</li>
+          </ol>
+        </nav>
+
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">{drugName} Medication Summary</h1>
+          <p className="mt-2 text-sm text-slate-600">Patient-friendly medication overview.</p>
+        </div>
+
+        <MedicationGuideTabs
+          activeTab="summary"
+          medicationGuideHref={null}
+          summaryHref={`/pill/${encodedSlug}/medication-summary`}
+          professionalHref={`/pill/${encodedSlug}/professional-information`}
+        />
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600 text-center space-y-3">
+          <p>A patient-friendly summary is not yet available for this medication.</p>
+          <p>
+            <Link href={`/pill/${encodedSlug}/professional-information`} className="text-emerald-700 hover:underline">
+              View full Professional Information
+            </Link>
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   const pageJsonLd = guidePageSchema({
     drugName,
@@ -245,6 +289,13 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
             {guideData?.medication_summary_json?.notice ?? SUMMARY_NOTICE_FALLBACK}
           </p>
         </div>
+
+        <MedicationGuideTabs
+          activeTab="summary"
+          medicationGuideHref={null}
+          summaryHref={`/pill/${encodedSlug}/medication-summary`}
+          professionalHref={`/pill/${encodedSlug}/professional-information`}
+        />
 
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           {SAFETY_NOTICE}

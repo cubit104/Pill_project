@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-type TabId = 'consumer' | 'pro'
+type TabId = 'consumer' | 'summary' | 'pro'
 
 function tabClasses(active: boolean): string {
   return `px-1 py-3 text-sm font-medium border-b-2 transition-colors ${
@@ -13,10 +13,12 @@ function tabClasses(active: boolean): string {
 export default function MedicationGuideTabs({
   activeTab,
   medicationGuideHref,
+  summaryHref,
   professionalHref,
 }: {
   activeTab: TabId
   medicationGuideHref: string | null
+  summaryHref?: string | null
   professionalHref: string
 }) {
   return (
@@ -34,6 +36,17 @@ export default function MedicationGuideTabs({
           ) : (
             <Link href={medicationGuideHref} className={tabClasses(false)}>
               Medication Guide
+            </Link>
+          )
+        )}
+        {(summaryHref || activeTab === 'summary') && (
+          activeTab === 'summary' ? (
+            <span className={tabClasses(true)} aria-current="page">
+              Medication Summary
+            </span>
+          ) : (
+            <Link href={summaryHref!} className={tabClasses(false)}>
+              Medication Summary
             </Link>
           )
         )}
