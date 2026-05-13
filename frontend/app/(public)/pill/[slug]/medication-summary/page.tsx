@@ -221,7 +221,7 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(faqSchema(questions)) }} />
       )}
 
-      <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
         <nav aria-label="Breadcrumb">
           <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
             <li>
