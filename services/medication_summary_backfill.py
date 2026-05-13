@@ -70,32 +70,82 @@ def _iter_rows(limit: int, offset: int):
             yield dict(row._mapping)
 
 
+def _pillfinder_set_id_column(conn) -> str | None:
+    row = conn.execute(
+        text(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'pillfinder'
+              AND column_name IN ('spl_set_id', 'setid', 'spl_set_id_value')
+            ORDER BY CASE column_name
+                WHEN 'spl_set_id' THEN 1
+                WHEN 'setid' THEN 2
+                WHEN 'spl_set_id_value' THEN 3
+                ELSE 4
+            END
+            LIMIT 1
+            """
+        )
+    ).fetchone()
+    if not row:
+        return None
+    column_name = row[0]
+    if column_name in {"spl_set_id", "setid", "spl_set_id_value"}:
+        return column_name
+    return None
+
+
 def _resolve_slugs(conn, *, rxcui: str | None, ndc: str | None, spl_set_id: str | None) -> list[str]:
     if not any([rxcui, ndc, spl_set_id]):
         return []
 
+    set_id_column = _pillfinder_set_id_column(conn)
+    ndc_match_clause = """
+    :ndc <> ''
+    AND (
+        p.ndc11 = :ndc
+        OR p.ndc9 = :ndc
+        OR REPLACE(COALESCE(p.ndc11, ''), '-', '') = :clean_ndc
+        OR REPLACE(COALESCE(p.ndc9, ''), '-', '') = :clean_ndc
+    )
+    """
+    match_clauses = []
+    rank_clauses = []
+    if set_id_column:
+        match_clauses.append(f"(:spl_set_id <> '' AND p.{set_id_column} = :spl_set_id)")
+        rank_clauses.append(f"WHEN :spl_set_id <> '' AND p.{set_id_column} = :spl_set_id THEN 1")
+        rxcui_rank = 2
+        ndc_rank = 3
+    else:
+        rxcui_rank = 1
+        ndc_rank = 2
+    match_clauses.append("(:rxcui <> '' AND p.rxcui = :rxcui)")
+    rank_clauses.append(f"WHEN :rxcui <> '' AND p.rxcui = :rxcui THEN {rxcui_rank}")
+    match_clauses.append(f"({ndc_match_clause})")
+    rank_clauses.append(f"WHEN {ndc_match_clause} THEN {ndc_rank}")
+
+    where_match_sql = "\n                 OR ".join(match_clauses)
+    rank_sql = "\n                        ".join(rank_clauses)
     result = conn.execute(
         text(
-            """
-            SELECT DISTINCT p.slug
+            f"""
+            SELECT p.slug
             FROM public.pillfinder p
             WHERE p.deleted_at IS NULL
               AND p.published = true
               AND p.slug IS NOT NULL
               AND (
-                    (:spl_set_id <> '' AND p.spl_set_id = :spl_set_id)
-                 OR (:rxcui <> '' AND p.rxcui = :rxcui)
-                 OR (
-                        :ndc <> ''
-                        AND (
-                            p.ndc11 = :ndc
-                            OR p.ndc9 = :ndc
-                            OR REPLACE(COALESCE(p.ndc11, ''), '-', '') = :clean_ndc
-                            OR REPLACE(COALESCE(p.ndc9, ''), '-', '') = :clean_ndc
-                        )
-                    )
+                    {where_match_sql}
               )
-            ORDER BY p.slug
+            GROUP BY p.slug
+            ORDER BY MIN(
+                CASE
+                    {rank_sql}
+                    ELSE 999
+                END
+            ), p.slug
             """
         ),
         {
@@ -170,14 +220,22 @@ def run_medication_summary_backfill(
                         },
                     )
 
-                with database.db_engine.connect() as conn:
-                    slugs = _resolve_slugs(
-                        conn,
-                        rxcui=row.get("rxcui"),
-                        ndc=row.get("ndc"),
-                        spl_set_id=row.get("spl_set_id"),
+                try:
+                    with database.db_engine.connect() as conn:
+                        slugs = _resolve_slugs(
+                            conn,
+                            rxcui=row.get("rxcui"),
+                            ndc=row.get("ndc"),
+                            spl_set_id=row.get("spl_set_id"),
+                        )
+                    changed_slugs.update(slugs)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Medication summary backfill slug resolution failed for row id=%s (%s): %s",
+                        row.get("id"),
+                        type(exc).__name__,
+                        exc,
                     )
-                changed_slugs.update(slugs)
 
         except SQLAlchemyError as exc:
             errors += 1
