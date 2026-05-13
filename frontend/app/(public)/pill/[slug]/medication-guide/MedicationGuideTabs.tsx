@@ -21,7 +21,7 @@ export default function MedicationGuideTabs({
   medicationGuideLabel?: string
   professionalHref: string
 }) {
-  const isLeftTabActive = activeTab === 'consumer' || activeTab === 'summary'
+  const isPatientTabActive = activeTab === 'consumer' || activeTab === 'summary'
 
   return (
     <div className="no-print bg-white border border-slate-200 rounded-xl shadow-sm px-4 sm:px-6">
@@ -31,7 +31,7 @@ export default function MedicationGuideTabs({
         aria-label="Medication content tabs"
       >
         {medicationGuideHref && (
-          isLeftTabActive ? (
+          isPatientTabActive ? (
             <span className={tabClasses(true)} aria-current="page">
               {medicationGuideLabel}
             </span>

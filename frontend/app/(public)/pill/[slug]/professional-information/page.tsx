@@ -5,6 +5,7 @@ import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import ProfessionalToc from '../medication-guide/ProfessionalToc'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from '../medication-guide/professionalTocConfig'
+import { hasSummarySections } from '../medication-guide/summarySections'
 import {
   PRO_BOXED_WARNING_PROSE_CLASSES,
   PRO_HIGHLIGHTS_CONTAINER_CLASSES,
@@ -224,21 +225,7 @@ export default async function ProfessionalInformationPage({
     .filter((section) => section.slug && section.label)
   const hasProfessionalToc = professionalTocSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
   const hasMedguide = Boolean(guideData?.has_medguide)
-  const hasSummaryContent = Boolean(
-    guideData?.sections?.overview?.trim() ||
-      guideData?.sections?.uses?.trim() ||
-      guideData?.sections?.dosage?.trim() ||
-      guideData?.sections?.how_to_take?.trim() ||
-      guideData?.sections?.side_effects?.trim() ||
-      guideData?.sections?.warnings?.trim() ||
-      guideData?.sections?.interactions?.trim() ||
-      guideData?.sections?.contraindications?.trim() ||
-      guideData?.sections?.special_populations?.trim() ||
-      guideData?.sections?.overdose?.trim() ||
-      guideData?.sections?.storage?.trim() ||
-      guideData?.sections?.pharmacology?.trim() ||
-      guideData?.sections?.manufacturer?.trim()
-  )
+  const hasSummaryContent = hasSummarySections(guideData?.sections)
   const hasProfessionalContent = Boolean(
     guideData?.professional_html?.trim() || guideData?.professional_highlights_html?.trim()
   )

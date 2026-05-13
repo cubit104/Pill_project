@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import { SHARED_CONTENT_CARD_CLASSES } from '../medication-guide/layoutStyles'
+import { hasSummarySections } from '../medication-guide/summarySections'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, safeJsonLd } from '../../../../lib/structured-data'
 
@@ -160,10 +161,6 @@ async function fetchGuide(pill: PillInfo): Promise<GuideResponse | null> {
   }
 }
 
-function hasSummarySections(sections?: GuideSections): boolean {
-  return SECTION_ORDER.some(({ key }) => Boolean(sections?.[key]?.trim()))
-}
-
 export async function generateMetadata({
   params,
 }: {
@@ -282,7 +279,7 @@ export default async function MedicationSummaryPage({
                   return (
                     <section key={key} className="border-b border-slate-100 py-5 last:border-b-0">
                       <h2 className="mb-4 text-base font-semibold text-slate-800">{label}</h2>
-                      <p className="my-4 whitespace-pre-line text-sm leading-8 text-slate-700">{content}</p>
+                      <p className="my-4 whitespace-pre-line text-sm leading-relaxed text-slate-700">{content}</p>
                     </section>
                   )
                 })}

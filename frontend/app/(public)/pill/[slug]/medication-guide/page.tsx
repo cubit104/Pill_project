@@ -7,6 +7,7 @@ import MedguideMetaBar from './MedguideMetaBar'
 import MedicationGuideTabs from './MedicationGuideTabs'
 import ProfessionalToc from './ProfessionalToc'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
+import { hasSummarySections } from './summarySections'
 import {
   PRO_BOXED_WARNING_PROSE_CLASSES,
   PRO_HIGHLIGHTS_CONTAINER_CLASSES,
@@ -624,7 +625,7 @@ export default async function MedicationGuidePage({
     const hasProfessionalContent = Boolean(
       professionalData?.professional_html?.trim() || professionalData?.professional_highlights_html?.trim()
     )
-    const hasSummaryContent = SECTION_ORDER.some(({ key }) => Boolean(guideData?.sections?.[key]))
+    const hasSummaryContent = hasSummarySections(guideData?.sections)
 
     const proRxcui = professionalData?.rxcui ?? pill.rxcui
     const proNdc = professionalData?.ndc ?? pill.ndc11 ?? pill.ndc9
