@@ -654,6 +654,41 @@ def test_api_class_limit_too_large_rejected(client):
     assert response.status_code == 422
 
 
+def test_api_class_resolves_pharmclass_fda_epc_slug(client):
+    """GET /api/class/{class_slug} resolves a slug derived from pharmclass_fda_epc even when
+    dailymed_pharma_class_epc is also set on the same drug.
+
+    Reproduces the /class/contraceptives bug: under the old COALESCE(dailymed_pharma_class_epc,
+    pharmclass_fda_epc) approach the EPC column value was always preferred, hiding the FDA EPC
+    value and causing a 404 for slugs like 'contraceptives' that only exist in pharmclass_fda_epc.
+    """
+    import database as db_module
+
+    drug_rows = [
+        ("Mircette", "0.15mg/0.02mg", "mircette-0-15mg-0-02mg", "Green", "Round", None),
+    ]
+
+    def execute_side_effect(query, params=None):
+        mock_res = MagicMock()
+        if params and "class_slug" in params:
+            # Simulate: pharmclass_fda_epc = "Contraceptives" → slug matches "contraceptives"
+            mock_res.scalar.return_value = "Contraceptives"
+        else:
+            mock_res.fetchall.return_value = drug_rows
+        return mock_res
+
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = execute_side_effect
+    response = client.get("/api/class/contraceptives")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["class_name"] == "Contraceptives"
+    assert data["slug"] == "contraceptives"
+    assert isinstance(data["drugs"], list)
+    assert len(data["drugs"]) == 1
+    assert data["drugs"][0]["drug_name"] == "Mircette"
+
+
 # ---------------------------------------------------------------------------
 # /api/pill/{slug}/similar endpoint
 # ---------------------------------------------------------------------------

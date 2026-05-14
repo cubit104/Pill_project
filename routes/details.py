@@ -596,15 +596,29 @@ def get_class_drugs(class_slug: str, limit: int = Query(default=100, ge=1, le=50
 
     try:
         with database.db_engine.connect() as conn:
-            # Resolve class name in SQL using the same slug transform (lower + non-alnum → hyphen)
+            # Resolve class name in SQL using the same slug transform (lower + non-alnum → hyphen).
+            # We check BOTH pharmclass columns independently via UNION so that a slug derived from
+            # either column can match.  Using COALESCE alone would hide pharmclass_fda_epc when
+            # dailymed_pharma_class_epc is also populated — e.g. a drug with
+            #   dailymed_pharma_class_epc = "Contraceptive [EPC]"  (slug: contraceptive-epc)
+            #   pharmclass_fda_epc        = "Contraceptives"        (slug: contraceptives)
+            # would be invisible to a request for /class/contraceptives under the COALESCE
+            # approach.  The UNION approach surfaces both values so either slug resolves.
             q = text("""
                 SELECT DISTINCT class_name
                 FROM (
-                    SELECT COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
+                    SELECT dailymed_pharma_class_epc AS class_name
                     FROM pillfinder
                     WHERE deleted_at IS NULL
                       AND published = true
-                      AND (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
+                      AND dailymed_pharma_class_epc IS NOT NULL
+                      AND slug IS NOT NULL AND slug != ''
+                    UNION
+                    SELECT pharmclass_fda_epc AS class_name
+                    FROM pillfinder
+                    WHERE deleted_at IS NULL
+                      AND published = true
+                      AND pharmclass_fda_epc IS NOT NULL
                       AND slug IS NOT NULL AND slug != ''
                 ) sub
                 WHERE class_name IS NOT NULL
