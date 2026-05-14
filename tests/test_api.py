@@ -654,6 +654,46 @@ def test_api_class_limit_too_large_rejected(client):
     assert response.status_code == 422
 
 
+def test_api_class_pharmclass_fda_takes_priority(client):
+    """GET /api/class/{class_slug} resolves via pharmclass_fda_epc first.
+
+    Simulates the case where a drug has dailymed_pharma_class_epc='Contraceptives [EPC]'
+    (slug: contraceptives-epc) AND pharmclass_fda_epc='Contraceptives' (slug: contraceptives).
+    The COALESCE-based lookup would return 'Contraceptives [EPC]' which does NOT match
+    'contraceptives', but the pharmclass_fda_epc-first lookup should find 'Contraceptives'.
+    """
+    import database as db_module
+
+    drug_rows = [
+        ("Levonorgestrel", "0.75mg", "levonorgestrel-0-75mg", "White", "Round", None),
+    ]
+
+    def execute_side_effect(query, params=None):
+        mock_res = MagicMock()
+        query_text = str(query)
+        if params and "class_slug" in params:
+            if "COALESCE" not in query_text:
+                # pharmclass_fda_epc-only query: finds 'Contraceptives' directly
+                mock_res.scalar.return_value = "Contraceptives"
+            else:
+                # COALESCE fallback: would NOT find 'contraceptives' because
+                # COALESCE returns 'Contraceptives [EPC]' (slug: contraceptives-epc)
+                mock_res.scalar.return_value = None
+        else:
+            mock_res.fetchall.return_value = drug_rows
+        return mock_res
+
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = execute_side_effect
+    response = client.get("/api/class/contraceptives")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["class_name"] == "Contraceptives"
+    assert data["slug"] == "contraceptives"
+    assert len(data["drugs"]) == 1
+    assert data["drugs"][0]["drug_name"] == "Levonorgestrel"
+
+
 # ---------------------------------------------------------------------------
 # /api/pill/{slug}/similar endpoint
 # ---------------------------------------------------------------------------

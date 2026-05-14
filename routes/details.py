@@ -596,21 +596,22 @@ def get_class_drugs(class_slug: str, limit: int = Query(default=100, ge=1, le=50
 
     try:
         with database.db_engine.connect() as conn:
-            # Resolve class name in SQL using the same slug transform (lower + non-alnum → hyphen)
-            q = text("""
-                SELECT DISTINCT class_name
-                FROM (
-                    SELECT COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
-                    FROM pillfinder
-                    WHERE deleted_at IS NULL
-                      AND published = true
-                      AND (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
-                      AND slug IS NOT NULL AND slug != ''
-                ) sub
-                WHERE class_name IS NOT NULL
+            # First: try to resolve class name directly from pharmclass_fda_epc
+            # (the admin-editable field) so that user-assigned classifications take
+            # priority over the DailyMed-imported dailymed_pharma_class_epc value.
+            # This handles the case where the admin set pharmclass_fda_epc='Contraceptives'
+            # but the DailyMed import also set dailymed_pharma_class_epc='Contraceptives [EPC]',
+            # causing the COALESCE-based lookup to return a different slug ('contraceptives-epc').
+            q_by_fda = text("""
+                SELECT DISTINCT pharmclass_fda_epc AS class_name
+                FROM pillfinder
+                WHERE deleted_at IS NULL
+                  AND published = true
+                  AND pharmclass_fda_epc IS NOT NULL
+                  AND slug IS NOT NULL AND slug != ''
                   AND LOWER(
                       TRIM(BOTH '-' FROM REGEXP_REPLACE(
-                          LOWER(class_name),
+                          LOWER(pharmclass_fda_epc),
                           '[^a-z0-9]+',
                           '-',
                           'g'
@@ -618,7 +619,33 @@ def get_class_drugs(class_slug: str, limit: int = Query(default=100, ge=1, le=50
                   ) = :class_slug
                 LIMIT 1
             """)
-            matched_class = conn.execute(q, {"class_slug": class_slug}).scalar()
+            matched_class = conn.execute(q_by_fda, {"class_slug": class_slug}).scalar()
+
+            if not matched_class:
+                # Fallback: resolve via COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc).
+                # This handles the common case where the class name comes from the DailyMed import.
+                q = text("""
+                    SELECT DISTINCT class_name
+                    FROM (
+                        SELECT COALESCE(dailymed_pharma_class_epc, pharmclass_fda_epc) AS class_name
+                        FROM pillfinder
+                        WHERE deleted_at IS NULL
+                          AND published = true
+                          AND (dailymed_pharma_class_epc IS NOT NULL OR pharmclass_fda_epc IS NOT NULL)
+                          AND slug IS NOT NULL AND slug != ''
+                    ) sub
+                    WHERE class_name IS NOT NULL
+                      AND LOWER(
+                          TRIM(BOTH '-' FROM REGEXP_REPLACE(
+                              LOWER(class_name),
+                              '[^a-z0-9]+',
+                              '-',
+                              'g'
+                          ))
+                      ) = :class_slug
+                    LIMIT 1
+                """)
+                matched_class = conn.execute(q, {"class_slug": class_slug}).scalar()
 
             if not matched_class:
                 raise HTTPException(status_code=404, detail="Pharma class not found")
