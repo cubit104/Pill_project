@@ -2,6 +2,12 @@
 
 This backend feature fetches medication guide sections from openFDA `/drug/label.json`, stores them in `public.medication_guide`, and serves them via REST endpoints.
 
+## Official Medication Guide vs Medication Summary
+
+- `medguide_html` remains reserved for official FDA/DailyMed Medication Guide content.
+- Some labels do not have an official Medication Guide. For those rows, PillSeek can store a **Medication Summary** fallback generated from FDA/DailyMed prescribing/professional label data.
+- Medication Summary pages use `/pill/{slug}/medication-summary` and are clearly marked as patient-friendly summaries, not official Medication Guides.
+
 ## Environment variables
 
 - `OPENFDA_API_KEY` (optional): if set, appended to openFDA requests for higher rate limits.
@@ -106,3 +112,31 @@ Additional stored fields:
 - `generic_name = openfda.generic_name[0]`
 - `brand_name = openfda.brand_name[0]`
 - `source_url = https://api.fda.gov/drug/label.json?search=spl_set_id:{spl_set_id}` (or rxcui if no set id)
+
+Medication summary storage fields:
+
+- `medication_summary_json` (JSONB)
+- `medication_summary_html` (TEXT)
+- `medication_summary_source` (TEXT)
+- `medication_summary_generated_at` (TIMESTAMPTZ)
+
+## Medication Summary Backfill
+
+Generate fallback summaries only when official Medication Guide HTML is missing and professional HTML exists:
+
+```bash
+python -m scripts.backfill_medication_summaries --limit 100 --offset 0
+```
+
+Useful flags:
+
+```bash
+# Preview only
+python -m scripts.backfill_medication_summaries --limit 100 --dry-run
+
+# Regenerate already-existing summaries
+python -m scripts.backfill_medication_summaries --limit 100 --force
+
+# Submit changed /pill/{slug} and /pill/{slug}/medication-summary URLs to IndexNow
+python -m scripts.backfill_medication_summaries --limit 100 --submit-indexnow
+```

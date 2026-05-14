@@ -195,7 +195,7 @@ export function medicalWebPageSchema(
 export function guidePageSchema(opts: {
   drugName: string
   slug: string
-  pageType: 'medication-guide' | 'professional-information'
+  pageType: 'medication-guide' | 'professional-information' | 'medication-summary'
   rxcui?: string | null
   ndc?: string | null
   splSetId?: string | null
@@ -207,13 +207,17 @@ export function guidePageSchema(opts: {
 
   const pagePath = pageType === 'medication-guide'
     ? `/pill/${encodeURIComponent(slug)}/medication-guide`
-    : `/pill/${encodeURIComponent(slug)}/professional-information`
+    : pageType === 'professional-information'
+      ? `/pill/${encodeURIComponent(slug)}/professional-information`
+      : `/pill/${encodeURIComponent(slug)}/medication-summary`
 
   const pageName = pageType === 'medication-guide'
     ? `${drugName} Medication Guide`
-    : `${drugName} Professional Information`
+    : pageType === 'professional-information'
+      ? `${drugName} Professional Information`
+      : `${drugName} Medication Summary`
 
-  const audience = pageType === 'medication-guide'
+  const audience = pageType === 'medication-guide' || pageType === 'medication-summary'
     ? { '@type': 'Patient' as const }
     : { '@type': 'MedicalAudience' as const, audienceType: 'Clinician' }
 

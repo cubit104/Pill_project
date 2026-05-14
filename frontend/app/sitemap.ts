@@ -59,7 +59,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
 
     const slugs: string[] = await slugRes.json()
-    type GuideSlugEntry = { slug: string; has_medguide: boolean; has_professional: boolean }
+    type GuideSlugEntry = {
+      slug: string
+      has_medguide: boolean
+      has_professional: boolean
+      has_medication_summary: boolean
+    }
     const guideSlugs: GuideSlugEntry[] = guideSlugRes.ok
       ? await guideSlugRes.json()
       : []
@@ -102,7 +107,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.7,
       }))
 
-    return [...staticPages, ...pillPages, ...medicationGuidePages, ...professionalInfoPages, ...classPages]
+    const medicationSummaryPages: MetadataRoute.Sitemap = guideSlugs
+      .filter((entry) => entry.slug && entry.has_medication_summary && !entry.has_medguide)
+      .map((entry) => ({
+        url: `${SITE_URL}/pill/${encodeURIComponent(entry.slug)}/medication-summary`,
+        changeFrequency: 'monthly' as const,
+        priority: 0.7,
+      }))
+
+    return [
+      ...staticPages,
+      ...pillPages,
+      ...medicationGuidePages,
+      ...professionalInfoPages,
+      ...medicationSummaryPages,
+      ...classPages,
+    ]
   } catch (err) {
     console.error('[sitemap] Failed to fetch data from backend:', err)
     return staticPages
