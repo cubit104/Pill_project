@@ -517,6 +517,14 @@ async function fetchGuide(pill: PillInfo, options: GuideFetchOptions): Promise<G
       if (res.ok) return (await res.json()) as GuideResponse
     }
 
+    if (pill.ndc11) {
+      const res = await fetch(
+        `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(pill.ndc11)}/guide?${params}`,
+        { next: { revalidate: GUIDE_REVALIDATE_SECONDS } }
+      )
+      if (res.ok) return (await res.json()) as GuideResponse
+    }
+
     if (pill.rxcui) {
       const res = await fetch(
         `${API_BASE}/api/drugs/${encodeURIComponent(pill.rxcui)}/guide?${params}`,
@@ -525,10 +533,9 @@ async function fetchGuide(pill: PillInfo, options: GuideFetchOptions): Promise<G
       if (res.ok) return (await res.json()) as GuideResponse
     }
 
-    const ndc = pill.ndc11 || pill.ndc9
-    if (ndc) {
+    if (pill.ndc9 && pill.ndc9 !== pill.ndc11) {
       const res = await fetch(
-        `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(ndc)}/guide?${params}`,
+        `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(pill.ndc9)}/guide?${params}`,
         { next: { revalidate: GUIDE_REVALIDATE_SECONDS } }
       )
       if (res.ok) return (await res.json()) as GuideResponse
@@ -754,10 +761,9 @@ export default async function MedicationGuidePage({
           </p>
         )}
 
-        {(proSplSetId || proRxcui || proNdc || proFetchedAt || professionalData?.source_url) && (
+        {(proRxcui || proNdc || proFetchedAt || professionalData?.source_url) && (
           <section className="border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1">
             <h2 className="font-semibold text-slate-600 mb-2">Sources</h2>
-            {proSplSetId && <p><span className="font-medium">DailyMed SPL Set ID:</span> {proSplSetId}</p>}
             {proRxcui && <p><span className="font-medium">RxCUI:</span> {proRxcui}</p>}
             {proNdc && <p><span className="font-medium">NDC:</span> {proNdc}</p>}
             {proFetchedAt && (
@@ -961,10 +967,9 @@ export default async function MedicationGuidePage({
         </div>
       </div>
 
-      {(guideSplSetId || guideRxcui || guideNdc || guideData?.fetched_at || guideData?.source_url) && (
+      {(guideRxcui || guideNdc || guideData?.fetched_at || guideData?.source_url) && (
         <section className="border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1">
           <h2 className="font-semibold text-slate-600 mb-2">Sources</h2>
-          {guideSplSetId && <p><span className="font-medium">DailyMed SPL Set ID:</span> {guideSplSetId}</p>}
           {guideRxcui && <p><span className="font-medium">RxCUI:</span> {guideRxcui}</p>}
           {guideNdc && <p><span className="font-medium">NDC:</span> {guideNdc}</p>}
           {guideData?.fetched_at && (
