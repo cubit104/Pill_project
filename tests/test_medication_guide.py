@@ -1711,15 +1711,15 @@ def test_build_guide_resolver_path_persists_ndc_and_rxcui():
     )
     cache = {"row": None}
     observed_kwargs = {}
-    original_build_by_setid = medication_guide_service._build_guide_by_spl_set_id
+    original_build_by_spl_set_id = medication_guide_service._build_guide_by_spl_set_id
 
     def _insert(_conn, payload):
         cache["row"] = _row_from_payload(payload)
         return cache["row"]
 
-    async def _wrapped_build_by_setid(**kwargs):
+    async def _wrapped_build_by_spl_set_id(**kwargs):
         observed_kwargs.update(kwargs)
-        return await original_build_by_setid(**kwargs)
+        return await original_build_by_spl_set_id(**kwargs)
 
     mock_openfda = SimpleNamespace(
         fetch_label_by_rxcui=AsyncMock(return_value=None),
@@ -1734,7 +1734,7 @@ def test_build_guide_resolver_path_persists_ndc_and_rxcui():
          patch("services.medication_guide._insert_guide", side_effect=_insert), \
          patch(
              "services.medication_guide._build_guide_by_spl_set_id",
-             new=AsyncMock(side_effect=_wrapped_build_by_setid),
+             new=AsyncMock(side_effect=_wrapped_build_by_spl_set_id),
          ), \
          patch(
              "services.medication_guide.resolve_setid_from_dailymed",

@@ -176,3 +176,19 @@ def test_backfill_never_overwrites_existing():
     assert summary["updated"] == 1
     assert state["logs"][0]["old_ndc"] == "EXISTING"
     assert state["logs"][0]["new_ndc"] == "EXISTING"
+
+
+def test_backfill_never_overwrites_existing_rxcui():
+    state = _state_with_rows(
+        medication_guide_row={"id": 4, "ndc": None, "rxcui": "EXISTING-RXCUI", "spl_set_id": "set-4"},
+        pillfinder_row={"id": "pill-4", "ndc11": "54868-4735-00", "rxcui": "861689", "spl_set_id": "set-4", "deleted_at": None},
+    )
+
+    with patch("services.medication_guide_identifier_backfill.database.db_engine", _FakeEngine(state)):
+        summary = run_backfill(limit=10, dry_run=False, sleep_ms=0)
+
+    assert state["medication_guide"][0]["ndc"] == "54868-4735-00"
+    assert state["medication_guide"][0]["rxcui"] == "EXISTING-RXCUI"
+    assert summary["updated"] == 1
+    assert state["logs"][0]["old_rxcui"] == "EXISTING-RXCUI"
+    assert state["logs"][0]["new_rxcui"] == "EXISTING-RXCUI"

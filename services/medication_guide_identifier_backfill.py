@@ -13,6 +13,8 @@ import database
 from ndc_normalize import normalize_ndc_to_11
 
 logger = logging.getLogger(__name__)
+# Keep audit-log error notes short enough to stay readable in the admin/SQL view.
+MAX_ERROR_MESSAGE_LENGTH = 500
 
 SELECT_CANDIDATE_ROWS_SQL = """
     SELECT id, ndc, rxcui, spl_set_id
@@ -105,7 +107,7 @@ INSERT_LOG_SQL = """
 """
 
 
-def _nonempty(value: Any) -> Optional[str]:
+def _nonempty_identifier(value: Any) -> Optional[str]:
     if value is None:
         return None
     text_value = str(value).strip()
@@ -130,19 +132,21 @@ def _select_candidate_rows(conn, *, limit: int, offset: int) -> list[dict[str, A
 
 
 def _find_pillfinder_match(conn, medication_guide_row: dict[str, Any]) -> tuple[str, Optional[dict[str, Any]]]:
-    spl_set_id = _nonempty(medication_guide_row.get("spl_set_id"))
+    spl_set_id = _nonempty_identifier(medication_guide_row.get("spl_set_id"))
     if spl_set_id:
         row = conn.execute(text(MATCH_BY_SPL_SET_ID_SQL), {"spl_set_id": spl_set_id}).fetchone()
         if row:
             return ("spl_set_id", _row_as_dict(row))
 
-    rxcui = _nonempty(medication_guide_row.get("rxcui"))
+    rxcui = _nonempty_identifier(medication_guide_row.get("rxcui"))
     if rxcui:
         row = conn.execute(text(MATCH_BY_RXCUI_SQL), {"rxcui": rxcui}).fetchone()
         if row:
             return ("rxcui", _row_as_dict(row))
 
-    normalized_ndc = normalize_ndc_to_11(_nonempty(medication_guide_row.get("ndc")) or "")
+    normalized_ndc = normalize_ndc_to_11(
+        _nonempty_identifier(medication_guide_row.get("ndc")) or ""
+    )
     if normalized_ndc:
         row = conn.execute(text(MATCH_BY_NDC11_SQL), {"ndc11": normalized_ndc}).fetchone()
         if row:
@@ -156,8 +160,8 @@ def _insert_log(conn, entry: dict[str, Any]) -> None:
 
 
 def _process_row(conn, medication_guide_row: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:
-    old_ndc = _nonempty(medication_guide_row.get("ndc"))
-    old_rxcui = _nonempty(medication_guide_row.get("rxcui"))
+    old_ndc = _nonempty_identifier(medication_guide_row.get("ndc"))
+    old_rxcui = _nonempty_identifier(medication_guide_row.get("rxcui"))
 
     result: dict[str, Any] = {
         "medication_guide_id": medication_guide_row["id"],
@@ -178,8 +182,8 @@ def _process_row(conn, medication_guide_row: dict[str, Any], *, dry_run: bool) -
             result["notes"] = "No pillfinder row matched by spl_set_id, rxcui, or ndc11."
             return result
 
-        matched_ndc = _nonempty(pillfinder_row.get("ndc11"))
-        matched_rxcui = _nonempty(pillfinder_row.get("rxcui"))
+        matched_ndc = _nonempty_identifier(pillfinder_row.get("ndc11"))
+        matched_rxcui = _nonempty_identifier(pillfinder_row.get("rxcui"))
 
         wants_ndc = old_ndc is None and matched_ndc is not None
         wants_rxcui = old_rxcui is None and matched_rxcui is not None
@@ -225,13 +229,14 @@ def _process_row(conn, medication_guide_row: dict[str, Any], *, dry_run: bool) -
         result["outcome"] = "updated"
         _insert_log(conn, result)
         return result
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
+        # Keep the batch running: one bad row should be logged, not abort the whole backfill.
         logger.exception(
             "Medication guide identifier backfill failed for medication_guide_id=%s",
             medication_guide_row.get("id"),
         )
         result["outcome"] = "error"
-        result["notes"] = str(exc)[:500]
+        result["notes"] = str(exc)[:MAX_ERROR_MESSAGE_LENGTH]
         if not dry_run:
             _insert_log(conn, result)
         return result
@@ -266,6 +271,7 @@ def run_backfill(
         "rows": [],
     }
 
+    # Dry runs should not open a write transaction; live runs should commit the whole batch together.
     context_factory = database.db_engine.connect if dry_run else database.db_engine.begin
     with context_factory() as conn:
         if not dry_run:
