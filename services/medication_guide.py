@@ -554,122 +554,114 @@ async def build_guide(
 
     with database.db_engine.connect() as conn:
         cached = _select_cached_row(conn, rxcui=rxcui, ndc=normalized_ndc)
-        if (
-            cached
-            and not force_refresh
-            and not _is_stale(cached.get("fetched_at"))
-            and _is_identifier_mismatch(cached, incoming_ndc=normalized_ndc)
-        ):
-            logger.warning(
-                "Medication guide NDC mismatch for rxcui=%s: cached ndc=%s incoming ndc=%s — forcing re-fetch",
-                rxcui,
-                cached.get("ndc"),
-                normalized_ndc,
-            )
-        if (
-            cached
-            and not force_refresh
-            and not _is_stale(cached.get("fetched_at"))
-            and not _is_identifier_mismatch(cached, incoming_ndc=normalized_ndc)
-        ):
-            logger.debug("Medication guide cache hit for rxcui=%s ndc=%s", rxcui, normalized_ndc)
-            if (
-                include_professional
-                and cached.get("spl_set_id")
-                and (not cached.get("professional_html") or not cached.get("professional_meta"))
-            ):
-                try:
-                    professional = await fetch_professional_rendered(str(cached["spl_set_id"]))
-                    if professional:
-                        new_payload = {
-                            **cached,
-                            "professional_html": professional.article_html,
-                            "professional_meta": _build_professional_meta(professional),
-                        }
-                        if not new_payload.get("medguide_html"):
-                            new_payload.update(_build_medication_summary_payload(new_payload))
-                        if cached.get("id") is not None:
-                            try:
-                                with database.db_engine.begin() as write_conn:
-                                    cached = _update_guide(
-                                        write_conn,
-                                        new_payload,
-                                        existing_id=int(cached["id"]),
+        if cached and not force_refresh and not _is_stale(cached.get("fetched_at")):
+            has_identifier_mismatch = _is_identifier_mismatch(cached, incoming_ndc=normalized_ndc)
+            if has_identifier_mismatch:
+                logger.warning(
+                    "Medication guide NDC mismatch for rxcui=%s: cached ndc=%s incoming ndc=%s — forcing re-fetch",
+                    rxcui,
+                    cached.get("ndc"),
+                    normalized_ndc,
+                )
+            if not has_identifier_mismatch:
+                logger.debug("Medication guide cache hit for rxcui=%s ndc=%s", rxcui, normalized_ndc)
+                if (
+                    include_professional
+                    and cached.get("spl_set_id")
+                    and (not cached.get("professional_html") or not cached.get("professional_meta"))
+                ):
+                    try:
+                        professional = await fetch_professional_rendered(str(cached["spl_set_id"]))
+                        if professional:
+                            new_payload = {
+                                **cached,
+                                "professional_html": professional.article_html,
+                                "professional_meta": _build_professional_meta(professional),
+                            }
+                            if not new_payload.get("medguide_html"):
+                                new_payload.update(_build_medication_summary_payload(new_payload))
+                            if cached.get("id") is not None:
+                                try:
+                                    with database.db_engine.begin() as write_conn:
+                                        cached = _update_guide(
+                                            write_conn,
+                                            new_payload,
+                                            existing_id=int(cached["id"]),
+                                        )
+                                except SQLAlchemyError:
+                                    logger.exception(
+                                        "include_professional lazy-fill DB write failed for spl_set_id=%s — "
+                                        "returning in-memory render without persistence",
+                                        cached.get("spl_set_id"),
                                     )
-                            except SQLAlchemyError:
-                                logger.exception(
-                                    "include_professional lazy-fill DB write failed for spl_set_id=%s — "
-                                    "returning in-memory render without persistence",
-                                    cached.get("spl_set_id"),
-                                )
-                                # Use the in-memory rendered result even though the DB write failed
-                                # so the caller still receives the professional HTML this request.
+                                    # Use the in-memory rendered result even though the DB write failed
+                                    # so the caller still receives the professional HTML this request.
+                                    cached = new_payload
+                            else:
                                 cached = new_payload
-                        else:
-                            cached = new_payload
-                except Exception:
-                    logger.exception(
-                        "include_professional lazy-fill fetch failed for spl_set_id=%s",
-                        cached.get("spl_set_id"),
-                    )
-            if include_medguide and not cached.get("medguide_html") and cached.get("spl_set_id"):
-                try:
-                    mg_html = await fetch_medguide_html(str(cached["spl_set_id"]))
-                    if mg_html and cached.get("id") is not None:
-                        with database.db_engine.begin() as write_conn:
-                            cached = _update_guide(
-                                write_conn,
-                                {**cached, "medguide_html": mg_html},
-                                existing_id=int(cached["id"]),
-                            )
-                    elif mg_html:
-                        cached = {**cached, "medguide_html": mg_html}
-                except (Exception, SQLAlchemyError):
-                    logger.exception(
-                        "include_medguide lazy-fill failed for spl_set_id=%s",
-                        cached.get("spl_set_id"),
-                    )
-            if include_boxed_warning and not cached.get("boxed_warning_html") and cached.get("spl_set_id"):
-                try:
-                    bw_html = await fetch_boxed_warning_html(str(cached["spl_set_id"]))
-                    if bw_html and cached.get("id") is not None:
-                        with database.db_engine.begin() as write_conn:
-                            cached = _update_guide(
-                                write_conn,
-                                {**cached, "boxed_warning_html": bw_html},
-                                existing_id=int(cached["id"]),
-                            )
-                    elif bw_html:
-                        cached = {**cached, "boxed_warning_html": bw_html}
-                except (Exception, SQLAlchemyError):
-                    logger.exception(
-                        "include_boxed_warning lazy-fill failed for spl_set_id=%s",
-                        cached.get("spl_set_id"),
-                    )
-            if (
-                cached.get("professional_html")
-                and not cached.get("medguide_html")
-                and not cached.get("medication_summary_html")
-                and cached.get("id") is not None
-            ):
-                try:
-                    with database.db_engine.begin() as write_conn:
-                        cached = _update_guide(
-                            write_conn,
-                            {**cached, **_build_medication_summary_payload(cached)},
-                            existing_id=int(cached["id"]),
+                    except Exception:
+                        logger.exception(
+                            "include_professional lazy-fill fetch failed for spl_set_id=%s",
+                            cached.get("spl_set_id"),
                         )
-                except SQLAlchemyError:
-                    logger.exception(
-                        "medication_summary lazy-fill failed for spl_set_id=%s",
-                        cached.get("spl_set_id"),
-                    )
-            return _row_to_response(
-                cached,
-                include_professional=include_professional,
-                include_medguide=include_medguide,
-                include_boxed_warning=include_boxed_warning,
-            )
+                if include_medguide and not cached.get("medguide_html") and cached.get("spl_set_id"):
+                    try:
+                        mg_html = await fetch_medguide_html(str(cached["spl_set_id"]))
+                        if mg_html and cached.get("id") is not None:
+                            with database.db_engine.begin() as write_conn:
+                                cached = _update_guide(
+                                    write_conn,
+                                    {**cached, "medguide_html": mg_html},
+                                    existing_id=int(cached["id"]),
+                                )
+                        elif mg_html:
+                            cached = {**cached, "medguide_html": mg_html}
+                    except (Exception, SQLAlchemyError):
+                        logger.exception(
+                            "include_medguide lazy-fill failed for spl_set_id=%s",
+                            cached.get("spl_set_id"),
+                        )
+                if include_boxed_warning and not cached.get("boxed_warning_html") and cached.get("spl_set_id"):
+                    try:
+                        bw_html = await fetch_boxed_warning_html(str(cached["spl_set_id"]))
+                        if bw_html and cached.get("id") is not None:
+                            with database.db_engine.begin() as write_conn:
+                                cached = _update_guide(
+                                    write_conn,
+                                    {**cached, "boxed_warning_html": bw_html},
+                                    existing_id=int(cached["id"]),
+                                )
+                        elif bw_html:
+                            cached = {**cached, "boxed_warning_html": bw_html}
+                    except (Exception, SQLAlchemyError):
+                        logger.exception(
+                            "include_boxed_warning lazy-fill failed for spl_set_id=%s",
+                            cached.get("spl_set_id"),
+                        )
+                if (
+                    cached.get("professional_html")
+                    and not cached.get("medguide_html")
+                    and not cached.get("medication_summary_html")
+                    and cached.get("id") is not None
+                ):
+                    try:
+                        with database.db_engine.begin() as write_conn:
+                            cached = _update_guide(
+                                write_conn,
+                                {**cached, **_build_medication_summary_payload(cached)},
+                                existing_id=int(cached["id"]),
+                            )
+                    except SQLAlchemyError:
+                        logger.exception(
+                            "medication_summary lazy-fill failed for spl_set_id=%s",
+                            cached.get("spl_set_id"),
+                        )
+                return _row_to_response(
+                    cached,
+                    include_professional=include_professional,
+                    include_medguide=include_medguide,
+                    include_boxed_warning=include_boxed_warning,
+                )
 
     logger.info(
         "Medication guide fetch from openFDA (cache %s) for rxcui=%s ndc=%s",
@@ -822,116 +814,109 @@ async def _build_guide_by_spl_set_id(
     with database.db_engine.connect() as conn:
         cached = _select_cached_row_by_spl_set_id(conn, spl_set_id)
 
-    if (
-        cached
-        and not force_refresh
-        and not _is_stale(cached.get("fetched_at"))
-        and _is_identifier_mismatch(cached, incoming_spl_set_id=spl_set_id)
-    ):
-        logger.warning(
-            "Medication guide SPL set ID mismatch: cached spl_set_id=%s incoming spl_set_id=%s — forcing re-fetch",
-            cached.get("spl_set_id"),
-            spl_set_id,
+    if cached and not force_refresh and not _is_stale(cached.get("fetched_at")):
+        has_identifier_mismatch = _is_identifier_mismatch(
+            cached, incoming_spl_set_id=spl_set_id
         )
-
-    if (
-        cached
-        and not force_refresh
-        and not _is_stale(cached.get("fetched_at"))
-        and not _is_identifier_mismatch(cached, incoming_spl_set_id=spl_set_id)
-    ):
-        logger.debug("Medication guide cache hit for spl_set_id=%s", spl_set_id)
-        # Lazy-fill missing HTML fields if spl_set_id is already known
-        if include_professional and cached.get("spl_set_id") and (
-            not cached.get("professional_html") or not cached.get("professional_meta")
-        ):
-            try:
-                professional = await fetch_professional_rendered(str(cached["spl_set_id"]))
-                if professional:
-                    new_payload = {
-                        **cached,
-                        "professional_html": professional.article_html,
-                        "professional_meta": _build_professional_meta(professional),
-                    }
-                    if not new_payload.get("medguide_html"):
-                        new_payload.update(_build_medication_summary_payload(new_payload))
-                    if cached.get("id") is not None:
-                        try:
-                            with database.db_engine.begin() as write_conn:
-                                cached = _update_guide(
-                                    write_conn, new_payload, existing_id=int(cached["id"])
+        if has_identifier_mismatch:
+            logger.warning(
+                "Medication guide SPL set ID mismatch: cached spl_set_id=%s incoming spl_set_id=%s — forcing re-fetch",
+                cached.get("spl_set_id"),
+                spl_set_id,
+            )
+        if not has_identifier_mismatch:
+            logger.debug("Medication guide cache hit for spl_set_id=%s", spl_set_id)
+            # Lazy-fill missing HTML fields if spl_set_id is already known
+            if include_professional and cached.get("spl_set_id") and (
+                not cached.get("professional_html") or not cached.get("professional_meta")
+            ):
+                try:
+                    professional = await fetch_professional_rendered(str(cached["spl_set_id"]))
+                    if professional:
+                        new_payload = {
+                            **cached,
+                            "professional_html": professional.article_html,
+                            "professional_meta": _build_professional_meta(professional),
+                        }
+                        if not new_payload.get("medguide_html"):
+                            new_payload.update(_build_medication_summary_payload(new_payload))
+                        if cached.get("id") is not None:
+                            try:
+                                with database.db_engine.begin() as write_conn:
+                                    cached = _update_guide(
+                                        write_conn, new_payload, existing_id=int(cached["id"])
+                                    )
+                            except SQLAlchemyError:
+                                logger.exception(
+                                    "include_professional lazy-fill DB write failed for spl_set_id=%s",
+                                    cached.get("spl_set_id"),
                                 )
-                        except SQLAlchemyError:
-                            logger.exception(
-                                "include_professional lazy-fill DB write failed for spl_set_id=%s",
-                                cached.get("spl_set_id"),
-                            )
+                                cached = new_payload
+                        else:
                             cached = new_payload
-                    else:
-                        cached = new_payload
-            except Exception:
-                logger.exception(
-                    "include_professional lazy-fill fetch failed for spl_set_id=%s",
-                    cached.get("spl_set_id"),
-                )
-        if include_medguide and not cached.get("medguide_html") and cached.get("spl_set_id"):
-            try:
-                mg_html = await fetch_medguide_html(str(cached["spl_set_id"]))
-                if mg_html and cached.get("id") is not None:
-                    with database.db_engine.begin() as write_conn:
-                        cached = _update_guide(
-                            write_conn,
-                            {**cached, "medguide_html": mg_html},
-                            existing_id=int(cached["id"]),
-                        )
-                elif mg_html:
-                    cached = {**cached, "medguide_html": mg_html}
-            except (Exception, SQLAlchemyError):
-                logger.exception(
-                    "include_medguide lazy-fill failed for spl_set_id=%s",
-                    cached.get("spl_set_id"),
-                )
-        if include_boxed_warning and not cached.get("boxed_warning_html") and cached.get("spl_set_id"):
-            try:
-                bw_html = await fetch_boxed_warning_html(str(cached["spl_set_id"]))
-                if bw_html and cached.get("id") is not None:
-                    with database.db_engine.begin() as write_conn:
-                        cached = _update_guide(
-                            write_conn,
-                            {**cached, "boxed_warning_html": bw_html},
-                            existing_id=int(cached["id"]),
-                        )
-                elif bw_html:
-                    cached = {**cached, "boxed_warning_html": bw_html}
-            except (Exception, SQLAlchemyError):
-                logger.exception(
-                    "include_boxed_warning lazy-fill failed for spl_set_id=%s",
-                    cached.get("spl_set_id"),
-                )
-        if (
-            cached.get("professional_html")
-            and not cached.get("medguide_html")
-            and not cached.get("medication_summary_html")
-            and cached.get("id") is not None
-        ):
-            try:
-                with database.db_engine.begin() as write_conn:
-                    cached = _update_guide(
-                        write_conn,
-                        {**cached, **_build_medication_summary_payload(cached)},
-                        existing_id=int(cached["id"]),
+                except Exception:
+                    logger.exception(
+                        "include_professional lazy-fill fetch failed for spl_set_id=%s",
+                        cached.get("spl_set_id"),
                     )
-            except SQLAlchemyError:
-                logger.exception(
-                    "medication_summary lazy-fill failed for spl_set_id=%s",
-                    cached.get("spl_set_id"),
-                )
-        return _row_to_response(
-            cached,
-            include_professional=include_professional,
-            include_medguide=include_medguide,
-            include_boxed_warning=include_boxed_warning,
-        )
+            if include_medguide and not cached.get("medguide_html") and cached.get("spl_set_id"):
+                try:
+                    mg_html = await fetch_medguide_html(str(cached["spl_set_id"]))
+                    if mg_html and cached.get("id") is not None:
+                        with database.db_engine.begin() as write_conn:
+                            cached = _update_guide(
+                                write_conn,
+                                {**cached, "medguide_html": mg_html},
+                                existing_id=int(cached["id"]),
+                            )
+                    elif mg_html:
+                        cached = {**cached, "medguide_html": mg_html}
+                except (Exception, SQLAlchemyError):
+                    logger.exception(
+                        "include_medguide lazy-fill failed for spl_set_id=%s",
+                        cached.get("spl_set_id"),
+                    )
+            if include_boxed_warning and not cached.get("boxed_warning_html") and cached.get("spl_set_id"):
+                try:
+                    bw_html = await fetch_boxed_warning_html(str(cached["spl_set_id"]))
+                    if bw_html and cached.get("id") is not None:
+                        with database.db_engine.begin() as write_conn:
+                            cached = _update_guide(
+                                write_conn,
+                                {**cached, "boxed_warning_html": bw_html},
+                                existing_id=int(cached["id"]),
+                            )
+                    elif bw_html:
+                        cached = {**cached, "boxed_warning_html": bw_html}
+                except (Exception, SQLAlchemyError):
+                    logger.exception(
+                        "include_boxed_warning lazy-fill failed for spl_set_id=%s",
+                        cached.get("spl_set_id"),
+                    )
+            if (
+                cached.get("professional_html")
+                and not cached.get("medguide_html")
+                and not cached.get("medication_summary_html")
+                and cached.get("id") is not None
+            ):
+                try:
+                    with database.db_engine.begin() as write_conn:
+                        cached = _update_guide(
+                            write_conn,
+                            {**cached, **_build_medication_summary_payload(cached)},
+                            existing_id=int(cached["id"]),
+                        )
+                except SQLAlchemyError:
+                    logger.exception(
+                        "medication_summary lazy-fill failed for spl_set_id=%s",
+                        cached.get("spl_set_id"),
+                    )
+            return _row_to_response(
+                cached,
+                include_professional=include_professional,
+                include_medguide=include_medguide,
+                include_boxed_warning=include_boxed_warning,
+            )
 
     logger.info(
         "Medication guide fetch from DailyMed (cache %s) for spl_set_id=%s",
