@@ -87,7 +87,9 @@ def test_build_guide_maps_openfda_fields_and_null_sections():
 
     with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
         "services.medication_guide._select_cached_row", side_effect=_select
-    ), patch("services.medication_guide._insert_guide", side_effect=_insert):
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert), patch(
+        "services.medication_guide.resolve_setid_from_dailymed", new=AsyncMock(return_value=None)
+    ):
         result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client, dailymed_client=mock_dm))
 
     assert result["rxcui"] == "153165"
@@ -108,7 +110,9 @@ def test_build_guide_maps_openfda_fields_and_null_sections():
     mock_dm_2.fetch_patient_guide.return_value = None
     with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
         "services.medication_guide._select_cached_row", side_effect=_select
-    ), patch("services.medication_guide._insert_guide", side_effect=_insert):
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert), patch(
+        "services.medication_guide.resolve_setid_from_dailymed", new=AsyncMock(return_value=None)
+    ):
         acet_result = asyncio.run(build_guide(rxcui="161", openfda_client=mock_client_2, dailymed_client=mock_dm_2))
 
     assert acet_result["sections"]["how_to_take"] is None
@@ -349,7 +353,9 @@ def test_include_professional_populates_professional_meta_on_cache_miss():
     ), patch(
         "services.medication_guide.fetch_professional_rendered",
         new=AsyncMock(return_value=rendered),
-    ), patch("services.medication_guide._insert_guide", side_effect=_insert):
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert), patch(
+        "services.medication_guide.resolve_setid_from_dailymed", new=AsyncMock(return_value=None)
+    ):
         result = asyncio.run(
             build_guide(
                 rxcui="153165",
@@ -636,7 +642,9 @@ def test_build_guide_refetches_when_stale():
 
     with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
         "services.medication_guide._select_cached_row", return_value=old_row
-    ), patch("services.medication_guide._update_guide", side_effect=_update):
+    ), patch("services.medication_guide._update_guide", side_effect=_update), patch(
+        "services.medication_guide.resolve_setid_from_dailymed", new=AsyncMock(return_value=None)
+    ):
         result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client, dailymed_client=mock_dm))
 
     assert result["sections"]["overview"].startswith("LIPITOR")
@@ -726,7 +734,9 @@ def test_upsert_recovers_from_insert_integrity_error():
         side_effect=IntegrityError("INSERT", {}, Exception("duplicate key")),
     ) as mock_insert, patch(
         "services.medication_guide._update_guide", return_value=updated_row
-    ) as mock_update:
+    ) as mock_update, patch(
+        "services.medication_guide.resolve_setid_from_dailymed", new=AsyncMock(return_value=None)
+    ):
         result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client, dailymed_client=mock_dm))
 
     assert result["rxcui"] == "153165"
@@ -767,7 +777,9 @@ def test_build_guide_uses_engine_begin_for_writes():
 
     with patch("services.medication_guide.database.db_engine", engine), patch(
         "services.medication_guide._select_cached_row", side_effect=[None, None]
-    ), patch("services.medication_guide._insert_guide", return_value=inserted_row):
+    ), patch("services.medication_guide._insert_guide", return_value=inserted_row), patch(
+        "services.medication_guide.resolve_setid_from_dailymed", new=AsyncMock(return_value=None)
+    ):
         asyncio.run(build_guide(rxcui="153165", openfda_client=miss_client, dailymed_client=mock_dm))
 
     assert engine.begin.call_count >= 1
@@ -813,7 +825,9 @@ def test_build_guide_uses_dailymed_as_primary_overview_source():
 
     with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
         "services.medication_guide._select_cached_row", return_value=None
-    ), patch("services.medication_guide._insert_guide", side_effect=_insert):
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert), patch(
+        "services.medication_guide.resolve_setid_from_dailymed", new=AsyncMock(return_value=None)
+    ):
         result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client, dailymed_client=mock_dm))
 
     assert result["sections"]["overview"] == "Patient-facing guide text from DailyMed."
@@ -840,7 +854,9 @@ def test_build_guide_falls_back_to_openfda_overview_when_dailymed_fails():
 
     with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
         "services.medication_guide._select_cached_row", return_value=None
-    ), patch("services.medication_guide._insert_guide", side_effect=_insert):
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert), patch(
+        "services.medication_guide.resolve_setid_from_dailymed", new=AsyncMock(return_value=None)
+    ):
         result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client, dailymed_client=mock_dm))
 
     # overview is None because lipitor fixture has no openFDA med guide fields
@@ -866,7 +882,9 @@ def test_build_guide_falls_back_gracefully_when_dailymed_raises():
 
     with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
         "services.medication_guide._select_cached_row", return_value=None
-    ), patch("services.medication_guide._insert_guide", side_effect=_insert):
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert), patch(
+        "services.medication_guide.resolve_setid_from_dailymed", new=AsyncMock(return_value=None)
+    ):
         result = asyncio.run(build_guide(rxcui="153165", openfda_client=mock_client, dailymed_client=mock_dm))
 
     # Should not raise — falls back to openFDA overview (None for lipitor fixture)
@@ -893,6 +911,8 @@ def test_build_guide_resolves_setid_from_dailymed_when_openfda_omits_it():
 
     with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
         "services.medication_guide._select_cached_row", return_value=None
+    ), patch(
+        "services.medication_guide._select_cached_row_by_spl_set_id", return_value=None
     ), patch("services.medication_guide._insert_guide", side_effect=_insert), patch(
         "services.medication_guide.resolve_setid_from_dailymed",
         new=AsyncMock(return_value="resolved-setid"),
@@ -1560,3 +1580,171 @@ def test_insert_guide_serializes_professional_meta():
     assert isinstance(meta_param, str), "professional_meta must be JSON-serialised before binding"
     parsed = _json.loads(meta_param)
     assert parsed["sections"] == [["a", "B"]]
+
+
+# ---------------------------------------------------------------------------
+# Pre-openFDA DailyMed resolver tests (new behavior)
+# ---------------------------------------------------------------------------
+
+def test_build_guide_resolves_setid_before_openfda_for_drug_missing_from_openfda():
+    """When DailyMed resolves a setid, _build_guide_by_spl_set_id is used
+    and openFDA is never consulted even if it would return nothing."""
+    rendered = SimpleNamespace(
+        article_html="<article>augmentin professional</article>",
+        highlights_html=None,
+        sections=[],
+    )
+    cache = {"row": None}
+
+    def _insert(_conn, payload):
+        cache["row"] = _row_from_payload(payload)
+        return cache["row"]
+
+    mock_openfda = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+    mock_dm = MagicMock()
+    mock_dm.fetch_patient_guide.return_value = None
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), \
+         patch("services.medication_guide._select_cached_row", return_value=None), \
+         patch("services.medication_guide._select_cached_row_by_spl_set_id", return_value=None), \
+         patch("services.medication_guide._insert_guide", side_effect=_insert), \
+         patch(
+             "services.medication_guide.resolve_setid_from_dailymed",
+             new=AsyncMock(return_value="resolved-setid"),
+         ) as mock_resolver, \
+         patch(
+             "services.medication_guide.fetch_professional_rendered",
+             new=AsyncMock(return_value=rendered),
+         ) as mock_professional, \
+         patch("services.medication_guide.fetch_spl_sections", new=AsyncMock(return_value={})):
+        result = asyncio.run(
+            build_guide(
+                ndc="54868-4735-0",
+                rxcui="861689",
+                include_professional=True,
+                openfda_client=mock_openfda,
+                dailymed_client=mock_dm,
+            )
+        )
+
+    # Resolver was called before openFDA
+    mock_resolver.assert_awaited_once()
+    # openFDA was never called because resolver short-circuited it
+    mock_openfda.fetch_label_by_rxcui.assert_not_called()
+    mock_openfda.fetch_label_by_ndc.assert_not_called()
+    # Professional HTML came from the DailyMed path
+    mock_professional.assert_awaited_once_with("resolved-setid")
+    assert result["professional_html"] == "<article>augmentin professional</article>"
+
+
+def test_build_guide_falls_through_to_openfda_when_resolver_returns_none():
+    """When DailyMed resolver returns None, the existing openFDA path runs."""
+    lipitor = _load_fixture("openfda_lipitor.json")["results"][0]
+    cache = {"row": None}
+
+    def _insert(_conn, payload):
+        cache["row"] = _row_from_payload(payload)
+        return cache["row"]
+
+    mock_openfda = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=lipitor),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+    mock_dm = MagicMock()
+    mock_dm.fetch_patient_guide.return_value = None
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), \
+         patch("services.medication_guide._select_cached_row", return_value=None), \
+         patch("services.medication_guide._insert_guide", side_effect=_insert), \
+         patch(
+             "services.medication_guide.resolve_setid_from_dailymed",
+             new=AsyncMock(return_value=None),
+         ), \
+         patch("services.medication_guide.fetch_spl_sections", new=AsyncMock(return_value={})):
+        result = asyncio.run(
+            build_guide(
+                rxcui="153165",
+                openfda_client=mock_openfda,
+                dailymed_client=mock_dm,
+            )
+        )
+
+    # openFDA was consulted as fallback
+    mock_openfda.fetch_label_by_rxcui.assert_awaited_once_with("153165")
+    assert result["rxcui"] == "153165"
+
+
+def test_build_guide_raises_not_found_when_both_resolver_and_openfda_empty():
+    """When resolver returns None AND openFDA returns nothing, GuideNotFoundError is raised."""
+    mock_openfda = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), \
+         patch("services.medication_guide._select_cached_row", return_value=None), \
+         patch(
+             "services.medication_guide.resolve_setid_from_dailymed",
+             new=AsyncMock(return_value=None),
+         ):
+        with pytest.raises(GuideNotFoundError):
+            asyncio.run(
+                build_guide(
+                    rxcui="861689",
+                    ndc="54868-4735-0",
+                    openfda_client=mock_openfda,
+                )
+            )
+
+
+def test_build_guide_persists_ndc_and_rxcui_when_resolver_hit():
+    """When resolver finds a setid, the resulting cache row contains
+    both the ndc and rxcui from the caller so future lookups hit cache."""
+    rendered = SimpleNamespace(
+        article_html="<article>html</article>",
+        highlights_html=None,
+        sections=[],
+    )
+    cache = {"row": None}
+
+    def _insert(_conn, payload):
+        cache["row"] = _row_from_payload(payload)
+        return cache["row"]
+
+    mock_openfda = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+    mock_dm = MagicMock()
+    mock_dm.fetch_patient_guide.return_value = None
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), \
+         patch("services.medication_guide._select_cached_row", return_value=None), \
+         patch("services.medication_guide._select_cached_row_by_spl_set_id", return_value=None), \
+         patch("services.medication_guide._insert_guide", side_effect=_insert), \
+         patch(
+             "services.medication_guide.resolve_setid_from_dailymed",
+             new=AsyncMock(return_value="test-setid"),
+         ), \
+         patch(
+             "services.medication_guide.fetch_professional_rendered",
+             new=AsyncMock(return_value=rendered),
+         ), \
+         patch("services.medication_guide.fetch_spl_sections", new=AsyncMock(return_value={})):
+        asyncio.run(
+            build_guide(
+                ndc="54868-4735-0",
+                rxcui="861689",
+                include_professional=True,
+                openfda_client=mock_openfda,
+                dailymed_client=mock_dm,
+            )
+        )
+
+    assert cache["row"] is not None
+    assert cache["row"]["spl_set_id"] == "test-setid"
+    assert cache["row"]["ndc"] == "54868-4735-00"
+    assert cache["row"]["rxcui"] == "861689"
