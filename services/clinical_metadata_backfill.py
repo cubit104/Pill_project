@@ -54,6 +54,9 @@ TARGET_COLUMNS: List[str] = [
     "inactive_ingredients",
 ]
 
+# Possible column names for the SPL set-id on pillfinder (varies by environment)
+_SPL_SET_ID_CANDIDATES = ("spl_set_id", "setid", "spl_set_id_value")
+
 # Prefixes to strip from inactive_ingredients text
 _INACTIVE_PREFIXES_RE = re.compile(
     r"^inactive\s+ingredient(?:s)?:\s*",
@@ -281,8 +284,6 @@ def map_active_ingredients(
     ``openfda.substance_name``.
     """
     if spl_root is not None:
-        # Namespaces used in HL7 SPL XML
-        ns = {"hl7": "urn:hl7-org:v3"}
         names: List[str] = []
         for elem in spl_root.iter():
             # Look for activeMoiety regardless of namespace
@@ -345,6 +346,21 @@ def _get_existing_columns(conn) -> List[str]:
     return [r[0] for r in rows]
 
 
+def _resolve_spl_set_id_column(existing_cols: List[str]) -> Optional[str]:
+    """Return the first present SPL set-id column name, or None.
+
+    Different environments store the SPL set-id under different column names
+    (``spl_set_id``, ``setid``, ``spl_set_id_value``). We probe in priority
+    order and return whichever is present. If none exist, we still proceed —
+    the script just won't be able to use a pre-stored setid to short-circuit
+    DailyMed lookups.
+    """
+    for candidate in _SPL_SET_ID_CANDIDATES:
+        if candidate in existing_cols:
+            return candidate
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Audit log helpers
 # ---------------------------------------------------------------------------
@@ -392,23 +408,6 @@ def _write_audit_log(
 # ---------------------------------------------------------------------------
 # Per-row logic
 # ---------------------------------------------------------------------------
-
-# SELECT columns we need for processing
-_ROW_COLUMNS = [
-    "id",
-    "medicine_name",
-    "rxcui",
-    "ndc11",
-    "spl_set_id",
-    "dosage_form",
-    "route",
-    "rx_otc_status",
-    "dea_schedule",
-    "fda_pharma_class",
-    "brand_names",
-    "active_ingredients",
-    "inactive_ingredients",
-]
 
 
 def _build_null_check(active_columns: List[str]) -> str:
@@ -604,6 +603,17 @@ def run_backfill(
         }
 
     # ------------------------------------------------------------------
+    # Resolve SPL set-id column name for this environment (may be absent).
+    # ------------------------------------------------------------------
+    spl_set_id_col = _resolve_spl_set_id_column(existing_cols)
+    if spl_set_id_col is None:
+        logger.info(
+            "No SPL set-id column found on pillfinder (looked for %s); "
+            "active_ingredients lookups will fall back to RxCUI-only resolution.",
+            ", ".join(_SPL_SET_ID_CANDIDATES),
+        )
+
+    # ------------------------------------------------------------------
     # Ensure audit log table exists
     # ------------------------------------------------------------------
     with database.db_engine.begin() as conn:
@@ -612,18 +622,40 @@ def run_backfill(
     # ------------------------------------------------------------------
     # Determine which columns to SELECT (only the ones we need)
     # ------------------------------------------------------------------
-    select_cols = ["id", "medicine_name", "rxcui", "ndc11", "spl_set_id"] + active_columns
-    # De-duplicate while preserving order
+    base_cols = ["id", "medicine_name", "rxcui", "ndc11"]
+    if spl_set_id_col:
+        # Alias to a stable name 'spl_set_id' so downstream code can read row['spl_set_id']
+        select_clause_extras = [f"{spl_set_id_col} AS spl_set_id"]
+        select_cols_for_unpack = base_cols + ["spl_set_id"] + active_columns
+    else:
+        select_clause_extras = ["NULL::text AS spl_set_id"]
+        select_cols_for_unpack = base_cols + ["spl_set_id"] + active_columns
+
+    # De-duplicate active_columns from base while preserving order for the unpacking list
     seen: set = set()
-    unique_select: List[str] = []
-    for c in select_cols:
+    unique_unpack: List[str] = []
+    for c in select_cols_for_unpack:
         if c not in seen:
             seen.add(c)
-            unique_select.append(c)
+            unique_unpack.append(c)
+
+    # Build the SELECT clause string (use the bare column names plus the extras)
+    seen2: set = set()
+    select_clause_parts: List[str] = []
+    for c in base_cols:
+        if c not in seen2:
+            seen2.add(c)
+            select_clause_parts.append(c)
+    for extra in select_clause_extras:
+        select_clause_parts.append(extra)
+    for c in active_columns:
+        if c not in seen2 and c != "spl_set_id":
+            seen2.add(c)
+            select_clause_parts.append(c)
 
     null_check = _build_null_check(active_columns)
     row_sql = f"""
-        SELECT {', '.join(unique_select)}
+        SELECT {', '.join(select_clause_parts)}
         FROM pillfinder
         WHERE deleted_at IS NULL
           AND ({null_check})
@@ -637,7 +669,7 @@ def run_backfill(
             {"limit": limit, "offset": offset},
         ).fetchall()
 
-    pill_rows = [dict(zip(unique_select, r)) for r in db_rows]
+    pill_rows = [dict(zip(unique_unpack, r)) for r in db_rows]
 
     summary: Dict[str, Any] = {
         "processed": 0,
