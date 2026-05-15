@@ -875,7 +875,8 @@ def test_build_guide_falls_back_gracefully_when_dailymed_raises():
 
 def test_build_guide_resolves_setid_from_dailymed_when_openfda_omits_it():
     lipitor = copy.deepcopy(_load_fixture("openfda_lipitor.json")["results"][0])
-    lipitor.get("openfda", {}).pop("spl_set_id", None)
+    if isinstance(lipitor.get("openfda"), dict):
+        lipitor["openfda"].pop("spl_set_id", None)
     rendered = SimpleNamespace(article_html="<article>professional html</article>", highlights_html=None, sections=[])
     cache = {"row": None}
 
@@ -919,7 +920,8 @@ def test_build_guide_resolves_setid_from_dailymed_when_openfda_omits_it():
 
 def test_build_guide_logs_warning_when_setid_resolution_returns_none(caplog):
     lipitor = copy.deepcopy(_load_fixture("openfda_lipitor.json")["results"][0])
-    lipitor.get("openfda", {}).pop("spl_set_id", None)
+    if isinstance(lipitor.get("openfda"), dict):
+        lipitor["openfda"].pop("spl_set_id", None)
     cache = {"row": None}
 
     def _insert(_conn, payload):
