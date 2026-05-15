@@ -424,7 +424,7 @@ def get_pill_by_slug(slug: str):
                 # Source-citation / freshness fields — present only when the DB has them.
                 # updated_at is serialised as ISO 8601 with a trailing 'Z' so the frontend
                 # can reliably parse it with new Date() on all JS engines.
-                "spl_set_id": pill_info.get("spl_set_id") or pill_info.get("setid") or pill_info.get("spl_set_id_value"),
+                "spl_set_id": pill_info.get("spl_set_id") or pill_info.get("setid") or pill_info.get("spl_set_id_value") or str(pill_info.get("id") or ""),
                 "updated_at": _to_iso(
                     pill_info.get("updated_at")
                     or pill_info.get("last_updated")
