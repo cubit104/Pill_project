@@ -781,6 +781,44 @@ async def build_guide(
             )
             return response
 
+    # If we have NDC or RxCUI but no setid, try DailyMed first.
+    # DailyMed is the authoritative SPL source — openFDA is supplementary.
+    if not spl_set_id and (normalized_ndc or rxcui):
+        try:
+            resolved_setid = await resolve_setid_from_dailymed(
+                ndc=normalized_ndc,
+                rxcui=rxcui,
+            )
+        except Exception:
+            logger.exception(
+                "DailyMed setid resolution failed for ndc=%s rxcui=%s",
+                normalized_ndc, rxcui,
+            )
+            resolved_setid = None
+
+        if resolved_setid:
+            logger.info(
+                "Resolved spl_set_id=%s from DailyMed for ndc=%s rxcui=%s (pre-openFDA)",
+                resolved_setid, normalized_ndc, rxcui,
+            )
+            try:
+                return await _build_guide_by_spl_set_id(
+                    spl_set_id=resolved_setid,
+                    ndc=normalized_ndc,
+                    rxcui=rxcui,
+                    force_refresh=force_refresh,
+                    include_professional=include_professional,
+                    include_medguide=include_medguide,
+                    include_boxed_warning=include_boxed_warning,
+                    dailymed_client=dailymed_client,
+                )
+            except GuideNotFoundError:
+                logger.warning(
+                    "Resolved setid=%s had no DailyMed content; falling through to openFDA path",
+                    resolved_setid,
+                )
+                # fall through to existing openFDA logic
+
     logger.info(
         "Medication guide fetch from openFDA (cache %s) for rxcui=%s ndc=%s",
         "stale" if cached else "miss",
@@ -804,26 +842,6 @@ async def build_guide(
     # Use spl_set_id from openFDA response first; fall back to the cached DB value
     # (openFDA often omits spl_set_id even when it exists in DailyMed).
     resolved_spl_set_id = mapped.get("spl_set_id") or (cached.get("spl_set_id") if cached else None)
-    if not resolved_spl_set_id and (normalized_ndc or rxcui):
-        try:
-            resolved_spl_set_id = await resolve_setid_from_dailymed(
-                ndc=normalized_ndc,
-                rxcui=rxcui,
-            )
-            if resolved_spl_set_id:
-                logger.info(
-                    "Resolved spl_set_id=%s from DailyMed for ndc=%s rxcui=%s",
-                    resolved_spl_set_id,
-                    normalized_ndc,
-                    rxcui,
-                )
-                mapped["spl_set_id"] = resolved_spl_set_id
-        except Exception:
-            logger.exception(
-                "DailyMed setid resolution failed for ndc=%s rxcui=%s",
-                normalized_ndc,
-                rxcui,
-            )
     if resolved_spl_set_id:
         # Ensure the resolved spl_set_id is stored in the mapped payload too
         if not mapped.get("spl_set_id"):
@@ -949,6 +967,8 @@ async def build_guide(
 async def _build_guide_by_spl_set_id(
     *,
     spl_set_id: str,
+    ndc: Optional[str] = None,
+    rxcui: Optional[str] = None,
     force_refresh: bool = False,
     include_professional: bool = False,
     include_medguide: bool = False,
@@ -957,8 +977,9 @@ async def _build_guide_by_spl_set_id(
 ) -> dict[str, Any]:
     """Hydrate a medication guide directly from DailyMed using a known SPL Set ID.
 
-    Does not require rxcui or ndc; does not validate NDC.  Preserves any
-    existing rxcui/ndc/generic_name/brand_name metadata already in the cache.
+    Does not validate NDC.  Explicit ndc/rxcui values are persisted to the
+    cache row so future lookups by those identifiers hit cache directly.
+    Falls back to any rxcui/ndc already stored in the cached row.
     """
     if not database.db_engine and not database.connect_to_database():
         raise GuideInternalError("Database connection not available")
@@ -1083,14 +1104,14 @@ async def _build_guide_by_spl_set_id(
         spl_set_id,
     )
 
-    # Start from any cached metadata so rxcui/ndc/names are preserved on re-hydration
+    # Start from any cached metadata so rxcui/ndc/names are preserved on re-hydration.
+    # Explicitly passed ndc/rxcui take precedence over whatever is already cached.
     encoded_set_id = quote(spl_set_id, safe="")
     mapped: dict[str, Any] = {
         "spl_set_id": spl_set_id,
         "source_url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}",
-        # Preserve existing identifiers and names from cache where available
-        "rxcui": (cached or {}).get("rxcui"),
-        "ndc": (cached or {}).get("ndc"),
+        "rxcui": rxcui or (cached or {}).get("rxcui"),
+        "ndc": ndc or (cached or {}).get("ndc"),
         "generic_name": (cached or {}).get("generic_name"),
         "brand_name": (cached or {}).get("brand_name"),
         "has_boxed_warning": (cached or {}).get("has_boxed_warning") or False,
