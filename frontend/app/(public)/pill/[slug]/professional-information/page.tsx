@@ -154,6 +154,14 @@ async function fetchGuide(pill: PillInfo): Promise<GuideResponse | null> {
       if (res.ok) return (await res.json()) as GuideResponse
     }
 
+    if (pill.ndc11) {
+      const res = await fetch(
+        `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(pill.ndc11)}/guide?${params.toString()}`,
+        { next: { revalidate: GUIDE_REVALIDATE_SECONDS } }
+      )
+      if (res.ok) return (await res.json()) as GuideResponse
+    }
+
     if (pill.rxcui) {
       const res = await fetch(
         `${API_BASE}/api/drugs/${encodeURIComponent(pill.rxcui)}/guide?${params.toString()}`,
@@ -162,10 +170,9 @@ async function fetchGuide(pill: PillInfo): Promise<GuideResponse | null> {
       if (res.ok) return (await res.json()) as GuideResponse
     }
 
-    const ndc = pill.ndc11 || pill.ndc9
-    if (ndc) {
+    if (pill.ndc9 && pill.ndc9 !== pill.ndc11) {
       const res = await fetch(
-        `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(ndc)}/guide?${params.toString()}`,
+        `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(pill.ndc9)}/guide?${params.toString()}`,
         { next: { revalidate: GUIDE_REVALIDATE_SECONDS } }
       )
       if (res.ok) return (await res.json()) as GuideResponse
@@ -334,10 +341,9 @@ export default async function ProfessionalInformationPage({
         </p>
       )}
 
-      {(proSplSetId || proRxcui || proNdc || guideData?.fetched_at || guideData?.source_url) && (
+      {(proRxcui || proNdc || guideData?.fetched_at || guideData?.source_url) && (
         <section className="border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1">
           <h2 className="font-semibold text-slate-600 mb-2">Sources</h2>
-          {proSplSetId && <p><span className="font-medium">DailyMed SPL Set ID:</span> {proSplSetId}</p>}
           {proRxcui && <p><span className="font-medium">RxCUI:</span> {proRxcui}</p>}
           {proNdc && <p><span className="font-medium">NDC:</span> {proNdc}</p>}
           {guideData?.fetched_at && (
