@@ -663,29 +663,15 @@ export default function PillDetailClient({
             <ul className="space-y-2 text-sm text-slate-700">
               {pill.ndc && (
                 <li>
-                  <strong>FDA NDC Directory</strong>
-                  {' — '}
-                  <a
-                    href={`https://dailymed.nlm.nih.gov/dailymed/search.cfm?query=${encodeURIComponent(pill.ndc)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sky-700 hover:underline"
-                  >
-                    Search DailyMed for NDC {pill.ndc}
-                  </a>
-                </li>
-              )}
-              {pill.spl_set_id && (
-                <li>
                   <strong>DailyMed SPL</strong>
                   {' — '}
                   <a
-                    href={`https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=${encodeURIComponent(pill.spl_set_id)}`}
+                    href={`https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?ndc11=${encodeURIComponent(pill.ndc)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sky-700 hover:underline"
                   >
-                    View SPL document (Set ID: {pill.spl_set_id})
+                    View SPL document (NDC: {pill.ndc})
                   </a>
                 </li>
               )}
