@@ -1700,19 +1700,26 @@ def test_build_guide_raises_not_found_when_both_resolver_and_openfda_empty():
             )
 
 
-def test_build_guide_persists_ndc_and_rxcui_when_resolver_hit():
-    """When resolver finds a setid, the resulting cache row contains
-    both the ndc and rxcui from the caller so future lookups hit cache."""
+def test_build_guide_resolver_path_persists_ndc_and_rxcui():
+    """Resolver path should pass identifiers through and persist them."""
+    from services import medication_guide as medication_guide_service
+
     rendered = SimpleNamespace(
         article_html="<article>html</article>",
         highlights_html=None,
         sections=[],
     )
     cache = {"row": None}
+    observed_kwargs = {}
+    original_build_by_spl_set_id = medication_guide_service._build_guide_by_spl_set_id
 
     def _insert(_conn, payload):
         cache["row"] = _row_from_payload(payload)
         return cache["row"]
+
+    async def _wrapped_build_by_spl_set_id(**kwargs):
+        observed_kwargs.update(kwargs)
+        return await original_build_by_spl_set_id(**kwargs)
 
     mock_openfda = SimpleNamespace(
         fetch_label_by_rxcui=AsyncMock(return_value=None),
@@ -1725,6 +1732,10 @@ def test_build_guide_persists_ndc_and_rxcui_when_resolver_hit():
          patch("services.medication_guide._select_cached_row", return_value=None), \
          patch("services.medication_guide._select_cached_row_by_spl_set_id", return_value=None), \
          patch("services.medication_guide._insert_guide", side_effect=_insert), \
+         patch(
+             "services.medication_guide._build_guide_by_spl_set_id",
+             new=AsyncMock(side_effect=_wrapped_build_by_spl_set_id),
+         ), \
          patch(
              "services.medication_guide.resolve_setid_from_dailymed",
              new=AsyncMock(return_value="test-setid"),
@@ -1744,8 +1755,93 @@ def test_build_guide_persists_ndc_and_rxcui_when_resolver_hit():
             )
         )
 
+    assert observed_kwargs["spl_set_id"] == "test-setid"
+    assert observed_kwargs["ndc"] == "54868-4735-00"
+    assert observed_kwargs["rxcui"] == "861689"
     assert cache["row"] is not None
     assert cache["row"]["spl_set_id"] == "test-setid"
     # NDC is stored in normalized 11-digit form (54868-4735-0 → 54868-4735-00)
     assert cache["row"]["ndc"] == "54868-4735-00"
     assert cache["row"]["rxcui"] == "861689"
+
+
+def test_build_guide_does_not_overwrite_existing_ndc():
+    cached_row = {
+        "id": 41,
+        "spl_set_id": "cached-setid",
+        "ndc": "OLD",
+        "rxcui": "861689",
+        "generic_name": "augmentin",
+        "brand_name": "AUGMENTIN XR",
+        "overview": "cached overview",
+        "fetched_at": datetime.now(timezone.utc) - timedelta(days=1),
+    }
+    captured_payload = {}
+
+    def _update(_conn, payload, *, existing_id):
+        assert existing_id == 41
+        captured_payload.update(payload)
+        return _row_from_payload(payload | {"id": existing_id})
+
+    rendered = SimpleNamespace(
+        article_html="<article>html</article>",
+        highlights_html=None,
+        sections=[],
+    )
+    mock_dm = MagicMock()
+    mock_dm.fetch_patient_guide.return_value = None
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), \
+         patch("services.medication_guide._select_cached_row_by_spl_set_id", return_value=cached_row), \
+         patch("services.medication_guide._update_guide", side_effect=_update), \
+         patch(
+             "services.medication_guide.fetch_professional_rendered",
+             new=AsyncMock(return_value=rendered),
+         ), \
+         patch("services.medication_guide.fetch_spl_sections", new=AsyncMock(return_value={})):
+        result = asyncio.run(
+            build_guide(
+                spl_set_id="cached-setid",
+                ndc="NEW",
+                rxcui="861689",
+                include_professional=True,
+                force_refresh=True,
+                dailymed_client=mock_dm,
+            )
+        )
+
+    assert captured_payload["ndc"] == "OLD"
+    assert result["ndc"] == "OLD"
+
+
+def test_cache_hit_log_emitted(caplog):
+    cached_row = {
+        "id": 51,
+        "spl_set_id": "cache-setid",
+        "ndc": "54868-4735-00",
+        "rxcui": "861689",
+        "generic_name": "augmentin",
+        "brand_name": "AUGMENTIN XR",
+        "overview": "cached overview",
+        "fetched_at": datetime.now(timezone.utc) - timedelta(minutes=5),
+    }
+    mock_openfda = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+
+    with caplog.at_level(logging.INFO):
+        with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+            "services.medication_guide._select_cached_row", return_value=cached_row
+        ):
+            asyncio.run(build_guide(rxcui="861689", openfda_client=mock_openfda))
+
+        with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+            "services.medication_guide._select_cached_row_by_spl_set_id", return_value=cached_row
+        ):
+            asyncio.run(build_guide(spl_set_id="cache-setid"))
+
+    hits = [message for message in caplog.messages if "medication_guide cache HIT" in message]
+    assert len(hits) >= 2
+    assert any("spl_set_id=cache-setid" in message for message in hits)
+    assert any("ndc=54868-4735-00" in message and "rxcui=861689" in message for message in hits)

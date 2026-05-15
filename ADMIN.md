@@ -262,3 +262,75 @@ Both endpoints require a superuser JWT (`Authorization: Bearer <token>`).
 5. Once comfortable, schedule via cron or GitHub Actions without the FastAPI
    app needing to be up (the script connects to the DB directly via `DATABASE_URL`).
 
+---
+
+## Medication Guide Identifier Backfill
+
+The `medication_guide` table stores rendered guide content. Some older rows may
+already have `spl_set_id` and HTML populated but still be missing `ndc` and/or
+`rxcui`. That causes identifier lookups to miss and forces unnecessary
+re-fetches. This backfill fills only NULL/blank `medication_guide.ndc` and
+`medication_guide.rxcui` values from the matching `pillfinder` row.
+
+Resolution priority:
+
+1. `spl_set_id`
+2. `rxcui`
+3. `ndc11`
+
+Existing non-NULL identifiers are **never overwritten**.
+
+### Running the backfill
+
+**Always dry-run first:**
+
+```bash
+python scripts/backfill_medication_guide_identifiers.py --dry-run --limit 10
+```
+
+Each candidate row prints a JSON line showing what would change:
+
+```json
+{"medication_guide_id": 123, "old_ndc": null, "new_ndc": "54868-4735-00", "old_rxcui": "861689", "new_rxcui": "861689", "match_source": "spl_set_id", "outcome": "dry_run", "notes": "fill ndc from pillfinder.ndc11"}
+```
+
+**Live run in batches:**
+
+```bash
+python scripts/backfill_medication_guide_identifiers.py --limit 200
+python scripts/backfill_medication_guide_identifiers.py --limit 200 --offset 200
+```
+
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dry-run` | false | Log only, no DB writes |
+| `--limit N` | 10 | Process at most N rows |
+| `--offset N` | 0 | Skip first N rows (for resuming) |
+| `--sleep-ms N` | 250 | Delay between processed rows (ms) |
+
+### Audit log query
+
+Each processed live row writes one record to `medication_guide_identifier_backfill_log`:
+
+```sql
+SELECT medication_guide_id, old_ndc, new_ndc, old_rxcui, new_rxcui,
+       match_source, outcome, notes, created_at
+FROM medication_guide_identifier_backfill_log
+ORDER BY created_at DESC;
+```
+
+### Rollback
+
+Rollback is manual and limited to rows recorded in the audit log:
+
+```sql
+UPDATE medication_guide mg
+SET ndc = log.old_ndc,
+    rxcui = log.old_rxcui
+FROM medication_guide_identifier_backfill_log log
+WHERE log.medication_guide_id = mg.id
+  AND log.outcome = 'updated'
+  AND log.created_at >= NOW() - INTERVAL '1 day';
+```

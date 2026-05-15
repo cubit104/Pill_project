@@ -8,6 +8,17 @@ See [ADMIN.md](../ADMIN.md) for full NDC backfill documentation.
 
 ---
 
+## Medication Guide Identifier Backfill
+
+Fills NULL/blank `medication_guide.ndc` and `medication_guide.rxcui` values
+from `pillfinder` matches using priority `spl_set_id` → `rxcui` → `ndc11`.
+Existing non-NULL identifiers are never overwritten.
+
+See [ADMIN.md](../ADMIN.md) for full usage, flags, audit log queries, and
+rollback steps.
+
+---
+
 ## Drug Indications Backfill (Stage 1)
 
 Fetches FDA "Indications and Usage" text from openFDA for a list of drugs and
