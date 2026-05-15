@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,7 +23,13 @@ os.environ.setdefault("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-key")
 
 from routes import medication_guide as medication_guide_routes
-from services.medication_guide import _GUIDE_COLUMNS, GuideNotFoundError, GuideValidationError, build_guide
+from services.medication_guide import (
+    _GUIDE_COLUMNS,
+    GuideNotFoundError,
+    GuideValidationError,
+    build_guide,
+    resolve_setid_from_dailymed,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -863,6 +871,152 @@ def test_build_guide_falls_back_gracefully_when_dailymed_raises():
 
     # Should not raise — falls back to openFDA overview (None for lipitor fixture)
     assert "sections" in result
+
+
+def test_build_guide_resolves_setid_from_dailymed_when_openfda_omits_it():
+    lipitor = copy.deepcopy(_load_fixture("openfda_lipitor.json")["results"][0])
+    if isinstance(lipitor.get("openfda"), dict):
+        lipitor["openfda"].pop("spl_set_id", None)
+    rendered = SimpleNamespace(article_html="<article>professional html</article>", highlights_html=None, sections=[])
+    cache = {"row": None}
+
+    def _insert(_conn, payload):
+        cache["row"] = _row_from_payload(payload)
+        return cache["row"]
+
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=lipitor),
+    )
+    mock_dm = MagicMock()
+    mock_dm.fetch_patient_guide.return_value = None
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=None
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert), patch(
+        "services.medication_guide.resolve_setid_from_dailymed",
+        new=AsyncMock(return_value="resolved-setid"),
+    ) as mock_resolver, patch(
+        "services.medication_guide.fetch_professional_rendered",
+        new=AsyncMock(return_value=rendered),
+    ) as mock_professional, patch(
+        "services.medication_guide.fetch_spl_sections",
+        new=AsyncMock(return_value={}),
+    ):
+        result = asyncio.run(
+            build_guide(
+                ndc="54868-4735-0",
+                include_professional=True,
+                openfda_client=mock_client,
+                dailymed_client=mock_dm,
+            )
+        )
+
+    mock_resolver.assert_awaited_once()
+    mock_professional.assert_awaited_once_with("resolved-setid")
+    assert cache["row"]["spl_set_id"] == "resolved-setid"
+    assert result["professional_html"] == "<article>professional html</article>"
+
+
+def test_build_guide_logs_warning_when_setid_resolution_returns_none(caplog):
+    lipitor = copy.deepcopy(_load_fixture("openfda_lipitor.json")["results"][0])
+    if isinstance(lipitor.get("openfda"), dict):
+        lipitor["openfda"].pop("spl_set_id", None)
+    cache = {"row": None}
+
+    def _insert(_conn, payload):
+        cache["row"] = _row_from_payload(payload)
+        return cache["row"]
+
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=None),
+        fetch_label_by_ndc=AsyncMock(return_value=lipitor),
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=None
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert), patch(
+        "services.medication_guide.resolve_setid_from_dailymed",
+        new=AsyncMock(return_value=None),
+    ) as mock_resolver, patch(
+        "services.medication_guide.fetch_professional_rendered",
+        new=AsyncMock(return_value=None),
+    ) as mock_professional, caplog.at_level(logging.WARNING):
+        result = asyncio.run(
+            build_guide(
+                ndc="54868-4735-0",
+                include_professional=True,
+                openfda_client=mock_client,
+            )
+        )
+
+    mock_resolver.assert_awaited_once()
+    mock_professional.assert_not_called()
+    assert result["professional_html"] is None
+    assert any(
+        "Returning empty professional_html for rxcui=" in message
+        for message in caplog.messages
+    )
+
+
+class _ResolverResponse:
+    def __init__(self, *, status_code: int, payload: dict):
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class _ResolverClient:
+    def __init__(self, responses: list[_ResolverResponse]):
+        self.responses = responses
+        self.calls: list[dict] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, _url, params=None):
+        self.calls.append(params or {})
+        return self.responses.pop(0)
+
+
+def test_resolve_setid_from_dailymed_returns_first_setid():
+    fake_client = _ResolverClient([
+        _ResolverResponse(status_code=200, payload={"data": [{"setid": "abc-123"}]}),
+    ])
+
+    with patch("services.medication_guide.httpx.AsyncClient", return_value=fake_client):
+        result = asyncio.run(resolve_setid_from_dailymed(ndc="54868-4735-0"))
+
+    assert result == "abc-123"
+    # Resolver normalizes to DailyMed's NDC11 query shape (5-4-2).
+    assert fake_client.calls[0]["ndc"] == "54868-4735-00"
+
+
+def test_resolve_setid_from_dailymed_returns_none_for_empty_data():
+    fake_client = _ResolverClient([
+        _ResolverResponse(status_code=200, payload={"data": []}),
+    ])
+
+    with patch("services.medication_guide.httpx.AsyncClient", return_value=fake_client):
+        result = asyncio.run(resolve_setid_from_dailymed(ndc="54868-4735-0"))
+
+    assert result is None
+
+
+def test_resolve_setid_from_dailymed_returns_none_on_http_error():
+    fake_client = _ResolverClient([
+        _ResolverResponse(status_code=500, payload={"error": "upstream"}),
+    ])
+
+    with patch("services.medication_guide.httpx.AsyncClient", return_value=fake_client):
+        result = asyncio.run(resolve_setid_from_dailymed(ndc="54868-4735-0"))
+
+    assert result is None
 
 
 def test_guide_route_forwards_include_medguide_flag():
