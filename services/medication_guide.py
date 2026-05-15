@@ -260,6 +260,26 @@ def _is_stale(fetched_at: Any) -> bool:
     return dt < threshold
 
 
+def _is_identifier_mismatch(
+    cached: dict[str, Any],
+    *,
+    incoming_ndc: Optional[str] = None,
+    incoming_spl_set_id: Optional[str] = None,
+) -> bool:
+    """Return True when incoming identifiers differ from cached ones, forcing a re-fetch.
+
+    This catches cases where a pill's NDC or SPL Set ID was updated after the
+    guide row was first cached, which would otherwise serve stale data indefinitely.
+    """
+    if incoming_ndc and cached.get("ndc"):
+        if incoming_ndc.replace("-", "") != str(cached["ndc"]).replace("-", ""):
+            return True
+    if incoming_spl_set_id and cached.get("spl_set_id"):
+        if incoming_spl_set_id.strip() != str(cached["spl_set_id"]).strip():
+            return True
+    return False
+
+
 def _row_as_dict(keys: list[str], row: Any) -> dict[str, Any]:
     return dict(zip(keys, row))
 
@@ -534,7 +554,24 @@ async def build_guide(
 
     with database.db_engine.connect() as conn:
         cached = _select_cached_row(conn, rxcui=rxcui, ndc=normalized_ndc)
-        if cached and not force_refresh and not _is_stale(cached.get("fetched_at")):
+        if (
+            cached
+            and not force_refresh
+            and not _is_stale(cached.get("fetched_at"))
+            and _is_identifier_mismatch(cached, incoming_ndc=normalized_ndc)
+        ):
+            logger.warning(
+                "Medication guide NDC mismatch for rxcui=%s: cached ndc=%s incoming ndc=%s — forcing re-fetch",
+                rxcui,
+                cached.get("ndc"),
+                normalized_ndc,
+            )
+        if (
+            cached
+            and not force_refresh
+            and not _is_stale(cached.get("fetched_at"))
+            and not _is_identifier_mismatch(cached, incoming_ndc=normalized_ndc)
+        ):
             logger.debug("Medication guide cache hit for rxcui=%s ndc=%s", rxcui, normalized_ndc)
             if (
                 include_professional
@@ -707,17 +744,16 @@ async def build_guide(
                     exc_info=True,
                 )
 
-        if include_professional:
-            try:
-                professional = await fetch_professional_rendered(resolved_spl_set_id)
-                if professional:
-                    mapped["professional_html"] = professional.article_html
-                    mapped["professional_meta"] = _build_professional_meta(professional)
-            except Exception:
-                logger.exception(
-                    "include_professional fetch failed for spl_set_id=%s",
-                    resolved_spl_set_id,
-                )
+        try:
+            professional = await fetch_professional_rendered(resolved_spl_set_id)
+            if professional:
+                mapped["professional_html"] = professional.article_html
+                mapped["professional_meta"] = _build_professional_meta(professional)
+        except Exception:
+            logger.exception(
+                "professional fetch failed for spl_set_id=%s",
+                resolved_spl_set_id,
+            )
 
         if include_medguide:
             mapped["medguide_html"] = await fetch_medguide_html(resolved_spl_set_id)
@@ -786,7 +822,24 @@ async def _build_guide_by_spl_set_id(
     with database.db_engine.connect() as conn:
         cached = _select_cached_row_by_spl_set_id(conn, spl_set_id)
 
-    if cached and not force_refresh and not _is_stale(cached.get("fetched_at")):
+    if (
+        cached
+        and not force_refresh
+        and not _is_stale(cached.get("fetched_at"))
+        and _is_identifier_mismatch(cached, incoming_spl_set_id=spl_set_id)
+    ):
+        logger.warning(
+            "Medication guide SPL set ID mismatch: cached spl_set_id=%s incoming spl_set_id=%s — forcing re-fetch",
+            cached.get("spl_set_id"),
+            spl_set_id,
+        )
+
+    if (
+        cached
+        and not force_refresh
+        and not _is_stale(cached.get("fetched_at"))
+        and not _is_identifier_mismatch(cached, incoming_spl_set_id=spl_set_id)
+    ):
         logger.debug("Medication guide cache hit for spl_set_id=%s", spl_set_id)
         # Lazy-fill missing HTML fields if spl_set_id is already known
         if include_professional and cached.get("spl_set_id") and (
@@ -936,16 +989,13 @@ async def _build_guide_by_spl_set_id(
                 exc_info=True,
             )
 
-    if include_professional:
-        try:
-            professional = await fetch_professional_rendered(spl_set_id)
-            if professional:
-                mapped["professional_html"] = professional.article_html
-                mapped["professional_meta"] = _build_professional_meta(professional)
-        except Exception:
-            logger.exception(
-                "include_professional fetch failed for spl_set_id=%s", spl_set_id
-            )
+    try:
+        professional = await fetch_professional_rendered(spl_set_id)
+        if professional:
+            mapped["professional_html"] = professional.article_html
+            mapped["professional_meta"] = _build_professional_meta(professional)
+    except Exception:
+        logger.exception("professional fetch failed for spl_set_id=%s", spl_set_id)
 
     if include_medguide:
         mapped["medguide_html"] = await fetch_medguide_html(spl_set_id)
