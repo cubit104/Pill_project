@@ -680,7 +680,7 @@ export default function PillDetailClient({
                   <strong>DailyMed SPL</strong>
                   {' — '}
                   <a
-                    href={`https://dailymed.nlm.nih.gov/dailymed/search.cfm?query=${encodeURIComponent(pill.ndc ?? pill.spl_set_id)}`}
+                    href={`https://dailymed.nlm.nih.gov/dailymed/search.cfm?query=${encodeURIComponent(pill.ndc as string)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sky-700 hover:underline"
