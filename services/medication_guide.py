@@ -262,6 +262,65 @@ def _is_stale(fetched_at: Any) -> bool:
     return dt < threshold
 
 
+def _nonempty_identifier(value: Any) -> Optional[str]:
+    """Return a stripped identifier, or None when empty."""
+    if value is None:
+        return None
+    text_value = str(value).strip()
+    return text_value or None
+
+
+def _format_cache_age(fetched_at: Any) -> str:
+    """Return a compact age string for cache-hit logging."""
+    if not isinstance(fetched_at, datetime):
+        return "unknown"
+    dt = fetched_at if fetched_at.tzinfo else fetched_at.replace(tzinfo=timezone.utc)
+    delta = max(datetime.now(timezone.utc) - dt, timedelta(0))
+    total_seconds = int(delta.total_seconds())
+    days, rem = divmod(total_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if days:
+        return f"{days}d{hours}h"
+    if hours:
+        return f"{hours}h{minutes}m"
+    if minutes:
+        return f"{minutes}m{seconds}s"
+    return f"{seconds}s"
+
+
+def _log_cache_hit(cached: dict[str, Any]) -> None:
+    logger.info(
+        "medication_guide cache HIT for spl_set_id=%s ndc=%s rxcui=%s (age=%s)",
+        cached.get("spl_set_id"),
+        cached.get("ndc"),
+        cached.get("rxcui"),
+        _format_cache_age(cached.get("fetched_at")),
+    )
+
+
+def _preserve_and_fill_identifiers(
+    mapped: dict[str, Any],
+    *,
+    existing: Optional[dict[str, Any]] = None,
+    ndc: Optional[str] = None,
+    rxcui: Optional[str] = None,
+) -> None:
+    """Preserve existing identifiers and fill any missing values from inputs."""
+    existing_ndc = _nonempty_identifier((existing or {}).get("ndc"))
+    if existing_ndc:
+        mapped["ndc"] = existing_ndc
+    elif not _nonempty_identifier(mapped.get("ndc")) and ndc:
+        normalized_ndc = normalize_ndc_to_11(ndc)
+        mapped["ndc"] = normalized_ndc or _nonempty_identifier(ndc)
+
+    existing_rxcui = _nonempty_identifier((existing or {}).get("rxcui"))
+    if existing_rxcui:
+        mapped["rxcui"] = existing_rxcui
+    elif not _nonempty_identifier(mapped.get("rxcui")) and rxcui:
+        mapped["rxcui"] = _nonempty_identifier(rxcui)
+
+
 def _is_identifier_mismatch(
     cached: dict[str, Any],
     *,
@@ -773,6 +832,7 @@ async def build_guide(
                 include_medguide=include_medguide,
                 include_boxed_warning=include_boxed_warning,
             )
+            _log_cache_hit(cached)
             _log_empty_professional_html_warning(
                 include_professional=include_professional,
                 response=response,
@@ -837,6 +897,7 @@ async def build_guide(
         raise GuideNotFoundError("No FDA label found for this drug")
 
     mapped = _map_openfda_record(label_record, requested_rxcui=rxcui)
+    _preserve_and_fill_identifiers(mapped, existing=cached, ndc=normalized_ndc, rxcui=rxcui)
 
     # Attempt to fetch structured HTML from DailyMed SPL XML.
     # Use spl_set_id from openFDA response first; fall back to the cached DB value
@@ -913,11 +974,13 @@ async def build_guide(
             mapped.update(_build_medication_summary_payload(mapped))
 
     existing_id = int(cached["id"]) if cached and cached.get("id") is not None else None
+    existing = cached if existing_id is not None else None
 
     if existing_id is None:
         with database.db_engine.connect() as conn:
             existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
         existing_id = int(existing["id"]) if existing and existing.get("id") is not None else None
+    _preserve_and_fill_identifiers(mapped, existing=existing, ndc=normalized_ndc, rxcui=rxcui)
 
     if existing_id is not None:
         with database.db_engine.begin() as write_conn:
@@ -942,6 +1005,7 @@ async def build_guide(
     except IntegrityError as exc:
         with database.db_engine.connect() as conn:
             existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
+        _preserve_and_fill_identifiers(mapped, existing=existing, ndc=normalized_ndc, rxcui=rxcui)
         if not existing or existing.get("id") is None:
             raise GuideInternalError(
                 "Integrity conflict detected but no existing medication_guide row could be resolved"
@@ -1091,6 +1155,7 @@ async def _build_guide_by_spl_set_id(
                     "medication_summary lazy-fill failed for spl_set_id=%s",
                     cached.get("spl_set_id"),
                 )
+        _log_cache_hit(cached)
         return _row_to_response(
             cached,
             include_professional=include_professional,
@@ -1105,17 +1170,18 @@ async def _build_guide_by_spl_set_id(
     )
 
     # Start from any cached metadata so rxcui/ndc/names are preserved on re-hydration.
-    # Explicitly passed ndc/rxcui take precedence over whatever is already cached.
+    # Explicit identifiers only fill blanks; existing non-empty cache values win.
     encoded_set_id = quote(spl_set_id, safe="")
     mapped: dict[str, Any] = {
         "spl_set_id": spl_set_id,
         "source_url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}",
-        "rxcui": rxcui or (cached or {}).get("rxcui"),
-        "ndc": ndc or (cached or {}).get("ndc"),
+        "rxcui": (cached or {}).get("rxcui"),
+        "ndc": (cached or {}).get("ndc"),
         "generic_name": (cached or {}).get("generic_name"),
         "brand_name": (cached or {}).get("brand_name"),
         "has_boxed_warning": (cached or {}).get("has_boxed_warning") or False,
     }
+    _preserve_and_fill_identifiers(mapped, existing=cached, ndc=ndc, rxcui=rxcui)
 
     # Fetch structured HTML sections from DailyMed SPL XML
     spl_sections: dict = {}
@@ -1193,6 +1259,7 @@ async def _build_guide_by_spl_set_id(
         raise GuideNotFoundError(f"No DailyMed content found for spl_set_id={spl_set_id}")
 
     existing_id = int(cached["id"]) if cached and cached.get("id") is not None else None
+    existing = cached if existing_id is not None else None
 
     if existing_id is None:
         # Try to find by spl_set_id again (race-condition guard) or rxcui/ndc
@@ -1201,6 +1268,7 @@ async def _build_guide_by_spl_set_id(
             if existing is None and (mapped.get("rxcui") or mapped.get("ndc")):
                 existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
         existing_id = int(existing["id"]) if existing and existing.get("id") is not None else None
+    _preserve_and_fill_identifiers(mapped, existing=existing, ndc=ndc, rxcui=rxcui)
 
     if existing_id is not None:
         with database.db_engine.begin() as write_conn:
@@ -1220,6 +1288,7 @@ async def _build_guide_by_spl_set_id(
             existing = _select_cached_row_by_spl_set_id(conn, spl_set_id)
             if existing is None and (mapped.get("rxcui") or mapped.get("ndc")):
                 existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
+        _preserve_and_fill_identifiers(mapped, existing=existing, ndc=ndc, rxcui=rxcui)
         if not existing or existing.get("id") is None:
             raise GuideInternalError(
                 "Integrity conflict detected but no existing medication_guide row could be resolved"
