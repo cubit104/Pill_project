@@ -990,6 +990,7 @@ def test_resolve_setid_from_dailymed_returns_first_setid():
         result = asyncio.run(resolve_setid_from_dailymed(ndc="54868-4735-0"))
 
     assert result == "abc-123"
+    # Resolver normalizes to DailyMed's NDC11 query shape (5-4-2).
     assert fake_client.calls[0]["ndc"] == "54868-4735-00"
 
 

@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 from sqlalchemy import text
@@ -455,6 +455,12 @@ async def resolve_setid_from_dailymed(
     ndc: Optional[str] = None,
     rxcui: Optional[str] = None,
 ) -> Optional[str]:
+    """Resolve a DailyMed SPL setid by identifiers, preferring NDC over RxCUI.
+
+    The resolver first normalizes and queries by NDC, then falls back to RxCUI
+    if no setid is found. Returns ``None`` for missing identifiers, empty data,
+    HTTP errors, or malformed responses.
+    """
     normalized_ndc = normalize_ndc_to_11(ndc) if ndc else None
     if normalized_ndc:
         setid = await _resolve_setid_from_dailymed_lookup(
@@ -822,7 +828,9 @@ async def build_guide(
         # Ensure the resolved spl_set_id is stored in the mapped payload too
         if not mapped.get("spl_set_id"):
             mapped["spl_set_id"] = resolved_spl_set_id
-        if "setid=" not in str(mapped.get("source_url") or ""):
+        parsed_source_url = urlparse(str(mapped.get("source_url") or ""))
+        source_query = parse_qs(parsed_source_url.query or "")
+        if not source_query.get("setid"):
             encoded_set_id = quote(resolved_spl_set_id, safe="")
             mapped["source_url"] = (
                 f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}"
