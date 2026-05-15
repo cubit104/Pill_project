@@ -430,9 +430,8 @@ export default function PillDetailClient({
           </dl>
         </div>
 
-        {/* Official Medication Guide card: show when has_medguide is true, or when the flag
-            is absent/undefined (legacy API response that pre-dates the summary feature). */}
-        {resolvedSlug && pill.has_medguide !== false && (
+        {/* Official Medication Guide card: only when an official guide exists. */}
+        {resolvedSlug && pill.has_medguide === true && (
           <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mt-6">
             <h2 className="text-xl font-semibold text-slate-900 mb-2">
               Medication Information
@@ -445,14 +444,13 @@ export default function PillDetailClient({
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
             >
               Read Medication Guide
-              <span aria-hidden>→</span>
+              <span aria-hidden="true">→</span>
             </Link>
           </section>
         )}
 
-        {/* Fallback summary card: only shown when the backend explicitly signals there is
-            no official Medication Guide but a generated summary is available. */}
-        {resolvedSlug && pill.has_medguide === false && pill.has_medication_summary === true && (
+        {/* Fallback summary card when no official guide exists but a summary is available. */}
+        {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary === true && (
           <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mt-6">
             <h2 className="text-xl font-semibold text-slate-900 mb-2">
               Medication Summary
@@ -465,7 +463,26 @@ export default function PillDetailClient({
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
             >
               Read Medication Summary
-              <span aria-hidden>→</span>
+              <span aria-hidden="true">→</span>
+            </Link>
+          </section>
+        )}
+
+        {/* Generic fallback when neither official guide nor summary flags are available. */}
+        {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary !== true && (
+          <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mt-6">
+            <h2 className="text-xl font-semibold text-slate-900 mb-2">
+              Medication Information
+            </h2>
+            <p className="text-slate-600 mb-4">
+              Read prescribing information and professional label data sourced from FDA/DailyMed.
+            </p>
+            <Link
+              href={`/pill/${resolvedSlug}/medication-guide`}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
+            >
+              Read Medication Information
+              <span aria-hidden="true">→</span>
             </Link>
           </section>
         )}
