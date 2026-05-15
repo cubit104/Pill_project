@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import text
@@ -828,13 +828,10 @@ async def build_guide(
         # Ensure the resolved spl_set_id is stored in the mapped payload too
         if not mapped.get("spl_set_id"):
             mapped["spl_set_id"] = resolved_spl_set_id
-        parsed_source_url = urlparse(str(mapped.get("source_url") or ""))
-        source_query = parse_qs(parsed_source_url.query or "")
-        if not source_query.get("setid"):
-            encoded_set_id = quote(resolved_spl_set_id, safe="")
-            mapped["source_url"] = (
-                f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}"
-            )
+        encoded_set_id = quote(resolved_spl_set_id, safe="")
+        mapped["source_url"] = (
+            f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}"
+        )
 
         # Try to fetch fully structured HTML for all sections from DailyMed SPL XML.
         # On success, overlay the openFDA plain-text fields with HTML.
