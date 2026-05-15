@@ -1746,5 +1746,6 @@ def test_build_guide_persists_ndc_and_rxcui_when_resolver_hit():
 
     assert cache["row"] is not None
     assert cache["row"]["spl_set_id"] == "test-setid"
+    # NDC is stored in normalized 11-digit form (54868-4735-0 → 54868-4735-00)
     assert cache["row"]["ndc"] == "54868-4735-00"
     assert cache["row"]["rxcui"] == "861689"
