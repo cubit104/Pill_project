@@ -444,7 +444,7 @@ export default function PillDetailClient({
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
             >
               Read Medication Guide
-              <span aria-hidden>→</span>
+              <span aria-hidden="true">→</span>
             </Link>
           </section>
         )}
@@ -463,7 +463,7 @@ export default function PillDetailClient({
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
             >
               Read Medication Summary
-              <span aria-hidden>→</span>
+              <span aria-hidden="true">→</span>
             </Link>
           </section>
         )}
@@ -482,7 +482,7 @@ export default function PillDetailClient({
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
             >
               Read Medication Information
-              <span aria-hidden>→</span>
+              <span aria-hidden="true">→</span>
             </Link>
           </section>
         )}
