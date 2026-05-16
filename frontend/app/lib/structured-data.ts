@@ -227,9 +227,13 @@ export function guidePageSchema(opts: {
   if (ndc?.trim()) identifier.push({ '@type': 'PropertyValue', name: 'NDC', value: ndc.trim() })
   if (splSetId?.trim()) identifier.push({ '@type': 'PropertyValue', name: 'SPL Set ID', value: splSetId.trim() })
 
-  const about: Record<string, unknown> = { '@type': 'Drug', name: drugName }
-  if (genericName?.trim()) about['nonProprietaryName'] = genericName.trim()
-  if (brandName?.trim()) about['alternateName'] = brandName.trim()
+  const about: Record<string, unknown> = { '@type': 'MedicalEntity', name: drugName }
+  // MedicalEntity does not support `nonProprietaryName`; map generic and brand names to `alternateName`.
+  const alternateNames: string[] = []
+  if (genericName?.trim()) alternateNames.push(genericName.trim())
+  if (brandName?.trim() && brandName.trim() !== genericName?.trim()) alternateNames.push(brandName.trim())
+  if (alternateNames.length === 1) about['alternateName'] = alternateNames[0]
+  else if (alternateNames.length > 1) about['alternateName'] = alternateNames
   if (identifier.length > 0) about['identifier'] = identifier
 
   return stripUndefined({
