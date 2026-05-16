@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from urllib.parse import quote
 
+import httpx
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -23,6 +24,7 @@ from services.spl_professional import ProfessionalRendered, fetch_professional_r
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_DAYS = 30
+DAILYMED_SPLS_LOOKUP_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls.json"
 DISCLAIMER = (
     "This information is for educational purposes only and is not medical advice. "
     "Always consult a healthcare professional before taking any medication. "
@@ -260,6 +262,65 @@ def _is_stale(fetched_at: Any) -> bool:
     return dt < threshold
 
 
+def _nonempty_identifier(value: Any) -> Optional[str]:
+    """Return a stripped identifier, or None when empty."""
+    if value is None:
+        return None
+    text_value = str(value).strip()
+    return text_value or None
+
+
+def _format_cache_age(fetched_at: Any) -> str:
+    """Return a compact age string for cache-hit logging."""
+    if not isinstance(fetched_at, datetime):
+        return "unknown"
+    dt = fetched_at if fetched_at.tzinfo else fetched_at.replace(tzinfo=timezone.utc)
+    delta = max(datetime.now(timezone.utc) - dt, timedelta(0))
+    total_seconds = int(delta.total_seconds())
+    days, rem = divmod(total_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if days:
+        return f"{days}d{hours}h"
+    if hours:
+        return f"{hours}h{minutes}m"
+    if minutes:
+        return f"{minutes}m{seconds}s"
+    return f"{seconds}s"
+
+
+def _log_cache_hit(cached: dict[str, Any]) -> None:
+    logger.info(
+        "medication_guide cache HIT for spl_set_id=%s ndc=%s rxcui=%s (age=%s)",
+        cached.get("spl_set_id"),
+        cached.get("ndc"),
+        cached.get("rxcui"),
+        _format_cache_age(cached.get("fetched_at")),
+    )
+
+
+def _preserve_and_fill_identifiers(
+    mapped: dict[str, Any],
+    *,
+    existing: Optional[dict[str, Any]] = None,
+    ndc: Optional[str] = None,
+    rxcui: Optional[str] = None,
+) -> None:
+    """Preserve existing identifiers and fill any missing values from inputs."""
+    existing_ndc = _nonempty_identifier((existing or {}).get("ndc"))
+    if existing_ndc:
+        mapped["ndc"] = existing_ndc
+    elif not _nonempty_identifier(mapped.get("ndc")) and ndc:
+        normalized_ndc = normalize_ndc_to_11(ndc)
+        mapped["ndc"] = normalized_ndc or _nonempty_identifier(ndc)
+
+    existing_rxcui = _nonempty_identifier((existing or {}).get("rxcui"))
+    if existing_rxcui:
+        mapped["rxcui"] = existing_rxcui
+    elif not _nonempty_identifier(mapped.get("rxcui")) and rxcui:
+        mapped["rxcui"] = _nonempty_identifier(rxcui)
+
+
 def _is_identifier_mismatch(
     cached: dict[str, Any],
     *,
@@ -403,6 +464,97 @@ def _payload_with_timestamps(payload: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+async def _resolve_setid_from_dailymed_lookup(*, query_key: str, query_value: str) -> Optional[str]:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                DAILYMED_SPLS_LOOKUP_URL,
+                params={query_key: query_value},
+            )
+    except Exception:
+        logger.warning(
+            "DailyMed setid lookup request failed for %s=%s",
+            query_key,
+            query_value,
+            exc_info=True,
+        )
+        return None
+
+    if response.status_code >= 400:
+        logger.warning(
+            "DailyMed setid lookup HTTP %s for %s=%s",
+            response.status_code,
+            query_key,
+            query_value,
+        )
+        return None
+
+    try:
+        payload = response.json()
+    except Exception:
+        logger.warning(
+            "DailyMed setid lookup returned invalid JSON for %s=%s",
+            query_key,
+            query_value,
+            exc_info=True,
+        )
+        return None
+
+    items = payload.get("data")
+    if not isinstance(items, list) or not items:
+        return None
+    first = items[0]
+    if not isinstance(first, dict):
+        return None
+    return _first_str(first.get("setid"))
+
+
+async def resolve_setid_from_dailymed(
+    *,
+    ndc: Optional[str] = None,
+    rxcui: Optional[str] = None,
+) -> Optional[str]:
+    """Resolve a DailyMed SPL setid by identifiers, preferring NDC over RxCUI.
+
+    The resolver first normalizes and queries by NDC, then falls back to RxCUI
+    if no setid is found. Returns ``None`` for missing identifiers, empty data,
+    HTTP errors, or malformed responses.
+    """
+    normalized_ndc = normalize_ndc_to_11(ndc) if ndc else None
+    if normalized_ndc:
+        setid = await _resolve_setid_from_dailymed_lookup(
+            query_key="ndc",
+            query_value=normalized_ndc,
+        )
+        if setid:
+            return setid
+
+    if rxcui:
+        setid = await _resolve_setid_from_dailymed_lookup(
+            query_key="rxcui",
+            query_value=str(rxcui),
+        )
+        if setid:
+            return setid
+
+    return None
+
+
+def _log_empty_professional_html_warning(
+    *,
+    include_professional: bool,
+    response: dict[str, Any],
+    rxcui: Optional[str],
+    ndc: Optional[str],
+) -> None:
+    if include_professional and not response.get("professional_html") and (rxcui or ndc):
+        logger.warning(
+            "Returning empty professional_html for rxcui=%s ndc=%s — setid resolution failed or DailyMed returned no professional section",
+            rxcui,
+            ndc,
+        )
+
+
 def _update_guide(conn, payload: dict[str, Any], *, existing_id: int) -> dict[str, Any]:
     """Update one medication_guide row and return it."""
     payload = dict(payload)
@@ -531,14 +683,24 @@ async def build_guide(
     """
     # When spl_set_id is provided, skip NDC validation and bypass openFDA entirely.
     if spl_set_id:
-        return await _build_guide_by_spl_set_id(
-            spl_set_id=spl_set_id,
-            force_refresh=force_refresh,
-            include_professional=include_professional,
-            include_medguide=include_medguide,
-            include_boxed_warning=include_boxed_warning,
-            dailymed_client=dailymed_client,
-        )
+        try:
+            return await _build_guide_by_spl_set_id(
+                spl_set_id=spl_set_id,
+                force_refresh=force_refresh,
+                include_professional=include_professional,
+                include_medguide=include_medguide,
+                include_boxed_warning=include_boxed_warning,
+                dailymed_client=dailymed_client,
+            )
+        except GuideNotFoundError:
+            if not rxcui and not ndc:
+                raise
+            logger.warning(
+                "DailyMed content missing for spl_set_id=%s; retrying with identifier-based lookup (rxcui=%s ndc=%s)",
+                spl_set_id,
+                rxcui,
+                ndc,
+            )
 
     if not rxcui and not ndc:
         raise GuideNotFoundError("No FDA label found for this drug")
@@ -664,12 +826,58 @@ async def build_guide(
                         "medication_summary lazy-fill failed for spl_set_id=%s",
                         cached.get("spl_set_id"),
                     )
-            return _row_to_response(
+            response = _row_to_response(
                 cached,
                 include_professional=include_professional,
                 include_medguide=include_medguide,
                 include_boxed_warning=include_boxed_warning,
             )
+            _log_cache_hit(cached)
+            _log_empty_professional_html_warning(
+                include_professional=include_professional,
+                response=response,
+                rxcui=rxcui,
+                ndc=normalized_ndc,
+            )
+            return response
+
+    # If we have NDC or RxCUI but no setid, try DailyMed first.
+    # DailyMed is the authoritative SPL source — openFDA is supplementary.
+    if not spl_set_id and (normalized_ndc or rxcui):
+        try:
+            resolved_setid = await resolve_setid_from_dailymed(
+                ndc=normalized_ndc,
+                rxcui=rxcui,
+            )
+        except Exception:
+            logger.exception(
+                "DailyMed setid resolution failed for ndc=%s rxcui=%s",
+                normalized_ndc, rxcui,
+            )
+            resolved_setid = None
+
+        if resolved_setid:
+            logger.info(
+                "Resolved spl_set_id=%s from DailyMed for ndc=%s rxcui=%s (pre-openFDA)",
+                resolved_setid, normalized_ndc, rxcui,
+            )
+            try:
+                return await _build_guide_by_spl_set_id(
+                    spl_set_id=resolved_setid,
+                    ndc=normalized_ndc,
+                    rxcui=rxcui,
+                    force_refresh=force_refresh,
+                    include_professional=include_professional,
+                    include_medguide=include_medguide,
+                    include_boxed_warning=include_boxed_warning,
+                    dailymed_client=dailymed_client,
+                )
+            except GuideNotFoundError:
+                logger.warning(
+                    "Resolved setid=%s had no DailyMed content; falling through to openFDA path",
+                    resolved_setid,
+                )
+                # fall through to existing openFDA logic
 
     logger.info(
         "Medication guide fetch from openFDA (cache %s) for rxcui=%s ndc=%s",
@@ -689,6 +897,7 @@ async def build_guide(
         raise GuideNotFoundError("No FDA label found for this drug")
 
     mapped = _map_openfda_record(label_record, requested_rxcui=rxcui)
+    _preserve_and_fill_identifiers(mapped, existing=cached, ndc=normalized_ndc, rxcui=rxcui)
 
     # Attempt to fetch structured HTML from DailyMed SPL XML.
     # Use spl_set_id from openFDA response first; fall back to the cached DB value
@@ -698,10 +907,10 @@ async def build_guide(
         # Ensure the resolved spl_set_id is stored in the mapped payload too
         if not mapped.get("spl_set_id"):
             mapped["spl_set_id"] = resolved_spl_set_id
-            encoded_set_id = quote(resolved_spl_set_id, safe="")
-            mapped["source_url"] = (
-                f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}"
-            )
+        encoded_set_id = quote(resolved_spl_set_id, safe="")
+        mapped["source_url"] = (
+            f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}"
+        )
 
         # Try to fetch fully structured HTML for all sections from DailyMed SPL XML.
         # On success, overlay the openFDA plain-text fields with HTML.
@@ -765,21 +974,30 @@ async def build_guide(
             mapped.update(_build_medication_summary_payload(mapped))
 
     existing_id = int(cached["id"]) if cached and cached.get("id") is not None else None
+    existing = cached if existing_id is not None else None
 
     if existing_id is None:
         with database.db_engine.connect() as conn:
             existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
         existing_id = int(existing["id"]) if existing and existing.get("id") is not None else None
+    _preserve_and_fill_identifiers(mapped, existing=existing, ndc=normalized_ndc, rxcui=rxcui)
 
     if existing_id is not None:
         with database.db_engine.begin() as write_conn:
             row = _update_guide(write_conn, mapped, existing_id=existing_id)
-        return _row_to_response(
+        response = _row_to_response(
             row,
             include_professional=include_professional,
             include_medguide=include_medguide,
             include_boxed_warning=include_boxed_warning,
         )
+        _log_empty_professional_html_warning(
+            include_professional=include_professional,
+            response=response,
+            rxcui=rxcui,
+            ndc=normalized_ndc,
+        )
+        return response
 
     try:
         with database.db_engine.begin() as write_conn:
@@ -787,6 +1005,7 @@ async def build_guide(
     except IntegrityError as exc:
         with database.db_engine.connect() as conn:
             existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
+        _preserve_and_fill_identifiers(mapped, existing=existing, ndc=normalized_ndc, rxcui=rxcui)
         if not existing or existing.get("id") is None:
             raise GuideInternalError(
                 "Integrity conflict detected but no existing medication_guide row could be resolved"
@@ -794,17 +1013,26 @@ async def build_guide(
         with database.db_engine.begin() as write_conn:
             row = _update_guide(write_conn, mapped, existing_id=int(existing["id"]))
 
-    return _row_to_response(
+    response = _row_to_response(
         row,
         include_professional=include_professional,
         include_medguide=include_medguide,
         include_boxed_warning=include_boxed_warning,
     )
+    _log_empty_professional_html_warning(
+        include_professional=include_professional,
+        response=response,
+        rxcui=rxcui,
+        ndc=normalized_ndc,
+    )
+    return response
 
 
 async def _build_guide_by_spl_set_id(
     *,
     spl_set_id: str,
+    ndc: Optional[str] = None,
+    rxcui: Optional[str] = None,
     force_refresh: bool = False,
     include_professional: bool = False,
     include_medguide: bool = False,
@@ -813,8 +1041,9 @@ async def _build_guide_by_spl_set_id(
 ) -> dict[str, Any]:
     """Hydrate a medication guide directly from DailyMed using a known SPL Set ID.
 
-    Does not require rxcui or ndc; does not validate NDC.  Preserves any
-    existing rxcui/ndc/generic_name/brand_name metadata already in the cache.
+    Does not validate NDC.  Explicit ndc/rxcui values are persisted to the
+    cache row so future lookups by those identifiers hit cache directly.
+    Falls back to any rxcui/ndc already stored in the cached row.
     """
     if not database.db_engine and not database.connect_to_database():
         raise GuideInternalError("Database connection not available")
@@ -926,6 +1155,7 @@ async def _build_guide_by_spl_set_id(
                     "medication_summary lazy-fill failed for spl_set_id=%s",
                     cached.get("spl_set_id"),
                 )
+        _log_cache_hit(cached)
         return _row_to_response(
             cached,
             include_professional=include_professional,
@@ -939,18 +1169,19 @@ async def _build_guide_by_spl_set_id(
         spl_set_id,
     )
 
-    # Start from any cached metadata so rxcui/ndc/names are preserved on re-hydration
+    # Start from any cached metadata so rxcui/ndc/names are preserved on re-hydration.
+    # Explicit identifiers only fill blanks; existing non-empty cache values win.
     encoded_set_id = quote(spl_set_id, safe="")
     mapped: dict[str, Any] = {
         "spl_set_id": spl_set_id,
         "source_url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={encoded_set_id}",
-        # Preserve existing identifiers and names from cache where available
         "rxcui": (cached or {}).get("rxcui"),
         "ndc": (cached or {}).get("ndc"),
         "generic_name": (cached or {}).get("generic_name"),
         "brand_name": (cached or {}).get("brand_name"),
         "has_boxed_warning": (cached or {}).get("has_boxed_warning") or False,
     }
+    _preserve_and_fill_identifiers(mapped, existing=cached, ndc=ndc, rxcui=rxcui)
 
     # Fetch structured HTML sections from DailyMed SPL XML
     spl_sections: dict = {}
@@ -1009,9 +1240,26 @@ async def _build_guide_by_spl_set_id(
     # If sections and HTML are all None, this guide essentially has no content — treat as not found
     section_values = [mapped.get(key) for key in SECTION_MAPPING]
     if not any(section_values) and not mapped.get("professional_html") and not mapped.get("medguide_html"):
+        if mapped.get("rxcui") or mapped.get("ndc"):
+            logger.warning(
+                "No DailyMed content for spl_set_id=%s; retrying with build_guide(rxcui=%s, ndc=%s)",
+                spl_set_id,
+                mapped.get("rxcui"),
+                mapped.get("ndc"),
+            )
+            return await build_guide(
+                rxcui=mapped.get("rxcui"),
+                ndc=mapped.get("ndc"),
+                force_refresh=force_refresh,
+                include_professional=include_professional,
+                include_medguide=include_medguide,
+                include_boxed_warning=include_boxed_warning,
+                dailymed_client=dailymed_client,
+            )
         raise GuideNotFoundError(f"No DailyMed content found for spl_set_id={spl_set_id}")
 
     existing_id = int(cached["id"]) if cached and cached.get("id") is not None else None
+    existing = cached if existing_id is not None else None
 
     if existing_id is None:
         # Try to find by spl_set_id again (race-condition guard) or rxcui/ndc
@@ -1020,6 +1268,7 @@ async def _build_guide_by_spl_set_id(
             if existing is None and (mapped.get("rxcui") or mapped.get("ndc")):
                 existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
         existing_id = int(existing["id"]) if existing and existing.get("id") is not None else None
+    _preserve_and_fill_identifiers(mapped, existing=existing, ndc=ndc, rxcui=rxcui)
 
     if existing_id is not None:
         with database.db_engine.begin() as write_conn:
@@ -1039,6 +1288,7 @@ async def _build_guide_by_spl_set_id(
             existing = _select_cached_row_by_spl_set_id(conn, spl_set_id)
             if existing is None and (mapped.get("rxcui") or mapped.get("ndc")):
                 existing = _select_cached_row(conn, rxcui=mapped.get("rxcui"), ndc=mapped.get("ndc"))
+        _preserve_and_fill_identifiers(mapped, existing=existing, ndc=ndc, rxcui=rxcui)
         if not existing or existing.get("id") is None:
             raise GuideInternalError(
                 "Integrity conflict detected but no existing medication_guide row could be resolved"

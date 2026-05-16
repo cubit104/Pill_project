@@ -262,3 +262,201 @@ Both endpoints require a superuser JWT (`Authorization: Bearer <token>`).
 5. Once comfortable, schedule via cron or GitHub Actions without the FastAPI
    app needing to be up (the script connects to the DB directly via `DATABASE_URL`).
 
+---
+
+## Medication Guide Identifier Backfill
+
+The `medication_guide` table stores rendered guide content. Some older rows may
+already have `spl_set_id` and HTML populated but still be missing `ndc` and/or
+`rxcui`. That causes identifier lookups to miss and forces unnecessary
+re-fetches. This backfill fills only NULL/blank `medication_guide.ndc` and
+`medication_guide.rxcui` values from the matching `pillfinder` row.
+
+Resolution priority:
+
+1. `spl_set_id`
+2. `rxcui`
+3. `ndc11`
+
+Existing non-NULL identifiers are **never overwritten**.
+
+### Running the backfill
+
+**Always dry-run first:**
+
+```bash
+python scripts/backfill_medication_guide_identifiers.py --dry-run --limit 10
+```
+
+Each candidate row prints a JSON line showing what would change:
+
+```json
+{"medication_guide_id": 123, "old_ndc": null, "new_ndc": "54868-4735-00", "old_rxcui": "861689", "new_rxcui": "861689", "match_source": "spl_set_id", "outcome": "dry_run", "notes": "fill ndc from pillfinder.ndc11"}
+```
+
+**Live run in batches:**
+
+```bash
+python scripts/backfill_medication_guide_identifiers.py --limit 200
+python scripts/backfill_medication_guide_identifiers.py --limit 200 --offset 200
+```
+
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dry-run` | false | Log only, no DB writes |
+| `--limit N` | 10 | Process at most N rows |
+| `--offset N` | 0 | Skip first N rows (for resuming) |
+| `--sleep-ms N` | 250 | Delay between processed rows (ms) |
+
+### Audit log query
+
+Each processed live row writes one record to `medication_guide_identifier_backfill_log`:
+
+```sql
+SELECT medication_guide_id, old_ndc, new_ndc, old_rxcui, new_rxcui,
+       match_source, outcome, notes, created_at
+FROM medication_guide_identifier_backfill_log
+ORDER BY created_at DESC;
+```
+
+### Rollback
+
+Rollback is manual and limited to rows recorded in the audit log:
+
+```sql
+UPDATE medication_guide mg
+SET ndc = log.old_ndc,
+    rxcui = log.old_rxcui
+FROM medication_guide_identifier_backfill_log log
+WHERE log.medication_guide_id = mg.id
+  AND log.outcome = 'updated'
+  AND log.created_at >= NOW() - INTERVAL '1 day';
+```
+
+---
+
+## Clinical Metadata Backfill
+
+### Overview
+
+The clinical metadata backfill populates NULL/empty clinical fields on `pillfinder` rows
+using authoritative public APIs:
+
+- **Primary source** — openFDA drug labels (`https://api.fda.gov/drug/label.json`)
+- **Secondary source** — DailyMed SPL XML (for `active_ingredients` via `<activeMoiety>` elements)
+
+**Strict NULL-only rule:** existing non-NULL values are **never** overwritten. Re-running on
+already-populated rows is safe (idempotent).
+
+### Target fields
+
+| Field | Source | Normalization |
+|---|---|---|
+| `dosage_form` | `openfda.dosage_form[0]` | Title-case ("Tablet") |
+| `route` | `openfda.route[0]` | Title-case ("Oral") |
+| `rx_otc_status` | `openfda.product_type[0]` | `"HUMAN PRESCRIPTION DRUG"` → `"Rx"`, `"HUMAN OTC DRUG"` → `"OTC"` |
+| `dea_schedule` | `openfda.dea_schedule[0]` | Pass-through (`CI`–`CV`) |
+| `fda_pharma_class` | `openfda.pharm_class_epc[0]` | Pass-through string |
+| `brand_names` | `openfda.brand_name[0]` | Title-case |
+| `active_ingredients` | DailyMed SPL `<activeMoiety>` → fallback `openfda.substance_name` | Comma-separated |
+| `inactive_ingredients` | openFDA `inactive_ingredient[0]` | Strip leading "Inactive ingredients:" prefix; collapse whitespace |
+
+### CLI usage
+
+```bash
+# Preview first 10 rows (no writes)
+python scripts/backfill_clinical_metadata.py --dry-run --limit 10
+
+# Live run — fill 100 rows
+python scripts/backfill_clinical_metadata.py --limit 100 --sleep-ms 300
+
+# Only update specific fields
+python scripts/backfill_clinical_metadata.py --only-fields dosage_form,route --limit 500
+
+# Use NDC only (skip RxCUI lookup)
+python scripts/backfill_clinical_metadata.py --match ndc --limit 50
+```
+
+**All flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--dry-run` | False | Preview only; write nothing |
+| `--limit N` | 10 | Max rows to process |
+| `--offset N` | 0 | Skip first N rows (for resuming) |
+| `--sleep-ms N` | 250 | Delay between API calls (ms) |
+| `--only-fields FIELDS` | all | Comma-separated field names to restrict |
+| `--match rxcui\|ndc\|auto` | auto | openFDA lookup strategy |
+
+### Sample dry-run output
+
+```json
+{"pill_id": "uuid-...", "medicine_name": "Atorvastatin", "outcome": "dry_run", "changes": {"dosage_form": {"old": null, "new": "Tablet"}, "route": {"old": null, "new": "Oral"}, "rx_otc_status": {"old": null, "new": "Rx"}}, "match_source": "openfda_rxcui"}
+{"pill_id": "uuid-...", "medicine_name": "Ibuprofen", "outcome": "dry_run", "changes": {"rx_otc_status": {"old": null, "new": "OTC"}, "brand_names": {"old": null, "new": "Advil"}}, "match_source": "openfda_rxcui"}
+{"processed": 10, "updated": 8, "skipped_no_match": 1, "skipped_already_populated": 1, "errors": 0, "dry_run": true}
+```
+
+### Admin API endpoints
+
+Both require a superuser JWT.
+
+```
+GET  /api/admin/backfill/clinical/preview
+     ?limit=10&offset=0&match=auto&sleep_ms=250&only_fields=dosage_form,route
+
+POST /api/admin/backfill/clinical/run
+     ?limit=50&offset=0&match=auto&sleep_ms=250
+```
+
+### Audit log
+
+Each processed live row writes one record to `clinical_metadata_backfill_log`:
+
+```sql
+SELECT pill_id, medicine_name, rxcui, ndc11, changes, match_source, outcome, notes, created_at
+FROM clinical_metadata_backfill_log
+ORDER BY created_at DESC;
+```
+
+The `changes` column is JSONB with `{"field": {"old": null, "new": "value"}, ...}` format.
+
+```sql
+-- Inspect what was changed for a specific pill
+SELECT pill_id, changes, match_source, outcome, created_at
+FROM clinical_metadata_backfill_log
+WHERE pill_id = '<your-pill-uuid>'
+ORDER BY created_at DESC;
+```
+
+### Rollback
+
+Use the `changes` JSONB to reverse a run's writes:
+
+```sql
+-- Rollback all updates from the last 24 hours
+DO $$
+DECLARE
+    rec RECORD;
+    col TEXT;
+    old_val TEXT;
+BEGIN
+    FOR rec IN
+        SELECT pill_id, changes
+        FROM clinical_metadata_backfill_log
+        WHERE outcome = 'updated'
+          AND created_at >= NOW() - INTERVAL '1 day'
+    LOOP
+        FOR col, old_val IN
+            SELECT key, value->>'old'
+            FROM jsonb_each(rec.changes)
+        LOOP
+            EXECUTE format(
+                'UPDATE pillfinder SET %I = $1, updated_at = now() WHERE id = $2',
+                col
+            ) USING old_val, rec.pill_id;
+        END LOOP;
+    END LOOP;
+END $$;
+```
