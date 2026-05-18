@@ -90,6 +90,43 @@ def test_get_price_returns_404_when_missing(client):
     assert resp.status_code == 404
 
 
+def test_get_price_sets_cache_headers_and_second_hit_is_fast(client):
+    miss_payload = {
+        "ndc": "00002140102",
+        "price_per_unit": 0.5,
+        "unit": "EA",
+        "effective_date": "2026-05-14",
+        "source": "NADAC (CMS)",
+        "as_of_week": "2026-05-14",
+        "days_supply": 30,
+        "units_per_day": 1.0,
+        "total_acquisition_cost": 15.0,
+        "fair_retail_low": 22.5,
+        "fair_retail_high": 45.0,
+        "cache_status": "miss",
+        "cache_duration_ms": 4.2,
+        "fetch_duration_ms": 532.1,
+        "disclaimers": ["a", "b", "c"],
+    }
+    hit_payload = {
+        **miss_payload,
+        "cache_status": "hit",
+        "cache_duration_ms": 1.2,
+        "fetch_duration_ms": 0.0,
+    }
+
+    with patch("routes.prices.pricing_service.get_price", new=AsyncMock(side_effect=[miss_payload, hit_payload])):
+        first = client.get("/api/prices/00002-1401-02")
+        second = client.get("/api/prices/00002-1401-02")
+
+    assert first.status_code == 200
+    assert first.headers["X-Price-Cache"] == "miss"
+    assert "cache;dur=4.20" in first.headers["Server-Timing"]
+    assert second.status_code == 200
+    assert second.headers["X-Price-Cache"] == "hit"
+    assert "fetch;dur=0.00" in second.headers["Server-Timing"]
+
+
 def test_get_alternatives_success(client):
     payload = {
         "ingredient": "LISINOPRIL",

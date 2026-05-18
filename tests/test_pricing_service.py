@@ -431,13 +431,16 @@ def test_get_price_cache_hit_skips_upstream_fetch():
         "fetched_at": datetime.now(timezone.utc),
     }
 
-    with patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
+    with patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})) as mock_metadata, \
          patch.object(svc, "_get_cached_price", return_value=cached), \
          patch.object(svc, "_cache_fresh", return_value=True), \
          patch.object(svc, "_fetch_nadac_latest_for_ndc", new=AsyncMock()) as mock_fetch:
         result = asyncio.run(svc.get_price("00002-1401-02"))
 
     assert result["price_per_unit"] == 0.25
+    assert result["cache_status"] == "hit"
+    assert result["fetch_duration_ms"] == 0.0
+    mock_metadata.assert_not_called()
     mock_fetch.assert_not_called()
 
 
@@ -476,6 +479,7 @@ def test_get_price_cache_miss_when_stale_refreshes():
         result = asyncio.run(svc.get_price("00002-1401-02"))
 
     assert result["price_per_unit"] == 0.6
+    assert result["cache_status"] == "stale"
     mock_fetch.assert_called_once()
 
 
