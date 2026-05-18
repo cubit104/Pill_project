@@ -17,7 +17,7 @@ const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
 
-async function fetchPill(slug: string): Promise<PillDetail | null> {
+export async function fetchPill(slug: string): Promise<PillDetail | null> {
   const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, {
     next: { revalidate: 900 }, // 15 minutes
   })

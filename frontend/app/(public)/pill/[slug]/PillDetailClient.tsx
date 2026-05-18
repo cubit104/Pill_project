@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
@@ -8,7 +8,7 @@ import type { Reviewer } from '../../../lib/reviewers'
 import { classSlugify, slugifyDrugName } from '../../../lib/slug'
 import { slugifyUrl } from '../../../lib/url-utils'
 import DrugIndicationSection from './DrugIndicationSection'
-import PriceCard from './pricing/PriceCard'
+import PriceSummaryCard from './pricing/PriceSummaryCard'
 
 function PillIconLarge() {
   return (
@@ -71,6 +71,47 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
         <p className="pb-3 text-sm text-slate-700 leading-relaxed">{answer}</p>
       )}
     </div>
+  )
+}
+
+function MedicationInfoWithPrice({
+  testId,
+  title,
+  description,
+  ctaHref,
+  ctaLabel,
+  priceSummary,
+}: {
+  testId: string
+  title: string
+  description: string
+  ctaHref: string
+  ctaLabel: string
+  priceSummary: ReactNode
+}) {
+  return (
+    <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mt-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-5 md:items-start" data-testid={testId}>
+        <div className="md:col-span-3">
+          <h2 className="text-xl font-semibold text-slate-900 mb-2">
+            {title}
+          </h2>
+          <p className="text-slate-600 mb-4">
+            {description}
+          </p>
+          <Link
+            href={ctaHref}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
+          >
+            {ctaLabel}
+            <span aria-hidden="true">→</span>
+          </Link>
+        </div>
+        <div className="md:col-span-2">
+          {priceSummary}
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -351,10 +392,6 @@ export default function PillDetailClient({
           </section>
         )}
 
-        {(pill.ndc || pill.rxcui || pill.drug_name) && (
-          <PriceCard ndc={pill.ndc} rxcui={pill.rxcui} medicineName={pill.drug_name} />
-        )}
-
         {/* Drug Indication */}
         {pill.indication && (
           <DrugIndicationSection
@@ -437,59 +474,59 @@ export default function PillDetailClient({
 
         {/* Official Medication Guide card: only when an official guide exists. */}
         {resolvedSlug && pill.has_medguide === true && (
-          <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mt-6">
-            <h2 className="text-xl font-semibold text-slate-900 mb-2">
-              Medication Information
-            </h2>
-            <p className="text-slate-600 mb-4">
-              Read the official FDA Medication Guide — written for patients, sourced from DailyMed.
-            </p>
-            <Link
-              href={`/pill/${resolvedSlug}/medication-guide`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
-            >
-              Read Medication Guide
-              <span aria-hidden="true">→</span>
-            </Link>
-          </section>
+          <MedicationInfoWithPrice
+            testId="medication-info-grid-guide"
+            title="Medication Information"
+            description="Read the official FDA Medication Guide — written for patients, sourced from DailyMed."
+            ctaHref={`/pill/${resolvedSlug}/medication-guide`}
+            ctaLabel="Read Medication Guide"
+            priceSummary={(
+              <PriceSummaryCard
+                slug={resolvedSlug}
+                ndc={pill.ndc}
+                rxcui={pill.rxcui}
+                medicineName={pill.drug_name}
+              />
+            )}
+          />
         )}
 
         {/* Fallback summary card when no official guide exists but a summary is available. */}
         {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary === true && (
-          <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mt-6">
-            <h2 className="text-xl font-semibold text-slate-900 mb-2">
-              Medication Summary
-            </h2>
-            <p className="text-slate-600 mb-4">
-              No separate FDA Medication Guide was found for this label. Read a patient-friendly summary based on FDA/DailyMed prescribing information.
-            </p>
-            <Link
-              href={`/pill/${resolvedSlug}/medication-summary`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
-            >
-              Read Medication Summary
-              <span aria-hidden="true">→</span>
-            </Link>
-          </section>
+          <MedicationInfoWithPrice
+            testId="medication-info-grid-summary"
+            title="Medication Summary"
+            description="No separate FDA Medication Guide was found for this label. Read a patient-friendly summary based on FDA/DailyMed prescribing information."
+            ctaHref={`/pill/${resolvedSlug}/medication-summary`}
+            ctaLabel="Read Medication Summary"
+            priceSummary={(
+              <PriceSummaryCard
+                slug={resolvedSlug}
+                ndc={pill.ndc}
+                rxcui={pill.rxcui}
+                medicineName={pill.drug_name}
+              />
+            )}
+          />
         )}
 
         {/* Generic fallback when neither official guide nor summary flags are available. */}
         {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary !== true && (
-          <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mt-6">
-            <h2 className="text-xl font-semibold text-slate-900 mb-2">
-              Medication Information
-            </h2>
-            <p className="text-slate-600 mb-4">
-              Read prescribing information and professional label data sourced from FDA/DailyMed.
-            </p>
-            <Link
-              href={`/pill/${resolvedSlug}/medication-guide`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
-            >
-              Read Medication Information
-              <span aria-hidden="true">→</span>
-            </Link>
-          </section>
+          <MedicationInfoWithPrice
+            testId="medication-info-grid-fallback"
+            title="Medication Information"
+            description="Read prescribing information and professional label data sourced from FDA/DailyMed."
+            ctaHref={`/pill/${resolvedSlug}/medication-guide`}
+            ctaLabel="Read Medication Information"
+            priceSummary={(
+              <PriceSummaryCard
+                slug={resolvedSlug}
+                ndc={pill.ndc}
+                rxcui={pill.rxcui}
+                medicineName={pill.drug_name}
+              />
+            )}
+          />
         )}
 
         {/* Similar-looking Pills (Confusion Risk) */}
