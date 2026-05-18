@@ -48,3 +48,23 @@ Every response and UI card includes disclaimers:
 3. This is not medical advice. Always consult your pharmacist.
 
 These estimates are informational benchmarks, not guaranteed patient pricing.
+
+## Troubleshooting
+
+Start with `GET /api/prices/health`. This endpoint always returns a JSON status report and is the fastest way to isolate whether pricing failures are from database dependencies or upstream APIs.
+
+Checks returned:
+
+- `database`: runs `SELECT 1`. If this fails, verify `DATABASE_URL`, network access, and database availability.
+- `drug_prices_table`: runs `SELECT count(*) FROM drug_prices`. If `detail` says relation missing, apply pricing migrations.
+- `drug_price_history_table`: runs `SELECT count(*) FROM drug_price_history`. If missing, apply pricing migrations.
+- `nadac_catalog`: verifies NADAC catalog metadata lookup (`dataset_id`, `as_of_week`). If failing, confirm outbound access to `data.medicaid.gov`.
+- `rxnav`: verifies RxNav availability via `https://rxnav.nlm.nih.gov/REST/version.json`.
+
+`overall` status semantics:
+
+- `ok`: database + tables + external APIs are healthy.
+- `degraded`: database + tables are healthy, but NADAC or RxNav is failing.
+- `down`: database or required pricing tables are failing.
+
+If NADAC catalog lookup fails intermittently, set `NADAC_FALLBACK_DATASET_ID` to a known-good NADAC dataset UUID so pricing can continue while catalog metadata is unavailable.

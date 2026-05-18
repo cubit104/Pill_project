@@ -1,7 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+import logging
 
+import httpx
+from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import text
+
+import database
 from ndc_normalize import normalize_ndc_to_11
 from services.pricing_service import (
     DEFAULT_DISCLAIMERS,
@@ -10,6 +15,7 @@ from services.pricing_service import (
     pricing_service,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -18,6 +24,91 @@ def _normalize_or_400(ndc: str) -> str:
     if not normalized:
         raise HTTPException(status_code=400, detail="Invalid NDC format. Use a valid 10/11-digit NDC.")
     return normalized
+
+
+@router.get("/api/prices/health")
+async def get_pricing_health():
+    checks: dict[str, dict] = {
+        "database": {"ok": False, "detail": "not checked"},
+        "drug_prices_table": {"ok": False, "row_count": 0, "detail": "not checked"},
+        "drug_price_history_table": {"ok": False, "row_count": 0, "detail": "not checked"},
+        "nadac_catalog": {"ok": False, "dataset_id": None, "as_of_week": None, "detail": "not checked"},
+        "rxnav": {"ok": False, "detail": "not checked"},
+    }
+
+    def _error_detail(exc: Exception) -> str:
+        return f"{type(exc).__name__}: {exc}"
+
+    def _relation_missing(exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return "relation" in msg and "does not exist" in msg
+
+    db_available = False
+    try:
+        if not database.db_engine and not database.connect_to_database():
+            raise RuntimeError("Database connection not available")
+        with database.db_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_available = True
+        checks["database"] = {"ok": True, "detail": "ok"}
+    except Exception as exc:
+        checks["database"] = {"ok": False, "detail": _error_detail(exc)}
+
+    for table_name, key in (
+        ("drug_prices", "drug_prices_table"),
+        ("drug_price_history", "drug_price_history_table"),
+    ):
+        if not db_available:
+            checks[key] = {"ok": False, "row_count": 0, "detail": "database unavailable"}
+            continue
+        try:
+            with database.db_engine.connect() as conn:
+                row_count = int(conn.execute(text(f"SELECT count(*) FROM {table_name}")).scalar() or 0)
+            checks[key] = {"ok": True, "row_count": row_count, "detail": "ok"}
+        except Exception as exc:
+            detail = "relation does not exist" if _relation_missing(exc) else _error_detail(exc)
+            checks[key] = {"ok": False, "row_count": 0, "detail": detail}
+
+    original_timeout = pricing_service.timeout
+    try:
+        pricing_service.timeout = httpx.Timeout(5.0, connect=5.0, read=5.0, write=5.0, pool=5.0)
+        metadata = await pricing_service._get_latest_dataset_metadata()
+        checks["nadac_catalog"] = {
+            "ok": True,
+            "dataset_id": metadata.get("dataset_id"),
+            "as_of_week": metadata.get("as_of_week"),
+            "detail": "ok",
+        }
+    except Exception as exc:
+        checks["nadac_catalog"] = {
+            "ok": False,
+            "dataset_id": None,
+            "as_of_week": None,
+            "detail": _error_detail(exc),
+        }
+    finally:
+        pricing_service.timeout = original_timeout
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get("https://rxnav.nlm.nih.gov/REST/version.json")
+        if response.status_code == 200:
+            checks["rxnav"] = {"ok": True, "detail": "ok"}
+        else:
+            checks["rxnav"] = {"ok": False, "detail": f"HTTP {response.status_code}"}
+    except Exception as exc:
+        checks["rxnav"] = {"ok": False, "detail": _error_detail(exc)}
+
+    db_and_tables_ok = all(
+        checks[key]["ok"] for key in ("database", "drug_prices_table", "drug_price_history_table")
+    )
+    upstream_ok = checks["nadac_catalog"]["ok"] and checks["rxnav"]["ok"]
+    overall = "ok" if db_and_tables_ok and upstream_ok else "degraded" if db_and_tables_ok else "down"
+
+    return {
+        "overall": overall,
+        "checks": checks,
+    }
 
 
 @router.get("/api/prices/{ndc}")
@@ -54,6 +145,9 @@ async def get_ndc_price(
         )
     except (PricingServiceError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Unhandled error in pricing endpoint ndc=%s", ndc)
+        raise HTTPException(status_code=503, detail=f"Pricing service error: {type(exc).__name__}: {exc}")
 
 
 @router.get("/api/prices/{ndc}/alternatives")
@@ -76,6 +170,9 @@ async def get_ndc_alternatives(ndc: str):
         )
     except (PricingServiceError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Unhandled error in pricing endpoint ndc=%s", ndc)
+        raise HTTPException(status_code=503, detail=f"Pricing service error: {type(exc).__name__}: {exc}")
 
 
 @router.get("/api/prices/{ndc}/history")
@@ -99,3 +196,6 @@ async def get_ndc_price_history(
         )
     except (PricingServiceError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Unhandled error in pricing endpoint ndc=%s", ndc)
+        raise HTTPException(status_code=503, detail=f"Pricing service error: {type(exc).__name__}: {exc}")
