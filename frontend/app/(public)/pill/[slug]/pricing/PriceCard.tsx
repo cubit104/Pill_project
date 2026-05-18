@@ -145,7 +145,7 @@ export default function PriceCard({
     return () => {
       cancelled = true
     }
-  }, [ndc, rxcui, medicineName, initialData, retryCount])
+  }, [ndc, rxcui, medicineName, initialData, retryCount, hasIdentifier])
 
   const ninetyDay = useMemo(() => {
     if (!price) return null

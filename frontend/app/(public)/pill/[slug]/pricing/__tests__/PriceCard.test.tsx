@@ -118,6 +118,10 @@ test('PriceCard returns null only when no identifiers are provided', () => {
 })
 
 test('PriceCard empty and error state strings are present in the component source', () => {
+  // Note: the empty/error states are only reachable client-side after useEffect completes.
+  // renderToStaticMarkup (used in this test file) does not run useEffect, so we cannot
+  // exercise those branches at runtime here. This smoke test verifies the message strings
+  // exist in the component so refactoring doesn't silently remove the UI.
   const src = readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'PriceCard.tsx'),
     'utf8'
