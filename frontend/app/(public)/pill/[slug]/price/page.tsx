@@ -37,13 +37,9 @@ export default async function PillPricePage(
   const strength = pill.strength?.trim() || ''
   const genericFor = pill.generic_for?.trim() || ''
   const brandOrGeneric = pill.brand_or_generic
-  const descriptor = brandOrGeneric === 'brand'
-    ? 'Brand'
-    : brandOrGeneric === 'generic'
-      ? 'Generic'
-      : genericFor
-        ? 'Generic'
-        : ''
+  let descriptor = ''
+  if (brandOrGeneric === 'brand') descriptor = 'Brand'
+  else if (brandOrGeneric === 'generic' || genericFor) descriptor = 'Generic'
   const detailsText = [
     descriptor ? (genericFor ? `${descriptor} for: ${genericFor}` : descriptor) : (genericFor ? `Generic for: ${genericFor}` : ''),
     pill.ndc ? `NDC: ${pill.ndc}` : '',

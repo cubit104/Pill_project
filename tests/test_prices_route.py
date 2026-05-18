@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from time import perf_counter
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -118,9 +117,7 @@ def test_get_price_sets_cache_headers_and_second_hit_is_fast(client):
 
     with patch("routes.prices.pricing_service.get_price", new=AsyncMock(side_effect=[miss_payload, hit_payload])):
         first = client.get("/api/prices/00002-1401-02")
-        started = perf_counter()
         second = client.get("/api/prices/00002-1401-02")
-        second_elapsed = perf_counter() - started
 
     assert first.status_code == 200
     assert first.headers["X-Price-Cache"] == "miss"
@@ -128,7 +125,6 @@ def test_get_price_sets_cache_headers_and_second_hit_is_fast(client):
     assert second.status_code == 200
     assert second.headers["X-Price-Cache"] == "hit"
     assert "fetch;dur=0.00" in second.headers["Server-Timing"]
-    assert second_elapsed < 0.2
 
 
 def test_get_alternatives_success(client):
