@@ -151,6 +151,94 @@ def test_get_price_unexpected_error_returns_503_with_exception_type(client):
     assert "RuntimeError: boom" in resp.json()["detail"]
 
 
+def test_get_price_by_rxcui_success(client):
+    payload = {
+        "ndc": "00378018101",
+        "price_per_unit": 0.25,
+        "unit": "EA",
+        "effective_date": "2026-05-14",
+        "source": "NADAC (CMS)",
+        "as_of_week": "2026-05-14",
+        "days_supply": 30,
+        "units_per_day": 1.0,
+        "total_acquisition_cost": 7.5,
+        "fair_retail_low": 11.25,
+        "fair_retail_high": 22.5,
+        "match_type": "equivalent",
+        "matched_ndc": "00378018101",
+        "source_rxcui": "6809",
+        "equivalent_count": 5,
+        "disclaimers": ["a", "b", "c"],
+    }
+
+    with patch("routes.prices.pricing_service.get_price_by_rxcui", new=AsyncMock(return_value=payload)):
+        resp = client.get("/api/prices/by-rxcui/6809")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["match_type"] == "equivalent"
+    assert data["source_rxcui"] == "6809"
+
+
+def test_get_price_by_rxcui_404(client):
+    with patch(
+        "routes.prices.pricing_service.get_price_by_rxcui",
+        new=AsyncMock(side_effect=PricingNotFoundError("not found")),
+    ):
+        resp = client.get("/api/prices/by-rxcui/6809")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "not found"
+
+
+def test_get_price_by_rxcui_400(client):
+    with patch(
+        "routes.prices.pricing_service.get_price_by_rxcui",
+        new=AsyncMock(side_effect=ValueError("Invalid RxCUI format")),
+    ):
+        resp = client.get("/api/prices/by-rxcui/invalid")
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Invalid RxCUI format"
+
+
+def test_get_price_by_name_success(client):
+    payload = {
+        "ndc": "00378018101",
+        "price_per_unit": 0.25,
+        "unit": "EA",
+        "effective_date": "2026-05-14",
+        "source": "NADAC (CMS)",
+        "as_of_week": "2026-05-14",
+        "days_supply": 30,
+        "units_per_day": 1.0,
+        "total_acquisition_cost": 7.5,
+        "fair_retail_low": 11.25,
+        "fair_retail_high": 22.5,
+        "match_type": "approximate",
+        "resolved_ingredient": "metformin",
+        "resolved_rxcui": "6809",
+        "disclaimers": ["a", "b", "c"],
+    }
+
+    with patch("routes.prices.pricing_service.get_price_by_name", new=AsyncMock(return_value=payload)) as mock_lookup:
+        resp = client.get("/api/prices/by-name/metformin%20hcl")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["match_type"] == "approximate"
+    assert data["resolved_ingredient"] == "metformin"
+    mock_lookup.assert_awaited_once_with("metformin hcl", days_supply=30, units_per_day=1.0)
+
+
+def test_get_price_by_name_404(client):
+    with patch(
+        "routes.prices.pricing_service.get_price_by_name",
+        new=AsyncMock(side_effect=PricingNotFoundError("name missing")),
+    ):
+        resp = client.get("/api/prices/by-name/metformin%20hcl")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "name missing"
+
+
 def test_prices_health_ok_shape(client):
     class _Result:
         def __init__(self, value):

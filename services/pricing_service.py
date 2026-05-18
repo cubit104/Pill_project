@@ -121,6 +121,11 @@ class NADACPricingService:
     def _truncate_text(value: str, *, limit: int = 500) -> str:
         return value[:limit] if len(value) > limit else value
 
+    @staticmethod
+    def _slugify_token(value: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+        return slug or "unknown"
+
     def _format_request_failure(self, method: str, url: str, exc: Exception | None) -> str:
         method = method.upper()
         if exc is None:
@@ -327,6 +332,7 @@ class NADACPricingService:
         dataset_id: str,
         *,
         conditions: list[dict[str, Any]] | None = None,
+        group_operator: str | None = None,
         sorts: list[dict[str, Any]] | None = None,
         limit: int | None = None,
         offset: int | None = None,
@@ -334,6 +340,8 @@ class NADACPricingService:
         body: dict[str, Any] = {}
         if conditions:
             body["conditions"] = conditions
+        if group_operator:
+            body["groupOperator"] = group_operator
         if sorts:
             body["sorts"] = sorts
         if limit is not None:
@@ -607,18 +615,13 @@ class NADACPricingService:
                     conditions=[
                         {
                             "resource": "t",
-                            "operator": "or",
-                            "conditions": [
-                                {
-                                    "resource": "t",
-                                    "property": ndc_column,
-                                    "operator": "=",
-                                    "value": ndc,
-                                }
-                                for ndc in chunk
-                            ],
+                            "property": ndc_column,
+                            "operator": "=",
+                            "value": ndc,
                         }
+                        for ndc in chunk
                     ],
+                    group_operator="or",
                     limit=len(chunk),
                 )
                 for row in self._rows_from_payload(payload):
@@ -718,16 +721,33 @@ class NADACPricingService:
                 raise PricingServiceError("drug_prices table missing — did the migration run?") from exc
             raise
 
-    def _upsert_price_cache(self, price: dict[str, Any]) -> None:
+    def _upsert_price_cache(
+        self,
+        price: dict[str, Any],
+        *,
+        cache_key: str | None = None,
+        include_history: bool = True,
+    ) -> None:
         self._ensure_db()
         raw_payload = price.get("raw_payload")
         if isinstance(raw_payload, dict):
             payload_json = dict(raw_payload)
         else:
             payload_json = {}
-        for field in ("match_type", "matched_ndc", "equivalent_count"):
+        for field in (
+            "match_type",
+            "matched_ndc",
+            "equivalent_count",
+            "source_rxcui",
+            "resolved_ingredient",
+            "resolved_rxcui",
+            "ndc",
+            "source",
+            "as_of_week",
+        ):
             if field in price:
                 payload_json[field] = price[field]
+        cache_ndc = cache_key or price["ndc"]
         with database.db_engine.begin() as conn:
             conn.execute(
                 text(
@@ -744,7 +764,7 @@ class NADACPricingService:
                     """
                 ),
                 {
-                    "ndc": price["ndc"],
+                    "ndc": cache_ndc,
                     "price_per_unit": price["price_per_unit"],
                     "unit": price["unit"],
                     "effective_date": price["effective_date"],
@@ -752,23 +772,24 @@ class NADACPricingService:
                     "raw_payload": json.dumps(payload_json),
                 },
             )
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO drug_price_history (ndc, effective_date, price_per_unit, unit)
-                    VALUES (:ndc, :effective_date, :price_per_unit, :unit)
-                    ON CONFLICT (ndc, effective_date) DO UPDATE
-                    SET price_per_unit = EXCLUDED.price_per_unit,
-                        unit = EXCLUDED.unit
-                    """
-                ),
-                {
-                    "ndc": price["ndc"],
-                    "effective_date": price["effective_date"],
-                    "price_per_unit": price["price_per_unit"],
-                    "unit": price["unit"],
-                },
-            )
+            if include_history:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO drug_price_history (ndc, effective_date, price_per_unit, unit)
+                        VALUES (:ndc, :effective_date, :price_per_unit, :unit)
+                        ON CONFLICT (ndc, effective_date) DO UPDATE
+                        SET price_per_unit = EXCLUDED.price_per_unit,
+                            unit = EXCLUDED.unit
+                        """
+                    ),
+                    {
+                        "ndc": price["ndc"],
+                        "effective_date": price["effective_date"],
+                        "price_per_unit": price["price_per_unit"],
+                        "unit": price["unit"],
+                    },
+                )
 
     @staticmethod
     def _equivalent_fields_from_raw_payload(raw_payload: Any) -> dict[str, Any]:
@@ -782,9 +803,41 @@ class NADACPricingService:
             return {}
 
         out: dict[str, Any] = {}
-        for key in ("match_type", "matched_ndc", "equivalent_count"):
+        for key in (
+            "match_type",
+            "matched_ndc",
+            "equivalent_count",
+            "source_rxcui",
+            "resolved_ingredient",
+            "resolved_rxcui",
+            "ndc",
+            "source",
+            "as_of_week",
+        ):
             if key in payload_obj:
                 out[key] = payload_obj[key]
+        return out
+
+    def _payload_from_cached_row(self, cached: dict[str, Any], latest_week: date | None) -> dict[str, Any]:
+        payload = self._equivalent_fields_from_raw_payload(cached.get("raw_payload"))
+        out = {
+            "ndc": payload.get("ndc") or cached["ndc"],
+            "price_per_unit": float(cached["price_per_unit"]),
+            "unit": cached["unit"],
+            "effective_date": str(cached["effective_date"]),
+            "source": payload.get("source") or NADAC_SOURCE,
+            "as_of_week": payload.get("as_of_week") or (latest_week.isoformat() if latest_week else None),
+        }
+        for key in (
+            "match_type",
+            "matched_ndc",
+            "equivalent_count",
+            "source_rxcui",
+            "resolved_ingredient",
+            "resolved_rxcui",
+        ):
+            if key in payload:
+                out[key] = payload[key]
         return out
 
     def _cache_fresh(self, cached: dict[str, Any], latest_week: date | None) -> bool:
@@ -836,15 +889,7 @@ class NADACPricingService:
 
         cached = self._get_cached_price(ndc_digits)
         if cached and self._cache_fresh(cached, latest_week):
-            payload = {
-                "ndc": cached["ndc"],
-                "price_per_unit": float(cached["price_per_unit"]),
-                "unit": cached["unit"],
-                "effective_date": str(cached["effective_date"]),
-                "source": NADAC_SOURCE,
-                "as_of_week": latest_week.isoformat() if latest_week else None,
-            }
-            payload.update(self._equivalent_fields_from_raw_payload(cached.get("raw_payload")))
+            payload = self._payload_from_cached_row(cached, latest_week)
             return self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
 
         try:
@@ -856,6 +901,130 @@ class NADACPricingService:
             latest = equivalent
         self._upsert_price_cache(latest)
         return self._add_totals(latest, days_supply=days_supply, units_per_day=units_per_day)
+
+    async def get_price_by_rxcui(
+        self,
+        rxcui: str,
+        *,
+        days_supply: int = 30,
+        units_per_day: float = 1.0,
+    ) -> dict[str, Any]:
+        rxcui_digits = re.sub(r"\D", "", (rxcui or "").strip())
+        if not rxcui_digits:
+            raise ValueError("Invalid RxCUI format")
+
+        metadata: dict[str, Any] | None = None
+        latest_week = None
+        try:
+            metadata = await self._get_latest_dataset_metadata()
+            latest_week = self._parse_date(metadata.get("as_of_week"))
+        except Exception:
+            logger.exception("Failed to resolve latest NADAC metadata for RxCUI lookup")
+
+        cache_key = f"rxcui:{rxcui_digits}"
+        cached = self._get_cached_price(cache_key)
+        if cached and self._cache_fresh(cached, latest_week):
+            payload = self._payload_from_cached_row(cached, latest_week)
+            return self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
+
+        siblings = await self._ndcs_for_rxcui(rxcui_digits)
+        if not siblings:
+            raise PricingNotFoundError(f"No NDCs found for RxCUI {rxcui_digits}")
+
+        if metadata is None:
+            metadata = await self._get_latest_dataset_metadata()
+        dataset_id = metadata["dataset_id"]
+        as_of_week = metadata.get("as_of_week")
+        column_map = await self._resolve_column_map(dataset_id)
+        rows_by_ndc = await self._bulk_query_nadac_for_ndcs(dataset_id, siblings, column_map)
+        if not rows_by_ndc:
+            raise PricingNotFoundError(f"No NADAC pricing found for any NDC of RxCUI {rxcui_digits}")
+
+        parsed_rows: list[dict[str, Any]] = []
+        for sibling_ndc, row in rows_by_ndc.items():
+            parsed = self._parse_nadac_row(
+                row,
+                ndc_digits=sibling_ndc,
+                as_of_week=as_of_week,
+                column_map=column_map,
+            )
+            if parsed:
+                parsed_rows.append(parsed)
+        if not parsed_rows:
+            raise PricingNotFoundError(f"No NADAC pricing found for any NDC of RxCUI {rxcui_digits}")
+
+        cheapest = min(parsed_rows, key=lambda row: row["price_per_unit"])
+        result = dict(cheapest)
+        result["match_type"] = "equivalent"
+        result["matched_ndc"] = cheapest["ndc"]
+        result["source_rxcui"] = rxcui_digits
+        result["equivalent_count"] = len(siblings)
+
+        cache_payload = dict(result)
+        cache_payload["raw_payload"] = dict(result)
+        self._upsert_price_cache(
+            cache_payload,
+            cache_key=cache_key,
+            include_history=False,
+        )
+        return self._add_totals(result, days_supply=days_supply, units_per_day=units_per_day)
+
+    async def get_price_by_name(
+        self,
+        name: str,
+        *,
+        days_supply: int = 30,
+        units_per_day: float = 1.0,
+    ) -> dict[str, Any]:
+        clean_name = (name or "").strip()
+        if not clean_name:
+            raise ValueError("Drug name is required")
+
+        metadata: dict[str, Any] | None = None
+        latest_week = None
+        try:
+            metadata = await self._get_latest_dataset_metadata()
+            latest_week = self._parse_date(metadata.get("as_of_week"))
+        except Exception:
+            logger.exception("Failed to resolve latest NADAC metadata for name lookup")
+
+        cache_key = f"name:{self._slugify_token(clean_name)}"
+        cached = self._get_cached_price(cache_key)
+        if cached and self._cache_fresh(cached, latest_week):
+            payload = self._payload_from_cached_row(cached, latest_week)
+            return self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
+
+        ingredient = await self._resolve_ingredient(clean_name)
+        if not ingredient:
+            raise PricingNotFoundError(f"Could not resolve RxCUI for drug name '{clean_name}'")
+
+        resolved = await self.get_price_by_rxcui(
+            ingredient["rxcui"],
+            days_supply=days_supply,
+            units_per_day=units_per_day,
+        )
+        result = dict(resolved)
+        result["match_type"] = "approximate"
+        result["resolved_ingredient"] = ingredient["name"]
+        result["resolved_rxcui"] = ingredient["rxcui"]
+
+        cache_payload = {
+            "ndc": result["ndc"],
+            "price_per_unit": result["price_per_unit"],
+            "unit": result["unit"],
+            "effective_date": result["effective_date"],
+            "source": result["source"],
+            "as_of_week": result.get("as_of_week"),
+            "match_type": result["match_type"],
+            "matched_ndc": result.get("matched_ndc"),
+            "source_rxcui": result.get("source_rxcui"),
+            "resolved_ingredient": result.get("resolved_ingredient"),
+            "resolved_rxcui": result.get("resolved_rxcui"),
+            "equivalent_count": result.get("equivalent_count"),
+        }
+        cache_payload["raw_payload"] = dict(cache_payload)
+        self._upsert_price_cache(cache_payload, cache_key=cache_key, include_history=False)
+        return result
 
     async def get_price_history(self, ndc: str, weeks: int = 52) -> list[dict[str, Any]]:
         ndc_digits = self._normalize_ndc_digits(ndc)

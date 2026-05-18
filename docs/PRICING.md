@@ -12,6 +12,19 @@ This is intentionally **not** a GoodRx clone:
 
 Reference: https://data.medicaid.gov/dataset?theme=Pharmacy
 
+## Resolution chain
+
+Pricing resolution now follows a 4-tier fallback chain:
+
+| Tier | Endpoint | Behavior |
+|---|---|---|
+| 1 | `GET /api/prices/{ndc}` | Exact NADAC match by requested NDC |
+| 2 | `GET /api/prices/{ndc}` | Equivalent-NDC fallback (same RxCUI family) when exact NDC is missing |
+| 3 | `GET /api/prices/by-rxcui/{rxcui}` | Resolve sibling NDCs from RxCUI, bulk-query NADAC, return cheapest |
+| 4 | `GET /api/prices/by-name/{name}` | Resolve name → ingredient RxCUI via RxNav, then use by-rxcui resolution |
+
+If all tiers fail, the frontend hides the Pharmacy Cost Benchmark card.
+
 ## What the feature returns
 
 For each NDC, API responses include:
@@ -23,11 +36,14 @@ For each NDC, API responses include:
 - `as_of_week`
 - computed totals and fair retail estimate for supply inputs
 
-When exact NADAC data exists for the requested NDC, the response shape is unchanged.
-When fallback pricing is used (see below), the response also includes:
+When exact NADAC data exists for the requested NDC, `match_type` is omitted (equivalent to `"exact"`).
+When fallback pricing is used, the response may include:
 
-- `match_type` (`equivalent`)
+- `match_type` (`equivalent` or `approximate`)
 - `matched_ndc` (the sibling NDC that had NADAC data)
+- `source_rxcui` (RxCUI used for sibling resolution)
+- `resolved_ingredient` (ingredient chosen from name-based lookup)
+- `resolved_rxcui` (ingredient RxCUI from name-based lookup)
 - `equivalent_count` (number of sibling NDCs considered)
 
 Fair retail estimate methodology (benchmark only):
@@ -59,9 +75,9 @@ Resolved columns are cached per distribution and used for:
 
 If discovery fails, the service falls back to the legacy hardcoded candidates and tolerates CMS `400 Column not found` responses by trying the next candidate.
 
-## Equivalent-NDC fallback
+## Equivalent and approximate fallback details
 
-If an exact NDC is not present in the weekly NADAC dataset, pricing now falls back to therapeutically equivalent sibling NDCs:
+If an exact NDC is not present in the weekly NADAC dataset, pricing falls back to therapeutically equivalent sibling NDCs:
 
 1. Resolve requested `NDC -> RxCUI`
 2. Resolve `RxCUI -> sibling NDCs` (same ingredient + strength + dose form)
@@ -69,7 +85,7 @@ If an exact NDC is not present in the weekly NADAC dataset, pricing now falls ba
 4. Parse valid rows and choose the lowest `price_per_unit`
 5. Return price under the original requested NDC with equivalent-match metadata (`match_type`, `matched_ndc`, `equivalent_count`)
 
-Equivalent matches are cached under the original requested NDC so repeat lookups are served from cache while preserving fallback metadata in cache payloads.
+For direct RxCUI and name lookups, synthetic cache keys are used (`rxcui:{rxcui}`, `name:{slug}`) and full fallback metadata is preserved in cache payloads.
 
 ## Legal / user-facing disclaimers
 
@@ -94,11 +110,27 @@ Checks returned:
   - Includes `columns` and `all_columns` so you can immediately see the resolved schema for the active distribution.
 - `rxnav`: verifies RxNav availability via `https://rxnav.nlm.nih.gov/REST/version.json`.
 
+Manual checks for each tier:
+
+- NDC: `GET /api/prices/00002-1401-02`
+- RxCUI: `GET /api/prices/by-rxcui/6809`
+- Name: `GET /api/prices/by-name/metformin`
+
 If `/api/prices/{ndc}` returns 404 for a known product:
 
 - verify RxNav returns an RxCUI for that NDC (`/REST/ndcstatus.json`)
 - verify RxNav returns sibling NDCs for that RxCUI (`/REST/rxcui/{rxcui}/ndcs.json`)
 - confirm sibling NDCs contain at least one weekly NADAC row
+
+If `/api/prices/by-rxcui/{rxcui}` returns 404:
+
+- verify the RxCUI exists and has NDC siblings in RxNav
+- verify at least one sibling NDC has a parseable NADAC row
+
+If `/api/prices/by-name/{name}` returns 404:
+
+- verify RxNav can resolve the input name to an ingredient RxCUI (`/REST/drugs.json?name=...`)
+- verify the resolved ingredient RxCUI can produce sibling NDC pricing through `/api/prices/by-rxcui/{rxcui}`
 
 `overall` status semantics:
 
