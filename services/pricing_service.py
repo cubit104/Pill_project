@@ -23,6 +23,12 @@ DEFAULT_DISCLAIMERS = [
     "Actual prices vary by pharmacy, insurance, and location.",
     "This is not medical advice. Always consult your pharmacist.",
 ]
+FAIR_RETAIL_LOW_MULTIPLIER = 1.5
+FAIR_RETAIL_HIGH_MULTIPLIER = 3.0
+NADAC_CONNECT_TIMEOUT = 10.0
+NADAC_RW_TIMEOUT = 30.0
+MAX_RELATED_RXCUIS = 40
+MAX_ALTERNATIVE_NDCS = 150
 
 
 class PricingNotFoundError(LookupError):
@@ -47,7 +53,12 @@ class NADACPricingService:
             "https://data.medicaid.gov/api/1/metastore/schemas/dataset/items",
         )
         self.rxnav_base_url = os.getenv("RXNAV_API_BASE_URL", "https://rxnav.nlm.nih.gov")
-        self.timeout = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=30.0)
+        self.timeout = httpx.Timeout(
+            connect=NADAC_CONNECT_TIMEOUT,
+            read=NADAC_RW_TIMEOUT,
+            write=NADAC_RW_TIMEOUT,
+            pool=NADAC_RW_TIMEOUT,
+        )
         self.cache_ttl = timedelta(days=7)
         self._metadata_cache: dict[str, Any] | None = None
         self._metadata_cached_at: datetime | None = None
@@ -338,8 +349,8 @@ class NADACPricingService:
         return {
             **price,
             "total_acquisition_cost": round(total, 2),
-            "fair_retail_low": round(total * 1.5, 2),
-            "fair_retail_high": round(total * 3.0, 2),
+            "fair_retail_low": round(total * FAIR_RETAIL_LOW_MULTIPLIER, 2),
+            "fair_retail_high": round(total * FAIR_RETAIL_HIGH_MULTIPLIER, 2),
             "days_supply": int(days_supply),
             "units_per_day": float(units_per_day),
             "disclaimers": DEFAULT_DISCLAIMERS,
@@ -573,37 +584,48 @@ class NADACPricingService:
             raise PricingNotFoundError("Could not resolve ingredient for alternatives lookup")
 
         related_rxcuis = await self._related_product_rxcuis(ingredient["rxcui"])
-        ndcs: list[str] = []
         ndc_meta: dict[str, dict[str, str]] = {}
-        for related in related_rxcuis[:40]:
-            rxcui = related["rxcui"]
-            ndc_list = await self._ndcs_for_rxcui(rxcui)
+        related_subset = related_rxcuis[:MAX_RELATED_RXCUIS]
+        ndc_lists = await asyncio.gather(
+            *(self._ndcs_for_rxcui(related["rxcui"]) for related in related_subset),
+            return_exceptions=True,
+        )
+
+        ndcs: list[str] = []
+        for related, ndc_list in zip(related_subset, ndc_lists):
+            if isinstance(ndc_list, Exception):
+                logger.debug("Skipping RxCUI=%s NDC lookup error: %s", related["rxcui"], ndc_list)
+                continue
             ndcs.extend(ndc_list)
             for ndc in ndc_list:
                 ndc_meta.setdefault(ndc, related)
-        ndcs = list(dict.fromkeys(ndcs))[:150]
+        ndcs = list(dict.fromkeys(ndcs))[:MAX_ALTERNATIVE_NDCS]
+
+        price_results = await asyncio.gather(*(self.get_price(ndc) for ndc in ndcs), return_exceptions=True)
 
         alternatives: list[dict[str, Any]] = []
-        for ndc in ndcs:
-            try:
-                item = await self.get_price(ndc)
-                meta = ndc_meta.get(ndc, {})
-                tty = str(meta.get("tty") or "")
-                alternatives.append(
-                    {
-                        "ndc": item["ndc"],
-                        "price_per_unit": item["price_per_unit"],
-                        "unit": item["unit"],
-                        "effective_date": item["effective_date"],
-                        "source": item["source"],
-                        "as_of_week": item.get("as_of_week"),
-                        "name": meta.get("name"),
-                        "tty": tty,
-                        "kind": "brand" if tty.startswith(("SB", "BP")) else "generic",
-                    }
-                )
-            except PricingNotFoundError:
+        for ndc, item in zip(ndcs, price_results):
+            if isinstance(item, PricingNotFoundError):
                 continue
+            if isinstance(item, Exception):
+                logger.debug("Skipping alternative price lookup for ndc=%s due to error: %s", ndc, item)
+                continue
+
+            meta = ndc_meta.get(ndc, {})
+            tty = str(meta.get("tty") or "")
+            alternatives.append(
+                {
+                    "ndc": item["ndc"],
+                    "price_per_unit": item["price_per_unit"],
+                    "unit": item["unit"],
+                    "effective_date": item["effective_date"],
+                    "source": item["source"],
+                    "as_of_week": item.get("as_of_week"),
+                    "name": meta.get("name"),
+                    "tty": tty,
+                    "kind": "brand" if tty.startswith(("SB", "BP")) else "generic",
+                }
+            )
 
         if not alternatives:
             raise PricingNotFoundError("No NADAC alternatives found for this ingredient")

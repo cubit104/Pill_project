@@ -59,11 +59,11 @@ async def get_ndc_price(
 @router.get("/api/prices/{ndc}/alternatives")
 async def get_ndc_alternatives(ndc: str):
     normalized = _normalize_or_400(ndc)
-    ndc_digits = normalized.replace("-", "")
+    lookup_token = normalized.replace("-", "")
     try:
-        result = await pricing_service.get_alternatives_by_ingredient(ndc_digits)
+        result = await pricing_service.get_alternatives_by_ingredient(lookup_token)
         return {
-            "ndc": ndc_digits,
+            "ndc": lookup_token,
             "ingredient": result["ingredient"],
             "ingredient_rxcui": result["ingredient_rxcui"],
             "alternatives": result["alternatives"],

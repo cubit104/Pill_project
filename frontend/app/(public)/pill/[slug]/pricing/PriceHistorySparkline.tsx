@@ -5,6 +5,9 @@ export interface PriceHistoryPoint {
   price_per_unit: number
 }
 
+const SPARKLINE_WIDTH = 420
+const SPARKLINE_HEIGHT = 90
+
 function toPoints(values: number[], width: number, height: number): string {
   if (values.length === 0) return ''
   const max = Math.max(...values)
@@ -23,12 +26,17 @@ function toPoints(values: number[], width: number, height: number): string {
 export default function PriceHistorySparkline({ history }: { history: PriceHistoryPoint[] }) {
   if (!history.length) return null
   const values = history.map((h) => h.price_per_unit)
-  const points = toPoints(values, 420, 90)
+  const points = toPoints(values, SPARKLINE_WIDTH, SPARKLINE_HEIGHT)
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6" aria-label="Price history">
       <h3 className="text-base font-semibold text-slate-900 mb-2">Price history (last {history.length} weeks)</h3>
-      <svg viewBox="0 0 420 90" className="w-full h-24" role="img" aria-label="NADAC weekly price history">
+      <svg
+        viewBox={`0 0 ${SPARKLINE_WIDTH} ${SPARKLINE_HEIGHT}`}
+        className="w-full h-24"
+        role="img"
+        aria-label="NADAC weekly price history"
+      >
         <polyline fill="none" stroke="currentColor" strokeWidth="2.5" className="text-sky-600" points={points} />
       </svg>
       <p className="text-xs text-slate-500 mt-2">

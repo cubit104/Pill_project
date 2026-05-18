@@ -59,11 +59,11 @@ async def _run(page_size: int, max_pages: int) -> dict[str, int]:
         if not rows:
             break
 
-        parsed_rows = [
-            p for p in (
-                _normalize_row(row, service, as_of_week) for row in rows
-            ) if p
-        ]
+        parsed_rows = []
+        for row in rows:
+            normalized = _normalize_row(row, service, as_of_week)
+            if normalized:
+                parsed_rows.append(normalized)
         if not parsed_rows:
             if len(rows) < page_size:
                 break
