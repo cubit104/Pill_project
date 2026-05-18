@@ -104,6 +104,7 @@ interface DrugIndicationSectionProps {
   drugName?: string
   imprint?: string
   conditionTags?: string[]
+  className?: string
 }
 
 /**
@@ -160,7 +161,7 @@ function buildLeadIn(drugName: string | undefined, imprint: string | undefined, 
   return <>This medication, <strong>{brand}</strong>, contains {generic}.</>
 }
 
-export default function DrugIndicationSection({ indication, drugName, imprint, conditionTags }: DrugIndicationSectionProps) {
+export default function DrugIndicationSection({ indication, drugName, imprint, conditionTags, className }: DrugIndicationSectionProps) {
   const [expanded, setExpanded] = useState(false)
   const needsToggle = indication.plain_text.length > COLLAPSE_THRESHOLD
   const displayText =
@@ -175,7 +176,7 @@ export default function DrugIndicationSection({ indication, drugName, imprint, c
   const leadIn = buildLeadIn(drugName, imprint, generic)
 
   return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+    <section className={`bg-white border border-slate-200 rounded-xl shadow-sm p-6 ${className ?? 'mb-6'}`}>
       <h2 className="text-base font-semibold text-slate-800 mb-3">What it&apos;s used for</h2>
       {leadIn && (
         <p className="text-sm text-slate-700 leading-relaxed mb-2">{leadIn}</p>
