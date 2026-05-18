@@ -139,8 +139,11 @@ class NADACPricingService:
             tokenized = re.sub(r"[^a-z0-9 ]+", " ", part).strip()
             if not tokenized:
                 continue
-            words = [word for word in tokenized.split() if word not in stop_words]
-            term = words[0] if words else tokenized.split()[0]
+            tokens = tokenized.split()
+            if not tokens:
+                continue
+            words = [word for word in tokens if word not in stop_words]
+            term = words[0] if words else tokens[0]
             if term and term not in terms:
                 terms.append(term)
         return terms
