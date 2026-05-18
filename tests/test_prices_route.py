@@ -12,6 +12,45 @@ os.environ.setdefault("ALLOWED_ORIGINS", "http://testserver")
 from services.pricing_service import PricingNotFoundError
 
 
+class _ScalarResult:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar(self):
+        return self._value
+
+
+class _PricingHealthConn:
+    def __init__(self, price_count: int, history_count: int):
+        self._price_count = price_count
+        self._history_count = history_count
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, statement):
+        query = str(statement)
+        if "SELECT 1" in query:
+            return _ScalarResult(1)
+        if "FROM drug_prices" in query:
+            return _ScalarResult(self._price_count)
+        if "FROM drug_price_history" in query:
+            return _ScalarResult(self._history_count)
+        raise AssertionError(f"Unexpected query: {query}")
+
+
+class _PricingHealthEngine:
+    def __init__(self, price_count: int, history_count: int):
+        self._price_count = price_count
+        self._history_count = history_count
+
+    def connect(self):
+        return _PricingHealthConn(self._price_count, self._history_count)
+
+
 @pytest.fixture(scope="module")
 def client():
     with patch("main.connect_to_database", return_value=True), \
@@ -122,41 +161,13 @@ def test_get_price_unexpected_error_returns_503_with_exception_type(client):
 
 
 def test_prices_health_ok_shape(client):
-    class _Result:
-        def __init__(self, value):
-            self._value = value
-
-        def scalar(self):
-            return self._value
-
-    class _Conn:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def execute(self, statement):
-            query = str(statement)
-            if "SELECT 1" in query:
-                return _Result(1)
-            if "FROM drug_prices" in query:
-                return _Result(0)
-            if "FROM drug_price_history" in query:
-                return _Result(0)
-            raise AssertionError(f"Unexpected query: {query}")
-
-    class _Engine:
-        def connect(self):
-            return _Conn()
-
     rxnav_response = httpx.Response(
         200,
         json={"version": "ok"},
         request=httpx.Request("GET", "https://rxnav.nlm.nih.gov/REST/version.json"),
     )
 
-    with patch("routes.prices.database.db_engine", _Engine()), \
+    with patch("routes.prices.database.db_engine", _PricingHealthEngine(0, 0)), \
          patch("routes.prices.pricing_service._get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds1", "as_of_week": "2026-05-14"})), \
          patch("routes.prices.httpx.AsyncClient.get", new=AsyncMock(return_value=rxnav_response)):
         resp = client.get("/api/prices/health")
@@ -177,35 +188,7 @@ def test_prices_health_ok_shape(client):
 
 
 def test_prices_health_degraded_when_external_checks_fail(client):
-    class _Result:
-        def __init__(self, value):
-            self._value = value
-
-        def scalar(self):
-            return self._value
-
-    class _Conn:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def execute(self, statement):
-            query = str(statement)
-            if "SELECT 1" in query:
-                return _Result(1)
-            if "FROM drug_prices" in query:
-                return _Result(4)
-            if "FROM drug_price_history" in query:
-                return _Result(8)
-            raise AssertionError(f"Unexpected query: {query}")
-
-    class _Engine:
-        def connect(self):
-            return _Conn()
-
-    with patch("routes.prices.database.db_engine", _Engine()), \
+    with patch("routes.prices.database.db_engine", _PricingHealthEngine(4, 8)), \
          patch("routes.prices.pricing_service._get_latest_dataset_metadata", new=AsyncMock(side_effect=RuntimeError("catalog down"))), \
          patch(
              "routes.prices.httpx.AsyncClient.get",

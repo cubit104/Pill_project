@@ -114,11 +114,17 @@ class NADACPricingService:
         except (InvalidOperation, TypeError, ValueError):
             return None
 
-    async def _request_json(self, url: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _request_json(
+        self,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        timeout: httpx.Timeout | None = None,
+    ) -> dict[str, Any]:
         last_exc: Exception | None = None
         for attempt in range(3):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with httpx.AsyncClient(timeout=timeout or self.timeout) as client:
                     response = await client.get(url, params=params)
                 response.raise_for_status()
                 return response.json()
@@ -173,7 +179,7 @@ class NADACPricingService:
                         return value
         return None
 
-    async def _get_latest_dataset_metadata(self) -> dict[str, Any]:
+    async def _get_latest_dataset_metadata(self, *, timeout: httpx.Timeout | None = None) -> dict[str, Any]:
         logger.info("Resolving NADAC dataset metadata")
         now = datetime.now(timezone.utc)
         if (
@@ -184,7 +190,7 @@ class NADACPricingService:
             return self._metadata_cache
 
         try:
-            payload = await self._request_json(self.nadac_catalog_url, params={"limit": 2000})
+            payload = await self._request_json(self.nadac_catalog_url, params={"limit": 2000}, timeout=timeout)
             items = payload.get("results") or payload.get("items") or payload.get("result") or payload
             if not isinstance(items, list):
                 raise PricingServiceError("Unexpected NADAC catalog response shape")
@@ -214,7 +220,7 @@ class NADACPricingService:
             candidates.sort(key=lambda row: row[0], reverse=True)
             _, item, dataset_id = candidates[0]
 
-            as_of_week = await self._fetch_latest_effective_date(dataset_id)
+            as_of_week = await self._fetch_latest_effective_date(dataset_id, timeout=timeout)
             metadata = {
                 "dataset_id": dataset_id,
                 "as_of_week": as_of_week.isoformat() if as_of_week else None,
@@ -239,7 +245,7 @@ class NADACPricingService:
     def _nadac_query_url(self, dataset_id: str) -> str:
         return f"{self.nadac_api_base_url.rstrip('/')}/datastore/query/{dataset_id}/0"
 
-    async def _fetch_latest_effective_date(self, dataset_id: str) -> date | None:
+    async def _fetch_latest_effective_date(self, dataset_id: str, *, timeout: httpx.Timeout | None = None) -> date | None:
         try:
             payload = await self._request_json(
                 self._nadac_query_url(dataset_id),
@@ -248,6 +254,7 @@ class NADACPricingService:
                     "sorts[0][order]": "desc",
                     "limit": 1,
                 },
+                timeout=timeout,
             )
             rows = payload.get("results") or payload.get("result") or []
             if not isinstance(rows, list) or not rows:

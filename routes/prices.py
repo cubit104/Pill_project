@@ -54,25 +54,26 @@ async def get_pricing_health():
     except Exception as exc:
         checks["database"] = {"ok": False, "detail": _error_detail(exc)}
 
-    for table_name, key in (
-        ("drug_prices", "drug_prices_table"),
-        ("drug_price_history", "drug_price_history_table"),
-    ):
+    table_checks = (
+        ("drug_prices_table", text("SELECT count(*) FROM drug_prices")),
+        ("drug_price_history_table", text("SELECT count(*) FROM drug_price_history")),
+    )
+    for key, query in table_checks:
         if not db_available:
             checks[key] = {"ok": False, "row_count": 0, "detail": "database unavailable"}
             continue
         try:
             with database.db_engine.connect() as conn:
-                row_count = int(conn.execute(text(f"SELECT count(*) FROM {table_name}")).scalar() or 0)
+                row_count = int(conn.execute(query).scalar() or 0)
             checks[key] = {"ok": True, "row_count": row_count, "detail": "ok"}
         except Exception as exc:
             detail = "relation does not exist" if _relation_missing(exc) else _error_detail(exc)
             checks[key] = {"ok": False, "row_count": 0, "detail": detail}
 
-    original_timeout = pricing_service.timeout
     try:
-        pricing_service.timeout = httpx.Timeout(5.0, connect=5.0, read=5.0, write=5.0, pool=5.0)
-        metadata = await pricing_service._get_latest_dataset_metadata()
+        metadata = await pricing_service._get_latest_dataset_metadata(
+            timeout=httpx.Timeout(5.0, connect=5.0, read=5.0, write=5.0, pool=5.0)
+        )
         checks["nadac_catalog"] = {
             "ok": True,
             "dataset_id": metadata.get("dataset_id"),
@@ -86,8 +87,6 @@ async def get_pricing_health():
             "as_of_week": None,
             "detail": _error_detail(exc),
         }
-    finally:
-        pricing_service.timeout = original_timeout
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
