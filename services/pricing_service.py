@@ -955,7 +955,6 @@ class NADACPricingService:
 
         cheapest = min(parsed_rows, key=lambda row: row["price_per_unit"])
         result = dict(cheapest)
-        result["ndc"] = cheapest["ndc"]
         result["match_type"] = "equivalent"
         result["matched_ndc"] = cheapest["ndc"]
         result["source_rxcui"] = rxcui_digits
