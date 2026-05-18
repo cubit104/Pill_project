@@ -32,7 +32,14 @@ async def get_pricing_health():
         "database": {"ok": False, "detail": "not checked"},
         "drug_prices_table": {"ok": False, "row_count": 0, "detail": "not checked"},
         "drug_price_history_table": {"ok": False, "row_count": 0, "detail": "not checked"},
-        "nadac_catalog": {"ok": False, "dataset_id": None, "as_of_week": None, "detail": "not checked"},
+        "nadac_catalog": {
+            "ok": False,
+            "dataset_id": None,
+            "as_of_week": None,
+            "columns": None,
+            "all_columns": None,
+            "detail": "not checked",
+        },
         "rxnav": {"ok": False, "detail": "not checked"},
     }
 
@@ -73,10 +80,27 @@ async def get_pricing_health():
     try:
         pricing_service.timeout = httpx.Timeout(5.0, connect=5.0, read=5.0, write=5.0, pool=5.0)
         metadata = await pricing_service._get_latest_dataset_metadata()
+        dataset_id = metadata.get("dataset_id")
+        column_map = {}
+        if dataset_id:
+            try:
+                column_map = await pricing_service._resolve_column_map(dataset_id)
+            except Exception:
+                logger.exception("NADAC column discovery failed for health endpoint dataset_id=%s", dataset_id)
+        discovered = bool(column_map.get("all_columns")) if column_map else False
         checks["nadac_catalog"] = {
             "ok": True,
-            "dataset_id": metadata.get("dataset_id"),
+            "dataset_id": dataset_id,
             "as_of_week": metadata.get("as_of_week"),
+            "columns": {
+                "ndc": column_map.get("ndc"),
+                "effective_date": column_map.get("effective_date"),
+                "price": column_map.get("price"),
+                "unit": column_map.get("unit"),
+            }
+            if discovered
+            else None,
+            "all_columns": column_map.get("all_columns") if discovered else None,
             "detail": "ok",
         }
     except Exception as exc:
@@ -84,6 +108,8 @@ async def get_pricing_health():
             "ok": False,
             "dataset_id": None,
             "as_of_week": None,
+            "columns": None,
+            "all_columns": None,
             "detail": _error_detail(exc),
         }
     finally:

@@ -71,6 +71,8 @@ class NADACPricingService:
         self.cache_ttl = timedelta(days=7)
         self._metadata_cache: dict[str, Any] | None = None
         self._metadata_cached_at: datetime | None = None
+        self._schema_cache: dict[str, list[str]] = {}
+        self._column_map: dict[str, dict[str, Any]] = {}
 
     @staticmethod
     def _is_missing_relation(exc: Exception) -> bool:
@@ -343,20 +345,113 @@ class NADACPricingService:
             json_body=body,
         )
 
+    @staticmethod
+    def _rows_from_payload(payload: Any) -> list[dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return []
+        rows = payload.get("results") or payload.get("result") or []
+        if not isinstance(rows, list):
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
+    async def _get_dataset_columns(self, distribution_id: str) -> list[str]:
+        if distribution_id in self._schema_cache:
+            return self._schema_cache[distribution_id]
+
+        try:
+            payload = await self._request_datastore_query(distribution_id, limit=1)
+            rows = self._rows_from_payload(payload)
+            columns = list(rows[0].keys()) if rows else []
+            self._schema_cache[distribution_id] = columns
+            return columns
+        except Exception as exc:
+            logger.warning(
+                "Failed to discover NADAC schema for distribution_id=%s: %s",
+                distribution_id,
+                exc,
+            )
+            self._schema_cache[distribution_id] = []
+            return []
+
+    @staticmethod
+    def _pick_column(
+        columns: list[str],
+        candidates: list[str],
+        *,
+        contains: str | None = None,
+    ) -> str | None:
+        if not columns:
+            return None
+
+        by_lower = {col.lower(): col for col in columns}
+        for candidate in candidates:
+            found = by_lower.get(candidate.lower())
+            if found:
+                return found
+
+        if contains:
+            needle = contains.lower()
+            for col in columns:
+                if needle in col.lower():
+                    return col
+        return None
+
+    async def _resolve_column_map(self, distribution_id: str) -> dict[str, Any]:
+        if distribution_id in self._column_map:
+            return self._column_map[distribution_id]
+
+        columns = await self._get_dataset_columns(distribution_id)
+
+        ndc_col = self._pick_column(columns, ["ndc", "ndc_11", "ndc11", "ndc_code"], contains="ndc")
+        if ndc_col and "description" in ndc_col.lower():
+            ndc_col = None
+
+        effective_date_col = self._pick_column(columns, ["effective_date", "as_of_date", "as_of"])
+        if not effective_date_col:
+            effective_date_col = self._pick_column(columns, [], contains="effective")
+        if not effective_date_col:
+            effective_date_col = self._pick_column(columns, [], contains="as_of")
+
+        price_col = self._pick_column(columns, ["nadac_per_unit", "nadac_per_unit_amount", "nadac"])
+        if not price_col:
+            for col in columns:
+                col_l = col.lower()
+                if "nadac" in col_l and ("unit" in col_l or "per" in col_l):
+                    price_col = col
+                    break
+
+        unit_col = self._pick_column(columns, ["pricing_unit", "unit", "nadac_unit"])
+        if not unit_col:
+            unit_col = self._pick_column(columns, [], contains="unit")
+
+        resolved = {
+            "ndc": ndc_col or "ndc",
+            "effective_date": effective_date_col or "effective_date",
+            "price": price_col or "nadac_per_unit",
+            "unit": unit_col or "pricing_unit",
+            "all_columns": columns,
+        }
+        self._column_map[distribution_id] = resolved
+        return resolved
+
     async def _fetch_latest_effective_date(self, dataset_id: str) -> date | None:
         try:
+            column_map = await self._resolve_column_map(dataset_id)
+            date_col = str(column_map.get("effective_date") or "effective_date")
             payload = await self._request_datastore_query(
                 dataset_id,
-                sorts=[{"resource": "t", "property": "effective_date", "order": "desc"}],
+                sorts=[{"resource": "t", "property": date_col, "order": "desc"}],
                 limit=1,
             )
-            if not isinstance(payload, dict):
-                raise PricingServiceError("Unexpected NADAC dataset response shape for effective date lookup")
-            rows = payload.get("results") or payload.get("result") or []
-            if not isinstance(rows, list) or not rows:
+            rows = self._rows_from_payload(payload)
+            if not rows:
                 return None
-            row = rows[0] if isinstance(rows[0], dict) else {}
-            return self._parse_date(row.get("effective_date")) or self._parse_date(row.get("as_of_date"))
+            row = rows[0]
+            return (
+                self._parse_date(row.get(date_col))
+                or self._parse_date(row.get("effective_date"))
+                or self._parse_date(row.get("as_of_date"))
+            )
         except Exception as exc:
             logger.exception("Unable to derive latest NADAC effective_date from dataset rows")
             return None
@@ -367,18 +462,26 @@ class NADACPricingService:
         *,
         ndc_digits: str,
         as_of_week: str | None,
+        column_map: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
-        price = None
-        for key in ("nadac_per_unit", "nadac_per_unit_amount", "nadac"):
-            price = self._decimal(row.get(key))
-            if price is not None:
-                break
+        column_map = column_map or {}
+        price_col = str(column_map.get("price") or "nadac_per_unit")
+        unit_col = str(column_map.get("unit") or "pricing_unit")
+        effective_date_col = str(column_map.get("effective_date") or "effective_date")
+
+        price = self._decimal(row.get(price_col))
+        if price is None:
+            for key in ("nadac_per_unit", "nadac_per_unit_amount", "nadac"):
+                price = self._decimal(row.get(key))
+                if price is not None:
+                    break
         if price is None:
             return None
 
-        unit = row.get("pricing_unit") or row.get("unit") or row.get("nadac_unit") or "EA"
+        unit = row.get(unit_col) or row.get("pricing_unit") or row.get("unit") or row.get("nadac_unit") or "EA"
         effective_date = (
-            self._parse_date(row.get("effective_date"))
+            self._parse_date(row.get(effective_date_col))
+            or self._parse_date(row.get("effective_date"))
             or self._parse_date(row.get("as_of_date"))
             or self._parse_date(as_of_week)
         )
@@ -400,22 +503,45 @@ class NADACPricingService:
         metadata = await self._get_latest_dataset_metadata()
         dataset_id = metadata["dataset_id"]
         as_of_week = metadata.get("as_of_week")
+        column_map = await self._resolve_column_map(dataset_id)
+        columns = column_map.get("all_columns") or []
 
-        for ndc_field in ("ndc", "ndc11", "ndc_11", "ndc_code"):
-            payload = await self._request_datastore_query(
-                dataset_id,
-                conditions=[{"resource": "t", "property": ndc_field, "value": ndc_digits, "operator": "="}],
-                sorts=[{"resource": "t", "property": "effective_date", "order": "desc"}],
-                limit=1,
-            )
-            if not isinstance(payload, dict):
-                raise PricingServiceError(f"Unexpected NADAC query response shape for NDC field '{ndc_field}'")
-            rows = payload.get("results") or payload.get("result") or []
-            if not isinstance(rows, list) or not rows:
+        candidates: list[str] = []
+        if columns:
+            chosen = self._pick_column(columns, ["ndc", "ndc_11", "ndc11", "ndc_code"], contains="ndc")
+            if chosen and "description" in chosen.lower():
+                chosen = None
+            if chosen:
+                candidates.append(chosen)
+        for candidate in ("ndc", "ndc_11", "ndc11", "ndc_code"):
+            if candidate.lower() not in {c.lower() for c in candidates}:
+                candidates.append(candidate)
+
+        last_error: Exception | None = None
+        date_col = str(column_map.get("effective_date") or "effective_date")
+        for ndc_field in candidates:
+            try:
+                payload = await self._request_datastore_query(
+                    dataset_id,
+                    conditions=[{"resource": "t", "property": ndc_field, "value": ndc_digits, "operator": "="}],
+                    sorts=[{"resource": "t", "property": date_col, "order": "desc"}],
+                    limit=1,
+                )
+            except PricingServiceError as exc:
+                if "Column not found" in str(exc) or " 400 " in str(exc):
+                    last_error = exc
+                    logger.info("NADAC column '%s' not found, trying next candidate", ndc_field)
+                    continue
+                raise
+            rows = self._rows_from_payload(payload)
+            if not rows:
                 continue
-            parsed = self._parse_nadac_row(rows[0], ndc_digits=ndc_digits, as_of_week=as_of_week)
+            parsed = self._parse_nadac_row(rows[0], ndc_digits=ndc_digits, as_of_week=as_of_week, column_map=column_map)
             if parsed:
                 return parsed
+
+        if last_error is not None:
+            logger.exception("All NDC column candidates rejected by CMS", exc_info=self._exc_info(last_error))
 
         raise PricingNotFoundError(f"No NADAC price found for NDC {ndc_digits}")
 
@@ -631,31 +757,51 @@ class NADACPricingService:
 
         dataset_id = metadata["dataset_id"]
         as_of_week = metadata.get("as_of_week")
+        column_map = await self._resolve_column_map(dataset_id)
+        columns = column_map.get("all_columns") or []
+
+        candidates: list[str] = []
+        if columns:
+            chosen = self._pick_column(columns, ["ndc", "ndc_11", "ndc11", "ndc_code"], contains="ndc")
+            if chosen and "description" in chosen.lower():
+                chosen = None
+            if chosen:
+                candidates.append(chosen)
+        for candidate in ("ndc", "ndc_11", "ndc11", "ndc_code"):
+            if candidate.lower() not in {c.lower() for c in candidates}:
+                candidates.append(candidate)
 
         rows: list[dict[str, Any]] = []
-        for ndc_field in ("ndc", "ndc11", "ndc_11", "ndc_code"):
-            payload = await self._request_datastore_query(
-                dataset_id,
-                conditions=[{"resource": "t", "property": ndc_field, "value": ndc_digits, "operator": "="}],
-                sorts=[{"resource": "t", "property": "effective_date", "order": "desc"}],
-                limit=weeks,
-            )
-            if not isinstance(payload, dict):
-                raise PricingServiceError(f"Unexpected NADAC history response shape for NDC field '{ndc_field}'")
-            records = payload.get("results") or payload.get("result") or []
-            if isinstance(records, list) and records:
+        last_error: Exception | None = None
+        date_col = str(column_map.get("effective_date") or "effective_date")
+        for ndc_field in candidates:
+            try:
+                payload = await self._request_datastore_query(
+                    dataset_id,
+                    conditions=[{"resource": "t", "property": ndc_field, "value": ndc_digits, "operator": "="}],
+                    sorts=[{"resource": "t", "property": date_col, "order": "desc"}],
+                    limit=weeks,
+                )
+            except PricingServiceError as exc:
+                if "Column not found" in str(exc) or " 400 " in str(exc):
+                    last_error = exc
+                    logger.info("NADAC column '%s' not found for history, trying next candidate", ndc_field)
+                    continue
+                raise
+            records = self._rows_from_payload(payload)
+            if records:
                 rows = records
                 break
 
         parsed_rows: list[dict[str, Any]] = []
         for row in rows:
-            if not isinstance(row, dict):
-                continue
-            parsed = self._parse_nadac_row(row, ndc_digits=ndc_digits, as_of_week=as_of_week)
+            parsed = self._parse_nadac_row(row, ndc_digits=ndc_digits, as_of_week=as_of_week, column_map=column_map)
             if parsed:
                 parsed_rows.append(parsed)
 
         if not parsed_rows:
+            if last_error is not None:
+                logger.exception("All NDC history column candidates rejected by CMS", exc_info=self._exc_info(last_error))
             raise PricingNotFoundError(f"No NADAC history found for NDC {ndc_digits}")
 
         parsed_rows.sort(key=lambda row: row["effective_date"])
@@ -951,10 +1097,12 @@ class NADACPricingService:
         metadata = await self._get_latest_dataset_metadata()
         dataset_id = metadata["dataset_id"]
         as_of_week = metadata.get("as_of_week")
+        column_map = await self._resolve_column_map(dataset_id)
+        date_col = str(column_map.get("effective_date") or "effective_date")
 
         conditions = None
         if as_of_week:
-            conditions = [{"resource": "t", "property": "effective_date", "value": as_of_week, "operator": "="}]
+            conditions = [{"resource": "t", "property": date_col, "value": as_of_week, "operator": "="}]
 
         payload = await self._request_datastore_query(
             dataset_id,
@@ -962,12 +1110,7 @@ class NADACPricingService:
             limit=max(1, min(int(limit), 50000)),
             offset=max(0, int(offset)),
         )
-        if not isinstance(payload, dict):
-            raise PricingServiceError("Unexpected NADAC latest-week response shape")
-        rows = payload.get("results") or payload.get("result") or []
-        if not isinstance(rows, list):
-            rows = []
-        return as_of_week, [row for row in rows if isinstance(row, dict)]
+        return as_of_week, self._rows_from_payload(payload)
 
 
 pricing_service = NADACPricingService()
