@@ -23,6 +23,13 @@ For each NDC, API responses include:
 - `as_of_week`
 - computed totals and fair retail estimate for supply inputs
 
+When exact NADAC data exists for the requested NDC, the response shape is unchanged.
+When fallback pricing is used (see below), the response also includes:
+
+- `match_type` (`equivalent`)
+- `matched_ndc` (the sibling NDC that had NADAC data)
+- `equivalent_count` (number of sibling NDCs considered)
+
 Fair retail estimate methodology (benchmark only):
 
 - acquisition total = `price_per_unit * units_per_day * days_supply`
@@ -52,6 +59,18 @@ Resolved columns are cached per distribution and used for:
 
 If discovery fails, the service falls back to the legacy hardcoded candidates and tolerates CMS `400 Column not found` responses by trying the next candidate.
 
+## Equivalent-NDC fallback
+
+If an exact NDC is not present in the weekly NADAC dataset, pricing now falls back to therapeutically equivalent sibling NDCs:
+
+1. Resolve requested `NDC -> RxCUI`
+2. Resolve `RxCUI -> sibling NDCs` (same ingredient + strength + dose form)
+3. Bulk query NADAC for sibling NDCs
+4. Parse valid rows and choose the lowest `price_per_unit`
+5. Return price under the original requested NDC with equivalent-match metadata (`match_type`, `matched_ndc`, `equivalent_count`)
+
+Equivalent matches are cached under the original requested NDC so repeat lookups are served from cache while preserving fallback metadata in cache payloads.
+
 ## Legal / user-facing disclaimers
 
 Every response and UI card includes disclaimers:
@@ -74,6 +93,12 @@ Checks returned:
 - `nadac_catalog`: verifies NADAC catalog metadata lookup (`dataset_id`, `as_of_week`). If failing, confirm outbound access to `data.medicaid.gov`.
   - Includes `columns` and `all_columns` so you can immediately see the resolved schema for the active distribution.
 - `rxnav`: verifies RxNav availability via `https://rxnav.nlm.nih.gov/REST/version.json`.
+
+If `/api/prices/{ndc}` returns 404 for a known product:
+
+- verify RxNav returns an RxCUI for that NDC (`/REST/ndcstatus.json`)
+- verify RxNav returns sibling NDCs for that RxCUI (`/REST/rxcui/{rxcui}/ndcs.json`)
+- confirm sibling NDCs contain at least one weekly NADAC row
 
 `overall` status semantics:
 

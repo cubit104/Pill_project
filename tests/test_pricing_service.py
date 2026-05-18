@@ -418,6 +418,164 @@ def test_get_price_cache_miss_when_stale_refreshes():
     mock_fetch.assert_called_once()
 
 
+def test_get_price_falls_back_to_equivalent_when_exact_ndc_missing():
+    svc = NADACPricingService()
+    siblings = ["11111111111", "22222222222", "33333333333"]
+    rows_by_ndc = {
+        "11111111111": {
+            "ndc": "11111111111",
+            "effective_date": "2026-05-14",
+            "nadac_per_unit": "0.60",
+            "pricing_unit": "EA",
+        },
+        "22222222222": {
+            "ndc": "22222222222",
+            "effective_date": "2026-05-14",
+            "nadac_per_unit": "0.25",
+            "pricing_unit": "EA",
+        },
+    }
+
+    with patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds", "as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(svc, "_fetch_nadac_latest_for_ndc", new=AsyncMock(side_effect=PricingNotFoundError("missing"))), \
+         patch.object(svc, "_sibling_ndcs_for_ndc", new=AsyncMock(return_value=siblings)), \
+         patch.object(
+             svc,
+             "_resolve_column_map",
+             new=AsyncMock(
+                 return_value={
+                     "ndc": "ndc",
+                     "effective_date": "effective_date",
+                     "price": "nadac_per_unit",
+                     "unit": "pricing_unit",
+                 }
+             ),
+         ), \
+         patch.object(svc, "_bulk_query_nadac_for_ndcs", new=AsyncMock(return_value=rows_by_ndc)) as mock_bulk, \
+         patch.object(svc, "_upsert_price_cache", return_value=None):
+        result = asyncio.run(svc.get_price("00002-1401-02"))
+
+    assert result["match_type"] == "equivalent"
+    assert result["matched_ndc"] == "22222222222"
+    assert result["equivalent_count"] == 3
+    assert result["ndc"] == "00002140102"
+    assert result["price_per_unit"] == 0.25
+    mock_bulk.assert_awaited_once()
+
+
+def test_get_price_returns_exact_when_present():
+    svc = NADACPricingService()
+
+    with patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(
+             svc,
+             "_fetch_nadac_latest_for_ndc",
+             new=AsyncMock(
+                 return_value={
+                     "ndc": "00002140102",
+                     "price_per_unit": 0.5,
+                     "unit": "EA",
+                     "effective_date": "2026-05-14",
+                     "source": "NADAC (CMS)",
+                     "as_of_week": "2026-05-14",
+                     "raw_payload": {},
+                 }
+             ),
+         ), \
+         patch.object(svc, "_fetch_nadac_equivalent_for_ndc", new=AsyncMock()) as mock_equivalent, \
+         patch.object(svc, "_upsert_price_cache", return_value=None):
+        result = asyncio.run(svc.get_price("00002-1401-02"))
+
+    assert "match_type" not in result
+    mock_equivalent.assert_not_awaited()
+
+
+def test_get_price_raises_not_found_when_no_siblings_have_prices():
+    svc = NADACPricingService()
+
+    with patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds", "as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(svc, "_fetch_nadac_latest_for_ndc", new=AsyncMock(side_effect=PricingNotFoundError("missing"))), \
+         patch.object(svc, "_sibling_ndcs_for_ndc", new=AsyncMock(return_value=["11111111111", "22222222222"])), \
+         patch.object(
+             svc,
+             "_resolve_column_map",
+             new=AsyncMock(
+                 return_value={
+                     "ndc": "ndc",
+                     "effective_date": "effective_date",
+                     "price": "nadac_per_unit",
+                     "unit": "pricing_unit",
+                 }
+             ),
+         ), \
+         patch.object(svc, "_bulk_query_nadac_for_ndcs", new=AsyncMock(return_value={})), \
+         patch.object(svc, "_upsert_price_cache", return_value=None):
+        with pytest.raises(PricingNotFoundError):
+            asyncio.run(svc.get_price("00002-1401-02"))
+
+
+def test_equivalent_match_is_cached_under_original_ndc():
+    svc = NADACPricingService()
+    cached_rows = [None]
+    now = datetime.now(timezone.utc)
+
+    def _get_cached(_ndc):
+        return cached_rows[0]
+
+    def _upsert(price):
+        cached_rows[0] = {
+            "ndc": price["ndc"],
+            "price_per_unit": price["price_per_unit"],
+            "unit": price["unit"],
+            "effective_date": price["effective_date"],
+            "source": "NADAC",
+            "raw_payload": {
+                "match_type": price["match_type"],
+                "matched_ndc": price["matched_ndc"],
+                "equivalent_count": price["equivalent_count"],
+            },
+            "fetched_at": now,
+        }
+
+    with patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_get_cached_price", side_effect=_get_cached), \
+         patch.object(svc, "_cache_fresh", return_value=True), \
+         patch.object(svc, "_fetch_nadac_latest_for_ndc", new=AsyncMock(side_effect=PricingNotFoundError("missing"))), \
+         patch.object(
+             svc,
+             "_fetch_nadac_equivalent_for_ndc",
+             new=AsyncMock(
+                 return_value={
+                     "ndc": "00002140102",
+                     "price_per_unit": 0.25,
+                     "unit": "EA",
+                     "effective_date": "2026-05-14",
+                     "source": "NADAC (CMS)",
+                     "as_of_week": "2026-05-14",
+                     "raw_payload": {"ndc": "22222222222"},
+                     "match_type": "equivalent",
+                     "matched_ndc": "22222222222",
+                     "equivalent_count": 3,
+                 }
+             ),
+         ) as mock_equivalent, \
+         patch.object(svc, "_upsert_price_cache", side_effect=_upsert) as mock_upsert, \
+         patch.object(svc, "_bulk_query_nadac_for_ndcs", new=AsyncMock()) as mock_bulk:
+        first = asyncio.run(svc.get_price("00002-1401-02"))
+        second = asyncio.run(svc.get_price("00002-1401-02"))
+
+    assert first["match_type"] == "equivalent"
+    assert first["ndc"] == "00002140102"
+    assert second["match_type"] == "equivalent"
+    assert second["matched_ndc"] == "22222222222"
+    assert mock_upsert.call_count == 1
+    mock_equivalent.assert_awaited_once()
+    mock_bulk.assert_not_awaited()
+
+
 def test_get_price_history_uses_cache_when_present():
     svc = NADACPricingService()
 

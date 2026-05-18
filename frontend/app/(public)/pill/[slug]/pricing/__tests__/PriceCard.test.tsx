@@ -34,4 +34,34 @@ test('PriceCard renders pricing header and disclaimers', () => {
   assert.match(html, /Pharmacy Cost Benchmark/)
   assert.match(html, /Estimated fair retail range/)
   assert.match(html, /Important disclaimers/)
+  assert.doesNotMatch(html, /Pricing shown is for a therapeutically equivalent product/)
+})
+
+test('PriceCard renders equivalent fallback note when match_type is equivalent', () => {
+  const html = renderToStaticMarkup(
+    <PriceCard
+      ndc="00002140102"
+      initialData={{
+        price: {
+          ndc: '00002140102',
+          price_per_unit: 0.45,
+          unit: 'EA',
+          effective_date: '2026-05-15',
+          source: 'NADAC (CMS)',
+          total_acquisition_cost: 13.5,
+          fair_retail_low: 20.25,
+          fair_retail_high: 40.5,
+          match_type: 'equivalent',
+          matched_ndc: '00378018101',
+          equivalent_count: 3,
+          disclaimers: [],
+        },
+        alternatives: [],
+        history: [],
+      }}
+    />
+  )
+
+  assert.match(html, /Pricing shown is for a therapeutically equivalent product/)
+  assert.match(html, /Equivalent NDC: 00378-0181-01/)
 })

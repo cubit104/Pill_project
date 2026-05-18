@@ -162,6 +162,9 @@ async def get_ndc_price(
             "total_acquisition_cost": result["total_acquisition_cost"],
             "fair_retail_low": result["fair_retail_low"],
             "fair_retail_high": result["fair_retail_high"],
+            **({"match_type": result["match_type"]} if "match_type" in result else {}),
+            **({"matched_ndc": result["matched_ndc"]} if "matched_ndc" in result else {}),
+            **({"equivalent_count": result["equivalent_count"]} if "equivalent_count" in result else {}),
             "disclaimers": DEFAULT_DISCLAIMERS,
         }
     except PricingNotFoundError:

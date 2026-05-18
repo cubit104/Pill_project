@@ -31,6 +31,7 @@ NADAC_CONNECT_TIMEOUT = 10.0
 NADAC_RW_TIMEOUT = 30.0
 MAX_RELATED_RXCUIS = 40
 MAX_ALTERNATIVE_NDCS = 150
+MAX_EQUIVALENT_NDCS = 50
 ALTERNATIVES_FETCH_CONCURRENCY = 8
 # NADAC (National Average Drug Acquisition Cost) Weekly:
 # https://data.medicaid.gov/dataset/99315a95-37ac-4eee-946a-3c523b4c481e
@@ -545,6 +546,129 @@ class NADACPricingService:
 
         raise PricingNotFoundError(f"No NADAC price found for NDC {ndc_digits}")
 
+    async def _sibling_ndcs_for_ndc(self, ndc_digits: str) -> list[str]:
+        try:
+            rxcui = await self._ndc_to_rxcui(ndc_digits)
+        except Exception as exc:
+            logger.warning("Failed resolving RxCUI for ndc=%s: %s", ndc_digits, exc)
+            return []
+        if not rxcui:
+            return []
+
+        try:
+            siblings = await self._ndcs_for_rxcui(rxcui)
+        except Exception as exc:
+            logger.warning("Failed resolving sibling NDCs for rxcui=%s ndc=%s: %s", rxcui, ndc_digits, exc)
+            return []
+
+        unique = sorted({s for s in siblings if s and s != ndc_digits})
+        return unique[:MAX_EQUIVALENT_NDCS]
+
+    async def _bulk_query_nadac_for_ndcs(
+        self,
+        dataset_id: str,
+        ndcs: list[str],
+        column_map: dict[str, Any],
+    ) -> dict[str, dict[str, Any]]:
+        if not ndcs:
+            return {}
+        ndc_column = str(column_map.get("ndc") or "ndc")
+        normalized_ndcs = sorted({ndc for ndc in ndcs if ndc})
+        found: dict[str, dict[str, Any]] = {}
+
+        try:
+            payload = await self._request_datastore_query(
+                dataset_id,
+                conditions=[
+                    {
+                        "resource": "t",
+                        "property": ndc_column,
+                        "operator": "in",
+                        "value": normalized_ndcs,
+                    }
+                ],
+                limit=len(normalized_ndcs),
+            )
+            for row in self._rows_from_payload(payload):
+                row_ndc = self._normalize_ndc_digits(str(row.get(ndc_column) or ""))
+                if row_ndc:
+                    found[row_ndc] = row
+            return found
+        except Exception as exc:
+            # Some CMS datastore distributions reject `in`; fallback to chunked OR queries.
+            logger.info("NADAC bulk IN query failed; falling back to OR chunks: %s", exc)
+
+        try:
+            chunk_size = 25
+            for idx in range(0, len(normalized_ndcs), chunk_size):
+                chunk = normalized_ndcs[idx : idx + chunk_size]
+                payload = await self._request_datastore_query(
+                    dataset_id,
+                    conditions=[
+                        {
+                            "resource": "t",
+                            "operator": "or",
+                            "conditions": [
+                                {
+                                    "resource": "t",
+                                    "property": ndc_column,
+                                    "operator": "=",
+                                    "value": ndc,
+                                }
+                                for ndc in chunk
+                            ],
+                        }
+                    ],
+                    limit=len(chunk),
+                )
+                for row in self._rows_from_payload(payload):
+                    row_ndc = self._normalize_ndc_digits(str(row.get(ndc_column) or ""))
+                    if row_ndc:
+                        found[row_ndc] = row
+            return found
+        except Exception as exc:
+            logger.warning("NADAC bulk sibling query failed for %s ndcs: %s", len(normalized_ndcs), exc)
+            return {}
+
+    async def _fetch_nadac_equivalent_for_ndc(self, ndc_digits: str) -> dict[str, Any] | None:
+        siblings = await self._sibling_ndcs_for_ndc(ndc_digits)
+        if not siblings:
+            return None
+
+        try:
+            metadata = await self._get_latest_dataset_metadata()
+        except Exception as exc:
+            logger.warning("Failed loading NADAC metadata for equivalent fallback ndc=%s: %s", ndc_digits, exc)
+            return None
+
+        dataset_id = metadata["dataset_id"]
+        as_of_week = metadata.get("as_of_week")
+        column_map = await self._resolve_column_map(dataset_id)
+        rows_by_ndc = await self._bulk_query_nadac_for_ndcs(dataset_id, siblings, column_map)
+        if not rows_by_ndc:
+            return None
+
+        parsed_rows: list[dict[str, Any]] = []
+        for sibling_ndc, row in rows_by_ndc.items():
+            parsed = self._parse_nadac_row(
+                row,
+                ndc_digits=sibling_ndc,
+                as_of_week=as_of_week,
+                column_map=column_map,
+            )
+            if parsed:
+                parsed_rows.append(parsed)
+        if not parsed_rows:
+            return None
+
+        cheapest = min(parsed_rows, key=lambda row: row["price_per_unit"])
+        equivalent = dict(cheapest)
+        equivalent["ndc"] = ndc_digits
+        equivalent["matched_ndc"] = cheapest["ndc"]
+        equivalent["match_type"] = "equivalent"
+        equivalent["equivalent_count"] = len(siblings)
+        return equivalent
+
     def _ensure_db(self) -> None:
         if not database.db_engine and not database.connect_to_database():
             raise PricingServiceError("Database connection not available")
@@ -596,6 +720,14 @@ class NADACPricingService:
 
     def _upsert_price_cache(self, price: dict[str, Any]) -> None:
         self._ensure_db()
+        raw_payload = price.get("raw_payload")
+        if isinstance(raw_payload, dict):
+            payload_json = dict(raw_payload)
+        else:
+            payload_json = {}
+        for field in ("match_type", "matched_ndc", "equivalent_count"):
+            if field in price:
+                payload_json[field] = price[field]
         with database.db_engine.begin() as conn:
             conn.execute(
                 text(
@@ -617,7 +749,7 @@ class NADACPricingService:
                     "unit": price["unit"],
                     "effective_date": price["effective_date"],
                     "source": "NADAC",
-                    "raw_payload": json.dumps(price.get("raw_payload") or {}),
+                    "raw_payload": json.dumps(payload_json),
                 },
             )
             conn.execute(
@@ -637,6 +769,23 @@ class NADACPricingService:
                     "unit": price["unit"],
                 },
             )
+
+    @staticmethod
+    def _equivalent_fields_from_raw_payload(raw_payload: Any) -> dict[str, Any]:
+        payload_obj = raw_payload
+        if isinstance(payload_obj, str):
+            try:
+                payload_obj = json.loads(payload_obj)
+            except Exception:
+                payload_obj = None
+        if not isinstance(payload_obj, dict):
+            return {}
+
+        out: dict[str, Any] = {}
+        for key in ("match_type", "matched_ndc", "equivalent_count"):
+            if key in payload_obj:
+                out[key] = payload_obj[key]
+        return out
 
     def _cache_fresh(self, cached: dict[str, Any], latest_week: date | None) -> bool:
         fetched_at = cached.get("fetched_at")
@@ -695,9 +844,16 @@ class NADACPricingService:
                 "source": NADAC_SOURCE,
                 "as_of_week": latest_week.isoformat() if latest_week else None,
             }
+            payload.update(self._equivalent_fields_from_raw_payload(cached.get("raw_payload")))
             return self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
 
-        latest = await self._fetch_nadac_latest_for_ndc(ndc_digits)
+        try:
+            latest = await self._fetch_nadac_latest_for_ndc(ndc_digits)
+        except PricingNotFoundError:
+            equivalent = await self._fetch_nadac_equivalent_for_ndc(ndc_digits)
+            if equivalent is None:
+                raise
+            latest = equivalent
         self._upsert_price_cache(latest)
         return self._add_totals(latest, days_supply=days_supply, units_per_day=units_per_day)
 
