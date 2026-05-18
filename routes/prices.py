@@ -241,13 +241,16 @@ async def get_ndc_alternatives(ndc: str):
     lookup_token = normalized.replace("-", "")
     try:
         result = await pricing_service.get_alternatives_by_ingredient(lookup_token)
-        return {
+        response: dict = {
             "ndc": lookup_token,
             "ingredient": result["ingredient"],
             "ingredient_rxcui": result["ingredient_rxcui"],
             "alternatives": result["alternatives"],
             "disclaimers": DEFAULT_DISCLAIMERS,
         }
+        if "generic_vs_brand_ratio" in result:
+            response["generic_vs_brand_ratio"] = result["generic_vs_brand_ratio"]
+        return response
     except PricingNotFoundError:
         raise HTTPException(
             status_code=404,
