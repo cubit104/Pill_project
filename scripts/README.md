@@ -8,6 +8,27 @@ See [ADMIN.md](../ADMIN.md) for full NDC backfill documentation.
 
 ---
 
+## Price Cache Prewarm
+
+Pre-warms `/api/prices/{ndc}` for the most-viewed pill slugs so repeat visits are served from `drug_prices` cache.
+
+### Run
+
+```bash
+# Start backend first (default base URL is localhost:8000)
+python scripts/prewarm_price_cache.py --limit 200
+
+# Explicit API base URL
+python scripts/prewarm_price_cache.py --api-base https://pillseek.com --limit 200
+```
+
+### Notes
+
+- Script first tries `pill_views` for top slugs (falls back to a built-in common-drug list if unavailable).
+- For each slug, it resolves NDC from `/api/pill/{slug}`, then calls `/api/prices/{ndc}` to populate/update `drug_prices`.
+
+---
+
 ## Medication Guide Identifier Backfill
 
 Fills NULL/blank `medication_guide.ndc` and `medication_guide.rxcui` values

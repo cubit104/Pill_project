@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 from urllib.parse import unquote
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from sqlalchemy import text
 
 import database
@@ -18,6 +19,16 @@ from services.pricing_service import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _timing_value(result: dict, key: str, fallback: float) -> float:
+    value = result.get(key)
+    if value is None:
+        return fallback
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
 
 
 def _normalize_or_400(ndc: str) -> str:
@@ -169,16 +180,23 @@ async def get_pricing_health():
 @router.get("/api/prices/{ndc}")
 async def get_ndc_price(
     ndc: str,
+    response: Response,
     days_supply: int = Query(30, ge=1, le=365),
     units_per_day: float = Query(1.0, gt=0, le=1000),
 ):
     normalized = _normalize_or_400(ndc)
+    request_started = perf_counter()
     try:
         result = await pricing_service.get_price(
             normalized,
             days_supply=days_supply,
             units_per_day=units_per_day,
         )
+        cache_status = str(result.get("cache_status") or "miss")
+        cache_dur = _timing_value(result, "cache_duration_ms", 0.0)
+        fetch_dur = _timing_value(result, "fetch_duration_ms", max(0.0, (perf_counter() - request_started) * 1000))
+        response.headers["X-Price-Cache"] = cache_status
+        response.headers["Server-Timing"] = f"cache;dur={cache_dur:.2f}, fetch;dur={fetch_dur:.2f}"
         return build_price_response(result)
     except PricingNotFoundError:
         raise HTTPException(
@@ -195,15 +213,22 @@ async def get_ndc_price(
 @router.get("/api/prices/by-rxcui/{rxcui}")
 async def get_price_by_rxcui_route(
     rxcui: str,
+    response: Response,
     days_supply: int = Query(30, ge=1, le=365),
     units_per_day: float = Query(1.0, gt=0, le=1000),
 ):
+    request_started = perf_counter()
     try:
         result = await pricing_service.get_price_by_rxcui(
             rxcui,
             days_supply=days_supply,
             units_per_day=units_per_day,
         )
+        cache_status = str(result.get("cache_status") or "miss")
+        cache_dur = _timing_value(result, "cache_duration_ms", 0.0)
+        fetch_dur = _timing_value(result, "fetch_duration_ms", max(0.0, (perf_counter() - request_started) * 1000))
+        response.headers["X-Price-Cache"] = cache_status
+        response.headers["Server-Timing"] = f"cache;dur={cache_dur:.2f}, fetch;dur={fetch_dur:.2f}"
         return build_price_response(result)
     except PricingNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -216,9 +241,11 @@ async def get_price_by_rxcui_route(
 @router.get("/api/prices/by-name/{name}")
 async def get_price_by_name_route(
     name: str,
+    response: Response,
     days_supply: int = Query(30, ge=1, le=365),
     units_per_day: float = Query(1.0, gt=0, le=1000),
 ):
+    request_started = perf_counter()
     try:
         decoded_name = unquote(name)
         result = await pricing_service.get_price_by_name(
@@ -226,6 +253,11 @@ async def get_price_by_name_route(
             days_supply=days_supply,
             units_per_day=units_per_day,
         )
+        cache_status = str(result.get("cache_status") or "miss")
+        cache_dur = _timing_value(result, "cache_duration_ms", 0.0)
+        fetch_dur = _timing_value(result, "fetch_duration_ms", max(0.0, (perf_counter() - request_started) * 1000))
+        response.headers["X-Price-Cache"] = cache_status
+        response.headers["Server-Timing"] = f"cache;dur={cache_dur:.2f}, fetch;dur={fetch_dur:.2f}"
         return build_price_response(result)
     except PricingNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
