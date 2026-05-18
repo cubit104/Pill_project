@@ -1174,3 +1174,96 @@ def test_get_alternatives_no_ratio_when_no_brand():
         result = asyncio.run(svc.get_alternatives_by_ingredient("6809"))
 
     assert "generic_vs_brand_ratio" not in result
+
+
+def test_get_alternatives_broadens_filters_until_it_has_five_rows():
+    svc = NADACPricingService()
+
+    related = [
+        {"rxcui": "111", "name": "amox clav 562.5 MG Oral Capsule", "tty": "SCD"},
+        {"rxcui": "222", "name": "amox clav 562.5 MG Oral Tablet", "tty": "SCD"},
+        {"rxcui": "333", "name": "amox clav 875 MG Oral Tablet", "tty": "SCD"},
+        {"rxcui": "444", "name": "amox clav 250 MG Oral Capsule", "tty": "SCD"},
+        {"rxcui": "555", "name": "amox clav 500 MG Oral Tablet", "tty": "SCD"},
+    ]
+    ndc_for_rxcui = {
+        "111": "00000000011",
+        "222": "00000000022",
+        "333": "00000000033",
+        "444": "00000000044",
+        "555": "00000000055",
+    }
+    cached_rows = {
+        "00000000011": {"ndc": "00000000011", "price_per_unit": 0.40, "unit": "EA", "effective_date": "2026-05-14", "source": "NADAC", "fetched_at": datetime.now(timezone.utc)},
+        "00000000022": {"ndc": "00000000022", "price_per_unit": 0.20, "unit": "EA", "effective_date": "2026-05-14", "source": "NADAC", "fetched_at": datetime.now(timezone.utc)},
+        "00000000033": {"ndc": "00000000033", "price_per_unit": 0.50, "unit": "EA", "effective_date": "2026-05-14", "source": "NADAC", "fetched_at": datetime.now(timezone.utc)},
+        "00000000044": {"ndc": "00000000044", "price_per_unit": 0.10, "unit": "EA", "effective_date": "2026-05-14", "source": "NADAC", "fetched_at": datetime.now(timezone.utc)},
+        "00000000055": {"ndc": "00000000055", "price_per_unit": 0.30, "unit": "EA", "effective_date": "2026-05-14", "source": "NADAC", "fetched_at": datetime.now(timezone.utc)},
+    }
+
+    async def _ndcs_side(rxcui):
+        return [ndc_for_rxcui[rxcui]]
+
+    with patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "amox / clav", "rxcui": "combo"})), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_related_product_rxcuis", new=AsyncMock(return_value=related)), \
+         patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(side_effect=_ndcs_side)), \
+         patch.object(svc, "_get_cached_prices_bulk", return_value=cached_rows), \
+         patch.object(svc, "_cache_fresh", return_value=True):
+        result = asyncio.run(svc.get_alternatives_by_ingredient("999"))
+
+    alts = result["alternatives"]
+    assert len(alts) == 5
+    prices = [a["price_per_unit"] for a in alts]
+    assert prices == sorted(prices)
+    assert alts[0]["is_cheapest"] is True
+    assert all(a.get("match_scope") != "primary_ingredient_only" for a in alts)
+
+
+def test_get_alternatives_marks_primary_ingredient_only_matches_when_needed():
+    svc = NADACPricingService()
+
+    combo_related = [{"rxcui": "111", "name": "amox clav 562.5 MG Oral Capsule", "tty": "SCD"}]
+    primary_related = [
+        {"rxcui": "211", "name": "amox 500 MG Oral Capsule", "tty": "SCD"},
+        {"rxcui": "212", "name": "amox 250 MG Oral Tablet", "tty": "SCD"},
+    ]
+    ndc_for_rxcui = {
+        "111": "00000000111",
+        "211": "00000000211",
+        "212": "00000000212",
+    }
+    cached_rows = {
+        "00000000111": {"ndc": "00000000111", "price_per_unit": 0.40, "unit": "EA", "effective_date": "2026-05-14", "source": "NADAC", "fetched_at": datetime.now(timezone.utc)},
+        "00000000211": {"ndc": "00000000211", "price_per_unit": 0.20, "unit": "EA", "effective_date": "2026-05-14", "source": "NADAC", "fetched_at": datetime.now(timezone.utc)},
+        "00000000212": {"ndc": "00000000212", "price_per_unit": 0.30, "unit": "EA", "effective_date": "2026-05-14", "source": "NADAC", "fetched_at": datetime.now(timezone.utc)},
+    }
+
+    async def _related_side(rxcui):
+        if rxcui == "combo":
+            return combo_related
+        if rxcui == "primary":
+            return primary_related
+        return []
+
+    async def _ndcs_side(rxcui):
+        return [ndc_for_rxcui[rxcui]]
+
+    async def _resolve_side(token):
+        if token == "999":
+            return {"name": "amox / clav", "rxcui": "combo"}
+        if token == "amox":
+            return {"name": "amox", "rxcui": "primary"}
+        return None
+
+    with patch.object(svc, "_resolve_ingredient", new=AsyncMock(side_effect=_resolve_side)), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_related_product_rxcuis", new=AsyncMock(side_effect=_related_side)), \
+         patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(side_effect=_ndcs_side)), \
+         patch.object(svc, "_get_cached_prices_bulk", return_value=cached_rows), \
+         patch.object(svc, "_cache_fresh", return_value=True):
+        result = asyncio.run(svc.get_alternatives_by_ingredient("999"))
+
+    alts = result["alternatives"]
+    assert len(alts) == 3
+    assert any(a.get("match_scope") == "primary_ingredient_only" for a in alts)
