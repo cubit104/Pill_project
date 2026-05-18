@@ -40,11 +40,16 @@ test('PriceCard renders all four section emoji headers and gradient header', () 
   assert.match(html, /🔄/)
   assert.match(html, /📈/)
   assert.match(html, /⚠️/)
+  // Gradient strip on the first section header
   assert.match(html, /from-emerald-50/)
+  // Section headers text
   assert.match(html, /Pharmacy Cost Benchmark/i)
   assert.match(html, /Compare Alternatives/i)
   assert.match(html, /Price History/i)
   assert.match(html, /Important/i)
+  // Sections separated by border-t dividers (at least 3 dividers for 4 sections)
+  const dividerCount = (html.match(/border-t border-slate-100/g) || []).length
+  assert.ok(dividerCount >= 3, `Expected at least 3 border-t dividers, got ${dividerCount}`)
 })
 
 test('PriceCard renders hero price with text-4xl and unit label', () => {
