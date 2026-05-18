@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
@@ -97,19 +100,14 @@ test('PriceCard renders approximate fallback note when match_type is approximate
 })
 
 test('PriceCard renders empty-state markup when price data is unavailable (null initialData price)', () => {
-  // Simulate a component mounted with an ndc but no initialData — loading=true on server,
-  // resolves to loading skeleton. To test the empty state directly, pass initialData with a
-  // special sentinel: we render with no initialData and check the loading skeleton instead,
-  // but we also need to test the empty state path.
-  // We use renderToStaticMarkup which does SSR — useEffect won't run, so loading=true (skeleton).
-  // So we directly test via renderToStaticMarkup that the component never returns null.
+  // With no initialData, the component starts in loading state (loading=true) on initial
+  // SSR render since useEffect doesn't run. The loading skeleton must be present in the output
+  // — component never returns null/empty when an identifier is provided.
   const html = renderToStaticMarkup(
     <PriceCard ndc="00002140102" />
   )
-  // Must not be empty string — component always returns markup when identifiers are provided
   assert.notEqual(html, '')
-  assert.notEqual(html, null)
-  assert.notEqual(html, undefined)
+  assert.match(html, /data-testid="price-card-loading"/)
 })
 
 test('PriceCard returns null only when no identifiers are provided', () => {
@@ -119,14 +117,7 @@ test('PriceCard returns null only when no identifiers are provided', () => {
   assert.equal(html, '')
 })
 
-test('PriceCard renders empty state when no price data is loaded (via initialData omission and post-load)', () => {
-  // Simulate the empty state by using a test wrapper: render with ndc but manually
-  // check the empty-state message is in the component tree by rendering after setting price=null.
-  // Since we cannot control state from outside, we verify the component source contains the
-  // empty-state text as a smoke test.
-  const { readFileSync } = require('node:fs')
-  const { fileURLToPath } = require('node:url')
-  const path = require('node:path')
+test('PriceCard empty and error state strings are present in the component source', () => {
   const src = readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'PriceCard.tsx'),
     'utf8'

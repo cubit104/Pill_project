@@ -154,6 +154,12 @@ export default function PriceCard({
 
   if (!hasIdentifier) return null
 
+  const handleRetry = () => {
+    setFetchError(false)
+    setLoading(true)
+    setRetryCount((c) => c + 1)
+  }
+
   if (loading) {
     return (
       <section className="space-y-4" aria-label="Pharmacy cost benchmark" data-testid="price-card-loading">
@@ -180,7 +186,7 @@ export default function PriceCard({
             ⚠️ Unable to load price details right now. Please try again later.
           </p>
           <button
-            onClick={() => { setFetchError(false); setLoading(true); setRetryCount((c) => c + 1) }}
+            onClick={handleRetry}
             className="mt-4 text-sm font-medium text-sky-700 hover:underline"
           >
             Retry
