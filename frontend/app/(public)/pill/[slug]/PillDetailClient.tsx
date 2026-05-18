@@ -8,6 +8,7 @@ import type { Reviewer } from '../../../lib/reviewers'
 import { classSlugify, slugifyDrugName } from '../../../lib/slug'
 import { slugifyUrl } from '../../../lib/url-utils'
 import DrugIndicationSection from './DrugIndicationSection'
+import PriceCard from './pricing/PriceCard'
 
 function PillIconLarge() {
   return (
@@ -348,6 +349,10 @@ export default function PillDetailClient({
             <h2 className="text-base font-semibold text-slate-800 mb-3">Pill Identification</h2>
             <p className="text-sm text-slate-700 leading-relaxed">{identificationSummary}</p>
           </section>
+        )}
+
+        {(pill.ndc || pill.rxcui || pill.drug_name) && (
+          <PriceCard ndc={pill.ndc} rxcui={pill.rxcui} medicineName={pill.drug_name} />
         )}
 
         {/* Drug Indication */}
