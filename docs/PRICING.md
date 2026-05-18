@@ -39,6 +39,19 @@ Default assumptions: `units_per_day=1`, `days_supply=30`.
   - `drug_price_history` (weekly history points)
 - GitHub Action `refresh-nadac.yml` schedules refresh at `0 14 * * 3` (Wednesday, 14:00 UTC).
 
+## Schema discovery
+
+NADAC datastore schemas can drift (column names may change between distributions). The pricing service now auto-discovers columns by querying the latest distribution with `limit=1` and inspecting row keys.
+
+Resolved columns are cached per distribution and used for:
+
+- NDC filter column
+- effective-date sort/filter column
+- price column
+- unit column
+
+If discovery fails, the service falls back to the legacy hardcoded candidates and tolerates CMS `400 Column not found` responses by trying the next candidate.
+
 ## Legal / user-facing disclaimers
 
 Every response and UI card includes disclaimers:
@@ -59,6 +72,7 @@ Checks returned:
 - `drug_prices_table`: runs `SELECT count(*) FROM drug_prices`. If `detail` says relation missing, apply pricing migrations.
 - `drug_price_history_table`: runs `SELECT count(*) FROM drug_price_history`. If missing, apply pricing migrations.
 - `nadac_catalog`: verifies NADAC catalog metadata lookup (`dataset_id`, `as_of_week`). If failing, confirm outbound access to `data.medicaid.gov`.
+  - Includes `columns` and `all_columns` so you can immediately see the resolved schema for the active distribution.
 - `rxnav`: verifies RxNav availability via `https://rxnav.nlm.nih.gov/REST/version.json`.
 
 `overall` status semantics:

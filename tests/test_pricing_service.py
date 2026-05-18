@@ -140,6 +140,43 @@ def test_get_latest_dataset_metadata_accepts_catalog_list_payload():
     assert metadata["as_of_week"] == "2026-05-14"
 
 
+def test_get_dataset_columns_returns_first_row_keys_and_caches():
+    svc = NADACPricingService()
+    payload = {
+        "results": [
+            {
+                "ndc": "00002140102",
+                "ndc_description": "LISINOPRIL",
+                "effective_date": "2026-05-14",
+                "nadac_per_unit": "0.5",
+                "pricing_unit": "EA",
+            }
+        ]
+    }
+
+    with patch.object(svc, "_request_datastore_query", new=AsyncMock(return_value=payload)) as mock_query:
+        columns_first = asyncio.run(svc._get_dataset_columns("dist-123"))
+        columns_second = asyncio.run(svc._get_dataset_columns("dist-123"))
+
+    assert columns_first == ["ndc", "ndc_description", "effective_date", "nadac_per_unit", "pricing_unit"]
+    assert columns_second == columns_first
+    assert mock_query.await_count == 1
+
+
+def test_resolve_column_map_picks_expected_columns_from_nadac_schema():
+    svc = NADACPricingService()
+    columns = ["ndc", "ndc_description", "nadac_per_unit", "effective_date", "pricing_unit"]
+
+    with patch.object(svc, "_get_dataset_columns", new=AsyncMock(return_value=columns)):
+        resolved = asyncio.run(svc._resolve_column_map("dist-123"))
+
+    assert resolved["ndc"] == "ndc"
+    assert resolved["effective_date"] == "effective_date"
+    assert resolved["price"] == "nadac_per_unit"
+    assert resolved["unit"] == "pricing_unit"
+    assert resolved["all_columns"] == columns
+
+
 def test_fetch_nadac_latest_for_ndc_posts_datastore_query_body():
     svc = NADACPricingService()
 
@@ -172,6 +209,87 @@ def test_fetch_nadac_latest_for_ndc_posts_datastore_query_body():
         "sorts": [{"resource": "t", "property": "effective_date", "order": "desc"}],
         "limit": 1,
     }
+
+
+def test_fetch_nadac_latest_for_ndc_retries_next_column_when_first_400s():
+    svc = NADACPricingService()
+
+    async def _datastore_side_effect(*args, **kwargs):
+        conditions = kwargs.get("conditions") or []
+        property_name = conditions[0]["property"] if conditions else None
+        if property_name == "ndc":
+            raise PricingServiceError(
+                'Request failed: POST https://data.medicaid.gov/api/1/datastore/query/mock/0 — HTTPStatusError 400 — {"message":"Column not found."}'
+            )
+        return {
+            "results": [
+                {
+                    "ndc_11": "00002140102",
+                    "effective_date": "2026-05-14",
+                    "nadac_per_unit": "0.50",
+                    "pricing_unit": "EA",
+                }
+            ]
+        }
+
+    with patch.object(
+        svc,
+        "_get_latest_dataset_metadata",
+        new=AsyncMock(return_value={"dataset_id": "dataset-123", "as_of_week": "2026-05-14"}),
+    ), patch.object(
+        svc,
+        "_resolve_column_map",
+        new=AsyncMock(
+            return_value={
+                "ndc": "ndc",
+                "effective_date": "effective_date",
+                "price": "nadac_per_unit",
+                "unit": "pricing_unit",
+                "all_columns": ["ndc", "ndc_11", "effective_date", "nadac_per_unit", "pricing_unit"],
+            }
+        ),
+    ), patch.object(svc, "_request_datastore_query", new=AsyncMock(side_effect=_datastore_side_effect)) as mock_query:
+        result = asyncio.run(svc._fetch_nadac_latest_for_ndc("00002140102"))
+
+    assert result["price_per_unit"] == 0.5
+    attempted_columns = [
+        call.kwargs["conditions"][0]["property"]
+        for call in mock_query.await_args_list
+        if call.kwargs.get("conditions")
+    ]
+    assert attempted_columns[:2] == ["ndc", "ndc_11"]
+
+
+def test_fetch_nadac_latest_for_ndc_raises_not_found_when_all_candidates_column_not_found():
+    svc = NADACPricingService()
+
+    with patch.object(
+        svc,
+        "_get_latest_dataset_metadata",
+        new=AsyncMock(return_value={"dataset_id": "dataset-123", "as_of_week": "2026-05-14"}),
+    ), patch.object(
+        svc,
+        "_resolve_column_map",
+        new=AsyncMock(
+            return_value={
+                "ndc": "ndc",
+                "effective_date": "effective_date",
+                "price": "nadac_per_unit",
+                "unit": "pricing_unit",
+                "all_columns": [],
+            }
+        ),
+    ), patch.object(
+        svc,
+        "_request_datastore_query",
+        new=AsyncMock(
+            side_effect=PricingServiceError(
+                'Request failed: POST https://data.medicaid.gov/api/1/datastore/query/mock/0 — HTTPStatusError 400 — {"message":"Column not found."}'
+            )
+        ),
+    ):
+        with pytest.raises(PricingNotFoundError):
+            asyncio.run(svc._fetch_nadac_latest_for_ndc("00002140102"))
 
 
 def test_get_latest_dataset_metadata_uses_fallback_when_catalog_raises_unexpected_error():
