@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/testdb")
@@ -110,3 +111,124 @@ def test_get_history_404(client):
     with patch("routes.prices.pricing_service.get_price_history", new=AsyncMock(side_effect=PricingNotFoundError("none"))):
         resp = client.get("/api/prices/00002-1401-02/history")
     assert resp.status_code == 404
+
+
+def test_get_price_unexpected_error_returns_503_with_exception_type(client):
+    with patch("routes.prices.pricing_service.get_price", new=AsyncMock(side_effect=RuntimeError("boom"))):
+        resp = client.get("/api/prices/00002-1401-02")
+
+    assert resp.status_code == 503
+    assert "RuntimeError: boom" in resp.json()["detail"]
+
+
+def test_prices_health_ok_shape(client):
+    class _Result:
+        def __init__(self, value):
+            self._value = value
+
+        def scalar(self):
+            return self._value
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, statement):
+            query = str(statement)
+            if "SELECT 1" in query:
+                return _Result(1)
+            if "FROM drug_prices" in query:
+                return _Result(0)
+            if "FROM drug_price_history" in query:
+                return _Result(0)
+            raise AssertionError(f"Unexpected query: {query}")
+
+    class _Engine:
+        def connect(self):
+            return _Conn()
+
+    rxnav_response = httpx.Response(
+        200,
+        json={"version": "ok"},
+        request=httpx.Request("GET", "https://rxnav.nlm.nih.gov/REST/version.json"),
+    )
+
+    with patch("routes.prices.database.db_engine", _Engine()), \
+         patch("routes.prices.pricing_service._get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds1", "as_of_week": "2026-05-14"})), \
+         patch("routes.prices.httpx.AsyncClient.get", new=AsyncMock(return_value=rxnav_response)):
+        resp = client.get("/api/prices/health")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["overall"] == "ok"
+    assert set(payload["checks"].keys()) == {
+        "database",
+        "drug_prices_table",
+        "drug_price_history_table",
+        "nadac_catalog",
+        "rxnav",
+    }
+    assert payload["checks"]["nadac_catalog"]["dataset_id"] == "ds1"
+    assert payload["checks"]["drug_prices_table"]["row_count"] == 0
+    assert payload["checks"]["rxnav"]["ok"] is True
+
+
+def test_prices_health_degraded_when_external_checks_fail(client):
+    class _Result:
+        def __init__(self, value):
+            self._value = value
+
+        def scalar(self):
+            return self._value
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, statement):
+            query = str(statement)
+            if "SELECT 1" in query:
+                return _Result(1)
+            if "FROM drug_prices" in query:
+                return _Result(4)
+            if "FROM drug_price_history" in query:
+                return _Result(8)
+            raise AssertionError(f"Unexpected query: {query}")
+
+    class _Engine:
+        def connect(self):
+            return _Conn()
+
+    with patch("routes.prices.database.db_engine", _Engine()), \
+         patch("routes.prices.pricing_service._get_latest_dataset_metadata", new=AsyncMock(side_effect=RuntimeError("catalog down"))), \
+         patch(
+             "routes.prices.httpx.AsyncClient.get",
+             new=AsyncMock(
+                 return_value=httpx.Response(
+                     503,
+                     request=httpx.Request("GET", "https://rxnav.nlm.nih.gov/REST/version.json"),
+                 )
+             ),
+         ):
+        resp = client.get("/api/prices/health")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["overall"] == "degraded"
+    assert payload["checks"]["database"]["ok"] is True
+    assert payload["checks"]["drug_prices_table"]["ok"] is True
+    assert payload["checks"]["drug_price_history_table"]["ok"] is True
+    assert payload["checks"]["nadac_catalog"]["ok"] is False
+    assert payload["checks"]["rxnav"]["ok"] is False
+
+
+def test_prices_health_route_is_not_captured_by_ndc_param(client):
+    with patch("routes.prices.pricing_service.get_price", new=AsyncMock(side_effect=AssertionError("should not run"))):
+        resp = client.get("/api/prices/health")
+    assert resp.status_code == 200

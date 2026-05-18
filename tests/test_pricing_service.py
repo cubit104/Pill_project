@@ -10,7 +10,7 @@ import pytest
 
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/testdb")
 
-from services.pricing_service import NADACPricingService, PricingNotFoundError
+from services.pricing_service import NADACPricingService, PricingNotFoundError, PricingServiceError
 
 
 def _response(status_code: int, payload: dict):
@@ -67,6 +67,21 @@ def test_get_latest_dataset_metadata_uses_latest_effective_date_row():
 
     assert metadata["dataset_id"] == "dataset-123"
     assert metadata["as_of_week"] == "2026-05-14"
+
+
+def test_get_latest_dataset_metadata_uses_fallback_when_catalog_fails():
+    svc = NADACPricingService()
+
+    with patch("services.pricing_service.NADAC_FALLBACK_DATASET_ID", "fallback-dataset"), \
+         patch.object(
+             svc,
+             "_request_json",
+             new=AsyncMock(side_effect=PricingServiceError("catalog unavailable")),
+         ):
+        metadata = asyncio.run(svc._get_latest_dataset_metadata())
+
+    assert metadata["dataset_id"] == "fallback-dataset"
+    assert metadata["as_of_week"] is None
 
 
 def test_get_price_happy_path_and_fair_range():

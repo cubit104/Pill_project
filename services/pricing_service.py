@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 import httpx
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 import database
 from ndc_normalize import normalize_ndc_to_11
@@ -31,6 +32,12 @@ NADAC_RW_TIMEOUT = 30.0
 MAX_RELATED_RXCUIS = 40
 MAX_ALTERNATIVE_NDCS = 150
 ALTERNATIVES_FETCH_CONCURRENCY = 8
+# NADAC (National Average Drug Acquisition Cost) Weekly:
+# https://data.medicaid.gov/dataset/99315a95-37ac-4eee-946a-3c523b4c481e
+NADAC_FALLBACK_DATASET_ID = os.getenv(
+    "NADAC_FALLBACK_DATASET_ID",
+    "99315a95-37ac-4eee-946a-3c523b4c481e",
+)
 
 
 class PricingNotFoundError(LookupError):
@@ -64,6 +71,11 @@ class NADACPricingService:
         self.cache_ttl = timedelta(days=7)
         self._metadata_cache: dict[str, Any] | None = None
         self._metadata_cached_at: datetime | None = None
+
+    @staticmethod
+    def _is_missing_relation(exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return "relation" in msg and "does not exist" in msg
 
     @staticmethod
     def _parse_date(value: Any) -> date | None:
@@ -162,6 +174,7 @@ class NADACPricingService:
         return None
 
     async def _get_latest_dataset_metadata(self) -> dict[str, Any]:
+        logger.info("Resolving NADAC dataset metadata")
         now = datetime.now(timezone.utc)
         if (
             self._metadata_cache
@@ -170,42 +183,55 @@ class NADACPricingService:
         ):
             return self._metadata_cache
 
-        payload = await self._request_json(self.nadac_catalog_url, params={"limit": 2000})
-        items = payload.get("results") or payload.get("items") or payload.get("result") or payload
-        if not isinstance(items, list):
-            raise PricingServiceError("Unexpected NADAC catalog response shape")
+        try:
+            payload = await self._request_json(self.nadac_catalog_url, params={"limit": 2000})
+            items = payload.get("results") or payload.get("items") or payload.get("result") or payload
+            if not isinstance(items, list):
+                raise PricingServiceError("Unexpected NADAC catalog response shape")
 
-        candidates: list[tuple[datetime, dict[str, Any], str]] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            title = str(item.get("title") or item.get("name") or "")
-            title_l = title.lower()
-            if "nadac" not in title_l or "national average drug acquisition cost" not in title_l:
-                continue
-            dataset_id = self._extract_dataset_id(item)
-            if not dataset_id:
-                continue
-            updated = item.get("modified") or item.get("updated") or item.get("updated_at") or item.get("release_date")
-            updated_dt = datetime(1970, 1, 1, tzinfo=timezone.utc)
-            if updated:
-                parsed = self._parse_date(updated)
-                if parsed:
-                    updated_dt = datetime(parsed.year, parsed.month, parsed.day, tzinfo=timezone.utc)
-            candidates.append((updated_dt, item, dataset_id))
+            candidates: list[tuple[datetime, dict[str, Any], str]] = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                title = str(item.get("title") or item.get("name") or "")
+                title_l = title.lower()
+                if "nadac" not in title_l or "national average drug acquisition cost" not in title_l:
+                    continue
+                dataset_id = self._extract_dataset_id(item)
+                if not dataset_id:
+                    continue
+                updated = item.get("modified") or item.get("updated") or item.get("updated_at") or item.get("release_date")
+                updated_dt = datetime(1970, 1, 1, tzinfo=timezone.utc)
+                if updated:
+                    parsed = self._parse_date(updated)
+                    if parsed:
+                        updated_dt = datetime(parsed.year, parsed.month, parsed.day, tzinfo=timezone.utc)
+                candidates.append((updated_dt, item, dataset_id))
 
-        if not candidates:
-            raise PricingServiceError("Could not resolve NADAC dataset UUID from catalog")
+            if not candidates:
+                raise PricingServiceError("Could not resolve NADAC dataset UUID from catalog")
 
-        candidates.sort(key=lambda row: row[0], reverse=True)
-        _, item, dataset_id = candidates[0]
+            candidates.sort(key=lambda row: row[0], reverse=True)
+            _, item, dataset_id = candidates[0]
 
-        as_of_week = await self._fetch_latest_effective_date(dataset_id)
-        metadata = {
-            "dataset_id": dataset_id,
-            "as_of_week": as_of_week.isoformat() if as_of_week else None,
-            "title": item.get("title") or item.get("name") or "NADAC",
-        }
+            as_of_week = await self._fetch_latest_effective_date(dataset_id)
+            metadata = {
+                "dataset_id": dataset_id,
+                "as_of_week": as_of_week.isoformat() if as_of_week else None,
+                "title": item.get("title") or item.get("name") or "NADAC",
+            }
+        except PricingServiceError:
+            if not NADAC_FALLBACK_DATASET_ID:
+                raise
+            logger.warning(
+                "Falling back to NADAC_FALLBACK_DATASET_ID because catalog lookup failed: %s",
+                NADAC_FALLBACK_DATASET_ID,
+            )
+            metadata = {
+                "dataset_id": NADAC_FALLBACK_DATASET_ID,
+                "as_of_week": None,
+                "title": "NADAC (fallback dataset)",
+            }
         self._metadata_cache = metadata
         self._metadata_cached_at = now
         return metadata
@@ -229,7 +255,7 @@ class NADACPricingService:
             row = rows[0] if isinstance(rows[0], dict) else {}
             return self._parse_date(row.get("effective_date")) or self._parse_date(row.get("as_of_date"))
         except Exception as exc:
-            logger.warning("Unable to derive latest NADAC effective_date from dataset rows: %s", exc)
+            logger.exception("Unable to derive latest NADAC effective_date from dataset rows")
             return None
 
     def _parse_nadac_row(
@@ -267,6 +293,7 @@ class NADACPricingService:
         }
 
     async def _fetch_nadac_latest_for_ndc(self, ndc_digits: str) -> dict[str, Any]:
+        logger.info("Fetching latest NADAC row for ndc=%s", ndc_digits)
         metadata = await self._get_latest_dataset_metadata()
         dataset_id = metadata["dataset_id"]
         as_of_week = metadata.get("as_of_week")
@@ -297,36 +324,48 @@ class NADACPricingService:
 
     def _get_cached_price(self, ndc_digits: str) -> dict[str, Any] | None:
         self._ensure_db()
-        with database.db_engine.connect() as conn:
-            row = conn.execute(
-                text(
-                    """
-                    SELECT ndc, price_per_unit, unit, effective_date, source, raw_payload, fetched_at
-                    FROM drug_prices
-                    WHERE ndc = :ndc
-                    LIMIT 1
-                    """
-                ),
-                {"ndc": ndc_digits},
-            ).mappings().first()
-            return dict(row) if row else None
+        try:
+            with database.db_engine.connect() as conn:
+                row = conn.execute(
+                    text(
+                        """
+                        SELECT ndc, price_per_unit, unit, effective_date, source, raw_payload, fetched_at
+                        FROM drug_prices
+                        WHERE ndc = :ndc
+                        LIMIT 1
+                        """
+                    ),
+                    {"ndc": ndc_digits},
+                ).mappings().first()
+                return dict(row) if row else None
+        except ProgrammingError as exc:
+            if self._is_missing_relation(exc):
+                logger.error("drug_prices table missing — did the migration run?")
+                raise PricingServiceError("drug_prices table missing — did the migration run?") from exc
+            raise
 
     def _get_cached_prices_bulk(self, ndc_digits_list: list[str]) -> dict[str, dict[str, Any]]:
         if not ndc_digits_list:
             return {}
         self._ensure_db()
-        with database.db_engine.connect() as conn:
-            rows = conn.execute(
-                text(
-                    """
-                    SELECT ndc, price_per_unit, unit, effective_date, source, raw_payload, fetched_at
-                    FROM drug_prices
-                    WHERE ndc = ANY(:ndcs)
-                    """
-                ),
-                {"ndcs": ndc_digits_list},
-            ).mappings().all()
-        return {str(row["ndc"]): dict(row) for row in rows}
+        try:
+            with database.db_engine.connect() as conn:
+                rows = conn.execute(
+                    text(
+                        """
+                        SELECT ndc, price_per_unit, unit, effective_date, source, raw_payload, fetched_at
+                        FROM drug_prices
+                        WHERE ndc = ANY(:ndcs)
+                        """
+                    ),
+                    {"ndcs": ndc_digits_list},
+                ).mappings().all()
+            return {str(row["ndc"]): dict(row) for row in rows}
+        except ProgrammingError as exc:
+            if self._is_missing_relation(exc):
+                logger.error("drug_prices table missing — did the migration run?")
+                raise PricingServiceError("drug_prices table missing — did the migration run?") from exc
+            raise
 
     def _upsert_price_cache(self, price: dict[str, Any]) -> None:
         self._ensure_db()
@@ -417,7 +456,7 @@ class NADACPricingService:
             metadata = await self._get_latest_dataset_metadata()
             latest_week = self._parse_date(metadata.get("as_of_week"))
         except Exception:
-            logger.warning("Failed to resolve latest NADAC metadata; falling back to TTL-only cache")
+            logger.exception("Failed to resolve latest NADAC metadata; falling back to TTL-only cache")
 
         cached = self._get_cached_price(ndc_digits)
         if cached and self._cache_fresh(cached, latest_week):
@@ -448,8 +487,8 @@ class NADACPricingService:
         try:
             metadata = await self._get_latest_dataset_metadata()
             latest_week = self._parse_date(metadata.get("as_of_week"))
-        except Exception as exc:
-            logger.warning("Failed to resolve NADAC metadata for history lookup: %s", exc)
+        except Exception:
+            logger.exception("Failed to resolve NADAC metadata for history lookup")
 
         with database.db_engine.connect() as conn:
             cached_rows = conn.execute(
@@ -646,6 +685,7 @@ class NADACPricingService:
         return list(dict.fromkeys(normalized))
 
     async def get_alternatives_by_ingredient(self, rxcui_or_ingredient: str) -> dict[str, Any]:
+        logger.info("Resolving NADAC alternatives for token=%s", rxcui_or_ingredient)
         token = rxcui_or_ingredient.strip()
         if not token:
             raise ValueError("Ingredient or RxCUI is required")
@@ -658,8 +698,8 @@ class NADACPricingService:
         try:
             metadata = await self._get_latest_dataset_metadata()
             latest_week = self._parse_date(metadata.get("as_of_week"))
-        except Exception as exc:
-            logger.warning("Failed to resolve NADAC metadata for alternatives lookup: %s", exc)
+        except Exception:
+            logger.exception("Failed to resolve NADAC metadata for alternatives lookup")
 
         related_rxcuis = await self._related_product_rxcuis(ingredient["rxcui"])
         ndc_meta: dict[str, dict[str, str]] = {}
