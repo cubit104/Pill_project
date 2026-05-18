@@ -127,6 +127,66 @@ class NADACPricingService:
         slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
         return slug or "unknown"
 
+    @staticmethod
+    def _normalize_ingredient_terms(value: str) -> list[str]:
+        if not value:
+            return []
+        cleaned = re.sub(r"\([^)]*\)", " ", value.lower())
+        parts = re.split(r"\s*(?:/|\+|,|\band\b)\s*", cleaned)
+        terms: list[str] = []
+        stop_words = {"acid", "sodium", "potassium", "hydrochloride", "hcl"}
+        for part in parts:
+            tokenized = re.sub(r"[^a-z0-9 ]+", " ", part).strip()
+            if not tokenized:
+                continue
+            tokens = tokenized.split()
+            if not tokens:
+                continue
+            words = [word for word in tokens if word not in stop_words]
+            term = words[0] if words else tokens[0]
+            if term and term not in terms:
+                terms.append(term)
+        return terms
+
+    @staticmethod
+    def _strength_signature(name: str | None) -> str:
+        if not name:
+            return ""
+        matches = re.findall(r"\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|units?|meq|%)", name.lower())
+        return "|".join(re.sub(r"\s+", "", match) for match in matches)
+
+    @staticmethod
+    def _dose_form_signature(name: str | None) -> str:
+        if not name:
+            return ""
+        lowered = name.lower()
+        for marker in (
+            "oral tablet",
+            "oral capsule",
+            "tablet",
+            "capsule",
+            "suspension",
+            "solution",
+            "injection",
+            "cream",
+            "ointment",
+            "patch",
+        ):
+            if marker in lowered:
+                return marker
+        return ""
+
+    @staticmethod
+    def _dedupe_alternatives(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        deduped: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in rows:
+            name_key = (row.get("name") or "").strip().lower()
+            kind_key = row.get("kind") or "generic"
+            group_key = (name_key, kind_key)
+            if group_key not in deduped or row["price_per_unit"] < deduped[group_key]["price_per_unit"]:
+                deduped[group_key] = row
+        return sorted(deduped.values(), key=lambda row: row["price_per_unit"])
+
     def _format_request_failure(self, method: str, url: str, exc: Exception | None) -> str:
         method = method.upper()
         if exc is None:
@@ -1409,80 +1469,45 @@ class NADACPricingService:
         except Exception:
             logger.exception("Failed to resolve NADAC metadata for alternatives lookup")
 
-        related_rxcuis = await self._related_product_rxcuis(ingredient["rxcui"])
-        ndc_meta: dict[str, dict[str, str]] = {}
-        related_subset = related_rxcuis[:MAX_RELATED_RXCUIS]
-        ndc_lists = await asyncio.gather(
-            *(self._ndcs_for_rxcui(related["rxcui"]) for related in related_subset),
-            return_exceptions=True,
-        )
-
-        ndcs: list[str] = []
-        for related, ndc_list in zip(related_subset, ndc_lists):
-            if isinstance(ndc_list, Exception):
-                logger.debug("Skipping RxCUI=%s NDC lookup error: %s", related["rxcui"], ndc_list)
-                continue
-            ndcs.extend(ndc_list)
-            for ndc in ndc_list:
-                ndc_meta.setdefault(ndc, related)
-        ndcs = list(dict.fromkeys(ndcs))[:MAX_ALTERNATIVE_NDCS]
-
-        alternatives: list[dict[str, Any]] = []
-        stale_or_missing_ndcs: list[str] = []
-        cached_rows = self._get_cached_prices_bulk(ndcs)
-        for ndc in ndcs:
-            cached = cached_rows.get(ndc)
-            if cached and self._cache_fresh(cached, latest_week):
-                item = {
-                    "ndc": str(cached["ndc"]),
-                    "price_per_unit": float(cached["price_per_unit"]),
-                    "unit": str(cached["unit"]),
-                    "effective_date": str(cached["effective_date"]),
-                    "source": NADAC_SOURCE,
-                    "as_of_week": latest_week.isoformat() if latest_week else None,
-                }
-            else:
-                stale_or_missing_ndcs.append(ndc)
-                continue
-
-            meta = ndc_meta.get(ndc, {})
-            tty = str(meta.get("tty") or "")
-            alternatives.append(
-                {
-                    "ndc": item["ndc"],
-                    "price_per_unit": item["price_per_unit"],
-                    "unit": item["unit"],
-                    "effective_date": item["effective_date"],
-                    "source": item["source"],
-                    "as_of_week": item.get("as_of_week"),
-                    "name": meta.get("name"),
-                    "tty": tty,
-                    "kind": "brand" if tty.startswith(("SB", "BP")) else "generic",
-                }
+        async def _collect_alternatives(related_rxcuis: list[dict[str, str]]) -> list[dict[str, Any]]:
+            ndc_meta: dict[str, dict[str, str]] = {}
+            related_subset = related_rxcuis[:MAX_RELATED_RXCUIS]
+            ndc_lists = await asyncio.gather(
+                *(self._ndcs_for_rxcui(related["rxcui"]) for related in related_subset),
+                return_exceptions=True,
             )
 
-        if stale_or_missing_ndcs:
-            semaphore = asyncio.Semaphore(ALTERNATIVES_FETCH_CONCURRENCY)
-
-            async def _fetch_missing_price(ndc: str):
-                async with semaphore:
-                    try:
-                        return ndc, await self.get_price(ndc)
-                    except PricingNotFoundError:
-                        return ndc, None
-                    except Exception as exc:
-                        logger.debug("Skipping alternative price lookup for ndc=%s due to error: %s", ndc, exc)
-                        return ndc, None
-
-            fetched = await asyncio.gather(
-                *(_fetch_missing_price(ndc) for ndc in stale_or_missing_ndcs),
-            )
-            for ndc, item in fetched:
-                if not item:
+            ndcs: list[str] = []
+            for related, ndc_list in zip(related_subset, ndc_lists):
+                if isinstance(ndc_list, Exception):
+                    logger.debug("Skipping RxCUI=%s NDC lookup error: %s", related["rxcui"], ndc_list)
                     continue
+                ndcs.extend(ndc_list)
+                for ndc in ndc_list:
+                    ndc_meta.setdefault(ndc, related)
+            ndcs = list(dict.fromkeys(ndcs))[:MAX_ALTERNATIVE_NDCS]
+
+            rows: list[dict[str, Any]] = []
+            stale_or_missing_ndcs: list[str] = []
+            cached_rows = self._get_cached_prices_bulk(ndcs)
+            for ndc in ndcs:
+                cached = cached_rows.get(ndc)
+                if cached and self._cache_fresh(cached, latest_week):
+                    item = {
+                        "ndc": str(cached["ndc"]),
+                        "price_per_unit": float(cached["price_per_unit"]),
+                        "unit": str(cached["unit"]),
+                        "effective_date": str(cached["effective_date"]),
+                        "source": NADAC_SOURCE,
+                        "as_of_week": latest_week.isoformat() if latest_week else None,
+                    }
+                else:
+                    stale_or_missing_ndcs.append(ndc)
+                    continue
+
                 meta = ndc_meta.get(ndc, {})
                 tty = str(meta.get("tty") or "")
-                alternatives.append(
+                rows.append(
                     {
                         "ndc": item["ndc"],
                         "price_per_unit": item["price_per_unit"],
@@ -1496,25 +1521,101 @@ class NADACPricingService:
                     }
                 )
 
+            if stale_or_missing_ndcs:
+                semaphore = asyncio.Semaphore(ALTERNATIVES_FETCH_CONCURRENCY)
+
+                async def _fetch_missing_price(ndc: str):
+                    async with semaphore:
+                        try:
+                            return ndc, await self.get_price(ndc)
+                        except PricingNotFoundError:
+                            return ndc, None
+                        except Exception as exc:
+                            logger.debug("Skipping alternative price lookup for ndc=%s due to error: %s", ndc, exc)
+                            return ndc, None
+
+                fetched = await asyncio.gather(
+                    *(_fetch_missing_price(ndc) for ndc in stale_or_missing_ndcs),
+                )
+                for ndc, item in fetched:
+                    if not item:
+                        continue
+                    meta = ndc_meta.get(ndc, {})
+                    tty = str(meta.get("tty") or "")
+                    rows.append(
+                        {
+                            "ndc": item["ndc"],
+                            "price_per_unit": item["price_per_unit"],
+                            "unit": item["unit"],
+                            "effective_date": item["effective_date"],
+                            "source": item["source"],
+                            "as_of_week": item.get("as_of_week"),
+                            "name": meta.get("name"),
+                            "tty": tty,
+                            "kind": "brand" if tty.startswith(("SB", "BP")) else "generic",
+                        }
+                    )
+
+            return rows
+
+        related_rxcuis = await self._related_product_rxcuis(ingredient["rxcui"])
+        alternatives = await _collect_alternatives(related_rxcuis)
+
         if not alternatives:
             raise PricingNotFoundError("No NADAC alternatives found for this ingredient")
 
-        # Deduplicate: group by (normalized_name, kind), keep cheapest per group.
-        # This prevents 30+ rows for the same product at the same price.
-        deduped: dict[tuple[str, str], dict[str, Any]] = {}
-        for alt in alternatives:
-            name_key = (alt.get("name") or "").strip().lower()
-            kind_key = alt.get("kind") or "generic"
-            group_key = (name_key, kind_key)
-            if group_key not in deduped or alt["price_per_unit"] < deduped[group_key]["price_per_unit"]:
-                deduped[group_key] = alt
-        alternatives = list(deduped.values())
+        ingredient_terms = self._normalize_ingredient_terms(ingredient["name"])
+        normalized_ndc = self._normalize_ndc_digits(token)
+        reference = next((row for row in alternatives if normalized_ndc and row.get("ndc") == normalized_ndc), alternatives[0])
+        reference_strength = self._strength_signature(reference.get("name"))
+        reference_dose_form = self._dose_form_signature(reference.get("name"))
 
-        # Sort ascending by price so cheapest is first.
-        alternatives.sort(key=lambda row: row["price_per_unit"])
+        def _matches_ingredient_set(row: dict[str, Any]) -> bool:
+            if len(ingredient_terms) <= 1:
+                return True
+            lowered_name = str(row.get("name") or "").lower()
+            return all(term in lowered_name for term in ingredient_terms)
+
+        def _filter_rows(*, include_dose_form: bool, include_strength: bool) -> list[dict[str, Any]]:
+            out: list[dict[str, Any]] = []
+            for row in alternatives:
+                if not _matches_ingredient_set(row):
+                    continue
+                if include_dose_form and reference_dose_form:
+                    if self._dose_form_signature(row.get("name")) != reference_dose_form:
+                        continue
+                if include_strength and reference_strength:
+                    if self._strength_signature(row.get("name")) != reference_strength:
+                        continue
+                out.append(dict(row))
+            return self._dedupe_alternatives(out)
+
+        scoped = _filter_rows(include_dose_form=True, include_strength=True)
+        if len(scoped) < 3:
+            scoped = _filter_rows(include_dose_form=False, include_strength=True)
+        if len(scoped) < 3:
+            scoped = _filter_rows(include_dose_form=False, include_strength=False)
+
+        if len(scoped) < 3 and len(ingredient_terms) > 1:
+            primary_token = ingredient_terms[0]
+            primary_ingredient = await self._resolve_ingredient(primary_token)
+            if primary_ingredient and primary_ingredient.get("rxcui") and primary_ingredient["rxcui"] != ingredient["rxcui"]:
+                primary_related = await self._related_product_rxcuis(primary_ingredient["rxcui"])
+                primary_rows = await _collect_alternatives(primary_related)
+                primary_only_rows: list[dict[str, Any]] = []
+                for row in primary_rows:
+                    lowered_name = str(row.get("name") or "").lower()
+                    if primary_token not in lowered_name:
+                        continue
+                    if _matches_ingredient_set(row):
+                        continue
+                    tagged = dict(row)
+                    tagged["match_scope"] = "primary_ingredient_only"
+                    primary_only_rows.append(tagged)
+                scoped = self._dedupe_alternatives(scoped + primary_only_rows)
 
         # Limit to top 5 unique products.
-        alternatives = alternatives[:5]
+        alternatives = scoped[:5]
 
         # Mark the single cheapest result.
         for i, alt in enumerate(alternatives):

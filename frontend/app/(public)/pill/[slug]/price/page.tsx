@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation'
 
 import PriceCard from '../pricing/PriceCard'
 import { fetchPill } from '../page'
+import { formatStrength } from './formatStrength'
 
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
@@ -34,7 +35,8 @@ export default async function PillPricePage(
   if (!pill) notFound()
 
   const drugName = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : slug
-  const strength = pill.strength?.trim() || ''
+  const formattedStrength = formatStrength(pill.strength ?? null)
+  const imageUrl = pill.image_url?.trim() || ''
   const genericFor = pill.generic_for?.trim() || ''
   const brandOrGeneric = pill.brand_or_generic
   let descriptor = ''
@@ -55,10 +57,25 @@ export default async function PillPricePage(
       </Link>
 
       <header className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-900">
-          💊 {[drugName, strength].filter(Boolean).join(' ')}
-        </h1>
-        {detailsText ? <p className="text-slate-600 mt-1">{detailsText}</p> : null}
+        <div className="flex items-start gap-4 mb-6">
+          {imageUrl ? (
+            <img
+              src={imageUrl}
+              alt={`${pill.drug_name} pill`}
+              className="w-16 h-16 md:w-20 md:h-20 rounded-lg border border-slate-200 object-contain bg-white"
+            />
+          ) : (
+            <div className="w-16 h-16 md:w-20 md:h-20 rounded-lg border border-slate-200 bg-white flex items-center justify-center">
+              <span className="text-5xl">💊</span>
+            </div>
+          )}
+          <div>
+            <h1 className="text-xl md:text-2xl font-bold text-slate-900">
+              {pill.drug_name}{formattedStrength ? ` ${formattedStrength}` : ''}
+            </h1>
+            {detailsText ? <p className="text-slate-600 mt-1">{detailsText}</p> : null}
+          </div>
+        </div>
       </header>
 
       <PriceCard ndc={pill.ndc} rxcui={pill.rxcui} medicineName={pill.drug_name} />
