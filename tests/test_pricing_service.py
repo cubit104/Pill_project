@@ -69,19 +69,48 @@ def test_get_latest_dataset_metadata_uses_latest_effective_date_row():
     assert metadata["as_of_week"] == "2026-05-14"
 
 
-def test_get_latest_dataset_metadata_uses_fallback_when_catalog_fails():
+def test_get_latest_dataset_metadata_accepts_catalog_list_payload():
+    svc = NADACPricingService()
+    catalog_payload = [
+        {
+            "title": "NADAC (National Average Drug Acquisition Cost) Weekly",
+            "identifier": "dataset-list-123",
+            "modified": "2026-05-18",
+        }
+    ]
+
+    with patch.object(svc, "_request_json", new=AsyncMock(return_value=catalog_payload)), \
+         patch.object(svc, "_fetch_latest_effective_date", new=AsyncMock(return_value=datetime(2026, 5, 14).date())):
+        metadata = asyncio.run(svc._get_latest_dataset_metadata())
+
+    assert metadata["dataset_id"] == "dataset-list-123"
+    assert metadata["as_of_week"] == "2026-05-14"
+
+
+def test_get_latest_dataset_metadata_uses_fallback_when_catalog_raises_unexpected_error():
     svc = NADACPricingService()
 
     with patch("services.pricing_service.NADAC_FALLBACK_DATASET_ID", "fallback-dataset"), \
          patch.object(
              svc,
              "_request_json",
-             new=AsyncMock(side_effect=PricingServiceError("catalog unavailable")),
-         ):
+             new=AsyncMock(side_effect=AttributeError("list has no get")),
+         ), \
+         patch.object(svc, "_fetch_latest_effective_date", new=AsyncMock(side_effect=RuntimeError("date lookup failed"))):
         metadata = asyncio.run(svc._get_latest_dataset_metadata())
 
     assert metadata["dataset_id"] == "fallback-dataset"
     assert metadata["as_of_week"] is None
+
+
+def test_get_latest_dataset_metadata_raises_pricing_service_error_when_no_fallback_and_catalog_fails():
+    svc = NADACPricingService()
+
+    with patch("services.pricing_service.NADAC_FALLBACK_DATASET_ID", ""), \
+         patch("services.pricing_service.os.getenv", return_value=""), \
+         patch.object(svc, "_request_json", new=AsyncMock(side_effect=AttributeError("list has no get"))):
+        with pytest.raises(PricingServiceError, match="NADAC catalog unavailable and no fallback configured"):
+            asyncio.run(svc._get_latest_dataset_metadata())
 
 
 def test_get_price_happy_path_and_fair_range():

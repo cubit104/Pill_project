@@ -67,4 +67,6 @@ Checks returned:
 - `degraded`: database + tables are healthy, but NADAC or RxNav is failing.
 - `down`: database or required pricing tables are failing.
 
-If NADAC catalog lookup fails intermittently, set `NADAC_FALLBACK_DATASET_ID` to a known-good NADAC dataset UUID so pricing can continue while catalog metadata is unavailable.
+CMS catalog responses can be either a top-level JSON list or an object (`results`/`items`), so the pricing service defensively handles both response shapes.
+
+If NADAC catalog lookup fails intermittently (or parsing fails unexpectedly), set `NADAC_FALLBACK_DATASET_ID` to a known-good NADAC dataset UUID so pricing can continue while catalog metadata is unavailable.

@@ -114,7 +114,7 @@ class NADACPricingService:
         except (InvalidOperation, TypeError, ValueError):
             return None
 
-    async def _request_json(self, url: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _request_json(self, url: str, *, params: dict[str, Any] | None = None) -> Any:
         last_exc: Exception | None = None
         for attempt in range(3):
             try:
@@ -185,8 +185,22 @@ class NADACPricingService:
 
         try:
             payload = await self._request_json(self.nadac_catalog_url, params={"limit": 2000})
-            items = payload.get("results") or payload.get("items") or payload.get("result") or payload
-            if not isinstance(items, list):
+            if isinstance(payload, list):
+                items = payload
+            elif isinstance(payload, dict):
+                items = (
+                    payload.get("results")
+                    or payload.get("items")
+                    or payload.get("result")
+                    or payload.get("dataset")
+                    or []
+                )
+                if not isinstance(items, list):
+                    items = []
+            else:
+                items = []
+
+            if not items:
                 raise PricingServiceError("Unexpected NADAC catalog response shape")
 
             candidates: list[tuple[datetime, dict[str, Any], str]] = []
@@ -220,21 +234,27 @@ class NADACPricingService:
                 "as_of_week": as_of_week.isoformat() if as_of_week else None,
                 "title": item.get("title") or item.get("name") or "NADAC",
             }
-        except PricingServiceError:
-            if not NADAC_FALLBACK_DATASET_ID:
-                raise
-            logger.warning(
-                "Falling back to NADAC_FALLBACK_DATASET_ID because catalog lookup failed: %s",
-                NADAC_FALLBACK_DATASET_ID,
-            )
+            self._metadata_cache = metadata
+            self._metadata_cached_at = now
+            return metadata
+        except Exception as exc:
+            logger.exception("NADAC catalog lookup failed; attempting fallback dataset id")
+            fallback_id = os.getenv("NADAC_FALLBACK_DATASET_ID") or NADAC_FALLBACK_DATASET_ID
+            if not fallback_id:
+                raise PricingServiceError("NADAC catalog unavailable and no fallback configured") from exc
             metadata = {
-                "dataset_id": NADAC_FALLBACK_DATASET_ID,
+                "dataset_id": fallback_id,
                 "as_of_week": None,
-                "title": "NADAC (fallback dataset)",
+                "title": "NADAC (fallback)",
             }
-        self._metadata_cache = metadata
-        self._metadata_cached_at = now
-        return metadata
+            try:
+                as_of_week = await self._fetch_latest_effective_date(fallback_id)
+                metadata["as_of_week"] = as_of_week.isoformat() if as_of_week else None
+            except Exception:
+                logger.exception("Unable to derive latest effective date for fallback NADAC dataset")
+            self._metadata_cache = metadata
+            self._metadata_cached_at = now
+            return metadata
 
     def _nadac_query_url(self, dataset_id: str) -> str:
         return f"{self.nadac_api_base_url.rstrip('/')}/datastore/query/{dataset_id}/0"
@@ -249,6 +269,8 @@ class NADACPricingService:
                     "limit": 1,
                 },
             )
+            if not isinstance(payload, dict):
+                raise PricingServiceError("Unexpected NADAC dataset response shape for effective date lookup")
             rows = payload.get("results") or payload.get("result") or []
             if not isinstance(rows, list) or not rows:
                 return None
@@ -309,6 +331,8 @@ class NADACPricingService:
                 "limit": 1,
             }
             payload = await self._request_json(url, params=params)
+            if not isinstance(payload, dict):
+                raise PricingServiceError(f"Unexpected NADAC query response shape for NDC field '{ndc_field}'")
             rows = payload.get("results") or payload.get("result") or []
             if not isinstance(rows, list) or not rows:
                 continue
@@ -545,6 +569,8 @@ class NADACPricingService:
                     "limit": weeks,
                 },
             )
+            if not isinstance(payload, dict):
+                raise PricingServiceError(f"Unexpected NADAC history response shape for NDC field '{ndc_field}'")
             records = payload.get("results") or payload.get("result") or []
             if isinstance(records, list) and records:
                 rows = records
@@ -596,22 +622,39 @@ class NADACPricingService:
             for row in parsed_rows[-weeks:]
         ]
 
-    async def _rxnav_json(self, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _rxnav_json(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
         url = f"{self.rxnav_base_url.rstrip('/')}{path}"
         return await self._request_json(url, params=params)
 
     async def _ndc_to_rxcui(self, ndc_digits: str) -> str | None:
         payload = await self._rxnav_json("/REST/ndcstatus.json", params={"ndc": ndc_digits})
+        if not isinstance(payload, dict):
+            raise PricingServiceError("Unexpected RxNav ndcstatus response shape")
         status = payload.get("ndcStatus") or {}
+        if not isinstance(status, dict):
+            return None
         value = status.get("rxcui")
         return str(value) if value else None
 
     async def _ingredient_for_rxcui(self, rxcui: str) -> dict[str, str] | None:
         payload = await self._rxnav_json(f"/REST/rxcui/{rxcui}/related.json", params={"tty": "IN+PIN"})
-        groups = (payload.get("relatedGroup") or {}).get("conceptGroup") or []
+        if not isinstance(payload, dict):
+            raise PricingServiceError("Unexpected RxNav related response shape")
+        related_group = payload.get("relatedGroup") or {}
+        if not isinstance(related_group, dict):
+            return None
+        groups = related_group.get("conceptGroup") or []
+        if not isinstance(groups, list):
+            return None
         for group in groups:
+            if not isinstance(group, dict):
+                continue
             props = group.get("conceptProperties") or []
+            if not isinstance(props, list):
+                continue
             for prop in props:
+                if not isinstance(prop, dict):
+                    continue
                 ingredient_name = prop.get("name")
                 ingredient_rxcui = prop.get("rxcui")
                 if ingredient_name and ingredient_rxcui:
@@ -636,10 +679,23 @@ class NADACPricingService:
                 return ingredient
 
         payload = await self._rxnav_json("/REST/drugs.json", params={"name": token})
-        groups = (payload.get("drugGroup") or {}).get("conceptGroup") or []
+        if not isinstance(payload, dict):
+            raise PricingServiceError("Unexpected RxNav drugs response shape")
+        drug_group = payload.get("drugGroup") or {}
+        if not isinstance(drug_group, dict):
+            return None
+        groups = drug_group.get("conceptGroup") or []
+        if not isinstance(groups, list):
+            return None
         for group in groups:
+            if not isinstance(group, dict):
+                continue
             props = group.get("conceptProperties") or []
+            if not isinstance(props, list):
+                continue
             for prop in props:
+                if not isinstance(prop, dict):
+                    continue
                 rxcui = prop.get("rxcui")
                 if not rxcui:
                     continue
@@ -653,11 +709,24 @@ class NADACPricingService:
             f"/REST/rxcui/{ingredient_rxcui}/related.json",
             params={"tty": "SCD+SBD+GPCK+BPCK"},
         )
-        groups = (payload.get("relatedGroup") or {}).get("conceptGroup") or []
+        if not isinstance(payload, dict):
+            raise PricingServiceError("Unexpected RxNav related products response shape")
+        related_group = payload.get("relatedGroup") or {}
+        if not isinstance(related_group, dict):
+            return []
+        groups = related_group.get("conceptGroup") or []
+        if not isinstance(groups, list):
+            return []
         out: list[dict[str, str]] = []
         for group in groups:
+            if not isinstance(group, dict):
+                continue
             props = group.get("conceptProperties") or []
+            if not isinstance(props, list):
+                continue
             for prop in props:
+                if not isinstance(prop, dict):
+                    continue
                 rxcui = prop.get("rxcui")
                 if rxcui:
                     out.append(
@@ -674,9 +743,17 @@ class NADACPricingService:
 
     async def _ndcs_for_rxcui(self, rxcui: str) -> list[str]:
         payload = await self._rxnav_json(f"/REST/rxcui/{rxcui}/ndcs.json")
+        if not isinstance(payload, dict):
+            raise PricingServiceError("Unexpected RxNav NDC list response shape")
         ndc_group = payload.get("ndcGroup") or {}
+        if not isinstance(ndc_group, dict):
+            return []
         ndc_list = ndc_group.get("ndcList") or {}
+        if not isinstance(ndc_list, dict):
+            return []
         ndcs = ndc_list.get("ndc") or []
+        if not isinstance(ndcs, list):
+            return []
         normalized: list[str] = []
         for raw in ndcs:
             ndc_digits = self._normalize_ndc_digits(str(raw))
@@ -819,6 +896,8 @@ class NADACPricingService:
             )
 
         payload = await self._request_json(url, params=params)
+        if not isinstance(payload, dict):
+            raise PricingServiceError("Unexpected NADAC latest-week response shape")
         rows = payload.get("results") or payload.get("result") or []
         if not isinstance(rows, list):
             rows = []
