@@ -7,57 +7,55 @@ export interface AlternativePrice {
   price_per_unit: number
   unit: string
   effective_date: string
+  is_cheapest?: boolean
 }
 
-export default function AlternativesTable({ alternatives }: { alternatives: AlternativePrice[] }) {
+export default function AlternativesTable({
+  alternatives,
+  genericVsBrandRatio,
+}: {
+  alternatives: AlternativePrice[]
+  genericVsBrandRatio?: number | null
+}) {
   if (!alternatives.length) return null
 
-  const sorted = [...alternatives].sort((a, b) => a.price_per_unit - b.price_per_unit)
-  const cheapest = sorted[0]
-  const brands = sorted.filter((row) => row.kind === 'brand')
-  const generics = sorted.filter((row) => row.kind !== 'brand')
-  const brand = brands[0]
-  const generic = generics[0]
-  const savingsMultiple = brand && generic && generic.price_per_unit > 0
-    ? (brand.price_per_unit / generic.price_per_unit).toFixed(1)
-    : null
-
   return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6" aria-label="Compare alternatives">
-      <h3 className="text-base font-semibold text-slate-900 mb-3">Compare alternatives</h3>
+    <div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm" aria-label="NADAC alternative prices">
           <thead>
             <tr className="text-left text-slate-500 border-b border-slate-200">
-              <th scope="col" className="py-2 pr-3">Type</th>
-              <th scope="col" className="py-2 pr-3">Product</th>
-              <th scope="col" className="py-2 pr-3">NDC</th>
-              <th scope="col" className="py-2 pr-3">Price / unit</th>
-              <th scope="col" className="py-2">Effective</th>
+              <th scope="col" className="py-2 pr-3">Drug</th>
+              <th scope="col" className="py-2 pr-3">Per-unit cost</th>
+              <th scope="col" className="py-2">30-day supply</th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map((row) => {
-              const isCheapest = row.ndc === cheapest.ndc
-              return (
-                <tr key={row.ndc} className={`border-b border-slate-100 ${isCheapest ? 'bg-emerald-50/70' : ''}`}>
-                  <td className="py-2 pr-3 capitalize">{row.kind || 'generic'}</td>
-                  <td className="py-2 pr-3">{row.name || '—'}</td>
-                  <td className="py-2 pr-3 font-mono text-xs text-slate-700">{row.ndc}</td>
-                  <td className="py-2 pr-3 font-medium text-slate-900">${row.price_per_unit.toFixed(2)} / {row.unit}</td>
-                  <td className="py-2 text-slate-600">{row.effective_date}</td>
-                </tr>
-              )
-            })}
+            {alternatives.map((row) => (
+              <tr key={row.ndc} className={`border-b border-slate-100 ${row.is_cheapest ? 'bg-emerald-50/70' : ''}`}>
+                <td className="py-2 pr-3">
+                  <span className="capitalize text-slate-700">{row.kind || 'generic'}</span>
+                  {' — '}
+                  <span className="text-slate-900">{row.name || '—'}</span>
+                  {row.is_cheapest && (
+                    <span className="ml-2 inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                      ← cheapest
+                    </span>
+                  )}
+                </td>
+                <td className="py-2 pr-3 font-medium text-slate-900">${row.price_per_unit.toFixed(2)} / {row.unit}</td>
+                <td className="py-2 text-slate-700">${(row.price_per_unit * 30).toFixed(2)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
 
-      {savingsMultiple && (
+      {genericVsBrandRatio != null && genericVsBrandRatio >= 2 && (
         <p className="mt-3 text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-          Generic is {savingsMultiple}x cheaper than the brand. Ask your doctor if the generic is appropriate.
+          💡 Generic is <strong>{genericVsBrandRatio}×</strong> cheaper than the brand. Ask your doctor if the generic is appropriate for you.
         </p>
       )}
-    </section>
+    </div>
   )
 }

@@ -25,6 +25,7 @@ interface PriceResponse {
 
 interface AlternativesResponse {
   alternatives: AlternativePrice[]
+  generic_vs_brand_ratio?: number | null
 }
 
 interface HistoryResponse {
@@ -40,10 +41,16 @@ function formatNdcForDisplay(ndc?: string): string | null {
   return `${digits.slice(0, 5)}-${digits.slice(5, 9)}-${digits.slice(9)}`
 }
 
+function unitLabel(unit: string): string {
+  if (unit === 'EA') return 'tablet'
+  return unit
+}
+
 interface PriceCardInitialData {
   price: PriceResponse
   alternatives?: AlternativePrice[]
   history?: PriceHistoryPoint[]
+  generic_vs_brand_ratio?: number | null
 }
 
 export default function PriceCard({
@@ -61,6 +68,7 @@ export default function PriceCard({
   const [price, setPrice] = useState<PriceResponse | null>(initialData?.price || null)
   const [alternatives, setAlternatives] = useState<AlternativePrice[]>(initialData?.alternatives || [])
   const [history, setHistory] = useState<PriceHistoryPoint[]>(initialData?.history || [])
+  const [genericVsBrandRatio, setGenericVsBrandRatio] = useState<number | null | undefined>(initialData?.generic_vs_brand_ratio)
   const [loading, setLoading] = useState<boolean>(hasIdentifier && !initialData)
   const [fetchError, setFetchError] = useState<boolean>(false)
   const [retryCount, setRetryCount] = useState<number>(0)
@@ -113,12 +121,14 @@ export default function PriceCard({
         if (!priceData) {
           setAlternatives([])
           setHistory([])
+          setGenericVsBrandRatio(null)
           return
         }
 
         if (!ndc) {
           setAlternatives([])
           setHistory([])
+          setGenericVsBrandRatio(null)
           return
         }
 
@@ -130,6 +140,7 @@ export default function PriceCard({
         if (cancelled) return
         setAlternatives(alternativesData?.alternatives || [])
         setHistory(historyData?.history || [])
+        setGenericVsBrandRatio(alternativesData?.generic_vs_brand_ratio ?? null)
       } catch {
         if (!cancelled) {
           setPrice(null)
@@ -137,6 +148,7 @@ export default function PriceCard({
           setFetchError(true)
           setAlternatives([])
           setHistory([])
+          setGenericVsBrandRatio(null)
         }
       }
     }
@@ -214,54 +226,70 @@ export default function PriceCard({
   }
 
   return (
-    <section className="space-y-4" aria-label="Pharmacy cost benchmark">
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Pharmacy Cost Benchmark</h2>
-        {price.match_type === 'equivalent' && (
-          <div className="mt-2 text-xs text-slate-500 space-y-1" role="note">
-            <p>
-              ℹ Pricing shown is for a therapeutically equivalent product (same active ingredient, strength, and dose
-              form). The exact NDC on this page is not currently in the NADAC weekly file.
-            </p>
-            {price.matched_ndc && <p>Equivalent NDC: {formatNdcForDisplay(price.matched_ndc)}</p>}
-          </div>
-        )}
-        {price.match_type === 'approximate' && (
-          <div className="mt-2 text-xs text-slate-500 space-y-1" role="note">
-            <p>Pricing shown is an estimate based on the active ingredient. The exact strength, dose form, and packaging may differ from this pill.</p>
-            {price.resolved_ingredient && <p>Estimated from: {price.resolved_ingredient}</p>}
-          </div>
-        )}
-        <p className="text-3xl font-bold text-slate-900 mt-2">${price.price_per_unit.toFixed(2)} <span className="text-base font-medium text-slate-500">/ {price.unit}</span></p>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden" aria-label="Pharmacy cost benchmark">
+
+      {/* ── Section 1: 💰 Pharmacy Cost Benchmark ── */}
+      <div className="bg-gradient-to-r from-emerald-50 to-white px-6 pt-5 pb-1">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">💰&nbsp; Pharmacy Cost Benchmark</h3>
+      </div>
+      <div className="px-6 pb-5 pt-3">
+        <p className="text-4xl font-bold text-slate-900">
+          ${price.price_per_unit.toFixed(2)}{' '}
+          <span className="text-base font-medium text-slate-500">/ {unitLabel(price.unit)}</span>
+        </p>
         <p className="text-sm text-slate-600 mt-2">
-          30-day acquisition estimate: <span className="font-semibold text-slate-900">${price.total_acquisition_cost.toFixed(2)}</span>
-          {ninetyDay !== null && <span> · 90-day: <span className="font-semibold text-slate-900">${ninetyDay.toFixed(2)}</span></span>}
+          30-day estimate: <span className="font-semibold text-slate-900">${price.total_acquisition_cost.toFixed(2)}</span>
+          {ninetyDay !== null && (
+            <span> · 90-day: <span className="font-semibold text-slate-900">${ninetyDay.toFixed(2)}</span></span>
+          )}
         </p>
         <p className="text-xs text-slate-500 mt-1">Source: {price.source} · Effective: {price.effective_date}</p>
+        {price.match_type === 'equivalent' && (
+          <p className="mt-2 text-xs text-slate-500" role="note">
+            ⓘ Pricing shown is for a therapeutically equivalent product (same active ingredient, strength, and dose form).
+            {price.matched_ndc && <span> Equivalent NDC: {formatNdcForDisplay(price.matched_ndc)}</span>}
+          </p>
+        )}
+        {price.match_type === 'approximate' && (
+          <p className="mt-2 text-xs text-slate-500" role="note">
+            ⓘ Pricing shown is an estimate based on the active ingredient. The exact strength, dose form, and packaging may differ.
+            {price.resolved_ingredient && <span> Estimated from: {price.resolved_ingredient}</span>}
+          </p>
+        )}
+        <div className="mt-4">
+          <p className="text-sm font-medium text-slate-700">Estimated fair retail range</p>
+          <p className="text-xl font-semibold text-emerald-700">${price.fair_retail_low.toFixed(2)} – ${price.fair_retail_high.toFixed(2)}</p>
+          <p className="text-xs text-slate-500 mt-0.5">For a typical 30-day supply (1 unit/day).</p>
+        </div>
       </div>
 
-      <div className="bg-sky-50 border border-sky-200 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-sky-900 mb-1">What this means</h3>
-        <p className="text-sm text-sky-800">NADAC is an official benchmark for what pharmacies pay to acquire a drug, not a coupon or your final checkout price.</p>
+      {/* ── Section 2: 🔄 Compare Alternatives ── */}
+      <div className="border-t border-slate-100 px-6 py-5">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">🔄&nbsp; Compare Alternatives</h3>
+        <AlternativesTable alternatives={alternatives} genericVsBrandRatio={genericVsBrandRatio} />
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-        <h3 className="text-base font-semibold text-slate-900 mb-2">Estimated fair retail range</h3>
-        <p className="text-2xl font-semibold text-emerald-700">${price.fair_retail_low.toFixed(2)} – ${price.fair_retail_high.toFixed(2)}</p>
-        <p className="text-xs text-slate-500 mt-1">For a typical 30-day supply (1 unit/day).</p>
+      {/* ── Section 3: 📈 Price History ── */}
+      <div className="border-t border-slate-100 px-6 py-5">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">📈&nbsp; Price History (last 12 months)</h3>
+        {history.length > 0 ? (
+          <PriceHistorySparkline history={history} />
+        ) : (
+          <p className="text-sm text-slate-500">
+            Historical data starts collecting today — check back in a few weeks.
+          </p>
+        )}
       </div>
 
-      <AlternativesTable alternatives={alternatives} />
-      <PriceHistorySparkline history={history} />
-
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-        <h3 className="text-sm font-semibold text-slate-900 mb-2">Important disclaimers</h3>
+      {/* ── Section 4: ⚠️ Important ── */}
+      <div className="border-t border-slate-100 px-6 py-5">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-2">⚠️&nbsp; Important</h3>
         <ul className="list-disc ml-5 text-xs text-slate-600 space-y-1">
           {(price.disclaimers || []).map((item) => (
             <li key={item}>{item}</li>
           ))}
         </ul>
       </div>
-    </section>
+    </div>
   )
 }
