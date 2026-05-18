@@ -50,6 +50,67 @@ def test_request_json_retries_on_429_with_retry_after():
     assert mock_get.call_count == 2
 
 
+def test_ingredient_for_rxcui_uses_literal_plus_in_tty_param():
+    svc = NADACPricingService()
+    payload = {
+        "relatedGroup": {
+            "conceptGroup": [
+                {"conceptProperties": [{"name": "clopidogrel", "rxcui": "32968"}]},
+            ]
+        }
+    }
+
+    with patch(
+        "httpx.AsyncClient.get",
+        new=AsyncMock(
+            return_value=httpx.Response(
+                200,
+                json=payload,
+                request=httpx.Request("GET", "https://rxnav.nlm.nih.gov/REST/rxcui/213169/related.json?tty=IN+PIN"),
+            )
+        ),
+    ) as mock_get:
+        result = asyncio.run(svc._ingredient_for_rxcui("213169"))
+
+    called_url = str(mock_get.await_args.args[0])
+    assert "tty=IN+PIN" in called_url
+    assert "tty=IN%2BPIN" not in called_url
+    assert mock_get.await_args.kwargs["params"] is None
+    assert result == {"name": "clopidogrel", "rxcui": "32968"}
+
+
+def test_related_product_rxcuis_uses_literal_plus_in_tty_param():
+    svc = NADACPricingService()
+    payload = {
+        "relatedGroup": {
+            "conceptGroup": [
+                {"conceptProperties": [{"name": "Clopidogrel 75 MG Oral Tablet", "rxcui": "111", "tty": "SCD"}]},
+            ]
+        }
+    }
+
+    with patch(
+        "httpx.AsyncClient.get",
+        new=AsyncMock(
+            return_value=httpx.Response(
+                200,
+                json=payload,
+                request=httpx.Request(
+                    "GET",
+                    "https://rxnav.nlm.nih.gov/REST/rxcui/32968/related.json?tty=SCD+SBD+GPCK+BPCK",
+                ),
+            )
+        ),
+    ) as mock_get:
+        result = asyncio.run(svc._related_product_rxcuis("32968"))
+
+    called_url = str(mock_get.await_args.args[0])
+    assert "tty=SCD+SBD+GPCK+BPCK" in called_url
+    assert "tty=SCD%2BSBD%2BGPCK%2BBPCK" not in called_url
+    assert mock_get.await_args.kwargs["params"] is None
+    assert result == [{"rxcui": "111", "name": "Clopidogrel 75 MG Oral Tablet", "tty": "SCD"}]
+
+
 def test_request_json_surfaces_http_status_error_details_and_logs_exception():
     svc = NADACPricingService()
     body = "x" * 600
@@ -731,6 +792,70 @@ def test_get_price_by_name_resolves_to_rxcui_then_to_price():
     assert result["match_type"] == "approximate"
     assert result["resolved_ingredient"] == "metformin"
     assert result["resolved_rxcui"] == "6809"
+
+
+def test_get_price_by_name_resolves_successfully():
+    svc = NADACPricingService()
+
+    async def _mock_request_json(url, *, method="GET", params=None, json_body=None):
+        if url.endswith("/REST/drugs.json"):
+            return {
+                "drugGroup": {
+                    "conceptGroup": [
+                        {"conceptProperties": [{"rxcui": "213169", "name": "Plavix 75 MG Oral Tablet"}]},
+                    ]
+                }
+            }
+        if url.endswith("/REST/rxcui/213169/related.json?tty=IN+PIN"):
+            return {
+                "relatedGroup": {
+                    "conceptGroup": [
+                        {"conceptProperties": [{"rxcui": "32968", "name": "clopidogrel"}]},
+                    ]
+                }
+            }
+        if url.endswith("/REST/rxcui/32968/ndcs.json"):
+            return {"ndcGroup": {"ndcList": {"ndc": ["00074-2130-13", "00074-2130-90"]}}}
+        raise AssertionError(f"Unexpected URL: {url} params={params} method={method} json_body={json_body}")
+
+    with patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds", "as_of_week": "2026-05-14"})), \
+         patch.object(
+             svc,
+             "_resolve_column_map",
+             new=AsyncMock(return_value={"ndc": "ndc", "effective_date": "effective_date", "price": "nadac_per_unit", "unit": "pricing_unit"}),
+         ), \
+         patch.object(
+             svc,
+             "_request_datastore_query",
+             new=AsyncMock(
+                 return_value={
+                     "results": [
+                         {
+                             "ndc": "00074213013",
+                             "effective_date": "2026-05-14",
+                             "nadac_per_unit": "0.85",
+                             "pricing_unit": "EA",
+                         },
+                         {
+                             "ndc": "00074213090",
+                             "effective_date": "2026-05-14",
+                             "nadac_per_unit": "0.65",
+                             "pricing_unit": "EA",
+                         },
+                     ]
+                 }
+             ),
+         ), \
+         patch.object(svc, "_upsert_price_cache", return_value=None), \
+         patch.object(svc, "_request_json", new=AsyncMock(side_effect=_mock_request_json)):
+        result = asyncio.run(svc.get_price_by_name("plavix"))
+
+    assert result["match_type"] == "approximate"
+    assert result["resolved_ingredient"] == "clopidogrel"
+    assert result["resolved_rxcui"] == "32968"
+    assert result["price_per_unit"] == 0.65
+    assert result["total_acquisition_cost"] == 19.5
 
 
 def test_get_price_by_name_raises_when_ingredient_unresolvable():
