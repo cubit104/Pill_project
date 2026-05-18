@@ -1438,13 +1438,46 @@ class NADACPricingService:
         if not alternatives:
             raise PricingNotFoundError("No NADAC alternatives found for this ingredient")
 
+        # Deduplicate: group by (normalized_name, kind), keep cheapest per group.
+        # This prevents 30+ rows for the same product at the same price.
+        deduped: dict[tuple[str, str], dict[str, Any]] = {}
+        for alt in alternatives:
+            name_key = (alt.get("name") or "").strip().lower()
+            kind_key = alt.get("kind") or "generic"
+            group_key = (name_key, kind_key)
+            if group_key not in deduped or alt["price_per_unit"] < deduped[group_key]["price_per_unit"]:
+                deduped[group_key] = alt
+        alternatives = list(deduped.values())
+
+        # Sort ascending by price so cheapest is first.
         alternatives.sort(key=lambda row: row["price_per_unit"])
-        return {
+
+        # Limit to top 5 unique products.
+        alternatives = alternatives[:5]
+
+        # Mark the single cheapest result.
+        for i, alt in enumerate(alternatives):
+            alt["is_cheapest"] = i == 0
+
+        # Compute generic_vs_brand_ratio when both brand and generic exist.
+        brands = [a for a in alternatives if a.get("kind") == "brand"]
+        generics = [a for a in alternatives if a.get("kind") != "brand"]
+        generic_vs_brand_ratio: int | None = None
+        if brands and generics:
+            max_brand_price = max(b["price_per_unit"] for b in brands)
+            min_generic_price = min(g["price_per_unit"] for g in generics)
+            if min_generic_price > 0:
+                generic_vs_brand_ratio = round(max_brand_price / min_generic_price)
+
+        result: dict[str, Any] = {
             "ingredient": ingredient["name"],
             "ingredient_rxcui": ingredient["rxcui"],
             "alternatives": alternatives,
             "disclaimers": DEFAULT_DISCLAIMERS,
         }
+        if generic_vs_brand_ratio is not None:
+            result["generic_vs_brand_ratio"] = generic_vs_brand_ratio
+        return result
 
     async def fetch_latest_week_rows(self, *, limit: int = 5000, offset: int = 0) -> tuple[str | None, list[dict[str, Any]]]:
         metadata = await self._get_latest_dataset_metadata()

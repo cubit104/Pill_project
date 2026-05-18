@@ -95,7 +95,7 @@ def test_get_alternatives_success(client):
         "ingredient": "LISINOPRIL",
         "ingredient_rxcui": "1234",
         "alternatives": [
-            {"ndc": "00002140102", "price_per_unit": 0.25, "unit": "EA", "effective_date": "2026-05-14", "source": "NADAC (CMS)"}
+            {"ndc": "00002140102", "price_per_unit": 0.25, "unit": "EA", "effective_date": "2026-05-14", "source": "NADAC (CMS)", "is_cheapest": True}
         ],
     }
     with patch("routes.prices.pricing_service.get_alternatives_by_ingredient", new=AsyncMock(return_value=payload)):
@@ -106,6 +106,69 @@ def test_get_alternatives_success(client):
     assert data["ingredient"] == "LISINOPRIL"
     assert len(data["alternatives"]) == 1
     assert len(data["disclaimers"]) == 3
+
+
+def test_get_alternatives_returns_at_most_5_rows_sorted_ascending(client):
+    """Alternatives endpoint forwards the already-deduped/sorted/limited list from the service."""
+    alts = [
+        {"ndc": f"0000000000{i}", "name": f"Drug {i}", "kind": "generic",
+         "price_per_unit": float(i) * 0.10, "unit": "EA",
+         "effective_date": "2026-05-14", "source": "NADAC (CMS)",
+         "is_cheapest": i == 1}
+        for i in range(1, 6)
+    ]
+    payload = {
+        "ingredient": "TEST",
+        "ingredient_rxcui": "9999",
+        "alternatives": alts,
+    }
+    with patch("routes.prices.pricing_service.get_alternatives_by_ingredient", new=AsyncMock(return_value=payload)):
+        resp = client.get("/api/prices/00002-1401-02/alternatives")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    result_alts = data["alternatives"]
+    assert len(result_alts) <= 5
+    prices = [a["price_per_unit"] for a in result_alts]
+    assert prices == sorted(prices), "Alternatives must be sorted ascending by price"
+    assert result_alts[0].get("is_cheapest") is True, "First row must have is_cheapest=True"
+
+
+def test_get_alternatives_includes_generic_vs_brand_ratio_when_present(client):
+    payload = {
+        "ingredient": "CLOPIDOGREL",
+        "ingredient_rxcui": "32968",
+        "alternatives": [
+            {"ndc": "00093012301", "name": "clopidogrel 75 MG Oral Tablet", "kind": "generic",
+             "price_per_unit": 0.05, "unit": "EA", "effective_date": "2026-05-14", "is_cheapest": True},
+            {"ndc": "00071015423", "name": "Plavix 75 MG Oral Tablet", "kind": "brand",
+             "price_per_unit": 8.06, "unit": "EA", "effective_date": "2026-05-14", "is_cheapest": False},
+        ],
+        "generic_vs_brand_ratio": 161,
+    }
+    with patch("routes.prices.pricing_service.get_alternatives_by_ingredient", new=AsyncMock(return_value=payload)):
+        resp = client.get("/api/prices/00002-1401-02/alternatives")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("generic_vs_brand_ratio") == 161
+
+
+def test_get_alternatives_no_ratio_when_omitted(client):
+    payload = {
+        "ingredient": "METFORMIN",
+        "ingredient_rxcui": "6809",
+        "alternatives": [
+            {"ndc": "00093102901", "name": "metformin 500 MG Oral Tablet", "kind": "generic",
+             "price_per_unit": 0.04, "unit": "EA", "effective_date": "2026-05-14", "is_cheapest": True},
+        ],
+    }
+    with patch("routes.prices.pricing_service.get_alternatives_by_ingredient", new=AsyncMock(return_value=payload)):
+        resp = client.get("/api/prices/00002-1401-02/alternatives")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "generic_vs_brand_ratio" not in data
 
 
 def test_get_alternatives_404(client):
