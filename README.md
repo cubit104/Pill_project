@@ -18,6 +18,7 @@ pillseek.com → Render → FastAPI serves everything
 - Autocomplete suggestions for drug names and imprints
 - Filter lists for colors and shapes
 - Full pill detail pages with SEO-friendly URLs (`/pill/{slug}`)
+- NADAC-based **Pharmacy Cost Benchmark** (official CMS acquisition-cost pricing)
 - Image gallery/carousel per pill
 - NDC code lookup
 - XML sitemap at `/sitemap.xml`
@@ -149,6 +150,9 @@ This runs `pip install -r requirements.txt` and then builds the Next.js frontend
 | `GET` | `/ndc_lookup` | Lookup pill by NDC code (JSON) |
 | `GET` | `/api/pill/{slug}` | Get pill by URL slug (JSON, used by frontend) |
 | `GET` | `/pill/{slug}` | Serves pill detail page (Next.js HTML) |
+| `GET` | `/api/prices/{ndc}` | NADAC benchmark + fair retail estimate |
+| `GET` | `/api/prices/{ndc}/alternatives` | NADAC alternatives by active ingredient |
+| `GET` | `/api/prices/{ndc}/history?weeks=52` | Weekly NADAC history points |
 
 ### Filters & Suggestions
 
@@ -195,6 +199,29 @@ The `pillfinder` table includes these key columns for the frontend:
 pip install pytest httpx
 pytest tests/
 ```
+
+## Pricing (NADAC Pharmacy Cost Benchmark)
+
+- Source: CMS/data.medicaid.gov NADAC weekly data (free, official US government data)
+- Purpose: show pharmacy acquisition-cost benchmark, not coupons and not out-of-pocket guarantees
+- API route: `GET /api/prices/{ndc}` with `days_supply` and `units_per_day`
+- Disclaimers are returned by API and shown in UI on the pill detail page
+
+### Weekly refresh
+
+```bash
+python scripts/refresh_nadac.py --page-size 5000
+```
+
+GitHub Actions workflow: `.github/workflows/refresh-nadac.yml` (every Wednesday 14:00 UTC).
+
+Required env vars:
+
+- `DATABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `NADAC_API_BASE_URL` (optional override)
+- `NADAC_CATALOG_URL` (optional override)
+- `RXNAV_API_BASE_URL` (optional override)
 
 ## Frontend Development
 
