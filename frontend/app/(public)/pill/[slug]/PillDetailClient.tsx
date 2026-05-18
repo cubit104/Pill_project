@@ -351,29 +351,14 @@ export default function PillDetailClient({
           </section>
         )}
 
-        {/* Medical Information + Price summary */}
+        {/* Drug Indication */}
         {pill.indication && (
-          <section className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-6" data-testid="medical-price-grid">
-            <div className="md:col-span-3">
-              <DrugIndicationSection
-                indication={pill.indication}
-                drugName={pill.drug_name}
-                imprint={pill.imprint}
-                conditionTags={conditionTags}
-                className="mb-0 h-full"
-              />
-            </div>
-            <div className="md:col-span-2">
-              {resolvedSlug && (pill.ndc || pill.rxcui || pill.drug_name) && (
-                <PriceSummaryCard
-                  slug={resolvedSlug}
-                  ndc={pill.ndc}
-                  rxcui={pill.rxcui}
-                  medicineName={pill.drug_name}
-                />
-              )}
-            </div>
-          </section>
+          <DrugIndicationSection
+            indication={pill.indication}
+            drugName={pill.drug_name}
+            imprint={pill.imprint}
+            conditionTags={conditionTags}
+          />
         )}
 
         {/* Safety Checklist */}
@@ -487,19 +472,31 @@ export default function PillDetailClient({
         {/* Generic fallback when neither official guide nor summary flags are available. */}
         {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary !== true && (
           <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mt-6">
-            <h2 className="text-xl font-semibold text-slate-900 mb-2">
-              Medication Information
-            </h2>
-            <p className="text-slate-600 mb-4">
-              Read prescribing information and professional label data sourced from FDA/DailyMed.
-            </p>
-            <Link
-              href={`/pill/${resolvedSlug}/medication-guide`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
-            >
-              Read Medication Information
-              <span aria-hidden="true">→</span>
-            </Link>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-5 md:items-start" data-testid="medication-info-grid">
+              <div className="md:col-span-3">
+                <h2 className="text-xl font-semibold text-slate-900 mb-2">
+                  Medication Information
+                </h2>
+                <p className="text-slate-600 mb-4">
+                  Read prescribing information and professional label data sourced from FDA/DailyMed.
+                </p>
+                <Link
+                  href={`/pill/${resolvedSlug}/medication-guide`}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
+                >
+                  Read Medication Information
+                  <span aria-hidden="true">→</span>
+                </Link>
+              </div>
+              <div className="md:col-span-2">
+                <PriceSummaryCard
+                  slug={resolvedSlug}
+                  ndc={pill.ndc}
+                  rxcui={pill.rxcui}
+                  medicineName={pill.drug_name}
+                />
+              </div>
+            </div>
           </section>
         )}
 
