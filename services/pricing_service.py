@@ -1179,7 +1179,8 @@ class NADACPricingService:
         return str(value) if value else None
 
     async def _ingredient_for_rxcui(self, rxcui: str) -> dict[str, str] | None:
-        payload = await self._rxnav_json(f"/REST/rxcui/{rxcui}/related.json", params={"tty": "IN+PIN"})
+        # RxNav expects tty multi-values joined by a literal '+'; using params= would encode it as '%2B' and 400.
+        payload = await self._rxnav_json(f"/REST/rxcui/{rxcui}/related.json?tty=IN+PIN")
         if not isinstance(payload, dict):
             raise PricingServiceError("Unexpected RxNav related response shape")
         related_group = payload.get("relatedGroup") or {}
@@ -1247,9 +1248,9 @@ class NADACPricingService:
         return None
 
     async def _related_product_rxcuis(self, ingredient_rxcui: str) -> list[dict[str, str]]:
+        # RxNav expects tty multi-values joined by a literal '+'; keep query inline to avoid '%2B' encoding.
         payload = await self._rxnav_json(
-            f"/REST/rxcui/{ingredient_rxcui}/related.json",
-            params={"tty": "SCD+SBD+GPCK+BPCK"},
+            f"/REST/rxcui/{ingredient_rxcui}/related.json?tty=SCD+SBD+GPCK+BPCK",
         )
         if not isinstance(payload, dict):
             raise PricingServiceError("Unexpected RxNav related products response shape")
