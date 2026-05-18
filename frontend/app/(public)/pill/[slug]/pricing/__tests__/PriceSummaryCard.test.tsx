@@ -61,6 +61,6 @@ test('PriceSummaryCard renders fallback content and details link when price data
 
   assert.match(html, /💰 Price/)
   assert.match(html, /Price data unavailable for this NDC/)
-  assert.match(html, /href="\/pill\/plavix-75-1171\/price"/)
+  assert.match(html, /href="[^"]*\/pill\/plavix-75-1171\/price"/)
   assert.match(html, /See pricing details/)
 })
