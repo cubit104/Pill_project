@@ -576,6 +576,172 @@ def test_equivalent_match_is_cached_under_original_ndc():
     mock_bulk.assert_not_awaited()
 
 
+def test_get_price_by_rxcui_returns_cheapest_sibling():
+    svc = NADACPricingService()
+    siblings = ["11111111111", "22222222222", "33333333333"]
+    rows_by_ndc = {
+        "11111111111": {
+            "ndc": "11111111111",
+            "effective_date": "2026-05-14",
+            "nadac_per_unit": "0.60",
+            "pricing_unit": "EA",
+        },
+        "22222222222": {
+            "ndc": "22222222222",
+            "effective_date": "2026-05-14",
+            "nadac_per_unit": "0.25",
+            "pricing_unit": "EA",
+        },
+    }
+
+    with patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(return_value=siblings)), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds", "as_of_week": "2026-05-14"})), \
+         patch.object(
+             svc,
+             "_resolve_column_map",
+             new=AsyncMock(return_value={"ndc": "ndc", "effective_date": "effective_date", "price": "nadac_per_unit", "unit": "pricing_unit"}),
+         ), \
+         patch.object(svc, "_bulk_query_nadac_for_ndcs", new=AsyncMock(return_value=rows_by_ndc)), \
+         patch.object(svc, "_upsert_price_cache", return_value=None):
+        result = asyncio.run(svc.get_price_by_rxcui("6809"))
+
+    assert result["price_per_unit"] == 0.25
+    assert result["ndc"] == "22222222222"
+    assert result["matched_ndc"] == "22222222222"
+    assert result["source_rxcui"] == "6809"
+    assert result["match_type"] == "equivalent"
+
+
+def test_get_price_by_rxcui_raises_not_found_when_no_siblings():
+    svc = NADACPricingService()
+
+    with patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(return_value=[])):
+        with pytest.raises(PricingNotFoundError, match="No NDCs found for RxCUI 6809"):
+            asyncio.run(svc.get_price_by_rxcui("6809"))
+
+
+def test_get_price_by_rxcui_raises_not_found_when_siblings_have_no_nadac_rows():
+    svc = NADACPricingService()
+
+    with patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(return_value=["11111111111"])), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds", "as_of_week": "2026-05-14"})), \
+         patch.object(
+             svc,
+             "_resolve_column_map",
+             new=AsyncMock(return_value={"ndc": "ndc", "effective_date": "effective_date", "price": "nadac_per_unit", "unit": "pricing_unit"}),
+         ), \
+         patch.object(svc, "_bulk_query_nadac_for_ndcs", new=AsyncMock(return_value={})):
+        with pytest.raises(PricingNotFoundError, match="No NADAC pricing found for any NDC of RxCUI 6809"):
+            asyncio.run(svc.get_price_by_rxcui("6809"))
+
+
+def test_get_price_by_rxcui_uses_cache_on_second_call():
+    svc = NADACPricingService()
+    cached_rows = [None]
+    now = datetime.now(timezone.utc)
+
+    def _get_cached(_key):
+        return cached_rows[0]
+
+    def _upsert(price, **kwargs):
+        key = kwargs.get("cache_key") or price["ndc"]
+        cached_rows[0] = {
+            "ndc": key,
+            "price_per_unit": price["price_per_unit"],
+            "unit": price["unit"],
+            "effective_date": price["effective_date"],
+            "source": "NADAC",
+            "raw_payload": {
+                "ndc": "22222222222",
+                "match_type": "equivalent",
+                "matched_ndc": "22222222222",
+                "source_rxcui": "6809",
+                "equivalent_count": 2,
+            },
+            "fetched_at": now,
+        }
+
+    with patch.object(svc, "_get_cached_price", side_effect=_get_cached), \
+         patch.object(svc, "_cache_fresh", return_value=True), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds", "as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(return_value=["11111111111", "22222222222"])) as mock_siblings, \
+         patch.object(
+             svc,
+             "_resolve_column_map",
+             new=AsyncMock(return_value={"ndc": "ndc", "effective_date": "effective_date", "price": "nadac_per_unit", "unit": "pricing_unit"}),
+         ), \
+         patch.object(
+             svc,
+             "_bulk_query_nadac_for_ndcs",
+             new=AsyncMock(
+                 return_value={
+                     "22222222222": {
+                         "ndc": "22222222222",
+                         "effective_date": "2026-05-14",
+                         "nadac_per_unit": "0.25",
+                         "pricing_unit": "EA",
+                     }
+                 }
+             ),
+         ), \
+         patch.object(svc, "_upsert_price_cache", side_effect=_upsert):
+        first = asyncio.run(svc.get_price_by_rxcui("6809"))
+        second = asyncio.run(svc.get_price_by_rxcui("6809"))
+
+    assert first["matched_ndc"] == "22222222222"
+    assert second["matched_ndc"] == "22222222222"
+    mock_siblings.assert_awaited_once()
+
+
+def test_get_price_by_name_resolves_to_rxcui_then_to_price():
+    svc = NADACPricingService()
+
+    with patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "metformin", "rxcui": "6809"})), \
+         patch.object(
+             svc,
+             "get_price_by_rxcui",
+             new=AsyncMock(
+                 return_value={
+                     "ndc": "22222222222",
+                     "price_per_unit": 0.25,
+                     "unit": "EA",
+                     "effective_date": "2026-05-14",
+                     "source": "NADAC (CMS)",
+                     "as_of_week": "2026-05-14",
+                     "match_type": "equivalent",
+                     "matched_ndc": "22222222222",
+                     "source_rxcui": "6809",
+                     "equivalent_count": 2,
+                     "total_acquisition_cost": 7.5,
+                     "fair_retail_low": 11.25,
+                     "fair_retail_high": 22.5,
+                     "days_supply": 30,
+                     "units_per_day": 1.0,
+                     "disclaimers": [],
+                 }
+             ),
+         ), \
+         patch.object(svc, "_upsert_price_cache", return_value=None):
+        result = asyncio.run(svc.get_price_by_name("metformin"))
+
+    assert result["match_type"] == "approximate"
+    assert result["resolved_ingredient"] == "metformin"
+    assert result["resolved_rxcui"] == "6809"
+
+
+def test_get_price_by_name_raises_when_ingredient_unresolvable():
+    svc = NADACPricingService()
+
+    with patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value=None)):
+        with pytest.raises(PricingNotFoundError, match="Could not resolve RxCUI for drug name 'missing drug'"):
+            asyncio.run(svc.get_price_by_name("missing drug"))
+
+
 def test_get_price_history_uses_cache_when_present():
     svc = NADACPricingService()
 

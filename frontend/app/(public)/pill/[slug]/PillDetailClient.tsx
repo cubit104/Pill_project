@@ -351,8 +351,8 @@ export default function PillDetailClient({
           </section>
         )}
 
-        {pill.ndc && (
-          <PriceCard ndc={pill.ndc} />
+        {(pill.ndc || pill.rxcui || pill.drug_name) && (
+          <PriceCard ndc={pill.ndc} rxcui={pill.rxcui} medicineName={pill.drug_name} />
         )}
 
         {/* Drug Indication */}

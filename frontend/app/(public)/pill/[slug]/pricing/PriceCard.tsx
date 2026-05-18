@@ -16,6 +16,9 @@ interface PriceResponse {
   fair_retail_high: number
   match_type?: string
   matched_ndc?: string
+  source_rxcui?: string
+  resolved_ingredient?: string
+  resolved_rxcui?: string
   equivalent_count?: number
   disclaimers: string[]
 }
@@ -28,7 +31,7 @@ interface HistoryResponse {
   history: PriceHistoryPoint[]
 }
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '')
 
 function formatNdcForDisplay(ndc?: string): string | null {
   if (!ndc) return null
@@ -43,38 +46,88 @@ interface PriceCardInitialData {
   history?: PriceHistoryPoint[]
 }
 
-export default function PriceCard({ ndc, initialData }: { ndc?: string; initialData?: PriceCardInitialData }) {
+export default function PriceCard({
+  ndc,
+  rxcui,
+  medicineName,
+  initialData,
+}: {
+  ndc?: string
+  rxcui?: string
+  medicineName?: string
+  initialData?: PriceCardInitialData
+}) {
   const [price, setPrice] = useState<PriceResponse | null>(initialData?.price || null)
   const [alternatives, setAlternatives] = useState<AlternativePrice[]>(initialData?.alternatives || [])
   const [history, setHistory] = useState<PriceHistoryPoint[]>(initialData?.history || [])
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!ndc || initialData) return
-    const encoded = encodeURIComponent(ndc)
+    if ((!ndc && !rxcui && !medicineName) || initialData) return
+    if (!API_BASE) {
+      console.error('NEXT_PUBLIC_API_BASE_URL not configured')
+      return
+    }
     let cancelled = false
+
+    const tryFetch = async (url: string): Promise<PriceResponse | null> => {
+      try {
+        const res = await fetch(url)
+        if (res.ok) return await res.json() as PriceResponse
+        if (res.status === 404) return null
+        return null
+      } catch {
+        return null
+      }
+    }
+
+    const fetchPrice = async (): Promise<PriceResponse | null> => {
+      if (ndc) {
+        const result = await tryFetch(`${API_BASE}/api/prices/${encodeURIComponent(ndc)}`)
+        if (result) return result
+      }
+      if (rxcui) {
+        const result = await tryFetch(`${API_BASE}/api/prices/by-rxcui/${encodeURIComponent(rxcui)}`)
+        if (result) return result
+      }
+      if (medicineName) {
+        const result = await tryFetch(`${API_BASE}/api/prices/by-name/${encodeURIComponent(medicineName)}`)
+        if (result) return result
+      }
+      return null
+    }
 
     const load = async () => {
       try {
-        const [priceData, alternativesData, historyData] = await Promise.all([
-          fetch(`${API_BASE}/api/prices/${encoded}`).then((res) => (res.ok ? res.json() : null)),
-          fetch(`${API_BASE}/api/prices/${encoded}/alternatives`).then((res) => (res.ok ? res.json() : null)),
-          fetch(`${API_BASE}/api/prices/${encoded}/history?weeks=52`).then((res) => (res.ok ? res.json() : null)),
-        ]) as [PriceResponse | null, AlternativesResponse | null, HistoryResponse | null]
+        const priceData = await fetchPrice()
 
         if (cancelled) return
 
         setPrice(priceData)
+        if (!priceData) {
+          setAlternatives([])
+          setHistory([])
+          return
+        }
+
+        if (!ndc) {
+          setAlternatives([])
+          setHistory([])
+          return
+        }
+
+        const encoded = encodeURIComponent(ndc)
+        const [alternativesData, historyData] = await Promise.all([
+          fetch(`${API_BASE}/api/prices/${encoded}/alternatives`).then((res) => (res.ok ? res.json() : null)),
+          fetch(`${API_BASE}/api/prices/${encoded}/history?weeks=52`).then((res) => (res.ok ? res.json() : null)),
+        ]) as [AlternativesResponse | null, HistoryResponse | null]
+        if (cancelled) return
         setAlternatives(alternativesData?.alternatives || [])
         setHistory(historyData?.history || [])
-        if (!priceData) {
-          setErrorMessage('Pricing benchmark is currently unavailable for this NDC.')
-        } else {
-          setErrorMessage(null)
-        }
       } catch {
         if (!cancelled) {
-          setErrorMessage('Could not load pricing data right now. Please try again later.')
+          setPrice(null)
+          setAlternatives([])
+          setHistory([])
         }
       }
     }
@@ -83,22 +136,14 @@ export default function PriceCard({ ndc, initialData }: { ndc?: string; initialD
     return () => {
       cancelled = true
     }
-  }, [ndc, initialData])
+  }, [ndc, rxcui, medicineName, initialData])
 
   const ninetyDay = useMemo(() => {
     if (!price) return null
     return price.total_acquisition_cost * 3
   }, [price])
 
-  if (!ndc) return null
-  if (!price && errorMessage) {
-    return (
-      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6" aria-live="polite">
-        <h2 className="text-lg font-semibold text-slate-900">Pharmacy Cost Benchmark</h2>
-        <p className="text-sm text-slate-600 mt-2">{errorMessage}</p>
-      </section>
-    )
-  }
+  if (!ndc && !rxcui && !medicineName) return null
   if (!price) return null
 
   return (
@@ -112,6 +157,12 @@ export default function PriceCard({ ndc, initialData }: { ndc?: string; initialD
               form). The exact NDC on this page is not currently in the NADAC weekly file.
             </p>
             {price.matched_ndc && <p>Equivalent NDC: {formatNdcForDisplay(price.matched_ndc)}</p>}
+          </div>
+        )}
+        {price.match_type === 'approximate' && (
+          <div className="mt-2 text-xs text-slate-500 space-y-1" role="note">
+            <p>Pricing shown is an estimate based on the active ingredient. The exact strength, dose form, and packaging may differ from this pill.</p>
+            {price.resolved_ingredient && <p>Estimated from: {price.resolved_ingredient}</p>}
           </div>
         )}
         <p className="text-3xl font-bold text-slate-900 mt-2">${price.price_per_unit.toFixed(2)} <span className="text-base font-medium text-slate-500">/ {price.unit}</span></p>

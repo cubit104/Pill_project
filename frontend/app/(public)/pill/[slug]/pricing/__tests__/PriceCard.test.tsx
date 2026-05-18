@@ -65,3 +65,33 @@ test('PriceCard renders equivalent fallback note when match_type is equivalent',
   assert.match(html, /Pricing shown is for a therapeutically equivalent product/)
   assert.match(html, /Equivalent NDC: 00378-0181-01/)
 })
+
+test('PriceCard renders approximate fallback note when match_type is approximate', () => {
+  const html = renderToStaticMarkup(
+    <PriceCard
+      rxcui="6809"
+      medicineName="Metformin"
+      initialData={{
+        price: {
+          ndc: '00002140102',
+          price_per_unit: 0.45,
+          unit: 'EA',
+          effective_date: '2026-05-15',
+          source: 'NADAC (CMS)',
+          total_acquisition_cost: 13.5,
+          fair_retail_low: 20.25,
+          fair_retail_high: 40.5,
+          match_type: 'approximate',
+          resolved_ingredient: 'metformin',
+          resolved_rxcui: '6809',
+          disclaimers: [],
+        },
+        alternatives: [],
+        history: [],
+      }}
+    />
+  )
+
+  assert.match(html, /Pricing shown is an estimate based on the active ingredient/)
+  assert.match(html, /Estimated from: metformin/)
+})

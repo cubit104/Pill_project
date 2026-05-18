@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import unquote
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
@@ -24,6 +25,34 @@ def _normalize_or_400(ndc: str) -> str:
     if not normalized:
         raise HTTPException(status_code=400, detail="Invalid NDC format. Use a valid 10/11-digit NDC.")
     return normalized
+
+
+def build_price_response(result: dict) -> dict:
+    response = {
+        "ndc": result["ndc"],
+        "price_per_unit": result["price_per_unit"],
+        "unit": result["unit"],
+        "effective_date": result["effective_date"],
+        "source": result["source"],
+        "as_of_week": result.get("as_of_week"),
+        "days_supply": result["days_supply"],
+        "units_per_day": result["units_per_day"],
+        "total_acquisition_cost": result["total_acquisition_cost"],
+        "fair_retail_low": result["fair_retail_low"],
+        "fair_retail_high": result["fair_retail_high"],
+        "disclaimers": DEFAULT_DISCLAIMERS,
+    }
+    for field in (
+        "match_type",
+        "matched_ndc",
+        "source_rxcui",
+        "resolved_ingredient",
+        "resolved_rxcui",
+        "equivalent_count",
+    ):
+        if field in result:
+            response[field] = result[field]
+    return response
 
 
 @router.get("/api/prices/health")
@@ -150,23 +179,7 @@ async def get_ndc_price(
             days_supply=days_supply,
             units_per_day=units_per_day,
         )
-        return {
-            "ndc": result["ndc"],
-            "price_per_unit": result["price_per_unit"],
-            "unit": result["unit"],
-            "effective_date": result["effective_date"],
-            "source": result["source"],
-            "as_of_week": result.get("as_of_week"),
-            "days_supply": result["days_supply"],
-            "units_per_day": result["units_per_day"],
-            "total_acquisition_cost": result["total_acquisition_cost"],
-            "fair_retail_low": result["fair_retail_low"],
-            "fair_retail_high": result["fair_retail_high"],
-            **({"match_type": result["match_type"]} if "match_type" in result else {}),
-            **({"matched_ndc": result["matched_ndc"]} if "matched_ndc" in result else {}),
-            **({"equivalent_count": result["equivalent_count"]} if "equivalent_count" in result else {}),
-            "disclaimers": DEFAULT_DISCLAIMERS,
-        }
+        return build_price_response(result)
     except PricingNotFoundError:
         raise HTTPException(
             status_code=404,
@@ -177,6 +190,49 @@ async def get_ndc_price(
     except Exception as exc:
         logger.exception("Unhandled error in pricing endpoint ndc=%s", ndc)
         raise HTTPException(status_code=503, detail=f"Pricing service error: {type(exc).__name__}: {exc}")
+
+
+@router.get("/api/prices/by-rxcui/{rxcui}")
+async def get_price_by_rxcui_route(
+    rxcui: str,
+    days_supply: int = Query(30, ge=1, le=365),
+    units_per_day: float = Query(1.0, gt=0, le=1000),
+):
+    try:
+        result = await pricing_service.get_price_by_rxcui(
+            rxcui,
+            days_supply=days_supply,
+            units_per_day=units_per_day,
+        )
+        return build_price_response(result)
+    except PricingNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except PricingServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.get("/api/prices/by-name/{name}")
+async def get_price_by_name_route(
+    name: str,
+    days_supply: int = Query(30, ge=1, le=365),
+    units_per_day: float = Query(1.0, gt=0, le=1000),
+):
+    try:
+        decoded_name = unquote(name)
+        result = await pricing_service.get_price_by_name(
+            decoded_name,
+            days_supply=days_supply,
+            units_per_day=units_per_day,
+        )
+        return build_price_response(result)
+    except PricingNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except PricingServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
 
 @router.get("/api/prices/{ndc}/alternatives")
