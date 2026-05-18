@@ -114,12 +114,60 @@ class NADACPricingService:
         except (InvalidOperation, TypeError, ValueError):
             return None
 
-    async def _request_json(self, url: str, *, params: dict[str, Any] | None = None) -> Any:
+    @staticmethod
+    def _truncate_text(value: str, *, limit: int = 500) -> str:
+        return value[:limit] if len(value) > limit else value
+
+    def _format_request_failure(self, method: str, url: str, exc: Exception | None) -> str:
+        method = method.upper()
+        if exc is None:
+            return f"Request failed: {method} {url}"
+
+        exc_name = type(exc).__name__
+        if isinstance(exc, httpx.HTTPStatusError):
+            response = exc.response
+            response_url = str(response.url) if response is not None else url
+            status = response.status_code if response is not None else "unknown"
+            body = ""
+            if response is not None:
+                try:
+                    body = self._truncate_text((response.text or "").strip())
+                except Exception:
+                    body = ""
+            parts = [f"Request failed: {method} {response_url}", f"{exc_name} {status}"]
+            if body:
+                parts.append(body)
+            return " — ".join(parts)
+
+        parts = [f"Request failed: {method} {url}", exc_name]
+        message = str(exc).strip()
+        if message:
+            parts.append(message)
+        return " — ".join(parts)
+
+    @staticmethod
+    def _exc_info(exc: Exception | None):
+        if exc is None:
+            return None
+        return (type(exc), exc, exc.__traceback__)
+
+    async def _request_json(
+        self,
+        url: str,
+        *,
+        method: str = "GET",
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+    ) -> Any:
         last_exc: Exception | None = None
+        method = method.upper()
         for attempt in range(3):
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.get(url, params=params)
+                    if method == "GET":
+                        response = await client.get(url, params=params)
+                    else:
+                        response = await client.request(method, url, params=params, json=json_body)
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as exc:
@@ -134,7 +182,9 @@ class NADACPricingService:
                 if attempt == 2:
                     break
                 await asyncio.sleep(2**attempt)
-        raise PricingServiceError(f"Request failed: {url}") from last_exc
+        detail = self._format_request_failure(method, url, last_exc)
+        logger.exception("%s", detail, exc_info=self._exc_info(last_exc))
+        raise PricingServiceError(detail) from last_exc
 
     @staticmethod
     def _retry_delay(attempt: int, response: httpx.Response | None) -> float:
@@ -155,11 +205,6 @@ class NADACPricingService:
         return float(2**attempt)
 
     def _extract_dataset_id(self, item: dict[str, Any]) -> str | None:
-        for key in ("identifier", "dataset_id", "id", "resource_id"):
-            value = item.get(key)
-            if isinstance(value, str) and value:
-                return value
-
         for key in ("references", "distribution", "resources"):
             values = item.get(key)
             if not isinstance(values, list):
@@ -171,6 +216,21 @@ class NADACPricingService:
                     value = obj.get(subkey)
                     if isinstance(value, str) and value:
                         return value
+                for subkey in ("%Ref:downloadURL", "downloadURL", "accessURL", "url"):
+                    value = obj.get(subkey)
+                    if not isinstance(value, str) or not value:
+                        continue
+                    match = re.search(
+                        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+                        value,
+                    )
+                    if match:
+                        return match.group(0)
+
+        for key in ("identifier", "dataset_id", "id", "resource_id"):
+            value = item.get(key)
+            if isinstance(value, str) and value:
+                return value
         return None
 
     async def _get_latest_dataset_metadata(self) -> dict[str, Any]:
@@ -259,15 +319,36 @@ class NADACPricingService:
     def _nadac_query_url(self, dataset_id: str) -> str:
         return f"{self.nadac_api_base_url.rstrip('/')}/datastore/query/{dataset_id}/0"
 
+    async def _request_datastore_query(
+        self,
+        dataset_id: str,
+        *,
+        conditions: list[dict[str, Any]] | None = None,
+        sorts: list[dict[str, Any]] | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> Any:
+        body: dict[str, Any] = {}
+        if conditions:
+            body["conditions"] = conditions
+        if sorts:
+            body["sorts"] = sorts
+        if limit is not None:
+            body["limit"] = limit
+        if offset is not None:
+            body["offset"] = offset
+        return await self._request_json(
+            self._nadac_query_url(dataset_id),
+            method="POST",
+            json_body=body,
+        )
+
     async def _fetch_latest_effective_date(self, dataset_id: str) -> date | None:
         try:
-            payload = await self._request_json(
-                self._nadac_query_url(dataset_id),
-                params={
-                    "sorts[0][property]": "effective_date",
-                    "sorts[0][order]": "desc",
-                    "limit": 1,
-                },
+            payload = await self._request_datastore_query(
+                dataset_id,
+                sorts=[{"resource": "t", "property": "effective_date", "order": "desc"}],
+                limit=1,
             )
             if not isinstance(payload, dict):
                 raise PricingServiceError("Unexpected NADAC dataset response shape for effective date lookup")
@@ -319,18 +400,14 @@ class NADACPricingService:
         metadata = await self._get_latest_dataset_metadata()
         dataset_id = metadata["dataset_id"]
         as_of_week = metadata.get("as_of_week")
-        url = self._nadac_query_url(dataset_id)
 
         for ndc_field in ("ndc", "ndc11", "ndc_11", "ndc_code"):
-            params: dict[str, Any] = {
-                "conditions[0][property]": ndc_field,
-                "conditions[0][value]": ndc_digits,
-                "conditions[0][operator]": "=",
-                "sorts[0][property]": "effective_date",
-                "sorts[0][order]": "desc",
-                "limit": 1,
-            }
-            payload = await self._request_json(url, params=params)
+            payload = await self._request_datastore_query(
+                dataset_id,
+                conditions=[{"resource": "t", "property": ndc_field, "value": ndc_digits, "operator": "="}],
+                sorts=[{"resource": "t", "property": "effective_date", "order": "desc"}],
+                limit=1,
+            )
             if not isinstance(payload, dict):
                 raise PricingServiceError(f"Unexpected NADAC query response shape for NDC field '{ndc_field}'")
             rows = payload.get("results") or payload.get("result") or []
@@ -554,20 +631,14 @@ class NADACPricingService:
 
         dataset_id = metadata["dataset_id"]
         as_of_week = metadata.get("as_of_week")
-        url = self._nadac_query_url(dataset_id)
 
         rows: list[dict[str, Any]] = []
         for ndc_field in ("ndc", "ndc11", "ndc_11", "ndc_code"):
-            payload = await self._request_json(
-                url,
-                params={
-                    "conditions[0][property]": ndc_field,
-                    "conditions[0][value]": ndc_digits,
-                    "conditions[0][operator]": "=",
-                    "sorts[0][property]": "effective_date",
-                    "sorts[0][order]": "desc",
-                    "limit": weeks,
-                },
+            payload = await self._request_datastore_query(
+                dataset_id,
+                conditions=[{"resource": "t", "property": ndc_field, "value": ndc_digits, "operator": "="}],
+                sorts=[{"resource": "t", "property": "effective_date", "order": "desc"}],
+                limit=weeks,
             )
             if not isinstance(payload, dict):
                 raise PricingServiceError(f"Unexpected NADAC history response shape for NDC field '{ndc_field}'")
@@ -880,22 +951,17 @@ class NADACPricingService:
         metadata = await self._get_latest_dataset_metadata()
         dataset_id = metadata["dataset_id"]
         as_of_week = metadata.get("as_of_week")
-        url = self._nadac_query_url(dataset_id)
 
-        params: dict[str, Any] = {
-            "limit": max(1, min(int(limit), 50000)),
-            "offset": max(0, int(offset)),
-        }
+        conditions = None
         if as_of_week:
-            params.update(
-                {
-                    "conditions[0][property]": "effective_date",
-                    "conditions[0][value]": as_of_week,
-                    "conditions[0][operator]": "=",
-                }
-            )
+            conditions = [{"resource": "t", "property": "effective_date", "value": as_of_week, "operator": "="}]
 
-        payload = await self._request_json(url, params=params)
+        payload = await self._request_datastore_query(
+            dataset_id,
+            conditions=conditions,
+            limit=max(1, min(int(limit), 50000)),
+            offset=max(0, int(offset)),
+        )
         if not isinstance(payload, dict):
             raise PricingServiceError("Unexpected NADAC latest-week response shape")
         rows = payload.get("results") or payload.get("result") or []
