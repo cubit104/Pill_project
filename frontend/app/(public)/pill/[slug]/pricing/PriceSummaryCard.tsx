@@ -24,6 +24,15 @@ interface PriceResponse {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '')
 
+function hasUsablePrice(price: PriceResponse | null): price is PriceResponse {
+  return Boolean(
+    price
+      && Number.isFinite(price.price_per_unit)
+      && Number.isFinite(price.total_acquisition_cost)
+      && price.unit
+  )
+}
+
 export default function PriceSummaryCard({
   slug,
   ndc,
@@ -85,26 +94,34 @@ export default function PriceSummaryCard({
     }
   }, [ndc, rxcui, medicineName, initialData])
 
-  if (!price) return null
+  const detailsHref = `/pill/${encodeURIComponent(slug)}/price`
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 h-full" aria-label="Price summary">
       <h2 className="text-sm font-semibold text-slate-800">💰 Price</h2>
-      <p className="mt-2 text-2xl font-bold text-slate-900">
-        ${price.price_per_unit.toFixed(2)}
-        <span className="text-sm font-medium text-slate-500"> / {price.unit}</span>
-      </p>
-      <p className="mt-1 text-sm text-slate-700">
-        30-day est: <span className="font-semibold text-slate-900">${price.total_acquisition_cost.toFixed(2)}</span>
-      </p>
-      {(price.match_type === 'equivalent' || price.match_type === 'approximate') && (
-        <p className="mt-2 text-xs text-slate-500">
-          ⓘ {price.match_type === 'equivalent' ? 'Equivalent product pricing shown.' : 'Ingredient-based estimate shown.'}
+      {hasUsablePrice(price) ? (
+        <>
+          <p className="mt-2 text-2xl font-bold text-slate-900">
+            ${price.price_per_unit.toFixed(2)}
+            <span className="text-sm font-medium text-slate-500"> / {price.unit}</span>
+          </p>
+          <p className="mt-1 text-sm text-slate-700">
+            30-day est: <span className="font-semibold text-slate-900">${price.total_acquisition_cost.toFixed(2)}</span>
+          </p>
+          {(price.match_type === 'equivalent' || price.match_type === 'approximate') && (
+            <p className="mt-2 text-xs text-slate-500">
+              ⓘ {price.match_type === 'equivalent' ? 'Equivalent product pricing shown.' : 'Ingredient-based estimate shown.'}
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="mt-2 text-sm text-slate-700 leading-relaxed">
+          Price data unavailable for this NDC.
         </p>
       )}
       <div className="mt-4 pt-3 border-t border-slate-100">
-        <Link href={`/pill/${encodeURIComponent(slug)}/price`} className="text-sm font-semibold text-emerald-700 hover:underline">
-          See full price details →
+        <Link href={detailsHref} className="text-sm font-semibold text-emerald-700 hover:underline">
+          {hasUsablePrice(price) ? 'See full price details →' : 'See pricing details →'}
         </Link>
       </div>
     </section>

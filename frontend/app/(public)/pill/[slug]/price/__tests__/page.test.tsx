@@ -36,3 +36,26 @@ test('price page snapshot-like render includes back link and wrapper', async () 
     global.fetch = originalFetch
   }
 })
+
+test('price page metadata includes the drug-specific title', async () => {
+  const originalFetch = global.fetch
+  global.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        drug_name: 'Plavix',
+        slug: 'plavix-75-1171',
+        ndc: '00002140102',
+        rxcui: '12345',
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    )
+
+  try {
+    const mod = await import('../page')
+    const metadata = await mod.generateMetadata({ params: Promise.resolve({ slug: 'plavix-75-1171' }) })
+
+    assert.equal(metadata.title, 'Plavix – Price details | PillSeek')
+  } finally {
+    global.fetch = originalFetch
+  }
+})
