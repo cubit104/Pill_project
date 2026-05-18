@@ -998,33 +998,60 @@ class NADACPricingService:
         if not ingredient:
             raise PricingNotFoundError(f"Could not resolve RxCUI for drug name '{clean_name}'")
 
-        resolved = await self.get_price_by_rxcui(
-            ingredient["rxcui"],
-            days_supply=days_supply,
-            units_per_day=units_per_day,
+        product_rxcuis = await self._related_product_rxcuis(ingredient["rxcui"])
+        if not product_rxcuis:
+            raise PricingNotFoundError(f"No product RxCUIs found for ingredient '{ingredient['name']}'")
+
+        product_subset = product_rxcuis[:MAX_RELATED_RXCUIS]
+        ndc_lists = await asyncio.gather(
+            *(self._ndcs_for_rxcui(p["rxcui"]) for p in product_subset),
+            return_exceptions=True,
         )
-        result = dict(resolved)
+        ndcs: list[str] = []
+        for product, ndc_list in zip(product_subset, ndc_lists):
+            if isinstance(ndc_list, Exception):
+                logger.debug("Skipping RxCUI=%s NDC lookup error: %s", product["rxcui"], ndc_list)
+                continue
+            ndcs.extend(ndc_list)
+        ndcs = list(dict.fromkeys(ndcs))[:MAX_ALTERNATIVE_NDCS]
+
+        if not ndcs:
+            raise PricingNotFoundError(f"No NDCs found for ingredient '{ingredient['name']}'")
+
+        if metadata is None:
+            metadata = await self._get_latest_dataset_metadata()
+        dataset_id = metadata["dataset_id"]
+        as_of_week = metadata.get("as_of_week")
+        column_map = await self._resolve_column_map(dataset_id)
+        rows_by_ndc = await self._bulk_query_nadac_for_ndcs(dataset_id, ndcs, column_map)
+        if not rows_by_ndc:
+            raise PricingNotFoundError(f"No NADAC pricing found for any NDC of ingredient '{ingredient['name']}'")
+
+        parsed_rows: list[dict[str, Any]] = []
+        for ndc_key, row in rows_by_ndc.items():
+            parsed = self._parse_nadac_row(
+                row,
+                ndc_digits=ndc_key,
+                as_of_week=as_of_week,
+                column_map=column_map,
+            )
+            if parsed:
+                parsed_rows.append(parsed)
+        if not parsed_rows:
+            raise PricingNotFoundError(f"No NADAC pricing found for any NDC of ingredient '{ingredient['name']}'")
+
+        cheapest = min(parsed_rows, key=lambda r: r["price_per_unit"])
+        result = dict(cheapest)
         result["match_type"] = "approximate"
+        result["matched_ndc"] = cheapest["ndc"]
         result["resolved_ingredient"] = ingredient["name"]
         result["resolved_rxcui"] = ingredient["rxcui"]
+        result["equivalent_count"] = len(ndcs)
 
-        cache_payload = {
-            "ndc": result["ndc"],
-            "price_per_unit": result["price_per_unit"],
-            "unit": result["unit"],
-            "effective_date": result["effective_date"],
-            "source": result["source"],
-            "as_of_week": result.get("as_of_week"),
-            "match_type": result["match_type"],
-            "matched_ndc": result.get("matched_ndc"),
-            "source_rxcui": result.get("source_rxcui"),
-            "resolved_ingredient": result.get("resolved_ingredient"),
-            "resolved_rxcui": result.get("resolved_rxcui"),
-            "equivalent_count": result.get("equivalent_count"),
-        }
-        cache_payload["raw_payload"] = dict(cache_payload)
+        cache_payload = dict(result)
+        cache_payload["raw_payload"] = dict(result)
         self._upsert_price_cache(cache_payload, cache_key=cache_key, include_history=False)
-        return result
+        return self._add_totals(result, days_supply=days_supply, units_per_day=units_per_day)
 
     async def get_price_history(self, ndc: str, weeks: int = 52) -> list[dict[str, Any]]:
         ndc_digits = self._normalize_ndc_digits(ndc)
