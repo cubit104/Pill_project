@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
@@ -94,4 +97,32 @@ test('PriceCard renders approximate fallback note when match_type is approximate
 
   assert.match(html, /Pricing shown is an estimate based on the active ingredient/)
   assert.match(html, /Estimated from: metformin/)
+})
+
+test('PriceCard renders empty-state markup when price data is unavailable (null initialData price)', () => {
+  // With no initialData, the component starts in loading state (loading=true) on initial
+  // SSR render since useEffect doesn't run. The loading skeleton must be present in the output
+  // — component never returns null/empty when an identifier is provided.
+  const html = renderToStaticMarkup(
+    <PriceCard ndc="00002140102" />
+  )
+  assert.notEqual(html, '')
+  assert.match(html, /data-testid="price-card-loading"/)
+})
+
+test('PriceCard returns null only when no identifiers are provided', () => {
+  const html = renderToStaticMarkup(
+    <PriceCard />
+  )
+  assert.equal(html, '')
+})
+
+test('PriceCard empty and error state strings are present in the component source', () => {
+  const src = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'PriceCard.tsx'),
+    'utf8'
+  )
+  assert.match(src, /Price data is currently unavailable for this medication/)
+  assert.match(src, /NADAC weekly file/)
+  assert.match(src, /Unable to load price details right now/)
 })

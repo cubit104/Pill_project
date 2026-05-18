@@ -57,14 +57,20 @@ export default function PriceCard({
   medicineName?: string
   initialData?: PriceCardInitialData
 }) {
+  const hasIdentifier = !!(ndc || rxcui || medicineName)
   const [price, setPrice] = useState<PriceResponse | null>(initialData?.price || null)
   const [alternatives, setAlternatives] = useState<AlternativePrice[]>(initialData?.alternatives || [])
   const [history, setHistory] = useState<PriceHistoryPoint[]>(initialData?.history || [])
+  const [loading, setLoading] = useState<boolean>(hasIdentifier && !initialData)
+  const [fetchError, setFetchError] = useState<boolean>(false)
+  const [retryCount, setRetryCount] = useState<number>(0)
 
   useEffect(() => {
     if ((!ndc && !rxcui && !medicineName) || initialData) return
     if (!API_BASE) {
       console.error('NEXT_PUBLIC_API_BASE_URL not configured')
+      setLoading(false)
+      setFetchError(true)
       return
     }
     let cancelled = false
@@ -103,6 +109,7 @@ export default function PriceCard({
         if (cancelled) return
 
         setPrice(priceData)
+        setLoading(false)
         if (!priceData) {
           setAlternatives([])
           setHistory([])
@@ -126,6 +133,8 @@ export default function PriceCard({
       } catch {
         if (!cancelled) {
           setPrice(null)
+          setLoading(false)
+          setFetchError(true)
           setAlternatives([])
           setHistory([])
         }
@@ -136,15 +145,73 @@ export default function PriceCard({
     return () => {
       cancelled = true
     }
-  }, [ndc, rxcui, medicineName, initialData])
+  }, [ndc, rxcui, medicineName, initialData, retryCount])
 
   const ninetyDay = useMemo(() => {
     if (!price) return null
     return price.total_acquisition_cost * 3
   }, [price])
 
-  if (!ndc && !rxcui && !medicineName) return null
-  if (!price) return null
+  if (!hasIdentifier) return null
+
+  const handleRetry = () => {
+    setFetchError(false)
+    setLoading(true)
+    setRetryCount((c) => c + 1)
+  }
+
+  if (loading) {
+    return (
+      <section className="space-y-4" aria-label="Pharmacy cost benchmark" data-testid="price-card-loading">
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 animate-pulse">
+          <div className="h-5 w-56 bg-slate-200 rounded mb-4" />
+          <div className="h-10 w-40 bg-slate-200 rounded mb-3" />
+          <div className="h-4 w-64 bg-slate-200 rounded mb-2" />
+          <div className="h-3 w-48 bg-slate-200 rounded" />
+        </div>
+        <div className="bg-slate-100 border border-slate-200 rounded-xl p-5 animate-pulse">
+          <div className="h-4 w-32 bg-slate-200 rounded mb-2" />
+          <div className="h-4 w-full bg-slate-200 rounded" />
+        </div>
+      </section>
+    )
+  }
+
+  if (fetchError) {
+    return (
+      <section className="space-y-4" aria-label="Pharmacy cost benchmark" data-testid="price-card-error">
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+          <h2 className="text-lg font-semibold text-slate-900">💰 Pharmacy Cost Benchmark</h2>
+          <p className="mt-3 text-sm text-slate-700">
+            ⚠️ Unable to load price details right now. Please try again later.
+          </p>
+          <button
+            onClick={handleRetry}
+            className="mt-4 text-sm font-medium text-sky-700 hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      </section>
+    )
+  }
+
+  if (!price) {
+    return (
+      <section className="space-y-4" aria-label="Pharmacy cost benchmark" data-testid="price-card-empty">
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+          <h2 className="text-lg font-semibold text-slate-900">💰 Pharmacy Cost Benchmark</h2>
+          <p className="mt-3 text-sm text-slate-700">
+            Price data is currently unavailable for this medication.
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            This may be because the NDC is not in the NADAC weekly file, or the medication is too new.
+            Please check back later.
+          </p>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section className="space-y-4" aria-label="Pharmacy cost benchmark">
