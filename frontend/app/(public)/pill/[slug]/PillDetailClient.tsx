@@ -8,7 +8,7 @@ import type { Reviewer } from '../../../lib/reviewers'
 import { classSlugify, slugifyDrugName } from '../../../lib/slug'
 import { slugifyUrl } from '../../../lib/url-utils'
 import DrugIndicationSection from './DrugIndicationSection'
-import PriceCard from './pricing/PriceCard'
+import PriceSummaryCard from './pricing/PriceSummaryCard'
 
 function PillIconLarge() {
   return (
@@ -351,18 +351,29 @@ export default function PillDetailClient({
           </section>
         )}
 
-        {(pill.ndc || pill.rxcui || pill.drug_name) && (
-          <PriceCard ndc={pill.ndc} rxcui={pill.rxcui} medicineName={pill.drug_name} />
-        )}
-
-        {/* Drug Indication */}
+        {/* Medical Information + Price summary */}
         {pill.indication && (
-          <DrugIndicationSection
-            indication={pill.indication}
-            drugName={pill.drug_name}
-            imprint={pill.imprint}
-            conditionTags={conditionTags}
-          />
+          <section className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-6" data-testid="medical-price-grid">
+            <div className="md:col-span-3">
+              <DrugIndicationSection
+                indication={pill.indication}
+                drugName={pill.drug_name}
+                imprint={pill.imprint}
+                conditionTags={conditionTags}
+                className="mb-0 h-full"
+              />
+            </div>
+            <div className="md:col-span-2">
+              {resolvedSlug && (pill.ndc || pill.rxcui || pill.drug_name) && (
+                <PriceSummaryCard
+                  slug={resolvedSlug}
+                  ndc={pill.ndc}
+                  rxcui={pill.rxcui}
+                  medicineName={pill.drug_name}
+                />
+              )}
+            </div>
+          </section>
         )}
 
         {/* Safety Checklist */}
