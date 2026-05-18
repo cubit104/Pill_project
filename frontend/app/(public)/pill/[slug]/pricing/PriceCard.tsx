@@ -14,6 +14,9 @@ interface PriceResponse {
   total_acquisition_cost: number
   fair_retail_low: number
   fair_retail_high: number
+  match_type?: string
+  matched_ndc?: string
+  equivalent_count?: number
   disclaimers: string[]
 }
 
@@ -26,6 +29,13 @@ interface HistoryResponse {
 }
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
+
+function formatNdcForDisplay(ndc?: string): string | null {
+  if (!ndc) return null
+  const digits = ndc.replace(/\D/g, '')
+  if (digits.length !== 11) return ndc
+  return `${digits.slice(0, 5)}-${digits.slice(5, 9)}-${digits.slice(9)}`
+}
 
 interface PriceCardInitialData {
   price: PriceResponse
@@ -95,6 +105,15 @@ export default function PriceCard({ ndc, initialData }: { ndc?: string; initialD
     <section className="space-y-4" aria-label="Pharmacy cost benchmark">
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
         <h2 className="text-lg font-semibold text-slate-900">Pharmacy Cost Benchmark</h2>
+        {price.match_type === 'equivalent' && (
+          <div className="mt-2 text-xs text-slate-500 space-y-1" role="note">
+            <p>
+              ℹ Pricing shown is for a therapeutically equivalent product (same active ingredient, strength, and dose
+              form). The exact NDC on this page is not currently in the NADAC weekly file.
+            </p>
+            {price.matched_ndc && <p>Equivalent NDC: {formatNdcForDisplay(price.matched_ndc)}</p>}
+          </div>
+        )}
         <p className="text-3xl font-bold text-slate-900 mt-2">${price.price_per_unit.toFixed(2)} <span className="text-base font-medium text-slate-500">/ {price.unit}</span></p>
         <p className="text-sm text-slate-600 mt-2">
           30-day acquisition estimate: <span className="font-semibold text-slate-900">${price.total_acquisition_cost.toFixed(2)}</span>

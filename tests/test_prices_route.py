@@ -46,7 +46,37 @@ def test_get_price_success(client):
     data = resp.json()
     assert data["ndc"] == "00002140102"
     assert data["fair_retail_high"] == 45.0
+    assert "match_type" not in data
     assert "disclaimers" in data and len(data["disclaimers"]) == 3
+
+
+def test_get_price_success_includes_equivalent_fields_when_present(client):
+    payload = {
+        "ndc": "00002140102",
+        "price_per_unit": 0.5,
+        "unit": "EA",
+        "effective_date": "2026-05-14",
+        "source": "NADAC (CMS)",
+        "as_of_week": "2026-05-14",
+        "days_supply": 30,
+        "units_per_day": 1.0,
+        "total_acquisition_cost": 15.0,
+        "fair_retail_low": 22.5,
+        "fair_retail_high": 45.0,
+        "match_type": "equivalent",
+        "matched_ndc": "00378018101",
+        "equivalent_count": 3,
+        "disclaimers": ["a", "b", "c"],
+    }
+
+    with patch("routes.prices.pricing_service.get_price", new=AsyncMock(return_value=payload)):
+        resp = client.get("/api/prices/00002-1401-02")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["match_type"] == "equivalent"
+    assert data["matched_ndc"] == "00378018101"
+    assert data["equivalent_count"] == 3
 
 
 def test_get_price_invalid_ndc_returns_400(client):
