@@ -7,6 +7,7 @@ import os
 import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from email.utils import parsedate_to_datetime
 from typing import Any, Optional
 
 import httpx
@@ -29,6 +30,7 @@ NADAC_CONNECT_TIMEOUT = 10.0
 NADAC_RW_TIMEOUT = 30.0
 MAX_RELATED_RXCUIS = 40
 MAX_ALTERNATIVE_NDCS = 150
+ALTERNATIVES_FETCH_CONCURRENCY = 8
 
 
 class PricingNotFoundError(LookupError):
@@ -111,15 +113,34 @@ class NADACPricingService:
             except httpx.HTTPStatusError as exc:
                 last_exc = exc
                 status = exc.response.status_code if exc.response else None
-                if status is None or status < 500 or attempt == 2:
+                should_retry = status is not None and (status == 429 or status >= 500)
+                if not should_retry or attempt == 2:
                     break
-                await asyncio.sleep(2**attempt)
+                await asyncio.sleep(self._retry_delay(attempt, exc.response))
             except httpx.RequestError as exc:
                 last_exc = exc
                 if attempt == 2:
                     break
                 await asyncio.sleep(2**attempt)
         raise PricingServiceError(f"Request failed: {url}") from last_exc
+
+    @staticmethod
+    def _retry_delay(attempt: int, response: httpx.Response | None) -> float:
+        if response is not None:
+            retry_after = response.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    return max(float(retry_after), 0.0)
+                except ValueError:
+                    try:
+                        retry_dt = parsedate_to_datetime(retry_after)
+                        now = datetime.now(timezone.utc)
+                        if retry_dt.tzinfo is None:
+                            retry_dt = retry_dt.replace(tzinfo=timezone.utc)
+                        return max((retry_dt - now).total_seconds(), 0.0)
+                    except Exception:
+                        pass
+        return float(2**attempt)
 
     def _extract_dataset_id(self, item: dict[str, Any]) -> str | None:
         for key in ("identifier", "dataset_id", "id", "resource_id"):
@@ -179,13 +200,7 @@ class NADACPricingService:
         candidates.sort(key=lambda row: row[0], reverse=True)
         _, item, dataset_id = candidates[0]
 
-        as_of_week = (
-            self._parse_date(item.get("as_of_week"))
-            or self._parse_date(item.get("week_ending"))
-            or self._parse_date(item.get("effective_date"))
-            or self._parse_date(item.get("release_date"))
-            or self._parse_date(item.get("modified"))
-        )
+        as_of_week = await self._fetch_latest_effective_date(dataset_id)
         metadata = {
             "dataset_id": dataset_id,
             "as_of_week": as_of_week.isoformat() if as_of_week else None,
@@ -197,6 +212,25 @@ class NADACPricingService:
 
     def _nadac_query_url(self, dataset_id: str) -> str:
         return f"{self.nadac_api_base_url.rstrip('/')}/datastore/query/{dataset_id}/0"
+
+    async def _fetch_latest_effective_date(self, dataset_id: str) -> date | None:
+        try:
+            payload = await self._request_json(
+                self._nadac_query_url(dataset_id),
+                params={
+                    "sorts[0][property]": "effective_date",
+                    "sorts[0][order]": "desc",
+                    "limit": 1,
+                },
+            )
+            rows = payload.get("results") or payload.get("result") or []
+            if not isinstance(rows, list) or not rows:
+                return None
+            row = rows[0] if isinstance(rows[0], dict) else {}
+            return self._parse_date(row.get("effective_date")) or self._parse_date(row.get("as_of_date"))
+        except Exception as exc:
+            logger.warning("Unable to derive latest NADAC effective_date from dataset rows: %s", exc)
+            return None
 
     def _parse_nadac_row(
         self,
@@ -276,6 +310,23 @@ class NADACPricingService:
                 {"ndc": ndc_digits},
             ).mappings().first()
             return dict(row) if row else None
+
+    def _get_cached_prices_bulk(self, ndc_digits_list: list[str]) -> dict[str, dict[str, Any]]:
+        if not ndc_digits_list:
+            return {}
+        self._ensure_db()
+        with database.db_engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT ndc, price_per_unit, unit, effective_date, source, raw_payload, fetched_at
+                    FROM drug_prices
+                    WHERE ndc = ANY(:ndcs)
+                    """
+                ),
+                {"ndcs": ndc_digits_list},
+            ).mappings().all()
+        return {str(row["ndc"]): dict(row) for row in rows}
 
     def _upsert_price_cache(self, price: dict[str, Any]) -> None:
         self._ensure_db()
@@ -392,6 +443,14 @@ class NADACPricingService:
         weeks = max(1, min(int(weeks), 260))
         self._ensure_db()
 
+        latest_week = None
+        metadata: dict[str, Any] | None = None
+        try:
+            metadata = await self._get_latest_dataset_metadata()
+            latest_week = self._parse_date(metadata.get("as_of_week"))
+        except Exception as exc:
+            logger.warning("Failed to resolve NADAC metadata for history lookup: %s", exc)
+
         with database.db_engine.connect() as conn:
             cached_rows = conn.execute(
                 text(
@@ -406,18 +465,30 @@ class NADACPricingService:
                 {"ndc": ndc_digits, "weeks": weeks},
             ).mappings().all()
         if cached_rows:
-            ordered = list(reversed(cached_rows))
-            return [
-                {
-                    "ndc": row["ndc"],
-                    "effective_date": str(row["effective_date"]),
-                    "price_per_unit": float(row["price_per_unit"]),
-                    "unit": row["unit"],
-                }
-                for row in ordered
-            ]
+            newest_cached = self._parse_date(cached_rows[0].get("effective_date"))
+            cache_has_enough_rows = len(cached_rows) >= weeks
+            cache_recent_enough = (
+                latest_week is None
+                or (newest_cached is not None and newest_cached >= (latest_week - timedelta(days=7)))
+            )
+            if not metadata:
+                cache_has_enough_rows = True
+                cache_recent_enough = True
+            if cache_has_enough_rows and cache_recent_enough:
+                ordered = list(reversed(cached_rows))
+                return [
+                    {
+                        "ndc": row["ndc"],
+                        "effective_date": str(row["effective_date"]),
+                        "price_per_unit": float(row["price_per_unit"]),
+                        "unit": row["unit"],
+                    }
+                    for row in ordered
+                ]
 
-        metadata = await self._get_latest_dataset_metadata()
+        if not metadata:
+            raise PricingServiceError("Unable to resolve NADAC metadata for history lookup")
+
         dataset_id = metadata["dataset_id"]
         as_of_week = metadata.get("as_of_week")
         url = self._nadac_query_url(dataset_id)
@@ -583,6 +654,13 @@ class NADACPricingService:
         if not ingredient:
             raise PricingNotFoundError("Could not resolve ingredient for alternatives lookup")
 
+        latest_week = None
+        try:
+            metadata = await self._get_latest_dataset_metadata()
+            latest_week = self._parse_date(metadata.get("as_of_week"))
+        except Exception as exc:
+            logger.warning("Failed to resolve NADAC metadata for alternatives lookup: %s", exc)
+
         related_rxcuis = await self._related_product_rxcuis(ingredient["rxcui"])
         ndc_meta: dict[str, dict[str, str]] = {}
         related_subset = related_rxcuis[:MAX_RELATED_RXCUIS]
@@ -601,14 +679,22 @@ class NADACPricingService:
                 ndc_meta.setdefault(ndc, related)
         ndcs = list(dict.fromkeys(ndcs))[:MAX_ALTERNATIVE_NDCS]
 
-        price_results = await asyncio.gather(*(self.get_price(ndc) for ndc in ndcs), return_exceptions=True)
-
         alternatives: list[dict[str, Any]] = []
-        for ndc, item in zip(ndcs, price_results):
-            if isinstance(item, PricingNotFoundError):
-                continue
-            if isinstance(item, Exception):
-                logger.debug("Skipping alternative price lookup for ndc=%s due to error: %s", ndc, item)
+        stale_or_missing_ndcs: list[str] = []
+        cached_rows = self._get_cached_prices_bulk(ndcs)
+        for ndc in ndcs:
+            cached = cached_rows.get(ndc)
+            if cached and self._cache_fresh(cached, latest_week):
+                item = {
+                    "ndc": str(cached["ndc"]),
+                    "price_per_unit": float(cached["price_per_unit"]),
+                    "unit": str(cached["unit"]),
+                    "effective_date": str(cached["effective_date"]),
+                    "source": NADAC_SOURCE,
+                    "as_of_week": latest_week.isoformat() if latest_week else None,
+                }
+            else:
+                stale_or_missing_ndcs.append(ndc)
                 continue
 
             meta = ndc_meta.get(ndc, {})
@@ -626,6 +712,41 @@ class NADACPricingService:
                     "kind": "brand" if tty.startswith(("SB", "BP")) else "generic",
                 }
             )
+
+        if stale_or_missing_ndcs:
+            semaphore = asyncio.Semaphore(ALTERNATIVES_FETCH_CONCURRENCY)
+
+            async def _fetch_missing_price(ndc: str):
+                async with semaphore:
+                    try:
+                        return ndc, await self.get_price(ndc)
+                    except PricingNotFoundError:
+                        return ndc, None
+                    except Exception as exc:
+                        logger.debug("Skipping alternative price lookup for ndc=%s due to error: %s", ndc, exc)
+                        return ndc, None
+
+            fetched = await asyncio.gather(
+                *(_fetch_missing_price(ndc) for ndc in stale_or_missing_ndcs),
+            )
+            for ndc, item in fetched:
+                if not item:
+                    continue
+                meta = ndc_meta.get(ndc, {})
+                tty = str(meta.get("tty") or "")
+                alternatives.append(
+                    {
+                        "ndc": item["ndc"],
+                        "price_per_unit": item["price_per_unit"],
+                        "unit": item["unit"],
+                        "effective_date": item["effective_date"],
+                        "source": item["source"],
+                        "as_of_week": item.get("as_of_week"),
+                        "name": meta.get("name"),
+                        "tty": tty,
+                        "kind": "brand" if tty.startswith(("SB", "BP")) else "generic",
+                    }
+                )
 
         if not alternatives:
             raise PricingNotFoundError("No NADAC alternatives found for this ingredient")
