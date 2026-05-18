@@ -148,6 +148,32 @@ test('PriceCard renders cheapest badge on first alternatives row', () => {
   assert.match(html, /← cheapest/)
 })
 
+test('PriceCard renders similar badge for primary ingredient fallback alternatives', () => {
+  const html = renderToStaticMarkup(
+    <PriceCard
+      ndc="00002140102"
+      initialData={{
+        price: BASE_PRICE,
+        alternatives: [
+          {
+            ndc: '00093102901',
+            name: 'amoxicillin 500 MG Oral Capsule',
+            kind: 'generic',
+            match_scope: 'primary_ingredient_only',
+            price_per_unit: 0.09,
+            unit: 'EA',
+            effective_date: '2026-05-15',
+            is_cheapest: true,
+          },
+        ],
+        history: [],
+      }}
+    />
+  )
+
+  assert.match(html, /ⓘ similar/)
+})
+
 test('PriceCard renders generic_vs_brand_ratio callout when ratio >= 2', () => {
   const html = renderToStaticMarkup(
     <PriceCard

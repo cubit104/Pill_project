@@ -4,6 +4,7 @@ export interface AlternativePrice {
   ndc: string
   name?: string
   kind?: 'brand' | 'generic' | string
+  match_scope?: 'primary_ingredient_only' | string
   price_per_unit: number
   unit: string
   effective_date: string
@@ -37,6 +38,9 @@ export default function AlternativesTable({
                   <span className="capitalize text-slate-700">{row.kind || 'generic'}</span>
                   {' — '}
                   <span className="text-slate-900">{row.name || '—'}</span>
+                  {row.match_scope === 'primary_ingredient_only' && (
+                    <span className="ml-2 text-xs text-slate-500">ⓘ similar</span>
+                  )}
                   {row.is_cheapest && (
                     <span className="ml-2 inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
                       ← cheapest
