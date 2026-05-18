@@ -42,6 +42,8 @@ export async function fetchPill(slug: string): Promise<PillDetail | null> {
     size: raw.size ?? (raw.splsize ? String(raw.splsize) : undefined),
     dosage_form: raw.dosage_form,
     brand_names: raw.brand_names,
+    brand_or_generic: raw.brand_or_generic === 'brand' ? 'brand' : raw.brand_or_generic === 'generic' ? 'generic' : undefined,
+    generic_for: raw.generic_for ?? raw.brand_names,
     status_rx_otc: raw.status_rx_otc,
     route: raw.route,
     meta_title: raw.meta_title ?? undefined,

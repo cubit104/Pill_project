@@ -8,6 +8,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from email.utils import parsedate_to_datetime
+from time import perf_counter
 from typing import Any, Optional
 
 import httpx
@@ -876,9 +877,26 @@ class NADACPricingService:
         }
 
     async def get_price(self, ndc: str, *, days_supply: int = 30, units_per_day: float = 1.0) -> dict[str, Any]:
+        request_started = perf_counter()
         ndc_digits = self._normalize_ndc_digits(ndc)
         if not ndc_digits:
             raise ValueError("Invalid NDC format")
+
+        cache_status = "miss"
+        cache_started = perf_counter()
+        cached = self._get_cached_price(ndc_digits)
+        cache_duration_ms = (perf_counter() - cache_started) * 1000
+        if cached and self._cache_fresh(cached, None):
+            total_duration_ms = (perf_counter() - request_started) * 1000
+            logger.info("[price-cache] %s - hit - %.2fms", ndc_digits, total_duration_ms)
+            payload = self._payload_from_cached_row(cached, None)
+            result = self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
+            result["cache_status"] = "hit"
+            result["cache_duration_ms"] = round(cache_duration_ms, 2)
+            result["fetch_duration_ms"] = 0.0
+            return result
+        if cached:
+            cache_status = "stale"
 
         latest_week = None
         try:
@@ -887,11 +905,7 @@ class NADACPricingService:
         except Exception:
             logger.exception("Failed to resolve latest NADAC metadata; falling back to TTL-only cache")
 
-        cached = self._get_cached_price(ndc_digits)
-        if cached and self._cache_fresh(cached, latest_week):
-            payload = self._payload_from_cached_row(cached, latest_week)
-            return self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
-
+        fetch_started = perf_counter()
         try:
             latest = await self._fetch_nadac_latest_for_ndc(ndc_digits)
         except PricingNotFoundError:
@@ -899,8 +913,15 @@ class NADACPricingService:
             if equivalent is None:
                 raise
             latest = equivalent
+        fetch_duration_ms = (perf_counter() - fetch_started) * 1000
         self._upsert_price_cache(latest)
-        return self._add_totals(latest, days_supply=days_supply, units_per_day=units_per_day)
+        total_duration_ms = (perf_counter() - request_started) * 1000
+        logger.info("[price-cache] %s - %s - %.2fms", ndc_digits, cache_status, total_duration_ms)
+        result = self._add_totals(latest, days_supply=days_supply, units_per_day=units_per_day)
+        result["cache_status"] = cache_status
+        result["cache_duration_ms"] = round(cache_duration_ms, 2)
+        result["fetch_duration_ms"] = round(fetch_duration_ms, 2)
+        return result
 
     async def get_price_by_rxcui(
         self,
@@ -909,9 +930,27 @@ class NADACPricingService:
         days_supply: int = 30,
         units_per_day: float = 1.0,
     ) -> dict[str, Any]:
+        request_started = perf_counter()
         rxcui_digits = re.sub(r"\D", "", (rxcui or "").strip())
         if not rxcui_digits:
             raise ValueError("Invalid RxCUI format")
+
+        cache_key = f"rxcui:{rxcui_digits}"
+        cache_status = "miss"
+        cache_started = perf_counter()
+        cached = self._get_cached_price(cache_key)
+        cache_duration_ms = (perf_counter() - cache_started) * 1000
+        if cached and self._cache_fresh(cached, None):
+            total_duration_ms = (perf_counter() - request_started) * 1000
+            logger.info("[price-cache] %s - hit - %.2fms", cache_key, total_duration_ms)
+            payload = self._payload_from_cached_row(cached, None)
+            result = self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
+            result["cache_status"] = "hit"
+            result["cache_duration_ms"] = round(cache_duration_ms, 2)
+            result["fetch_duration_ms"] = 0.0
+            return result
+        if cached:
+            cache_status = "stale"
 
         metadata: dict[str, Any] | None = None
         latest_week = None
@@ -921,12 +960,7 @@ class NADACPricingService:
         except Exception:
             logger.exception("Failed to resolve latest NADAC metadata for RxCUI lookup")
 
-        cache_key = f"rxcui:{rxcui_digits}"
-        cached = self._get_cached_price(cache_key)
-        if cached and self._cache_fresh(cached, latest_week):
-            payload = self._payload_from_cached_row(cached, latest_week)
-            return self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
-
+        fetch_started = perf_counter()
         siblings = await self._ndcs_for_rxcui(rxcui_digits)
         if not siblings:
             raise PricingNotFoundError(f"No NDCs found for RxCUI {rxcui_digits}")
@@ -967,7 +1001,14 @@ class NADACPricingService:
             cache_key=cache_key,
             include_history=False,
         )
-        return self._add_totals(result, days_supply=days_supply, units_per_day=units_per_day)
+        fetch_duration_ms = (perf_counter() - fetch_started) * 1000
+        total_duration_ms = (perf_counter() - request_started) * 1000
+        logger.info("[price-cache] %s - %s - %.2fms", cache_key, cache_status, total_duration_ms)
+        priced = self._add_totals(result, days_supply=days_supply, units_per_day=units_per_day)
+        priced["cache_status"] = cache_status
+        priced["cache_duration_ms"] = round(cache_duration_ms, 2)
+        priced["fetch_duration_ms"] = round(fetch_duration_ms, 2)
+        return priced
 
     async def get_price_by_name(
         self,
@@ -976,9 +1017,27 @@ class NADACPricingService:
         days_supply: int = 30,
         units_per_day: float = 1.0,
     ) -> dict[str, Any]:
+        request_started = perf_counter()
         clean_name = (name or "").strip()
         if not clean_name:
             raise ValueError("Drug name is required")
+
+        cache_key = f"name:{self._slugify_token(clean_name)}"
+        cache_status = "miss"
+        cache_started = perf_counter()
+        cached = self._get_cached_price(cache_key)
+        cache_duration_ms = (perf_counter() - cache_started) * 1000
+        if cached and self._cache_fresh(cached, None):
+            total_duration_ms = (perf_counter() - request_started) * 1000
+            logger.info("[price-cache] %s - hit - %.2fms", cache_key, total_duration_ms)
+            payload = self._payload_from_cached_row(cached, None)
+            result = self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
+            result["cache_status"] = "hit"
+            result["cache_duration_ms"] = round(cache_duration_ms, 2)
+            result["fetch_duration_ms"] = 0.0
+            return result
+        if cached:
+            cache_status = "stale"
 
         metadata: dict[str, Any] | None = None
         latest_week = None
@@ -988,12 +1047,7 @@ class NADACPricingService:
         except Exception:
             logger.exception("Failed to resolve latest NADAC metadata for name lookup")
 
-        cache_key = f"name:{self._slugify_token(clean_name)}"
-        cached = self._get_cached_price(cache_key)
-        if cached and self._cache_fresh(cached, latest_week):
-            payload = self._payload_from_cached_row(cached, latest_week)
-            return self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
-
+        fetch_started = perf_counter()
         ingredient = await self._resolve_ingredient(clean_name)
         if not ingredient:
             raise PricingNotFoundError(f"Could not resolve RxCUI for drug name '{clean_name}'")
@@ -1051,7 +1105,14 @@ class NADACPricingService:
         cache_payload = dict(result)
         cache_payload["raw_payload"] = dict(result)
         self._upsert_price_cache(cache_payload, cache_key=cache_key, include_history=False)
-        return self._add_totals(result, days_supply=days_supply, units_per_day=units_per_day)
+        fetch_duration_ms = (perf_counter() - fetch_started) * 1000
+        total_duration_ms = (perf_counter() - request_started) * 1000
+        logger.info("[price-cache] %s - %s - %.2fms", cache_key, cache_status, total_duration_ms)
+        priced = self._add_totals(result, days_supply=days_supply, units_per_day=units_per_day)
+        priced["cache_status"] = cache_status
+        priced["cache_duration_ms"] = round(cache_duration_ms, 2)
+        priced["fetch_duration_ms"] = round(fetch_duration_ms, 2)
+        return priced
 
     async def get_price_history(self, ndc: str, weeks: int = 52) -> list[dict[str, Any]]:
         ndc_digits = self._normalize_ndc_digits(ndc)

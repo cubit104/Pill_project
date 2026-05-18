@@ -19,8 +19,10 @@ export async function generateMetadata(
   }
 
   const drugName = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : slug
+  const strength = pill.strength?.trim() || ''
+  const titleName = [drugName, strength].filter(Boolean).join(' ').trim()
   return {
-    title: `${drugName} – Price details | PillSeek`,
+    title: `${titleName || drugName} – Price details | PillSeek`,
   }
 }
 
@@ -32,6 +34,20 @@ export default async function PillPricePage(
   if (!pill) notFound()
 
   const drugName = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : slug
+  const strength = pill.strength?.trim() || ''
+  const genericFor = pill.generic_for?.trim() || ''
+  const brandOrGeneric = pill.brand_or_generic
+  const descriptor = brandOrGeneric === 'brand'
+    ? 'Brand'
+    : brandOrGeneric === 'generic'
+      ? 'Generic'
+      : genericFor
+        ? 'Generic'
+        : ''
+  const detailsText = [
+    descriptor ? (genericFor ? `${descriptor} for: ${genericFor}` : descriptor) : (genericFor ? `Generic for: ${genericFor}` : ''),
+    pill.ndc ? `NDC: ${pill.ndc}` : '',
+  ].filter(Boolean).join(' · ')
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6" data-testid="pill-price-page">
@@ -41,6 +57,13 @@ export default async function PillPricePage(
       >
         ← Back to {drugName}
       </Link>
+
+      <header className="mb-6">
+        <h1 className="text-3xl font-bold text-slate-900">
+          💊 {[drugName, strength].filter(Boolean).join(' ')}
+        </h1>
+        {detailsText ? <p className="text-slate-600 mt-1">{detailsText}</p> : null}
+      </header>
 
       <PriceCard ndc={pill.ndc} rxcui={pill.rxcui} medicineName={pill.drug_name} />
     </div>
