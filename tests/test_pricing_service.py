@@ -758,40 +758,96 @@ def test_get_price_by_rxcui_uses_cache_on_second_call():
 
 
 def test_get_price_by_name_resolves_to_rxcui_then_to_price():
+    """get_price_by_name expands ingredient → product RxCUIs → NDCs → cheapest price."""
     svc = NADACPricingService()
 
     with patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds", "as_of_week": "2026-05-14"})), \
          patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "metformin", "rxcui": "6809"})), \
-         patch.object(
-             svc,
-             "get_price_by_rxcui",
-             new=AsyncMock(
-                 return_value={
-                     "ndc": "22222222222",
-                     "price_per_unit": 0.25,
-                     "unit": "EA",
-                     "effective_date": "2026-05-14",
-                     "source": "NADAC (CMS)",
-                     "as_of_week": "2026-05-14",
-                     "match_type": "equivalent",
-                     "matched_ndc": "22222222222",
-                     "source_rxcui": "6809",
-                     "equivalent_count": 2,
-                     "total_acquisition_cost": 7.5,
-                     "fair_retail_low": 11.25,
-                     "fair_retail_high": 22.5,
-                     "days_supply": 30,
-                     "units_per_day": 1.0,
-                     "disclaimers": [],
-                 }
-             ),
-         ), \
+         patch.object(svc, "_related_product_rxcuis", new=AsyncMock(return_value=[{"rxcui": "861007", "name": "metformin 500 MG Oral Tablet", "tty": "SCD"}])), \
+         patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(return_value=["22222222222", "33333333333"])), \
+         patch.object(svc, "_resolve_column_map", new=AsyncMock(return_value={"ndc": "ndc", "effective_date": "effective_date", "price": "nadac_per_unit", "unit": "pricing_unit"})), \
+         patch.object(svc, "_bulk_query_nadac_for_ndcs", new=AsyncMock(return_value={
+             "22222222222": {"ndc": "22222222222", "effective_date": "2026-05-14", "nadac_per_unit": "0.25", "pricing_unit": "EA"},
+         })), \
          patch.object(svc, "_upsert_price_cache", return_value=None):
         result = asyncio.run(svc.get_price_by_name("metformin"))
 
     assert result["match_type"] == "approximate"
     assert result["resolved_ingredient"] == "metformin"
     assert result["resolved_rxcui"] == "6809"
+    assert result["matched_ndc"] == "22222222222"
+
+
+def test_get_price_by_name_expands_ingredient_to_products():
+    """get_price_by_name gathers NDCs from all product RxCUIs and returns the cheapest."""
+    svc = NADACPricingService()
+
+    products = [
+        {"rxcui": "111111", "name": "clopidogrel 75 MG Oral Tablet", "tty": "SCD"},
+        {"rxcui": "222222", "name": "Plavix 75 MG Oral Tablet", "tty": "SBD"},
+        {"rxcui": "333333", "name": "clopidogrel 300 MG Oral Tablet", "tty": "SCD"},
+    ]
+    ndc_sets = {
+        "111111": ["10101010101", "10101010102"],
+        "222222": ["20202020201", "20202020202"],
+        "333333": ["30303030301", "30303030302"],
+    }
+
+    async def _mock_ndcs_for_rxcui(rxcui):
+        return ndc_sets[rxcui]
+
+    nadac_rows = {
+        "10101010101": {"ndc": "10101010101", "effective_date": "2026-05-14", "nadac_per_unit": "0.50", "pricing_unit": "EA"},
+        "20202020201": {"ndc": "20202020201", "effective_date": "2026-05-14", "nadac_per_unit": "1.20", "pricing_unit": "EA"},
+        "30303030301": {"ndc": "30303030301", "effective_date": "2026-05-14", "nadac_per_unit": "0.30", "pricing_unit": "EA"},
+    }
+
+    with patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds", "as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "clopidogrel", "rxcui": "32968"})), \
+         patch.object(svc, "_related_product_rxcuis", new=AsyncMock(return_value=products)), \
+         patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(side_effect=_mock_ndcs_for_rxcui)), \
+         patch.object(svc, "_resolve_column_map", new=AsyncMock(return_value={"ndc": "ndc", "effective_date": "effective_date", "price": "nadac_per_unit", "unit": "pricing_unit"})), \
+         patch.object(svc, "_bulk_query_nadac_for_ndcs", new=AsyncMock(return_value=nadac_rows)), \
+         patch.object(svc, "_upsert_price_cache", return_value=None):
+        result = asyncio.run(svc.get_price_by_name("plavix"))
+
+    assert result["match_type"] == "approximate"
+    assert result["resolved_ingredient"] == "clopidogrel"
+    assert result["resolved_rxcui"] == "32968"
+    # cheapest of the three priced NDCs is 0.30
+    assert result["price_per_unit"] == 0.30
+    assert result["matched_ndc"] == "30303030301"
+    assert result["equivalent_count"] == 6  # 3 products × 2 NDCs each
+
+
+def test_get_price_by_name_raises_when_no_product_rxcuis():
+    """get_price_by_name raises PricingNotFoundError when no product RxCUIs found."""
+    svc = NADACPricingService()
+
+    with patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds", "as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "clopidogrel", "rxcui": "32968"})), \
+         patch.object(svc, "_related_product_rxcuis", new=AsyncMock(return_value=[])):
+        with pytest.raises(PricingNotFoundError, match="No product RxCUIs found for ingredient 'clopidogrel'"):
+            asyncio.run(svc.get_price_by_name("plavix"))
+
+
+def test_get_price_by_name_raises_when_no_ndcs_in_nadac():
+    """get_price_by_name raises PricingNotFoundError when NADAC has no pricing for resolved NDCs."""
+    svc = NADACPricingService()
+
+    with patch.object(svc, "_get_cached_price", return_value=None), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds", "as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "clopidogrel", "rxcui": "32968"})), \
+         patch.object(svc, "_related_product_rxcuis", new=AsyncMock(return_value=[{"rxcui": "111111", "name": "clopidogrel 75 MG Oral Tablet", "tty": "SCD"}])), \
+         patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(return_value=["10101010101"])), \
+         patch.object(svc, "_resolve_column_map", new=AsyncMock(return_value={"ndc": "ndc", "effective_date": "effective_date", "price": "nadac_per_unit", "unit": "pricing_unit"})), \
+         patch.object(svc, "_bulk_query_nadac_for_ndcs", new=AsyncMock(return_value={})), \
+         patch.object(svc, "_upsert_price_cache", return_value=None):
+        with pytest.raises(PricingNotFoundError, match="No NADAC pricing found for any NDC of ingredient 'clopidogrel'"):
+            asyncio.run(svc.get_price_by_name("plavix"))
 
 
 def test_get_price_by_name_resolves_successfully():
@@ -814,7 +870,17 @@ def test_get_price_by_name_resolves_successfully():
                     ]
                 }
             }
-        if url.endswith("/REST/rxcui/32968/ndcs.json"):
+        if url.endswith("/REST/rxcui/32968/related.json?tty=SCD+SBD+GPCK+BPCK"):
+            return {
+                "relatedGroup": {
+                    "conceptGroup": [
+                        {"conceptProperties": [
+                            {"rxcui": "309362", "name": "clopidogrel 75 MG Oral Tablet", "tty": "SCD"},
+                        ]},
+                    ]
+                }
+            }
+        if url.endswith("/REST/rxcui/309362/ndcs.json"):
             return {"ndcGroup": {"ndcList": {"ndc": ["00074-2130-13", "00074-2130-90"]}}}
         raise AssertionError(f"Unexpected URL: {url} params={params} method={method} json_body={json_body}")
 
