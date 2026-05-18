@@ -50,6 +50,59 @@ def test_request_json_retries_on_429_with_retry_after():
     assert mock_get.call_count == 2
 
 
+def test_request_json_surfaces_http_status_error_details_and_logs_exception():
+    svc = NADACPricingService()
+    body = "x" * 600
+    response = httpx.Response(
+        status_code=404,
+        text=body,
+        request=httpx.Request("GET", "https://data.medicaid.gov/api/1/datastore/query/mock/0"),
+    )
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=response)), \
+         patch("services.pricing_service.logger.exception") as mock_log:
+        with pytest.raises(PricingServiceError) as exc_info:
+            asyncio.run(svc._request_json("https://example.test"))
+
+    detail = str(exc_info.value)
+    assert "HTTPStatusError 404" in detail
+    assert "https://data.medicaid.gov/api/1/datastore/query/mock/0" in detail
+    assert "x" * 500 in detail
+    assert "x" * 501 not in detail
+    mock_log.assert_called_once()
+
+
+def test_request_json_surfaces_request_error_message():
+    svc = NADACPricingService()
+    request = httpx.Request("GET", "https://example.test")
+    exc = httpx.ConnectError("dns failed", request=request)
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(side_effect=[exc, exc, exc])):
+        with pytest.raises(PricingServiceError, match=r"ConnectError — dns failed"):
+            asyncio.run(svc._request_json("https://example.test"))
+
+
+def test_extract_dataset_id_prefers_distribution_identifier_and_download_url():
+    svc = NADACPricingService()
+
+    assert svc._extract_dataset_id(
+        {
+            "identifier": "dataset-123",
+            "distribution": [{"identifier": "distribution-456"}],
+        }
+    ) == "distribution-456"
+    assert svc._extract_dataset_id(
+        {
+            "identifier": "dataset-123",
+            "distribution": [
+                {
+                    "%Ref:downloadURL": "https://data.medicaid.gov/api/1/datastore/query/fbb83258-11c7-47f5-8b18-5f8e79f7e704/0"
+                }
+            ],
+        }
+    ) == "fbb83258-11c7-47f5-8b18-5f8e79f7e704"
+
+
 def test_get_latest_dataset_metadata_uses_latest_effective_date_row():
     svc = NADACPricingService()
     catalog_payload = {
@@ -85,6 +138,40 @@ def test_get_latest_dataset_metadata_accepts_catalog_list_payload():
 
     assert metadata["dataset_id"] == "dataset-list-123"
     assert metadata["as_of_week"] == "2026-05-14"
+
+
+def test_fetch_nadac_latest_for_ndc_posts_datastore_query_body():
+    svc = NADACPricingService()
+
+    with patch.object(
+        svc,
+        "_get_latest_dataset_metadata",
+        new=AsyncMock(return_value={"dataset_id": "dataset-123", "as_of_week": "2026-05-14"}),
+    ), patch.object(
+        svc,
+        "_request_json",
+        new=AsyncMock(
+            return_value={
+                "results": [
+                    {
+                        "ndc": "00002140102",
+                        "effective_date": "2026-05-14",
+                        "nadac_per_unit": "0.50",
+                        "pricing_unit": "EA",
+                    }
+                ]
+            }
+        ),
+    ) as mock_request:
+        result = asyncio.run(svc._fetch_nadac_latest_for_ndc("00002140102"))
+
+    assert result["price_per_unit"] == 0.5
+    assert mock_request.await_args.kwargs["method"] == "POST"
+    assert mock_request.await_args.kwargs["json_body"] == {
+        "conditions": [{"resource": "t", "property": "ndc", "value": "00002140102", "operator": "="}],
+        "sorts": [{"resource": "t", "property": "effective_date", "order": "desc"}],
+        "limit": 1,
+    }
 
 
 def test_get_latest_dataset_metadata_uses_fallback_when_catalog_raises_unexpected_error():
