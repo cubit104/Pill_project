@@ -53,3 +53,14 @@ test('PriceSummaryCard shows tiny equivalent note for fallback pricing', () => {
 
   assert.match(html, /ⓘ Equivalent product pricing shown/)
 })
+
+test('PriceSummaryCard renders fallback markup when price data is unavailable', () => {
+  const html = renderToStaticMarkup(
+    <PriceSummaryCard slug="plavix-75-1171" />
+  )
+
+  assert.match(html, /💰 Price/)
+  assert.match(html, /Price data unavailable for this NDC\./)
+  assert.match(html, /href="\/pill\/plavix-75-1171\/price"/)
+  assert.match(html, /See pricing details/)
+})
