@@ -440,7 +440,7 @@ def test_get_price_cache_hit_skips_upstream_fetch():
     assert result["price_per_unit"] == 0.25
     assert result["cache_status"] == "hit"
     assert result["fetch_duration_ms"] == 0.0
-    mock_metadata.assert_awaited_once()
+    mock_metadata.assert_not_called()
     mock_fetch.assert_not_called()
 
 

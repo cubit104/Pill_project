@@ -67,6 +67,38 @@ function resolveDownstreamNdc(priceData: PriceResponse | null, fallbackNdc?: str
   return digits.length === 11 ? digits : null
 }
 
+/**
+ * Fetch only the downstream `/alternatives` and `/history` endpoints for an
+ * already-resolved price.  Used when the price was seeded via SSR
+ * `initialData` so we don't need to re-fetch it, but alternatives / history
+ * were not included in the server-side pass.
+ */
+export async function fetchPriceCardDownstream({
+  price,
+  fallbackNdc,
+  apiBase,
+  fetchImpl = fetch,
+}: {
+  price: PriceResponse
+  fallbackNdc?: string
+  apiBase: string
+  fetchImpl?: typeof fetch
+}): Promise<{
+  alternativesData: AlternativesResponse | null
+  historyData: HistoryResponse | null
+}> {
+  const downstreamNdc = resolveDownstreamNdc(price, fallbackNdc)
+  if (!downstreamNdc) {
+    return { alternativesData: null, historyData: null }
+  }
+  const encoded = encodeURIComponent(downstreamNdc)
+  const [alternativesData, historyData] = await Promise.all([
+    fetchImpl(`${apiBase}/api/prices/${encoded}/alternatives`).then((r) => (r.ok ? r.json() : null)),
+    fetchImpl(`${apiBase}/api/prices/${encoded}/history?weeks=52`).then((r) => (r.ok ? r.json() : null)),
+  ]) as [AlternativesResponse | null, HistoryResponse | null]
+  return { alternativesData, historyData }
+}
+
 export async function fetchPriceCardData({
   ndc,
   rxcui,
@@ -145,7 +177,15 @@ export default function PriceCard({
   const [retryCount, setRetryCount] = useState<number>(0)
 
   useEffect(() => {
-    if ((!ndc && !rxcui && !medicineName) || initialData) return
+    if (!ndc && !rxcui && !medicineName) return
+
+    // If initialData supplies everything we need, skip all fetches.
+    if (
+      initialData?.price
+      && initialData.alternatives !== undefined
+      && initialData.history !== undefined
+    ) return
+
     if (!API_BASE) {
       console.error('NEXT_PUBLIC_API_BASE_URL not configured')
       setLoading(false)
@@ -153,6 +193,30 @@ export default function PriceCard({
       return
     }
     let cancelled = false
+
+    // Case: price is already seeded from SSR but downstream data is missing.
+    // Only fetch alternatives + history using the matched NDC.
+    if (initialData?.price) {
+      const load = async () => {
+        try {
+          const { alternativesData, historyData } = await fetchPriceCardDownstream({
+            price: initialData.price,
+            fallbackNdc: ndc,
+            apiBase: API_BASE,
+          })
+          if (cancelled) return
+          setAlternatives(alternativesData?.alternatives || [])
+          setHistory(historyData?.history || [])
+          setGenericVsBrandRatio(alternativesData?.generic_vs_brand_ratio ?? null)
+        } catch {
+          // Non-fatal: price is already shown; just leave alternatives/history empty.
+        }
+      }
+      load()
+      return () => {
+        cancelled = true
+      }
+    }
 
     const load = async () => {
       try {

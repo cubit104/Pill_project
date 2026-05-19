@@ -114,30 +114,31 @@ def regenerate_slugs():
     if not database.db_engine:
         return
     try:
+        updates = []
+        seen_slugs: Dict[str, int] = {}
+
+        # Use a single connection for both the read and the write so we hold
+        # at most one pool slot during the entire operation.
         with database.db_engine.connect() as conn:
             rows = conn.execute(
                 text("SELECT id, medicine_name, spl_strength, splimprint, slug FROM pillfinder")
             ).fetchall()
 
-        updates = []
-        seen_slugs: Dict[str, int] = {}
+            for row in rows:
+                row_id, medicine_name, spl_strength, splimprint, existing_slug = row
+                new_slug = generate_slug(medicine_name or "", spl_strength or "")
 
-        for row in rows:
-            row_id, medicine_name, spl_strength, splimprint, existing_slug = row
-            new_slug = generate_slug(medicine_name or "", spl_strength or "")
+                base_slug = new_slug
+                counter = 1
+                while new_slug in seen_slugs and seen_slugs[new_slug] != row_id:
+                    new_slug = f"{base_slug}-{counter}"
+                    counter += 1
+                seen_slugs[new_slug] = row_id
 
-            base_slug = new_slug
-            counter = 1
-            while new_slug in seen_slugs and seen_slugs[new_slug] != row_id:
-                new_slug = f"{base_slug}-{counter}"
-                counter += 1
-            seen_slugs[new_slug] = row_id
+                if existing_slug != new_slug:
+                    updates.append({"new_slug": new_slug, "row_id": row_id})
 
-            if existing_slug != new_slug:
-                updates.append({"new_slug": new_slug, "row_id": row_id})
-
-        if updates:
-            with database.db_engine.connect() as conn:
+            if updates:
                 for upd in updates:
                     conn.execute(
                         text(
@@ -148,9 +149,9 @@ def regenerate_slugs():
                         upd,
                     )
                 conn.commit()
-            logger.info(f"regenerate_slugs: updated {len(updates)} slug(s) to strength-based format")
-        else:
-            logger.info("regenerate_slugs: all slugs already up-to-date")
+                logger.info(f"regenerate_slugs: updated {len(updates)} slug(s) to strength-based format")
+            else:
+                logger.info("regenerate_slugs: all slugs already up-to-date")
     except Exception as e:
         logger.error(f"regenerate_slugs failed: {e}", exc_info=True)
 
@@ -160,8 +161,20 @@ async def startup_event():
     """Run tasks when the application starts"""
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, warmup_system)
-    await loop.run_in_executor(None, regenerate_slugs)
+    # Slug regeneration is expensive on cold-start under traffic (full table
+    # scan + N individual UPDATE statements).  Disabled by default; set
+    # RUN_SLUG_REGEN_ON_STARTUP=true to re-enable.
+    if os.getenv("RUN_SLUG_REGEN_ON_STARTUP", "false").lower() == "true":
+        await loop.run_in_executor(None, regenerate_slugs)
     logger.info("Pill identification system initialized successfully")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up shared resources on application shutdown."""
+    from services.pricing_service import pricing_service as _pricing_svc
+    await _pricing_svc.close()
+    logger.info("Shared HTTP client closed")
 
 
 @app.middleware("http")

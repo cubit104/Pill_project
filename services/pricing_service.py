@@ -81,6 +81,22 @@ class NADACPricingService:
         self._metadata_cached_at: datetime | None = None
         self._schema_cache: dict[str, list[str]] = {}
         self._column_map: dict[str, dict[str, Any]] = {}
+        # Shared HTTP client — created lazily on first use; avoids socket
+        # exhaustion from creating+tearing-down a new client per request.
+        self._http_client_instance: httpx.AsyncClient | None = None
+
+    @property
+    def _http_client(self) -> httpx.AsyncClient:
+        """Return the shared AsyncClient, creating it lazily on first access."""
+        if self._http_client_instance is None:
+            self._http_client_instance = httpx.AsyncClient(timeout=self.timeout)
+        return self._http_client_instance
+
+    async def close(self) -> None:
+        """Close the shared HTTP client.  Call this on application shutdown."""
+        if self._http_client_instance is not None:
+            await self._http_client_instance.aclose()
+            self._http_client_instance = None
 
     @staticmethod
     def _is_missing_relation(exc: Exception) -> bool:
@@ -238,11 +254,11 @@ class NADACPricingService:
         method = method.upper()
         for attempt in range(3):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    if method == "GET":
-                        response = await client.get(url, params=params)
-                    else:
-                        response = await client.request(method, url, params=params, json=json_body)
+                client = self._http_client
+                if method == "GET":
+                    response = await client.get(url, params=params)
+                else:
+                    response = await client.request(method, url, params=params, json=json_body)
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as exc:
@@ -960,6 +976,30 @@ class NADACPricingService:
             raise ValueError("Invalid NDC format")
 
         cache_status = "miss"
+
+        # Check the DB cache first — before making any HTTP call.
+        cache_started = perf_counter()
+        cached = self._get_cached_price(ndc_digits)
+        cache_duration_ms = (perf_counter() - cache_started) * 1000
+
+        # Fast-path: if the row is TTL-fresh AND the effective_date is recent
+        # enough (within stale_threshold_days of today), skip the metadata HTTP
+        # call entirely.  This is the common hot path on every request.
+        if cached and self._cache_fresh(cached, None):
+            effective_date = self._parse_date(cached.get("effective_date"))
+            today = date.today()
+            if effective_date and effective_date >= today - timedelta(days=self.stale_threshold_days):
+                total_duration_ms = (perf_counter() - request_started) * 1000
+                logger.info("[price-cache] %s - hit - %.2fms", ndc_digits, total_duration_ms)
+                payload = self._payload_from_cached_row(cached, None)
+                result = self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
+                result["cache_status"] = "hit"
+                result["cache_duration_ms"] = round(cache_duration_ms, 2)
+                result["fetch_duration_ms"] = 0.0
+                return result
+
+        # Slow path: need metadata to decide whether the cached row is stale
+        # relative to the latest NADAC publication, or to fetch a fresh one.
         latest_week = None
         try:
             metadata = await self._get_latest_dataset_metadata()
@@ -967,9 +1007,6 @@ class NADACPricingService:
         except Exception:
             logger.exception("Failed to resolve latest NADAC metadata; falling back to TTL-only cache")
 
-        cache_started = perf_counter()
-        cached = self._get_cached_price(ndc_digits)
-        cache_duration_ms = (perf_counter() - cache_started) * 1000
         cached_is_stale = bool(cached and self._is_effective_date_stale(cached.get("effective_date"), latest_week))
         if cached and self._cache_fresh(cached, None) and not cached_is_stale:
             total_duration_ms = (perf_counter() - request_started) * 1000

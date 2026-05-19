@@ -6,7 +6,7 @@ import path from 'node:path'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import PriceCard, { fetchPriceCardData } from '../PriceCard'
+import PriceCard, { fetchPriceCardData, fetchPriceCardDownstream } from '../PriceCard'
 
 const BASE_PRICE = {
   ndc: '00002140102',
@@ -292,4 +292,75 @@ test('PriceCard downstream alternatives/history calls use matched_ndc for equiva
   assert.ok(calls.includes(`${apiBase}/api/prices/${matchedNdc}/history?weeks=52`))
   assert.ok(!calls.includes(`${apiBase}/api/prices/${encodeURIComponent(originalNdc)}/alternatives`))
   assert.ok(!calls.includes(`${apiBase}/api/prices/${encodeURIComponent(originalNdc)}/history?weeks=52`))
+})
+
+test('fetchPriceCardDownstream uses matched_ndc and skips the price endpoint', async () => {
+  const calls: string[] = []
+  const originalNdc = '00002140102'
+  const matchedNdc = '23155087910'
+  const apiBase = 'https://api.example.com'
+
+  const mockFetch: typeof fetch = async (input) => {
+    const url = String(input)
+    calls.push(url)
+    if (url === `${apiBase}/api/prices/${matchedNdc}/alternatives`) {
+      return new Response(JSON.stringify({ alternatives: [], generic_vs_brand_ratio: 3 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (url === `${apiBase}/api/prices/${matchedNdc}/history?weeks=52`) {
+      return new Response(JSON.stringify({ history: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    return new Response('{}', { status: 404, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  const price = {
+    ...BASE_PRICE,
+    match_type: 'equivalent' as const,
+    matched_ndc: matchedNdc,
+  }
+
+  const { alternativesData, historyData } = await fetchPriceCardDownstream({
+    price,
+    fallbackNdc: originalNdc,
+    apiBase,
+    fetchImpl: mockFetch,
+  })
+
+  // The price endpoint must NOT be called — price is already seeded
+  assert.ok(!calls.some((u) => u.includes('/api/prices/') && !u.includes('/alternatives') && !u.includes('/history')))
+  // Alternatives + history MUST be called against the matched NDC
+  assert.ok(calls.includes(`${apiBase}/api/prices/${matchedNdc}/alternatives`))
+  assert.ok(calls.includes(`${apiBase}/api/prices/${matchedNdc}/history?weeks=52`))
+  // Original NDC must NOT be used for downstream calls
+  assert.ok(!calls.some((u) => u.includes(`/api/prices/${originalNdc}/alternatives`)))
+  assert.ok(!calls.some((u) => u.includes(`/api/prices/${originalNdc}/history`)))
+  // Results are returned
+  assert.ok(alternativesData !== null)
+  assert.equal(alternativesData!.generic_vs_brand_ratio, 3)
+  assert.ok(historyData !== null)
+})
+
+test('PriceCard renders price from initialData without loading state even when alternatives/history absent', () => {
+  const html = renderToStaticMarkup(
+    <PriceCard
+      ndc="00002140102"
+      initialData={{
+        price: {
+          ...BASE_PRICE,
+          match_type: 'equivalent',
+          matched_ndc: '23155087910',
+        },
+        // No alternatives or history supplied — simulates SSR-only initialData
+      }}
+    />
+  )
+  // Price must be rendered immediately (not skeleton)
+  assert.doesNotMatch(html, /data-testid="price-card-loading"/)
+  assert.match(html, /\$0\.45/)
+  assert.match(html, /Pharmacy Cost Benchmark/i)
 })

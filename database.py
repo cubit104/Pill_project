@@ -39,16 +39,31 @@ def initialize_ndc_handler():
 
 
 def connect_to_database():
-    """Connect to Supabase PostgreSQL database with connection pooling"""
+    """Connect to Supabase PostgreSQL database with connection pooling.
+
+    Pool values are intentionally conservative: Render free-tier spins up
+    multiple workers and Supabase's PgBouncer has a hard ``max_client_conn``
+    cap.  Each worker × pool_size connections must stay well below that limit.
+    All settings are overridable via environment variables so they can be
+    tuned per deployment tier without a code change.
+    """
     global db_engine
     try:
         logger.info("Connecting to Supabase PostgreSQL database...")
         db_engine = create_engine(
             DATABASE_URL,
-            pool_size=10,
-            max_overflow=20,
-            pool_timeout=30,
-            pool_recycle=1800,
+            # Keep pool small: Render workers × pool_size must fit inside
+            # Supabase's pooler max_client_conn (typically 60–200).
+            pool_size=int(os.getenv("DB_POOL_SIZE", "5")),
+            max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "2")),
+            # Discard idle connections every 5 min so Supabase's idle-timeout
+            # doesn't leave half-open sockets that produce FATAL errors.
+            pool_recycle=int(os.getenv("DB_POOL_RECYCLE", "300")),
+            # Fail fast rather than queuing requests during a pool crunch.
+            pool_timeout=int(os.getenv("DB_POOL_TIMEOUT", "10")),
+            # Probe connections before use so that ones killed by Supabase's
+            # idle-timeout don't trigger FATAL on first query.
+            pool_pre_ping=True,
         )
 
         with db_engine.connect() as conn:
