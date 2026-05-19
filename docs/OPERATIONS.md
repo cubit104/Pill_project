@@ -25,6 +25,8 @@ WHERE datname = current_database()
 
 Use this endpoint when DB-related alerts fire to confirm pool state before assuming Supabase is the issue: `GET /api/admin/db/pool`
 
+The endpoint intentionally keeps the redacted host and port visible for admin diagnostics so responders can confirm they are looking at the expected pooler without exposing credentials.
+
 ## DB pool tuning
 
 Keep `Render workers × (pool_size + max_overflow)` well below Supabase pooler's `max_client_conn`.

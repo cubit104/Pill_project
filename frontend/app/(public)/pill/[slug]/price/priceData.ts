@@ -6,6 +6,7 @@ import {
 } from '../pricing/priceCardData'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
+const PRICE_DATA_FETCH_TIMEOUT_MS = 5000
 
 async function fetchPriceJson(
   url: string,
@@ -33,7 +34,7 @@ export async function fetchInitialPriceData({
   medicineName?: string
 }): Promise<PriceCardInitialData | undefined> {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 5000)
+  const timeout = setTimeout(() => controller.abort(), PRICE_DATA_FETCH_TIMEOUT_MS)
   try {
     const price =
       (ndc && await fetchPriceJson(`${API_BASE}/api/prices/${encodeURIComponent(ndc)}`, controller.signal)) ||

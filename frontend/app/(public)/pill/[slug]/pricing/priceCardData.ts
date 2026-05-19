@@ -1,6 +1,8 @@
 import type { AlternativePrice } from './AlternativesTable'
 import type { PriceHistoryPoint } from './PriceHistorySparkline'
 
+const NDC_DIGIT_LENGTH = 11
+
 export interface PriceResponse {
   ndc: string
   price_per_unit: number
@@ -46,7 +48,7 @@ export interface PriceCardDownstreamResult {
 function normalizeNdcDigits(value?: string): string | null {
   if (!value) return null
   const digits = value.replace(/\D/g, '')
-  return digits.length === 11 ? digits : null
+  return digits.length === NDC_DIGIT_LENGTH ? digits : null
 }
 
 export function resolveDownstreamNdc(priceData: PriceResponse, fallbackNdc?: string): string | null {

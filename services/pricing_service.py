@@ -945,7 +945,7 @@ class NADACPricingService:
 
         return True
 
-    def _is_effective_date_recent(self, cached: dict[str, Any]) -> bool:
+    def _is_effective_date_within_threshold(self, cached: dict[str, Any]) -> bool:
         effective_date = self._parse_date(cached.get("effective_date"))
         if not effective_date:
             return False
@@ -991,7 +991,7 @@ class NADACPricingService:
         cache_started = perf_counter()
         cached = self._get_cached_price(ndc_digits)
         cache_duration_ms = (perf_counter() - cache_started) * 1000
-        if cached and self._cache_fresh(cached, None) and self._is_effective_date_recent(cached):
+        if cached and self._cache_fresh(cached, None) and self._is_effective_date_within_threshold(cached):
             total_duration_ms = (perf_counter() - request_started) * 1000
             logger.info("[price-cache] %s - hit - %.2fms", ndc_digits, total_duration_ms)
             return self._build_hit_response(

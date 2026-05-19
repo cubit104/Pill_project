@@ -13,6 +13,11 @@ from sqlalchemy import create_engine, text
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_POOL_SIZE = 5
+DEFAULT_MAX_OVERFLOW = 2
+DEFAULT_POOL_RECYCLE = 300
+DEFAULT_POOL_TIMEOUT = 10
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is not set")
@@ -28,10 +33,10 @@ def _env_bool(name: str) -> bool:
 def _create_db_engine():
     return create_engine(
         DATABASE_URL,
-        pool_size=_env_int("DB_POOL_SIZE", "5"),
-        max_overflow=_env_int("DB_MAX_OVERFLOW", "2"),
-        pool_recycle=_env_int("DB_POOL_RECYCLE", "300"),
-        pool_timeout=_env_int("DB_POOL_TIMEOUT", "10"),
+        pool_size=_env_int("DB_POOL_SIZE", str(DEFAULT_POOL_SIZE)),
+        max_overflow=_env_int("DB_MAX_OVERFLOW", str(DEFAULT_MAX_OVERFLOW)),
+        pool_recycle=_env_int("DB_POOL_RECYCLE", str(DEFAULT_POOL_RECYCLE)),
+        pool_timeout=_env_int("DB_POOL_TIMEOUT", str(DEFAULT_POOL_TIMEOUT)),
         pool_pre_ping=True,
         echo_pool=_env_bool("DB_ECHO_POOL"),
     )
