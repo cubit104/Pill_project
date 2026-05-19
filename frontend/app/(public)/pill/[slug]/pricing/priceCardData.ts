@@ -45,6 +45,7 @@ export interface PriceCardDownstreamResult {
   historyFailed: boolean
 }
 
+/** Normalize an input to digits-only NDC-11 so exported helpers can share one rule. */
 function normalizeNdcDigits(value?: string): string | null {
   if (!value) return null
   const digits = value.replace(/\D/g, '')

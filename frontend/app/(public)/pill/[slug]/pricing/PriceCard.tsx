@@ -23,6 +23,10 @@ function unitLabel(unit: string): string {
   return unit
 }
 
+function preferServerData<T>(serverValue: T | undefined, clientValue: T): T {
+  return serverValue ?? clientValue
+}
+
 export { fetchPriceCardDownstream, resolveDownstreamNdc, type PriceCardInitialData }
 
 export default function PriceCard({
@@ -47,10 +51,10 @@ export default function PriceCard({
   const [retryCount, setRetryCount] = useState<number>(0)
   // Server-provided data must win on every render so SSR payloads remain authoritative
   // during client transitions, while local state only fills gaps after client fetches.
-  const price = initialData?.price ?? priceState
-  const alternatives = initialData?.alternatives ?? alternativesState
-  const history = initialData?.history ?? historyState
-  const genericVsBrandRatio = initialData?.generic_vs_brand_ratio ?? genericVsBrandRatioState
+  const price = preferServerData(initialData?.price, priceState)
+  const alternatives = preferServerData(initialData?.alternatives, alternativesState)
+  const history = preferServerData(initialData?.history, historyState)
+  const genericVsBrandRatio = preferServerData(initialData?.generic_vs_brand_ratio, genericVsBrandRatioState)
   const hasCompleteInitialData = !!(
     initialData?.price &&
     Array.isArray(initialData.alternatives) &&

@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
+HEALTH_CHECK_TIMEOUT_SECONDS = 2.0
 
 
 # connection scoped to function body.
@@ -33,7 +34,7 @@ async def health_check():
     record_count = 0
     if database.db_engine:
         try:
-            ping = await asyncio.wait_for(asyncio.to_thread(_health_ping), timeout=2.0)
+            ping = await asyncio.wait_for(asyncio.to_thread(_health_ping), timeout=HEALTH_CHECK_TIMEOUT_SECONDS)
             db_connected = ping == 1
             if db_connected:
                 record_count = 0
