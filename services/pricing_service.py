@@ -85,6 +85,8 @@ class NADACPricingService:
         # httpx.AsyncClient can be constructed synchronously; only .aclose() is async.
         # In asyncio's single-threaded event-loop model there is no concurrent
         # access to this attribute, so no lock is needed.
+        # httpx.Timeout is a plain dataclass — construction cannot fail given
+        # validated float inputs, so no extra error handling is needed here.
         self._http_client_instance: httpx.AsyncClient = httpx.AsyncClient(timeout=self.timeout)
 
     @property

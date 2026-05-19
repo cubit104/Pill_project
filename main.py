@@ -164,8 +164,9 @@ async def startup_event():
     await loop.run_in_executor(None, warmup_system)
     # Slug regeneration is expensive on cold-start under traffic (full table
     # scan + N individual UPDATE statements).  Disabled by default; set
-    # RUN_SLUG_REGEN_ON_STARTUP=true to re-enable.
-    if os.getenv("RUN_SLUG_REGEN_ON_STARTUP", "false").lower() == "true":
+    # RUN_SLUG_REGEN_ON_STARTUP=true (or 1/yes) to re-enable.
+    _regen_raw = os.getenv("RUN_SLUG_REGEN_ON_STARTUP", "false").strip().lower()
+    if _regen_raw in ("1", "true", "yes"):
         await loop.run_in_executor(None, regenerate_slugs)
     logger.info("Pill identification system initialized successfully")
 

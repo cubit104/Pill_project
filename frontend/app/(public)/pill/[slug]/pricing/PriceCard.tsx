@@ -209,8 +209,9 @@ export default function PriceCard({
           setAlternatives(alternativesData?.alternatives || [])
           setHistory(historyData?.history || [])
           setGenericVsBrandRatio(alternativesData?.generic_vs_brand_ratio ?? null)
-        } catch {
+        } catch (err) {
           // Non-fatal: price is already shown; just leave alternatives/history empty.
+          console.error('[PriceCard] downstream fetch failed:', err)
         }
       }
       load()
