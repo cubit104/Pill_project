@@ -19,6 +19,7 @@ interface PriceResponse {
   resolved_ingredient?: string
   resolved_rxcui?: string
   equivalent_count?: number
+  is_stale?: boolean
   disclaimers: string[]
 }
 

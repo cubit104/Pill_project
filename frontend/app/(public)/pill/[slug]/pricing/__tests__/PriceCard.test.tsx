@@ -6,7 +6,7 @@ import path from 'node:path'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import PriceCard from '../PriceCard'
+import PriceCard, { fetchPriceCardData } from '../PriceCard'
 
 const BASE_PRICE = {
   ndc: '00002140102',
@@ -243,4 +243,53 @@ test('PriceCard empty and error state strings are present in the component sourc
   assert.match(src, /Price data is currently unavailable for this medication/)
   assert.match(src, /NADAC weekly file/)
   assert.match(src, /Unable to load price details right now/)
+})
+
+test('PriceCard downstream alternatives/history calls use matched_ndc for equivalent matches', async () => {
+  const calls: string[] = []
+  const originalNdc = '00002-1401-02'
+  const matchedNdc = '23155087910'
+  const apiBase = 'https://api.example.com'
+
+  const mockFetch: typeof fetch = async (input) => {
+    const url = String(input)
+    calls.push(url)
+
+    if (url === `${apiBase}/api/prices/${encodeURIComponent(originalNdc)}`) {
+      return new Response(
+        JSON.stringify({
+          ...BASE_PRICE,
+          match_type: 'equivalent',
+          matched_ndc: matchedNdc,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    if (url === `${apiBase}/api/prices/${matchedNdc}/alternatives`) {
+      return new Response(JSON.stringify({ alternatives: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (url === `${apiBase}/api/prices/${matchedNdc}/history?weeks=52`) {
+      return new Response(JSON.stringify({ history: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    return new Response('{}', { status: 404, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  await fetchPriceCardData({
+    ndc: originalNdc,
+    apiBase,
+    fetchImpl: mockFetch,
+  })
+
+  assert.equal(calls[0], `${apiBase}/api/prices/${encodeURIComponent(originalNdc)}`)
+  assert.ok(calls.includes(`${apiBase}/api/prices/${matchedNdc}/alternatives`))
+  assert.ok(calls.includes(`${apiBase}/api/prices/${matchedNdc}/history?weeks=52`))
+  assert.ok(!calls.includes(`${apiBase}/api/prices/${encodeURIComponent(originalNdc)}/alternatives`))
+  assert.ok(!calls.includes(`${apiBase}/api/prices/${encodeURIComponent(originalNdc)}/history?weeks=52`))
 })

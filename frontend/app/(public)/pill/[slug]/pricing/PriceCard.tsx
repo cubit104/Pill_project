@@ -20,6 +20,7 @@ interface PriceResponse {
   resolved_ingredient?: string
   resolved_rxcui?: string
   equivalent_count?: number
+  is_stale?: boolean
   disclaimers: string[]
 }
 
@@ -53,6 +54,76 @@ interface PriceCardInitialData {
   generic_vs_brand_ratio?: number | null
 }
 
+function resolveDownstreamNdc(priceData: PriceResponse | null, fallbackNdc?: string): string | null {
+  if (
+    priceData?.match_type === 'equivalent'
+    && priceData.matched_ndc
+    && priceData.matched_ndc.replace(/\D/g, '').length === 11
+  ) {
+    return priceData.matched_ndc.replace(/\D/g, '')
+  }
+  if (!fallbackNdc) return null
+  const digits = fallbackNdc.replace(/\D/g, '')
+  return digits.length === 11 ? digits : null
+}
+
+export async function fetchPriceCardData({
+  ndc,
+  rxcui,
+  medicineName,
+  apiBase,
+  fetchImpl = fetch,
+}: {
+  ndc?: string
+  rxcui?: string
+  medicineName?: string
+  apiBase: string
+  fetchImpl?: typeof fetch
+}): Promise<{
+  priceData: PriceResponse | null
+  alternativesData: AlternativesResponse | null
+  historyData: HistoryResponse | null
+}> {
+  const tryFetch = async (url: string): Promise<PriceResponse | null> => {
+    try {
+      const res = await fetchImpl(url)
+      if (res.ok) return await res.json() as PriceResponse
+      if (res.status === 404) return null
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  let priceData: PriceResponse | null = null
+  if (ndc) {
+    priceData = await tryFetch(`${apiBase}/api/prices/${encodeURIComponent(ndc)}`)
+  }
+  if (!priceData && rxcui) {
+    priceData = await tryFetch(`${apiBase}/api/prices/by-rxcui/${encodeURIComponent(rxcui)}`)
+  }
+  if (!priceData && medicineName) {
+    priceData = await tryFetch(`${apiBase}/api/prices/by-name/${encodeURIComponent(medicineName)}`)
+  }
+
+  const downstreamNdc = resolveDownstreamNdc(priceData, ndc)
+  if (!priceData || !downstreamNdc) {
+    return {
+      priceData,
+      alternativesData: null,
+      historyData: null,
+    }
+  }
+
+  const encoded = encodeURIComponent(downstreamNdc)
+  const [alternativesData, historyData] = await Promise.all([
+    fetchImpl(`${apiBase}/api/prices/${encoded}/alternatives`).then((res) => (res.ok ? res.json() : null)),
+    fetchImpl(`${apiBase}/api/prices/${encoded}/history?weeks=52`).then((res) => (res.ok ? res.json() : null)),
+  ]) as [AlternativesResponse | null, HistoryResponse | null]
+
+  return { priceData, alternativesData, historyData }
+}
+
 export default function PriceCard({
   ndc,
   rxcui,
@@ -83,36 +154,14 @@ export default function PriceCard({
     }
     let cancelled = false
 
-    const tryFetch = async (url: string): Promise<PriceResponse | null> => {
-      try {
-        const res = await fetch(url)
-        if (res.ok) return await res.json() as PriceResponse
-        if (res.status === 404) return null
-        return null
-      } catch {
-        return null
-      }
-    }
-
-    const fetchPrice = async (): Promise<PriceResponse | null> => {
-      if (ndc) {
-        const result = await tryFetch(`${API_BASE}/api/prices/${encodeURIComponent(ndc)}`)
-        if (result) return result
-      }
-      if (rxcui) {
-        const result = await tryFetch(`${API_BASE}/api/prices/by-rxcui/${encodeURIComponent(rxcui)}`)
-        if (result) return result
-      }
-      if (medicineName) {
-        const result = await tryFetch(`${API_BASE}/api/prices/by-name/${encodeURIComponent(medicineName)}`)
-        if (result) return result
-      }
-      return null
-    }
-
     const load = async () => {
       try {
-        const priceData = await fetchPrice()
+        const { priceData, alternativesData, historyData } = await fetchPriceCardData({
+          ndc,
+          rxcui,
+          medicineName,
+          apiBase: API_BASE,
+        })
 
         if (cancelled) return
 
@@ -124,19 +173,6 @@ export default function PriceCard({
           setGenericVsBrandRatio(null)
           return
         }
-
-        if (!ndc) {
-          setAlternatives([])
-          setHistory([])
-          setGenericVsBrandRatio(null)
-          return
-        }
-
-        const encoded = encodeURIComponent(ndc)
-        const [alternativesData, historyData] = await Promise.all([
-          fetch(`${API_BASE}/api/prices/${encoded}/alternatives`).then((res) => (res.ok ? res.json() : null)),
-          fetch(`${API_BASE}/api/prices/${encoded}/history?weeks=52`).then((res) => (res.ok ? res.json() : null)),
-        ]) as [AlternativesResponse | null, HistoryResponse | null]
         if (cancelled) return
         setAlternatives(alternativesData?.alternatives || [])
         setHistory(historyData?.history || [])
@@ -244,6 +280,16 @@ export default function PriceCard({
           )}
         </p>
         <p className="text-xs text-slate-500 mt-1">Source: {price.source} · Effective: {price.effective_date}</p>
+        {price.is_stale === true && (
+          <p
+            className="mt-2 text-xs text-amber-700"
+            role="note"
+            aria-label={`Pricing data may be outdated. Last updated ${price.effective_date}.`}
+          >
+            <span aria-hidden="true">⚠ </span>
+            Pricing data may be outdated (last updated {price.effective_date}).
+          </p>
+        )}
         {price.match_type === 'equivalent' && (
           <p className="mt-2 text-xs text-slate-500" role="note">
             ⓘ Pricing shown is for a therapeutically equivalent product (same active ingredient, strength, and dose form).

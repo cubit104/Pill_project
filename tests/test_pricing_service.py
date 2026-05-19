@@ -440,7 +440,7 @@ def test_get_price_cache_hit_skips_upstream_fetch():
     assert result["price_per_unit"] == 0.25
     assert result["cache_status"] == "hit"
     assert result["fetch_duration_ms"] == 0.0
-    mock_metadata.assert_not_called()
+    mock_metadata.assert_awaited_once()
     mock_fetch.assert_not_called()
 
 
@@ -481,6 +481,96 @@ def test_get_price_cache_miss_when_stale_refreshes():
     assert result["price_per_unit"] == 0.6
     assert result["cache_status"] == "stale"
     mock_fetch.assert_called_once()
+
+
+def test_get_price_stale_row_falls_back_to_equivalent_match():
+    svc = NADACPricingService()
+    cached = {
+        "ndc": "00002140102",
+        "price_per_unit": 0.25,
+        "unit": "EA",
+        "effective_date": "2026-04-01",
+        "source": "NADAC",
+        "raw_payload": {},
+        "fetched_at": datetime.now(timezone.utc),
+    }
+    equivalent = {
+        "ndc": "00002140102",
+        "price_per_unit": 0.6,
+        "unit": "EA",
+        "effective_date": "2026-05-14",
+        "source": "NADAC (CMS)",
+        "as_of_week": "2026-05-14",
+        "raw_payload": {},
+        "match_type": "equivalent",
+        "matched_ndc": "23155087910",
+        "equivalent_count": 3,
+    }
+
+    with patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_get_cached_price", return_value=cached), \
+         patch.object(svc, "_cache_fresh", return_value=True), \
+         patch.object(svc, "_fetch_nadac_latest_for_ndc", new=AsyncMock(side_effect=PricingNotFoundError("missing"))), \
+         patch.object(svc, "_fetch_nadac_equivalent_for_ndc", new=AsyncMock(return_value=equivalent)) as mock_equivalent, \
+         patch.object(svc, "_upsert_price_cache", return_value=None):
+        result = asyncio.run(svc.get_price("00002-1401-02"))
+
+    assert result["match_type"] == "equivalent"
+    assert result["matched_ndc"] == "23155087910"
+    assert "is_stale" not in result
+    mock_equivalent.assert_awaited_once()
+
+
+def test_get_price_stale_row_returns_stale_payload_when_fallback_missing():
+    svc = NADACPricingService()
+    cached = {
+        "ndc": "00002140102",
+        "price_per_unit": 0.25,
+        "unit": "EA",
+        "effective_date": "2026-04-01",
+        "source": "NADAC",
+        "raw_payload": {},
+        "fetched_at": datetime.now(timezone.utc),
+    }
+
+    with patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_get_cached_price", return_value=cached), \
+         patch.object(svc, "_cache_fresh", return_value=True), \
+         patch.object(svc, "_fetch_nadac_latest_for_ndc", new=AsyncMock(side_effect=PricingNotFoundError("missing"))), \
+         patch.object(svc, "_fetch_nadac_equivalent_for_ndc", new=AsyncMock(return_value=None)), \
+         patch.object(svc, "_upsert_price_cache", return_value=None) as mock_upsert:
+        result = asyncio.run(svc.get_price("00002-1401-02"))
+
+    assert result["ndc"] == "00002140102"
+    assert result["price_per_unit"] == 0.25
+    assert result["is_stale"] is True
+    assert result["cache_status"] == "stale"
+    mock_upsert.assert_not_called()
+
+
+def test_get_price_fresh_row_does_not_attempt_fallback():
+    svc = NADACPricingService()
+    cached = {
+        "ndc": "00002140102",
+        "price_per_unit": 0.25,
+        "unit": "EA",
+        "effective_date": "2026-05-10",
+        "source": "NADAC",
+        "raw_payload": {},
+        "fetched_at": datetime.now(timezone.utc),
+    }
+
+    with patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
+         patch.object(svc, "_get_cached_price", return_value=cached), \
+         patch.object(svc, "_cache_fresh", return_value=True), \
+         patch.object(svc, "_fetch_nadac_latest_for_ndc", new=AsyncMock()) as mock_exact, \
+         patch.object(svc, "_fetch_nadac_equivalent_for_ndc", new=AsyncMock()) as mock_equivalent:
+        result = asyncio.run(svc.get_price("00002-1401-02"))
+
+    assert result["price_per_unit"] == 0.25
+    assert "is_stale" not in result
+    mock_exact.assert_not_awaited()
+    mock_equivalent.assert_not_awaited()
 
 
 def test_get_price_falls_back_to_equivalent_when_exact_ndc_missing():
