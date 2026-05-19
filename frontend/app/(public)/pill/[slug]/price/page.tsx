@@ -6,6 +6,7 @@ import { notFound } from 'next/navigation'
 import PriceCard from '../pricing/PriceCard'
 import { fetchPill } from '../page'
 import { formatStrength } from './formatStrength'
+import { fetchInitialPriceData } from './priceData'
 
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
@@ -46,6 +47,11 @@ export default async function PillPricePage(
     descriptor ? (genericFor ? `${descriptor} for: ${genericFor}` : descriptor) : (genericFor ? `Generic for: ${genericFor}` : ''),
     pill.ndc ? `NDC: ${pill.ndc}` : '',
   ].filter(Boolean).join(' · ')
+  const initialPriceData = await fetchInitialPriceData({
+    ndc: pill.ndc,
+    rxcui: pill.rxcui,
+    medicineName: pill.drug_name,
+  })
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6" data-testid="pill-price-page">
@@ -78,7 +84,12 @@ export default async function PillPricePage(
         </div>
       </header>
 
-      <PriceCard ndc={pill.ndc} rxcui={pill.rxcui} medicineName={pill.drug_name} />
+      <PriceCard
+        ndc={pill.ndc}
+        rxcui={pill.rxcui}
+        medicineName={pill.drug_name}
+        initialData={initialPriceData}
+      />
     </div>
   )
 }

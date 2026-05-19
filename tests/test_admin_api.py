@@ -118,6 +118,7 @@ def client():
 
 ADMIN_ENDPOINTS = [
     ("GET", "/api/admin/stats"),
+    ("GET", "/api/admin/db/pool"),
     ("GET", "/api/admin/pills"),
     ("GET", "/api/admin/audit"),
     ("GET", "/api/admin/users"),

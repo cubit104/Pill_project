@@ -1,6 +1,14 @@
+"""Database engine lifecycle for the API.
+
+Render workers × (pool_size + max_overflow) must stay well below Supabase
+pooler's max_client_conn (200 on Micro compute). With defaults (5+2)×2 workers
+= 14, leaving headroom for admin tools and migrations.
+"""
+
+import logging
 import os
 import time
-import logging
+
 from sqlalchemy import create_engine, text
 
 logger = logging.getLogger(__name__)
@@ -9,7 +17,27 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is not set")
 
-db_engine = None
+def _env_int(name: str, default: str) -> int:
+    return int(os.getenv(name, default))
+
+
+def _env_bool(name: str) -> bool:
+    return os.getenv(name, "").lower() in {"1", "true", "yes"}
+
+
+def _create_db_engine():
+    return create_engine(
+        DATABASE_URL,
+        pool_size=_env_int("DB_POOL_SIZE", "5"),
+        max_overflow=_env_int("DB_MAX_OVERFLOW", "2"),
+        pool_recycle=_env_int("DB_POOL_RECYCLE", "300"),
+        pool_timeout=_env_int("DB_POOL_TIMEOUT", "10"),
+        pool_pre_ping=True,
+        echo_pool=_env_bool("DB_ECHO_POOL"),
+    )
+
+
+db_engine = _create_db_engine()
 ndc_handler = None
 _common_drug_cache: dict = {}
 _missing_files_log: set = set()
@@ -38,19 +66,14 @@ def initialize_ndc_handler():
         return False
 
 
+# connection scoped to function body.
 def connect_to_database():
     """Connect to Supabase PostgreSQL database with connection pooling"""
     global db_engine
     try:
+        if db_engine is None:
+            db_engine = _create_db_engine()
         logger.info("Connecting to Supabase PostgreSQL database...")
-        db_engine = create_engine(
-            DATABASE_URL,
-            pool_size=10,
-            max_overflow=20,
-            pool_timeout=30,
-            pool_recycle=1800,
-        )
-
         with db_engine.connect() as conn:
             result = conn.execute(text("SELECT COUNT(*) FROM pillfinder"))
             count = result.scalar()
@@ -63,6 +86,7 @@ def connect_to_database():
         return False
 
 
+# connection scoped to function body.
 def warmup_system():
     """Pre-warm the system to avoid slow initial requests"""
     global _common_drug_cache

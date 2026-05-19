@@ -8,9 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
 
-import database
 from routes.admin.auth import require_superuser
 from services.medication_guide_backfill import run_backfill
 
@@ -20,52 +18,20 @@ router = APIRouter(prefix="/api/admin/medication-guide", tags=["admin-medication
 
 _state_lock = asyncio.Lock()
 _is_running = False
-_lock_conn = None
-_PG_ADVISORY_LOCK_KEY = 183104001
 
 
 async def _try_start_backfill() -> bool:
-    global _is_running, _lock_conn
+    global _is_running
     async with _state_lock:
         if _is_running:
             return False
-        if database.db_engine or database.connect_to_database():
-            conn = database.db_engine.connect()
-            try:
-                acquired = bool(
-                    conn.execute(
-                        text("SELECT pg_try_advisory_lock(:key)"),
-                        {"key": _PG_ADVISORY_LOCK_KEY},
-                    ).scalar()
-                )
-                if not acquired:
-                    conn.close()
-                    return False
-                _lock_conn = conn
-            except Exception:
-                conn.close()
-                logger.exception("Failed to acquire medication guide advisory lock")
-                return False
-        else:
-            logger.warning("Database not available for advisory lock; using in-process backfill guard only")
         _is_running = True
         return True
 
 
 async def _finish_backfill() -> None:
-    global _is_running, _lock_conn
+    global _is_running
     async with _state_lock:
-        if _lock_conn is not None:
-            try:
-                _lock_conn.execute(
-                    text("SELECT pg_advisory_unlock(:key)"),
-                    {"key": _PG_ADVISORY_LOCK_KEY},
-                )
-            except Exception:
-                logger.exception("Failed to release medication guide advisory lock")
-            finally:
-                _lock_conn.close()
-                _lock_conn = None
         _is_running = False
 
 

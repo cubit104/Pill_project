@@ -87,6 +87,8 @@ If an exact NDC is not present in the weekly NADAC dataset, pricing falls back t
 
 For direct RxCUI and name lookups, synthetic cache keys are used (`rxcui:{rxcui}`, `name:{slug}`) and full fallback metadata is preserved in cache payloads.
 
+The cache fast-path now skips NADAC metadata lookups entirely when the cached row is still fresh **and** its `effective_date` is recent enough. Older cache rows still resolve metadata before deciding whether the stale-row fallback chain needs to run, so performance improves without weakening stale-data checks.
+
 ## Legal / user-facing disclaimers
 
 Every response and UI card includes disclaimers:
@@ -141,3 +143,13 @@ If `/api/prices/by-name/{name}` returns 404:
 CMS catalog responses can be either a top-level JSON list or an object (`results`/`items`), so the pricing service defensively handles both response shapes.
 
 If NADAC catalog lookup fails intermittently (or parsing fails unexpectedly), set `NADAC_FALLBACK_DATASET_ID` to a known-good NADAC dataset UUID so pricing can continue while catalog metadata is unavailable.
+
+## Startup behavior
+
+Slug regeneration is now gated behind `RUN_SLUG_REGEN_ON_STARTUP=false` by default. Leave it disabled in production and run `python -m scripts.regenerate_slugs` manually when you intentionally need a backfill.
+
+Integration-style external API tests should be run separately with:
+
+```bash
+pytest -m integration
+```

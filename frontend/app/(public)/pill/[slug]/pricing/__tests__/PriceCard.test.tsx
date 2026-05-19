@@ -5,8 +5,11 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import TestRenderer, { act } from 'react-test-renderer'
 
-import PriceCard from '../PriceCard'
+process.env.NEXT_PUBLIC_API_BASE_URL = 'http://localhost:8000'
+
+import PriceCard, { fetchPriceCardDownstream, resolveDownstreamNdc } from '../PriceCard'
 
 const BASE_PRICE = {
   ndc: '00002140102',
@@ -243,4 +246,134 @@ test('PriceCard empty and error state strings are present in the component sourc
   assert.match(src, /Price data is currently unavailable for this medication/)
   assert.match(src, /NADAC weekly file/)
   assert.match(src, /Unable to load price details right now/)
+})
+
+test('resolveDownstreamNdc prefers matched_ndc for equivalent matches', () => {
+  assert.equal(
+    resolveDownstreamNdc(
+      {
+        ...BASE_PRICE,
+        match_type: 'equivalent',
+        matched_ndc: '00378-0181-01',
+      },
+      '00002-1401-02'
+    ),
+    '00378018101'
+  )
+})
+
+test('resolveDownstreamNdc falls back to fallbackNdc digits for exact matches', () => {
+  assert.equal(
+    resolveDownstreamNdc(BASE_PRICE, '00002-1401-02'),
+    '00002140102'
+  )
+})
+
+test('fetchPriceCardDownstream calls /alternatives and /history with matched_ndc', async () => {
+  const calls: string[] = []
+  const fetchImpl = async (input: RequestInfo | URL) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.endsWith('/alternatives')) {
+      return new Response(JSON.stringify({ alternatives: [], generic_vs_brand_ratio: 4 }), { status: 200 })
+    }
+    return new Response(JSON.stringify({ history: [] }), { status: 200 })
+  }
+
+  const result = await fetchPriceCardDownstream({
+    apiBase: 'https://api.example.com',
+    downstreamNdc: '00378018101',
+    fetchImpl,
+  })
+
+  assert.deepEqual(calls, [
+    'https://api.example.com/api/prices/00378018101/alternatives',
+    'https://api.example.com/api/prices/00378018101/history?weeks=52',
+  ])
+  assert.equal(result.genericVsBrandRatio, 4)
+})
+
+test('PriceCard renders price immediately when initialData.price present, then fetches alternatives/history', async () => {
+  const originalFetch = global.fetch
+  const calls: string[] = []
+  global.fetch = async (input: RequestInfo | URL) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.endsWith('/alternatives')) {
+      return new Response(JSON.stringify({
+        alternatives: [
+          {
+            ndc: '00378018101',
+            name: 'Equivalent Drug',
+            kind: 'generic',
+            price_per_unit: 0.22,
+            unit: 'EA',
+            effective_date: '2026-05-15',
+            is_cheapest: true,
+          },
+        ],
+      }), { status: 200 })
+    }
+    return new Response(JSON.stringify({
+      history: [
+        { ndc: '00378018101', effective_date: '2026-05-01', price_per_unit: 0.2, unit: 'EA' },
+      ],
+    }), { status: 200 })
+  }
+
+  try {
+    const renderer = TestRenderer.create(
+      <PriceCard
+        ndc="00002-1401-02"
+        initialData={{ price: { ...BASE_PRICE, match_type: 'equivalent', matched_ndc: '00378018101' } }}
+      />
+    )
+
+    assert.match(JSON.stringify(renderer.toJSON()), /"0\.45"/)
+    assert.equal(calls.length, 0)
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    assert.deepEqual(calls, [
+      'http://localhost:8000/api/prices/00378018101/alternatives',
+      'http://localhost:8000/api/prices/00378018101/history?weeks=52',
+    ])
+    assert.match(JSON.stringify(renderer.toJSON()), /Equivalent Drug/)
+    renderer.unmount()
+  } finally {
+    global.fetch = originalFetch
+  }
+})
+
+test('PriceCard does not refetch downstream when initialData has all three fields', async () => {
+  const originalFetch = global.fetch
+  const calls: string[] = []
+  global.fetch = async (input: RequestInfo | URL) => {
+    calls.push(String(input))
+    throw new Error('should not fetch')
+  }
+
+  try {
+    const renderer = TestRenderer.create(
+      <PriceCard
+        ndc="00002-1401-02"
+        initialData={{
+          price: BASE_PRICE,
+          alternatives: [],
+          history: [],
+        }}
+      />
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    assert.equal(calls.length, 0)
+    renderer.unmount()
+  } finally {
+    global.fetch = originalFetch
+  }
 })

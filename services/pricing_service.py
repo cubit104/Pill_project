@@ -70,11 +70,31 @@ class NADACPricingService:
             write=NADAC_RW_TIMEOUT,
             pool=NADAC_RW_TIMEOUT,
         )
+        self.stale_threshold_days = 14
         self.cache_ttl = timedelta(days=7)
         self._metadata_cache: dict[str, Any] | None = None
         self._metadata_cached_at: datetime | None = None
         self._schema_cache: dict[str, list[str]] = {}
         self._column_map: dict[str, dict[str, Any]] = {}
+        self._http_client: httpx.AsyncClient | None = None
+
+    async def _ensure_client(self) -> httpx.AsyncClient:
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=NADAC_CONNECT_TIMEOUT,
+                    read=NADAC_RW_TIMEOUT,
+                    write=NADAC_RW_TIMEOUT,
+                    pool=NADAC_RW_TIMEOUT,
+                ),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            )
+        return self._http_client
+
+    async def close(self) -> None:
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
 
     @staticmethod
     def _is_missing_relation(exc: Exception) -> bool:
@@ -230,13 +250,13 @@ class NADACPricingService:
     ) -> Any:
         last_exc: Exception | None = None
         method = method.upper()
+        client = await self._ensure_client()
         for attempt in range(3):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    if method == "GET":
-                        response = await client.get(url, params=params)
-                    else:
-                        response = await client.request(method, url, params=params, json=json_body)
+                if method == "GET":
+                    response = await client.get(url, params=params)
+                else:
+                    response = await client.request(method, url, params=params, json=json_body)
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as exc:
@@ -737,6 +757,7 @@ class NADACPricingService:
         if not database.db_engine and not database.connect_to_database():
             raise PricingServiceError("Database connection not available")
 
+    # connection scoped to function body.
     def _get_cached_price(self, ndc_digits: str) -> dict[str, Any] | None:
         self._ensure_db()
         try:
@@ -759,6 +780,7 @@ class NADACPricingService:
                 raise PricingServiceError("drug_prices table missing — did the migration run?") from exc
             raise
 
+    # connection scoped to function body.
     def _get_cached_prices_bulk(self, ndc_digits_list: list[str]) -> dict[str, dict[str, Any]]:
         if not ndc_digits_list:
             return {}
@@ -782,6 +804,7 @@ class NADACPricingService:
                 raise PricingServiceError("drug_prices table missing — did the migration run?") from exc
             raise
 
+    # connection scoped to function body.
     def _upsert_price_cache(
         self,
         price: dict[str, Any],
@@ -922,6 +945,12 @@ class NADACPricingService:
 
         return True
 
+    def _is_effective_date_recent(self, cached: dict[str, Any]) -> bool:
+        effective_date = self._parse_date(cached.get("effective_date"))
+        if not effective_date:
+            return False
+        return effective_date >= (date.today() - timedelta(days=self.stale_threshold_days))
+
     def _add_totals(self, price: dict[str, Any], *, days_supply: int, units_per_day: float) -> dict[str, Any]:
         quantity = max(float(units_per_day), 0.0) * max(int(days_supply), 1)
         ppu = float(price["price_per_unit"])
@@ -936,6 +965,22 @@ class NADACPricingService:
             "disclaimers": DEFAULT_DISCLAIMERS,
         }
 
+    def _build_hit_response(
+        self,
+        cached: dict[str, Any],
+        *,
+        latest_week: date | None,
+        days_supply: int,
+        units_per_day: float,
+        cache_duration_ms: float,
+    ) -> dict[str, Any]:
+        payload = self._payload_from_cached_row(cached, latest_week)
+        result = self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
+        result["cache_status"] = "hit"
+        result["cache_duration_ms"] = round(cache_duration_ms, 2)
+        result["fetch_duration_ms"] = 0.0
+        return result
+
     async def get_price(self, ndc: str, *, days_supply: int = 30, units_per_day: float = 1.0) -> dict[str, Any]:
         request_started = perf_counter()
         ndc_digits = self._normalize_ndc_digits(ndc)
@@ -946,15 +991,16 @@ class NADACPricingService:
         cache_started = perf_counter()
         cached = self._get_cached_price(ndc_digits)
         cache_duration_ms = (perf_counter() - cache_started) * 1000
-        if cached and self._cache_fresh(cached, None):
+        if cached and self._cache_fresh(cached, None) and self._is_effective_date_recent(cached):
             total_duration_ms = (perf_counter() - request_started) * 1000
             logger.info("[price-cache] %s - hit - %.2fms", ndc_digits, total_duration_ms)
-            payload = self._payload_from_cached_row(cached, None)
-            result = self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
-            result["cache_status"] = "hit"
-            result["cache_duration_ms"] = round(cache_duration_ms, 2)
-            result["fetch_duration_ms"] = 0.0
-            return result
+            return self._build_hit_response(
+                cached,
+                latest_week=None,
+                days_supply=days_supply,
+                units_per_day=units_per_day,
+                cache_duration_ms=cache_duration_ms,
+            )
         if cached:
             cache_status = "stale"
 
@@ -963,7 +1009,18 @@ class NADACPricingService:
             metadata = await self._get_latest_dataset_metadata()
             latest_week = self._parse_date(metadata.get("as_of_week"))
         except Exception:
-            logger.exception("Failed to resolve latest NADAC metadata; falling back to TTL-only cache")
+            logger.exception("Failed to resolve NADAC metadata; using cache-only mode")
+
+        if cached and self._cache_fresh(cached, latest_week):
+            total_duration_ms = (perf_counter() - request_started) * 1000
+            logger.info("[price-cache] %s - hit-after-metadata - %.2fms", ndc_digits, total_duration_ms)
+            return self._build_hit_response(
+                cached,
+                latest_week=latest_week,
+                days_supply=days_supply,
+                units_per_day=units_per_day,
+                cache_duration_ms=cache_duration_ms,
+            )
 
         fetch_started = perf_counter()
         try:
@@ -1174,6 +1231,7 @@ class NADACPricingService:
         priced["fetch_duration_ms"] = round(fetch_duration_ms, 2)
         return priced
 
+    # connection scoped to function body.
     async def get_price_history(self, ndc: str, weeks: int = 52) -> list[dict[str, Any]]:
         ndc_digits = self._normalize_ndc_digits(ndc)
         if not ndc_digits:

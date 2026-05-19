@@ -1,7 +1,9 @@
-import os
 import logging
+import os
+import asyncio
 
 from fastapi import APIRouter, BackgroundTasks
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 import database
@@ -14,8 +16,15 @@ router = APIRouter()
 IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
 
 
+# connection scoped to function body.
+def _health_ping() -> int:
+    with database.db_engine.connect() as conn:
+        result = conn.execute(text("SELECT 1"))
+        return int(result.scalar() or 0)
+
+
 @router.get("/health")
-def health_check():
+async def health_check():
     """Health check endpoint"""
     if not database.db_engine:
         database.connect_to_database()
@@ -24,15 +33,18 @@ def health_check():
     record_count = 0
     if database.db_engine:
         try:
-            with database.db_engine.connect() as conn:
-                result = conn.execute(text("SELECT COUNT(*) FROM pillfinder"))
-                record_count = result.scalar()
-                db_connected = True
+            ping = await asyncio.wait_for(asyncio.to_thread(_health_ping), timeout=2.0)
+            db_connected = ping == 1
+            if db_connected:
+                record_count = 0
         except Exception:
             db_connected = False
 
+    if not db_connected:
+        return JSONResponse(status_code=503, content={"status": "degraded", "db": "unreachable"})
+
     return {
-        "status": "healthy" if db_connected else "degraded",
+        "status": "healthy",
         "version": "1.0.0",
         "database_connected": db_connected,
         "record_count": record_count,
@@ -45,6 +57,7 @@ def health_check():
     }
 
 
+# connection scoped to function body.
 @router.get("/reload-data")
 async def reload_data(background_tasks: BackgroundTasks):
     """Reload database connection and recreate handlers"""
