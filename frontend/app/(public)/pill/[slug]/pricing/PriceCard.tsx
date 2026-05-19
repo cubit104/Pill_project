@@ -192,11 +192,12 @@ export default function PriceCard({
       setFetchError(true)
       return
     }
-    let cancelled = false
 
     // Case: price is already seeded from SSR but downstream data is missing.
     // Only fetch alternatives + history using the matched NDC.
+    // Uses its own `cancelled` flag scoped to this branch.
     if (initialData?.price) {
+      let cancelled = false
       const load = async () => {
         try {
           const { alternativesData, historyData } = await fetchPriceCardDownstream({
@@ -218,6 +219,8 @@ export default function PriceCard({
       }
     }
 
+    // Case: no initialData — full fetch chain (price + alternatives + history).
+    let cancelled = false
     const load = async () => {
       try {
         const { priceData, alternativesData, historyData } = await fetchPriceCardData({

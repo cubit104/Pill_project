@@ -81,6 +81,7 @@ from routes.admin import backfill as admin_backfill  # noqa: E402
 from routes.admin import analytics as admin_analytics  # noqa: E402
 from routes.admin import posthog as admin_posthog  # noqa: E402
 from routes.admin import medication_guide_backfill as admin_medication_guide_backfill  # noqa: E402
+from services.pricing_service import pricing_service as _pricing_service  # noqa: E402
 
 app.include_router(search.router)
 app.include_router(details.router)
@@ -172,8 +173,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up shared resources on application shutdown."""
-    from services.pricing_service import pricing_service as _pricing_svc
-    await _pricing_svc.close()
+    await _pricing_service.close()
     logger.info("Shared HTTP client closed")
 
 

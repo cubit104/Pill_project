@@ -81,22 +81,20 @@ class NADACPricingService:
         self._metadata_cached_at: datetime | None = None
         self._schema_cache: dict[str, list[str]] = {}
         self._column_map: dict[str, dict[str, Any]] = {}
-        # Shared HTTP client — created lazily on first use; avoids socket
-        # exhaustion from creating+tearing-down a new client per request.
-        self._http_client_instance: httpx.AsyncClient | None = None
+        # Shared HTTP client — initialized eagerly so __init__ is self-contained.
+        # httpx.AsyncClient can be constructed synchronously; only .aclose() is async.
+        # In asyncio's single-threaded event-loop model there is no concurrent
+        # access to this attribute, so no lock is needed.
+        self._http_client_instance: httpx.AsyncClient = httpx.AsyncClient(timeout=self.timeout)
 
     @property
     def _http_client(self) -> httpx.AsyncClient:
-        """Return the shared AsyncClient, creating it lazily on first access."""
-        if self._http_client_instance is None:
-            self._http_client_instance = httpx.AsyncClient(timeout=self.timeout)
+        """Return the shared AsyncClient."""
         return self._http_client_instance
 
     async def close(self) -> None:
         """Close the shared HTTP client.  Call this on application shutdown."""
-        if self._http_client_instance is not None:
-            await self._http_client_instance.aclose()
-            self._http_client_instance = None
+        await self._http_client_instance.aclose()
 
     @staticmethod
     def _is_missing_relation(exc: Exception) -> bool:
