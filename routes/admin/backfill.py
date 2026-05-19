@@ -231,9 +231,9 @@ async def run_nadac_history_backfill_route(
     )
     background_tasks.add_task(
         run_nadac_history_backfill,
-        weeks,
-        limit_ndcs,
-        False,
-        sleep_ms,
+        weeks=weeks,
+        limit_ndcs=limit_ndcs,
+        dry_run=False,
+        sleep_ms=sleep_ms,
     )
     return {"status": "started", "weeks": weeks}

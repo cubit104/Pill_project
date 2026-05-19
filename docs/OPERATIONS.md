@@ -57,7 +57,7 @@ python -m scripts.regenerate_slugs
 
 ## NADAC history backfill
 
-Run this once after deploy to seed `drug_price_history` with prior weekly NADAC data. Do not rerun unless `drug_price_history` has been wiped or truncated.
+Run this once after deploy to seed `drug_price_history` with prior weekly NADAC data. The job is idempotent and safe to rerun, but additional reruns are usually unnecessary unless `drug_price_history` has been wiped/truncated or you intentionally need to re-scan historical datasets.
 
 Run options:
 
