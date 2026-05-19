@@ -66,6 +66,7 @@ def test_get_price_success_includes_equivalent_fields_when_present(client):
         "match_type": "equivalent",
         "matched_ndc": "00378018101",
         "equivalent_count": 3,
+        "is_stale": True,
         "disclaimers": ["a", "b", "c"],
     }
 
@@ -77,6 +78,7 @@ def test_get_price_success_includes_equivalent_fields_when_present(client):
     assert data["match_type"] == "equivalent"
     assert data["matched_ndc"] == "00378018101"
     assert data["equivalent_count"] == 3
+    assert data["is_stale"] is True
 
 
 def test_get_price_invalid_ndc_returns_400(client):

@@ -7,6 +7,71 @@ import PriceCard from '../pricing/PriceCard'
 import { fetchPill } from '../page'
 import { formatStrength } from './formatStrength'
 
+const PUBLIC_API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '')
+
+interface PriceResponse {
+  ndc: string
+  price_per_unit: number
+  unit: string
+  effective_date: string
+  source: string
+  total_acquisition_cost: number
+  fair_retail_low: number
+  fair_retail_high: number
+  match_type?: string
+  matched_ndc?: string
+  source_rxcui?: string
+  resolved_ingredient?: string
+  resolved_rxcui?: string
+  equivalent_count?: number
+  is_stale?: boolean
+  disclaimers: string[]
+}
+
+interface PriceCardInitialData {
+  price: PriceResponse
+}
+
+async function fetchInitialPriceData({
+  ndc,
+  rxcui,
+  medicineName,
+}: {
+  ndc?: string
+  rxcui?: string
+  medicineName?: string
+}): Promise<PriceCardInitialData | undefined> {
+  if (!PUBLIC_API_BASE) return undefined
+
+  const tryFetch = async (url: string): Promise<PriceResponse | null> => {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
+    try {
+      const res = await fetch(url, { cache: 'no-store', signal: controller.signal })
+      if (!res.ok) return null
+      return await res.json() as PriceResponse
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  if (ndc) {
+    const byNdc = await tryFetch(`${PUBLIC_API_BASE}/api/prices/${encodeURIComponent(ndc)}`)
+    if (byNdc) return { price: byNdc }
+  }
+  if (rxcui) {
+    const byRxcui = await tryFetch(`${PUBLIC_API_BASE}/api/prices/by-rxcui/${encodeURIComponent(rxcui)}`)
+    if (byRxcui) return { price: byRxcui }
+  }
+  if (medicineName) {
+    const byName = await tryFetch(`${PUBLIC_API_BASE}/api/prices/by-name/${encodeURIComponent(medicineName)}`)
+    if (byName) return { price: byName }
+  }
+  return undefined
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
@@ -33,6 +98,11 @@ export default async function PillPricePage(
   const { slug } = await params
   const pill = await fetchPill(slug)
   if (!pill) notFound()
+  const initialData = await fetchInitialPriceData({
+    ndc: pill.ndc,
+    rxcui: pill.rxcui,
+    medicineName: pill.drug_name,
+  })
 
   const drugName = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : slug
   const formattedStrength = formatStrength(pill.strength ?? null)
@@ -78,7 +148,7 @@ export default async function PillPricePage(
         </div>
       </header>
 
-      <PriceCard ndc={pill.ndc} rxcui={pill.rxcui} medicineName={pill.drug_name} />
+      <PriceCard ndc={pill.ndc} rxcui={pill.rxcui} medicineName={pill.drug_name} initialData={initialData} />
     </div>
   )
 }

@@ -60,6 +60,7 @@ def build_price_response(result: dict) -> dict:
         "resolved_ingredient",
         "resolved_rxcui",
         "equivalent_count",
+        "is_stale",
     ):
         if field in result:
             response[field] = result[field]
