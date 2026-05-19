@@ -45,6 +45,9 @@ When fallback pricing is used, the response may include:
 - `resolved_ingredient` (ingredient chosen from name-based lookup)
 - `resolved_rxcui` (ingredient RxCUI from name-based lookup)
 - `equivalent_count` (number of sibling NDCs considered)
+- `is_stale` (`true` only when pricing falls back to an older cached row because no fresher equivalent/exact row was found)
+
+On the `/pill/[slug]/price` UI, when `match_type === "equivalent"` and `matched_ndc` is present, downstream alternatives/history requests are keyed by `matched_ndc` (digits-only) so all sections stay aligned with the resolved equivalent product.
 
 Fair retail estimate methodology (benchmark only):
 
@@ -61,6 +64,17 @@ Default assumptions: `units_per_day=1`, `days_supply=30`.
   - `drug_prices` (current read-through cache)
   - `drug_price_history` (weekly history points)
 - GitHub Action `refresh-nadac.yml` schedules refresh at `0 14 * * 3` (Wednesday, 14:00 UTC).
+
+### Stale cached-row policy
+
+`GET /api/prices/{ndc}` compares cached `drug_prices.effective_date` to the latest NADAC `as_of_week` metadata:
+
+- staleness threshold = `latest_as_of_week - PRICING_STALE_DAYS` (default `14`)
+- if cached row is older than threshold, exact/equivalent fallback is attempted
+- if fallback succeeds, the fresher fallback response is returned
+- if fallback fails, the cached row is returned with `is_stale: true` (read-only; no cache row mutation on read)
+
+Latest NADAC metadata (`as_of_week`) is cached in-memory with a 6-hour TTL.
 
 ## Schema discovery
 
