@@ -18,6 +18,8 @@ router = APIRouter(prefix="/api/admin/medication-guide", tags=["admin-medication
 
 _state_lock = asyncio.Lock()
 _is_running = False
+# The backfill route now uses an in-process guard only so connection lifetimes stay
+# bounded to each function body and never hold a pooled connection open for a lock.
 
 
 async def _try_start_backfill() -> bool:

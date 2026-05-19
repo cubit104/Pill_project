@@ -45,6 +45,8 @@ export default function PriceCard({
   const [loading, setLoading] = useState<boolean>(hasIdentifier && !initialData?.price)
   const [fetchError, setFetchError] = useState<boolean>(false)
   const [retryCount, setRetryCount] = useState<number>(0)
+  // Server-provided data must win on every render so SSR payloads remain authoritative
+  // during client transitions, while local state only fills gaps after client fetches.
   const price = initialData?.price ?? priceState
   const alternatives = initialData?.alternatives ?? alternativesState
   const history = initialData?.history ?? historyState

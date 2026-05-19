@@ -154,7 +154,7 @@ def test_pricing_service_close_closes_httpx_client():
     assert svc._http_client is None
 
 
-def test_pricing_service_uses_shared_http_client_across_requests():
+def test_pricing_service_shares_http_client():
     svc = NADACPricingService()
     seen_client_ids: list[int] = []
     original_ensure_client = svc._ensure_client

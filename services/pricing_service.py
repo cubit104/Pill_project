@@ -1009,7 +1009,10 @@ class NADACPricingService:
             metadata = await self._get_latest_dataset_metadata()
             latest_week = self._parse_date(metadata.get("as_of_week"))
         except Exception:
-            logger.exception("Failed to resolve NADAC metadata; using cache-only mode")
+            logger.exception(
+                "Failed to resolve NADAC metadata; continuing with stale cache if valid, "
+                "or fetching fresh data when possible"
+            )
 
         if cached and self._cache_fresh(cached, latest_week):
             total_duration_ms = (perf_counter() - request_started) * 1000

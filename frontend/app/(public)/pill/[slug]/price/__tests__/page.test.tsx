@@ -16,7 +16,7 @@ test('price page snapshot-like render includes back link and wrapper', async () 
   const originalFetch = global.fetch
   global.fetch = async (input) => {
     const url = String(input)
-    if (url.includes('/api/pill/')) {
+    if (url.endsWith('/api/pill/plavix-75-1171')) {
       return new Response(
         JSON.stringify({
           drug_name: 'Plavix',
@@ -54,7 +54,7 @@ test('price page renders emoji fallback when image_url is empty', async () => {
   const originalFetch = global.fetch
   global.fetch = async (input) => {
     const url = String(input)
-    if (url.includes('/api/pill/')) {
+    if (url.endsWith('/api/pill/augmentin')) {
       return new Response(
         JSON.stringify({
           drug_name: 'Augmentin',
@@ -122,7 +122,7 @@ test('price page SSR fetches alternatives and history when price is found', asyn
   global.fetch = async (input) => {
     const url = String(input)
     calls.push(url)
-    if (url.includes('/api/pill/')) {
+    if (url.endsWith('/api/pill/plavix-75-1171')) {
       return new Response(
         JSON.stringify({
           drug_name: 'Plavix',
@@ -180,7 +180,7 @@ test('price page still renders gracefully when one downstream fetch fails', asyn
   const originalFetch = global.fetch
   global.fetch = async (input) => {
     const url = String(input)
-    if (url.includes('/api/pill/')) {
+    if (url.endsWith('/api/pill/plavix-75-1171')) {
       return new Response(
         JSON.stringify({
           drug_name: 'Plavix',
