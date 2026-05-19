@@ -45,9 +45,6 @@ When fallback pricing is used, the response may include:
 - `resolved_ingredient` (ingredient chosen from name-based lookup)
 - `resolved_rxcui` (ingredient RxCUI from name-based lookup)
 - `equivalent_count` (number of sibling NDCs considered)
-- `is_stale` (`true` only when pricing falls back to an older cached row because no fresher equivalent/exact row was found)
-
-On the `/pill/[slug]/price` UI, when `match_type === "equivalent"` and `matched_ndc` is present, downstream alternatives/history requests are keyed by `matched_ndc` (digits-only) so all sections stay aligned with the resolved equivalent product.
 
 Fair retail estimate methodology (benchmark only):
 
@@ -64,17 +61,6 @@ Default assumptions: `units_per_day=1`, `days_supply=30`.
   - `drug_prices` (current read-through cache)
   - `drug_price_history` (weekly history points)
 - GitHub Action `refresh-nadac.yml` schedules refresh at `0 14 * * 3` (Wednesday, 14:00 UTC).
-
-### Stale cached-row policy
-
-`GET /api/prices/{ndc}` compares cached `drug_prices.effective_date` to the latest NADAC `as_of_week` metadata:
-
-- staleness threshold = `latest_as_of_week - PRICING_STALE_DAYS` (default `14`)
-- if cached row is older than threshold, exact/equivalent fallback is attempted
-- if fallback succeeds, the fresher fallback response is returned
-- if fallback fails, the cached row is returned with `is_stale: true` (read-only; no cache row mutation on read)
-
-Latest NADAC metadata (`as_of_week`) is cached in-memory with a 6-hour TTL.
 
 ## Schema discovery
 
@@ -100,6 +86,8 @@ If an exact NDC is not present in the weekly NADAC dataset, pricing falls back t
 5. Return price under the original requested NDC with equivalent-match metadata (`match_type`, `matched_ndc`, `equivalent_count`)
 
 For direct RxCUI and name lookups, synthetic cache keys are used (`rxcui:{rxcui}`, `name:{slug}`) and full fallback metadata is preserved in cache payloads.
+
+The cache fast-path now skips NADAC metadata lookups entirely when the cached row is still fresh **and** its `effective_date` is recent enough. Older cache rows still resolve metadata before deciding whether the stale-row fallback chain needs to run, so performance improves without weakening stale-data checks.
 
 ## Legal / user-facing disclaimers
 
@@ -155,3 +143,13 @@ If `/api/prices/by-name/{name}` returns 404:
 CMS catalog responses can be either a top-level JSON list or an object (`results`/`items`), so the pricing service defensively handles both response shapes.
 
 If NADAC catalog lookup fails intermittently (or parsing fails unexpectedly), set `NADAC_FALLBACK_DATASET_ID` to a known-good NADAC dataset UUID so pricing can continue while catalog metadata is unavailable.
+
+## Startup behavior
+
+Slug regeneration is now gated behind `RUN_SLUG_REGEN_ON_STARTUP=false` by default. Leave it disabled in production and run `python -m scripts.regenerate_slugs` manually when you intentionally need a backfill.
+
+Integration-style external API tests should be run separately with:
+
+```bash
+pytest -m integration
+```

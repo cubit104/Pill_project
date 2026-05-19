@@ -1170,7 +1170,7 @@ def test_include_medguide_lazy_fetches_and_persists_on_cache_hit():
     assert result.get("medguide_html") == "<html>fetched medguide</html>"
 
 
-@pytest.mark.live
+@pytest.mark.integration
 @pytest.mark.skipif(os.getenv("RUN_LIVE_OPENFDA_TESTS") != "1", reason="Live openFDA tests are disabled")
 def test_live_lipitor_sections():
     result = asyncio.run(build_guide(rxcui="153165"))
@@ -1188,7 +1188,7 @@ def test_live_lipitor_sections():
         assert sections[key] is not None
 
 
-@pytest.mark.live
+@pytest.mark.integration
 @pytest.mark.skipif(os.getenv("RUN_LIVE_OPENFDA_TESTS") != "1", reason="Live openFDA tests are disabled")
 def test_live_lisinopril_sections_and_box_warning():
     result = asyncio.run(build_guide(rxcui="29046"))
@@ -1207,7 +1207,7 @@ def test_live_lisinopril_sections_and_box_warning():
     assert result["has_boxed_warning"] is True
 
 
-@pytest.mark.live
+@pytest.mark.integration
 @pytest.mark.skipif(os.getenv("RUN_LIVE_OPENFDA_TESTS") != "1", reason="Live openFDA tests are disabled")
 def test_live_acetaminophen_sections():
     result = asyncio.run(build_guide(rxcui="161"))

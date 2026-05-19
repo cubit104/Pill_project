@@ -34,6 +34,7 @@
     "@types/react-simple-maps": "^3.0.6",
     "autoprefixer": "^10.0.1",
     "postcss": "^8",
+    "react-test-renderer": "^18.3.1",
     "tailwindcss": "^3.3.0",
     "tsx": "^4.22.2",
     "typescript": "^5.9.3"

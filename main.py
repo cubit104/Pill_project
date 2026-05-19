@@ -1,11 +1,12 @@
+import asyncio
+import logging
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import os
-import logging
-import asyncio
-from pathlib import Path
-from sqlalchemy import text
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -30,10 +31,33 @@ from database import (  # noqa: E402
     DATABASE_URL,
     db_engine,
 )
+from scripts.regenerate_slugs import regenerate_slugs as run_regenerate_slugs  # noqa: E402
+from services.pricing_service import pricing_service  # noqa: E402
 from utils import IMAGE_BASE, generate_slug  # noqa: E402
 
 # File paths
 IMAGES_DIR = os.path.join(BASE_DIR, "images")
+
+
+def _env_truthy(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).lower() in {"1", "true", "yes"}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan that bounds startup/shutdown resource lifecycles."""
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, warmup_system)
+    if _env_truthy("RUN_SLUG_REGEN_ON_STARTUP"):
+        await loop.run_in_executor(None, regenerate_slugs)
+    logger.info("Pill identification system initialized successfully")
+    try:
+        yield
+    finally:
+        await pricing_service.close()
+        if getattr(database.db_engine, "dispose", None):
+            database.db_engine.dispose()
+
 
 # Create FastAPI app focused on pill identification
 app = FastAPI(
@@ -41,6 +65,7 @@ app = FastAPI(
     description="API for identifying pills and medications",
     version="2.0.0",
     redirect_slashes=False,
+    lifespan=lifespan,
 )
 
 # Enable CORS
@@ -108,60 +133,8 @@ app.include_router(admin_medication_guide_backfill.router)
 
 
 def regenerate_slugs():
-    """One-time update: regenerate all slug values in the DB using medicine_name + spl_strength."""
-    from typing import Dict
-
-    if not database.db_engine:
-        return
-    try:
-        with database.db_engine.connect() as conn:
-            rows = conn.execute(
-                text("SELECT id, medicine_name, spl_strength, splimprint, slug FROM pillfinder")
-            ).fetchall()
-
-        updates = []
-        seen_slugs: Dict[str, int] = {}
-
-        for row in rows:
-            row_id, medicine_name, spl_strength, splimprint, existing_slug = row
-            new_slug = generate_slug(medicine_name or "", spl_strength or "")
-
-            base_slug = new_slug
-            counter = 1
-            while new_slug in seen_slugs and seen_slugs[new_slug] != row_id:
-                new_slug = f"{base_slug}-{counter}"
-                counter += 1
-            seen_slugs[new_slug] = row_id
-
-            if existing_slug != new_slug:
-                updates.append({"new_slug": new_slug, "row_id": row_id})
-
-        if updates:
-            with database.db_engine.connect() as conn:
-                for upd in updates:
-                    conn.execute(
-                        text(
-                            "UPDATE pillfinder SET slug = :new_slug"
-                            " WHERE id = :row_id"
-                            "   AND (slug IS DISTINCT FROM :new_slug)"
-                        ),
-                        upd,
-                    )
-                conn.commit()
-            logger.info(f"regenerate_slugs: updated {len(updates)} slug(s) to strength-based format")
-        else:
-            logger.info("regenerate_slugs: all slugs already up-to-date")
-    except Exception as e:
-        logger.error(f"regenerate_slugs failed: {e}", exc_info=True)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Run tasks when the application starts"""
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, warmup_system)
-    await loop.run_in_executor(None, regenerate_slugs)
-    logger.info("Pill identification system initialized successfully")
+    """Regenerate slug values using medicine_name + spl_strength."""
+    return run_regenerate_slugs(engine=database.db_engine, slug_builder=generate_slug)
 
 
 @app.middleware("http")
