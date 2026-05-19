@@ -240,6 +240,10 @@ class NADACPricingService:
             return None
         return (type(exc), exc, exc.__traceback__)
 
+    @staticmethod
+    def _is_no_datastore_storage_error(exc: BaseException) -> bool:
+        return "no datastore storage" in str(exc).lower()
+
     async def _request_json(
         self,
         url: str,
@@ -395,7 +399,9 @@ class NADACPricingService:
                     continue
 
             if not validated_dataset_id:
-                raise PricingServiceError("No accessible NADAC dataset found in catalog")
+                raise PricingServiceError(
+                    f"No accessible NADAC dataset found in catalog after validating {len(candidates)} candidates"
+                )
 
             metadata = {
                 "dataset_id": validated_dataset_id,
@@ -708,7 +714,7 @@ class NADACPricingService:
                     limit=1,
                 )
             except PricingServiceError as exc:
-                if "no datastore storage" in str(exc).lower():
+                if self._is_no_datastore_storage_error(exc):
                     raise
                 if "Column not found" in str(exc) or " 400 " in str(exc):
                     last_error = exc
@@ -793,7 +799,7 @@ class NADACPricingService:
                     found[row_ndc] = row
             return found
         except Exception as exc:
-            if isinstance(exc, PricingServiceError) and "no datastore storage" in str(exc).lower():
+            if isinstance(exc, PricingServiceError) and self._is_no_datastore_storage_error(exc):
                 raise
             # Some CMS datastore distributions reject `in`; fallback to chunked OR queries.
             logger.info("NADAC bulk IN query failed; falling back to OR chunks: %s", exc)
@@ -822,7 +828,7 @@ class NADACPricingService:
                         found[row_ndc] = row
             return found
         except Exception as exc:
-            if isinstance(exc, PricingServiceError) and "no datastore storage" in str(exc).lower():
+            if isinstance(exc, PricingServiceError) and self._is_no_datastore_storage_error(exc):
                 raise
             logger.warning("NADAC bulk sibling query failed for %s ndcs: %s", len(normalized_ndcs), exc)
             return {}
@@ -1145,7 +1151,7 @@ class NADACPricingService:
                     raise
                 latest = equivalent
         except PricingServiceError as exc:
-            if "no datastore storage" in str(exc).lower():
+            if self._is_no_datastore_storage_error(exc):
                 self._invalidate_metadata_cache()
             raise
         fetch_duration_ms = (perf_counter() - fetch_started) * 1000
@@ -1204,7 +1210,7 @@ class NADACPricingService:
             try:
                 metadata = await self._get_latest_dataset_metadata()
             except PricingServiceError as exc:
-                if "no datastore storage" in str(exc).lower():
+                if self._is_no_datastore_storage_error(exc):
                     self._invalidate_metadata_cache()
                 raise
         dataset_id = metadata["dataset_id"]
@@ -1213,7 +1219,7 @@ class NADACPricingService:
             column_map = await self._resolve_column_map(dataset_id)
             rows_by_ndc = await self._bulk_query_nadac_for_ndcs(dataset_id, siblings, column_map)
         except PricingServiceError as exc:
-            if "no datastore storage" in str(exc).lower():
+            if self._is_no_datastore_storage_error(exc):
                 self._invalidate_metadata_cache()
             raise
         if not rows_by_ndc:
@@ -1321,7 +1327,7 @@ class NADACPricingService:
             try:
                 metadata = await self._get_latest_dataset_metadata()
             except PricingServiceError as exc:
-                if "no datastore storage" in str(exc).lower():
+                if self._is_no_datastore_storage_error(exc):
                     self._invalidate_metadata_cache()
                 raise
         dataset_id = metadata["dataset_id"]
@@ -1330,7 +1336,7 @@ class NADACPricingService:
             column_map = await self._resolve_column_map(dataset_id)
             rows_by_ndc = await self._bulk_query_nadac_for_ndcs(dataset_id, ndcs, column_map)
         except PricingServiceError as exc:
-            if "no datastore storage" in str(exc).lower():
+            if self._is_no_datastore_storage_error(exc):
                 self._invalidate_metadata_cache()
             raise
         if not rows_by_ndc:
@@ -1429,7 +1435,7 @@ class NADACPricingService:
         try:
             column_map = await self._resolve_column_map(dataset_id)
         except PricingServiceError as exc:
-            if "no datastore storage" in str(exc).lower():
+            if self._is_no_datastore_storage_error(exc):
                 self._invalidate_metadata_cache()
             raise
         columns = column_map.get("all_columns") or []
@@ -1457,7 +1463,7 @@ class NADACPricingService:
                     limit=weeks,
                 )
             except PricingServiceError as exc:
-                if "no datastore storage" in str(exc).lower():
+                if self._is_no_datastore_storage_error(exc):
                     self._invalidate_metadata_cache()
                     raise
                 if "Column not found" in str(exc) or " 400 " in str(exc):
