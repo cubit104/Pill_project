@@ -62,6 +62,29 @@ Default assumptions: `units_per_day=1`, `days_supply=30`.
   - `drug_price_history` (weekly history points)
 - GitHub Action `refresh-nadac.yml` schedules refresh at `0 14 * * 3` (Wednesday, 14:00 UTC).
 
+## History Backfill
+
+`refresh_nadac.py` only writes the current NADAC week. Without a one-time history load, `drug_price_history` stays sparse (often 0-2 points per NDC) until enough weekly runs accumulate.
+
+Run the backfill once with:
+
+```bash
+make backfill-nadac-history
+```
+
+Or trigger it from admin:
+
+- `POST /api/admin/backfill/nadac-history/run`
+
+The backfill queries up to the last 52 weekly NADAC datasets, filters to NDCs present in `pillfinder`, and inserts into `drug_price_history`.
+
+It is idempotent and safe to rerun (`ON CONFLICT DO NOTHING` on `(ndc, effective_date)`).
+
+Operational expectations:
+
+- Runtime: ~30-60 minutes for the full pillfinder NDC set
+- Storage growth: ~25-100MB depending on how many NDCs match NADAC rows
+
 ## Schema discovery
 
 NADAC datastore schemas can drift (column names may change between distributions). The pricing service now auto-discovers columns by querying the latest distribution with `limit=1` and inspecting row keys.

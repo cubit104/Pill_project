@@ -30,7 +30,7 @@ All endpoints require superuser role.
 
 import logging
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from typing import Optional
 
 from routes.admin.auth import require_superuser
@@ -41,6 +41,7 @@ router = APIRouter(prefix="/api/admin/backfill/ndc", tags=["admin-backfill"])
 
 # Second router for clinical endpoints (different prefix)
 clinical_router = APIRouter(prefix="/api/admin/backfill/clinical", tags=["admin-backfill"])
+nadac_history_router = APIRouter(prefix="/api/admin/backfill/nadac-history", tags=["admin-backfill"])
 
 
 @router.get("/preview")
@@ -192,3 +193,47 @@ def run_clinical_backfill(
         only_fields=_parse_only_fields(only_fields),
     )
     return summary
+
+
+@nadac_history_router.get("/preview")
+async def preview_nadac_history_backfill_route(
+    weeks: int = Query(52, ge=1, le=52, description="Number of weeks to estimate"),
+    limit_ndcs: int = Query(100, ge=1, description="Limit NDCs for estimate"),
+    admin=Depends(require_superuser),
+):
+    from scripts.backfill_nadac_history import preview_nadac_history_backfill
+
+    logger.info(
+        "NADAC history backfill preview requested by %s (weeks=%d limit_ndcs=%d)",
+        admin.get("email"),
+        weeks,
+        limit_ndcs,
+    )
+    return await preview_nadac_history_backfill(weeks=weeks, limit_ndcs=limit_ndcs)
+
+
+@nadac_history_router.post("/run")
+async def run_nadac_history_backfill_route(
+    background_tasks: BackgroundTasks,
+    weeks: int = Query(52, ge=1, le=52, description="Number of weeks to process"),
+    limit_ndcs: int = Query(0, ge=0, description="Limit NDCs (0 = all)"),
+    sleep_ms: int = Query(200, ge=0, le=5000, description="Sleep ms between CMS API calls"),
+    admin=Depends(require_superuser),
+):
+    from scripts.backfill_nadac_history import run_nadac_history_backfill
+
+    logger.info(
+        "NADAC history backfill run requested by %s (weeks=%d limit_ndcs=%d sleep_ms=%d)",
+        admin.get("email"),
+        weeks,
+        limit_ndcs,
+        sleep_ms,
+    )
+    background_tasks.add_task(
+        run_nadac_history_backfill,
+        weeks=weeks,
+        limit_ndcs=limit_ndcs,
+        dry_run=False,
+        sleep_ms=sleep_ms,
+    )
+    return {"status": "started", "weeks": weeks}
