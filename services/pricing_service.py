@@ -30,7 +30,6 @@ FAIR_RETAIL_LOW_MULTIPLIER = 1.5
 FAIR_RETAIL_HIGH_MULTIPLIER = 3.0
 NADAC_CONNECT_TIMEOUT = 10.0
 NADAC_RW_TIMEOUT = 30.0
-METADATA_CACHE_TTL_HOURS = 6
 MAX_RELATED_RXCUIS = 40
 MAX_ALTERNATIVE_NDCS = 150
 MAX_EQUIVALENT_NDCS = 50
@@ -72,11 +71,6 @@ class NADACPricingService:
             pool=NADAC_RW_TIMEOUT,
         )
         self.cache_ttl = timedelta(days=7)
-        stale_days_raw = os.getenv("PRICING_STALE_DAYS", "14")
-        try:
-            self.stale_threshold_days = max(1, int(stale_days_raw))
-        except ValueError:
-            self.stale_threshold_days = 14
         self._metadata_cache: dict[str, Any] | None = None
         self._metadata_cached_at: datetime | None = None
         self._schema_cache: dict[str, list[str]] = {}
@@ -314,7 +308,7 @@ class NADACPricingService:
         if (
             self._metadata_cache
             and self._metadata_cached_at
-            and (now - self._metadata_cached_at) < timedelta(hours=METADATA_CACHE_TTL_HOURS)
+            and (now - self._metadata_cached_at) < timedelta(hours=1)
         ):
             return self._metadata_cache
 
@@ -880,7 +874,6 @@ class NADACPricingService:
             "ndc",
             "source",
             "as_of_week",
-            "is_stale",
         ):
             if key in payload_obj:
                 out[key] = payload_obj[key]
@@ -903,20 +896,10 @@ class NADACPricingService:
             "source_rxcui",
             "resolved_ingredient",
             "resolved_rxcui",
-            "is_stale",
         ):
             if key in payload:
                 out[key] = payload[key]
         return out
-
-    def _is_effective_date_stale(self, effective_date_value: Any, latest_week: date | None) -> bool:
-        if not latest_week:
-            return False
-        effective_date = self._parse_date(effective_date_value)
-        if not effective_date:
-            return False
-        threshold_date = latest_week - timedelta(days=self.stale_threshold_days)
-        return effective_date < threshold_date
 
     def _cache_fresh(self, cached: dict[str, Any], latest_week: date | None) -> bool:
         fetched_at = cached.get("fetched_at")
@@ -960,18 +943,10 @@ class NADACPricingService:
             raise ValueError("Invalid NDC format")
 
         cache_status = "miss"
-        latest_week = None
-        try:
-            metadata = await self._get_latest_dataset_metadata()
-            latest_week = self._parse_date(metadata.get("as_of_week"))
-        except Exception:
-            logger.exception("Failed to resolve latest NADAC metadata; falling back to TTL-only cache")
-
         cache_started = perf_counter()
         cached = self._get_cached_price(ndc_digits)
         cache_duration_ms = (perf_counter() - cache_started) * 1000
-        cached_is_stale = bool(cached and self._is_effective_date_stale(cached.get("effective_date"), latest_week))
-        if cached and self._cache_fresh(cached, None) and not cached_is_stale:
+        if cached and self._cache_fresh(cached, None):
             total_duration_ms = (perf_counter() - request_started) * 1000
             logger.info("[price-cache] %s - hit - %.2fms", ndc_digits, total_duration_ms)
             payload = self._payload_from_cached_row(cached, None)
@@ -983,23 +958,19 @@ class NADACPricingService:
         if cached:
             cache_status = "stale"
 
+        latest_week = None
+        try:
+            metadata = await self._get_latest_dataset_metadata()
+            latest_week = self._parse_date(metadata.get("as_of_week"))
+        except Exception:
+            logger.exception("Failed to resolve latest NADAC metadata; falling back to TTL-only cache")
+
         fetch_started = perf_counter()
         try:
             latest = await self._fetch_nadac_latest_for_ndc(ndc_digits)
         except PricingNotFoundError:
             equivalent = await self._fetch_nadac_equivalent_for_ndc(ndc_digits)
             if equivalent is None:
-                if cached and cached_is_stale:
-                    total_duration_ms = (perf_counter() - request_started) * 1000
-                    fetch_duration_ms = (perf_counter() - fetch_started) * 1000
-                    logger.info("[price-cache] %s - stale-fallback - %.2fms", ndc_digits, total_duration_ms)
-                    payload = self._payload_from_cached_row(cached, latest_week)
-                    payload["is_stale"] = True
-                    result = self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
-                    result["cache_status"] = cache_status
-                    result["cache_duration_ms"] = round(cache_duration_ms, 2)
-                    result["fetch_duration_ms"] = round(fetch_duration_ms, 2)
-                    return result
                 raise
             latest = equivalent
         fetch_duration_ms = (perf_counter() - fetch_started) * 1000
