@@ -57,7 +57,11 @@ export function resolveDownstreamNdc(priceData: PriceResponse, fallbackNdc?: str
   if (priceData.match_type === 'equivalent' && matchedNdc) {
     return matchedNdc
   }
-  return normalizeNdcDigits(fallbackNdc)
+  const fallbackDigits = normalizeNdcDigits(fallbackNdc)
+  if (fallbackDigits) {
+    return fallbackDigits
+  }
+  return normalizeNdcDigits(priceData.ndc)
 }
 
 type FetchImpl = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
