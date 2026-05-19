@@ -70,7 +70,7 @@ class NADACPricingService:
             write=NADAC_RW_TIMEOUT,
             pool=NADAC_RW_TIMEOUT,
         )
-        self.stale_threshold_days = 14
+        self.stale_threshold_days = int(os.getenv("PRICING_STALE_DAYS", "14"))
         self.cache_ttl = timedelta(days=7)
         self._metadata_cache: dict[str, Any] | None = None
         self._metadata_cached_at: datetime | None = None
