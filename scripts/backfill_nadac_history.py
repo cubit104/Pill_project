@@ -85,11 +85,13 @@ def _load_target_ndcs(limit_ndcs: int = 0) -> list[str]:
         rows = conn.execute(
             text(
                 """
-                SELECT DISTINCT TRIM(ndc11) AS ndc11
+                SELECT DISTINCT ndc FROM drug_prices
+                UNION
+                SELECT DISTINCT REGEXP_REPLACE(TRIM(ndc11), '[^0-9]', '', 'g')
                 FROM pillfinder
                 WHERE ndc11 IS NOT NULL
                   AND TRIM(ndc11) != ''
-                ORDER BY TRIM(ndc11)
+                ORDER BY 1
                 """
             )
         ).fetchall()
@@ -98,7 +100,6 @@ def _load_target_ndcs(limit_ndcs: int = 0) -> list[str]:
     if limit_ndcs and limit_ndcs > 0:
         return deduped[:limit_ndcs]
     return deduped
-
 
 async def _fetch_recent_weekly_datasets(
     service: NADACPricingService,
