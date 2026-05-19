@@ -281,8 +281,13 @@ export default function PriceCard({
         </p>
         <p className="text-xs text-slate-500 mt-1">Source: {price.source} · Effective: {price.effective_date}</p>
         {price.is_stale === true && (
-          <p className="mt-2 text-xs text-amber-700" role="note">
-            ⚠ Pricing data may be outdated (last updated {price.effective_date}).
+          <p
+            className="mt-2 text-xs text-amber-700"
+            role="note"
+            aria-label={`Pricing data may be outdated. Last updated ${price.effective_date}.`}
+          >
+            <span aria-hidden="true">⚠ </span>
+            Pricing data may be outdated (last updated {price.effective_date}).
           </p>
         )}
         {price.match_type === 'equivalent' && (
