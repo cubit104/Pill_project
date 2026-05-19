@@ -715,6 +715,7 @@ class NADACPricingService:
                 )
             except PricingServiceError as exc:
                 if self._is_no_datastore_storage_error(exc):
+                    self._invalidate_metadata_cache()
                     raise
                 if "Column not found" in str(exc) or " 400 " in str(exc):
                     last_error = exc
@@ -800,6 +801,7 @@ class NADACPricingService:
             return found
         except Exception as exc:
             if isinstance(exc, PricingServiceError) and self._is_no_datastore_storage_error(exc):
+                self._invalidate_metadata_cache()
                 raise
             # Some CMS datastore distributions reject `in`; fallback to chunked OR queries.
             logger.info("NADAC bulk IN query failed; falling back to OR chunks: %s", exc)
@@ -829,6 +831,7 @@ class NADACPricingService:
             return found
         except Exception as exc:
             if isinstance(exc, PricingServiceError) and self._is_no_datastore_storage_error(exc):
+                self._invalidate_metadata_cache()
                 raise
             logger.warning("NADAC bulk sibling query failed for %s ndcs: %s", len(normalized_ndcs), exc)
             return {}
