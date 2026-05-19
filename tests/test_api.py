@@ -41,12 +41,20 @@ def client():
 
 def test_health_returns_200(client):
     """GET /health should always return 200."""
+    import database as db_module
+    mock_result = MagicMock()
+    mock_result.scalar.return_value = 1
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/health")
     assert response.status_code == 200
 
 
 def test_health_has_status_field(client):
     """GET /health response must include a 'status' field."""
+    import database as db_module
+    mock_result = MagicMock()
+    mock_result.scalar.return_value = 1
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/health")
     data = response.json()
     assert "status" in data
@@ -54,9 +62,26 @@ def test_health_has_status_field(client):
 
 def test_health_has_database_connected_field(client):
     """GET /health response must include 'database_connected'."""
+    import database as db_module
+    mock_result = MagicMock()
+    mock_result.scalar.return_value = 1
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.return_value = mock_result
     response = client.get("/health")
     data = response.json()
     assert "database_connected" in data
+
+
+def test_health_returns_503_when_database_ping_fails(client):
+    import database as db_module
+    mock_execute = db_module.db_engine.connect.return_value.__enter__.return_value.execute
+    mock_execute.side_effect = RuntimeError("db down")
+    try:
+        response = client.get("/health")
+    finally:
+        mock_execute.side_effect = None
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "degraded", "db": "unreachable"}
 
 
 # ---------------------------------------------------------------------------

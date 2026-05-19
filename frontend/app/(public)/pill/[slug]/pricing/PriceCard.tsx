@@ -4,35 +4,12 @@ import React from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import AlternativesTable, { type AlternativePrice } from './AlternativesTable'
 import PriceHistorySparkline, { type PriceHistoryPoint } from './PriceHistorySparkline'
-
-interface PriceResponse {
-  ndc: string
-  price_per_unit: number
-  unit: string
-  effective_date: string
-  source: string
-  total_acquisition_cost: number
-  fair_retail_low: number
-  fair_retail_high: number
-  match_type?: string
-  matched_ndc?: string
-  source_rxcui?: string
-  resolved_ingredient?: string
-  resolved_rxcui?: string
-  equivalent_count?: number
-  disclaimers: string[]
-}
-
-interface AlternativesResponse {
-  alternatives: AlternativePrice[]
-  generic_vs_brand_ratio?: number | null
-}
-
-interface HistoryResponse {
-  history: PriceHistoryPoint[]
-}
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '')
+import {
+  fetchPriceCardDownstream,
+  resolveDownstreamNdc,
+  type PriceCardInitialData,
+  type PriceResponse,
+} from './priceCardData'
 
 function formatNdcForDisplay(ndc?: string): string | null {
   if (!ndc) return null
@@ -46,12 +23,11 @@ function unitLabel(unit: string): string {
   return unit
 }
 
-interface PriceCardInitialData {
-  price: PriceResponse
-  alternatives?: AlternativePrice[]
-  history?: PriceHistoryPoint[]
-  generic_vs_brand_ratio?: number | null
+function preferServerData<T>(serverValue: T | undefined, clientValue: T): T {
+  return serverValue ?? clientValue
 }
+
+export { fetchPriceCardDownstream, resolveDownstreamNdc, type PriceCardInitialData }
 
 export default function PriceCard({
   ndc,
@@ -64,24 +40,45 @@ export default function PriceCard({
   medicineName?: string
   initialData?: PriceCardInitialData
 }) {
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '')
   const hasIdentifier = !!(ndc || rxcui || medicineName)
-  const [price, setPrice] = useState<PriceResponse | null>(initialData?.price || null)
-  const [alternatives, setAlternatives] = useState<AlternativePrice[]>(initialData?.alternatives || [])
-  const [history, setHistory] = useState<PriceHistoryPoint[]>(initialData?.history || [])
-  const [genericVsBrandRatio, setGenericVsBrandRatio] = useState<number | null | undefined>(initialData?.generic_vs_brand_ratio)
-  const [loading, setLoading] = useState<boolean>(hasIdentifier && !initialData)
+  const [priceState, setPriceState] = useState<PriceResponse | null>(initialData?.price || null)
+  const [alternativesState, setAlternativesState] = useState<AlternativePrice[]>(initialData?.alternatives || [])
+  const [historyState, setHistoryState] = useState<PriceHistoryPoint[]>(initialData?.history || [])
+  const [genericVsBrandRatioState, setGenericVsBrandRatioState] = useState<number | null | undefined>(initialData?.generic_vs_brand_ratio)
+  const [loading, setLoading] = useState<boolean>(hasIdentifier && !initialData?.price)
   const [fetchError, setFetchError] = useState<boolean>(false)
   const [retryCount, setRetryCount] = useState<number>(0)
+  // Server-provided data must win on every render so SSR payloads remain authoritative
+  // during client transitions, while local state only fills gaps after client fetches.
+  const price = preferServerData(initialData?.price, priceState)
+  const alternatives = preferServerData(initialData?.alternatives, alternativesState)
+  const history = preferServerData(initialData?.history, historyState)
+  const genericVsBrandRatio = preferServerData(initialData?.generic_vs_brand_ratio, genericVsBrandRatioState)
+  const hasCompleteInitialData = !!(
+    initialData?.price &&
+    Array.isArray(initialData.alternatives) &&
+    Array.isArray(initialData.history)
+  )
 
   useEffect(() => {
-    if ((!ndc && !rxcui && !medicineName) || initialData) return
-    if (!API_BASE) {
+    if ((!ndc && !rxcui && !medicineName) || initialData?.price) {
+      setLoading(false)
+      return
+    }
+    if (!apiBase) {
       console.error('NEXT_PUBLIC_API_BASE_URL not configured')
       setLoading(false)
       setFetchError(true)
       return
     }
     let cancelled = false
+    setLoading(true)
+    setFetchError(false)
+    setPriceState(null)
+    setAlternativesState([])
+    setHistoryState([])
+    setGenericVsBrandRatioState(null)
 
     const tryFetch = async (url: string): Promise<PriceResponse | null> => {
       try {
@@ -96,15 +93,15 @@ export default function PriceCard({
 
     const fetchPrice = async (): Promise<PriceResponse | null> => {
       if (ndc) {
-        const result = await tryFetch(`${API_BASE}/api/prices/${encodeURIComponent(ndc)}`)
+        const result = await tryFetch(`${apiBase}/api/prices/${encodeURIComponent(ndc)}`)
         if (result) return result
       }
       if (rxcui) {
-        const result = await tryFetch(`${API_BASE}/api/prices/by-rxcui/${encodeURIComponent(rxcui)}`)
+        const result = await tryFetch(`${apiBase}/api/prices/by-rxcui/${encodeURIComponent(rxcui)}`)
         if (result) return result
       }
       if (medicineName) {
-        const result = await tryFetch(`${API_BASE}/api/prices/by-name/${encodeURIComponent(medicineName)}`)
+        const result = await tryFetch(`${apiBase}/api/prices/by-name/${encodeURIComponent(medicineName)}`)
         if (result) return result
       }
       return null
@@ -116,39 +113,22 @@ export default function PriceCard({
 
         if (cancelled) return
 
-        setPrice(priceData)
+        setPriceState(priceData)
         setLoading(false)
         if (!priceData) {
-          setAlternatives([])
-          setHistory([])
-          setGenericVsBrandRatio(null)
+          setAlternativesState([])
+          setHistoryState([])
+          setGenericVsBrandRatioState(null)
           return
         }
-
-        if (!ndc) {
-          setAlternatives([])
-          setHistory([])
-          setGenericVsBrandRatio(null)
-          return
-        }
-
-        const encoded = encodeURIComponent(ndc)
-        const [alternativesData, historyData] = await Promise.all([
-          fetch(`${API_BASE}/api/prices/${encoded}/alternatives`).then((res) => (res.ok ? res.json() : null)),
-          fetch(`${API_BASE}/api/prices/${encoded}/history?weeks=52`).then((res) => (res.ok ? res.json() : null)),
-        ]) as [AlternativesResponse | null, HistoryResponse | null]
-        if (cancelled) return
-        setAlternatives(alternativesData?.alternatives || [])
-        setHistory(historyData?.history || [])
-        setGenericVsBrandRatio(alternativesData?.generic_vs_brand_ratio ?? null)
       } catch {
         if (!cancelled) {
-          setPrice(null)
+          setPriceState(null)
           setLoading(false)
           setFetchError(true)
-          setAlternatives([])
-          setHistory([])
-          setGenericVsBrandRatio(null)
+          setAlternativesState([])
+          setHistoryState([])
+          setGenericVsBrandRatioState(null)
         }
       }
     }
@@ -157,7 +137,60 @@ export default function PriceCard({
     return () => {
       cancelled = true
     }
-  }, [ndc, rxcui, medicineName, initialData, retryCount])
+  }, [apiBase, ndc, rxcui, medicineName, initialData?.price, retryCount])
+
+  useEffect(() => {
+    const priceData = initialData?.price ?? priceState
+    if (!priceData) {
+      setAlternativesState([])
+      setHistoryState([])
+      setGenericVsBrandRatioState(null)
+      return
+    }
+    if (!apiBase) return
+    if (hasCompleteInitialData) return
+
+    const downstreamNdc = resolveDownstreamNdc(priceData, ndc)
+    setAlternativesState([])
+    setHistoryState([])
+    setGenericVsBrandRatioState(null)
+    if (!downstreamNdc) return
+
+    let cancelled = false
+    const loadDownstream = async () => {
+      const downstream = await fetchPriceCardDownstream({
+        apiBase,
+        downstreamNdc,
+      })
+      if (cancelled) return
+      if (downstream.alternativesFailed || downstream.historyFailed) {
+        console.warn('PriceCard downstream fetch failed', { downstreamNdc })
+      }
+      setAlternativesState(downstream.alternatives)
+      setHistoryState(downstream.history)
+      setGenericVsBrandRatioState(downstream.genericVsBrandRatio)
+    }
+
+    loadDownstream().catch(() => {
+      if (cancelled) return
+      console.warn('PriceCard downstream fetch failed', { downstreamNdc })
+      setAlternativesState([])
+      setHistoryState([])
+      setGenericVsBrandRatioState(null)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    apiBase,
+    hasCompleteInitialData,
+    initialData?.price,
+    initialData?.alternatives,
+    initialData?.history,
+    ndc,
+    priceState,
+  ])
 
   const ninetyDay = useMemo(() => {
     if (!price) return null

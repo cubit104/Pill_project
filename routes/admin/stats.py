@@ -22,6 +22,15 @@ def _compute_seo_score(pill_data: dict) -> int:
     return compute_seo_score(pill_data)
 
 
+def _redacted_engine_url() -> str:
+    url = database.db_engine.url
+    host = url.host or "unknown"
+    port = f":{url.port}" if url.port else ""
+    database_name = f"/{url.database}" if url.database else ""
+    return f"{url.drivername}://***@{host}{port}{database_name}"
+
+
+# connection scoped to function body.
 def _get_score_buckets() -> dict:
     """Fetch all pills and compute SEO score bucket counts. Cached for 5 minutes."""
     now = time.time()
@@ -76,6 +85,7 @@ def _get_score_buckets() -> dict:
         return {"score_80_90": 0, "score_90_100": 0}
 
 
+# connection scoped to function body.
 @router.get("/stats")
 def get_stats(admin: dict = Depends(get_admin_user)):
     if not database.db_engine:
@@ -142,3 +152,23 @@ def get_stats(admin: dict = Depends(get_admin_user)):
     except SQLAlchemyError as e:
         logger.error(f"get_stats DB error: {e}")
         raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.get("/db/pool")
+def get_db_pool(admin: dict = Depends(get_admin_user)):
+    if not database.db_engine:
+        database.connect_to_database()
+
+    pool = database.db_engine.pool
+    checked_out = int(pool.checkedout())
+    checked_in = int(pool.checkedin())
+    overflow = max(int(pool.overflow()), 0)
+    return {
+        "pool_size": int(pool.size()),
+        "checked_out": checked_out,
+        "overflow": overflow,
+        "checked_in": checked_in,
+        "max_overflow": int(getattr(pool, "_max_overflow", 0)),
+        "total": checked_in + checked_out,
+        "engine_url_redacted": _redacted_engine_url(),
+    }
