@@ -1057,7 +1057,7 @@ class NADACPricingService:
         cache_started = perf_counter()
         cached = self._get_cached_price(cache_key)
         cache_duration_ms = (perf_counter() - cache_started) * 1000
-        if cached and self._cache_fresh(cached, None):
+        if cached and self._cache_fresh(cached, None) and self._is_effective_date_within_threshold(cached):
             total_duration_ms = (perf_counter() - request_started) * 1000
             logger.info("[price-cache] %s - hit - %.2fms", cache_key, total_duration_ms)
             payload = self._payload_from_cached_row(cached, None)
@@ -1144,7 +1144,7 @@ class NADACPricingService:
         cache_started = perf_counter()
         cached = self._get_cached_price(cache_key)
         cache_duration_ms = (perf_counter() - cache_started) * 1000
-        if cached and self._cache_fresh(cached, None):
+        if cached and self._cache_fresh(cached, None) and self._is_effective_date_within_threshold(cached):
             total_duration_ms = (perf_counter() - request_started) * 1000
             logger.info("[price-cache] %s - hit - %.2fms", cache_key, total_duration_ms)
             payload = self._payload_from_cached_row(cached, None)
