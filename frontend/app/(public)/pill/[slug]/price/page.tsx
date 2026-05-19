@@ -8,6 +8,7 @@ import { fetchPill } from '../page'
 import { formatStrength } from './formatStrength'
 
 const PUBLIC_API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '')
+const PRICE_FETCH_TIMEOUT_MS = 5000
 
 interface PriceResponse {
   ndc: string
@@ -45,7 +46,7 @@ async function fetchInitialPriceData({
 
   const tryFetch = async (url: string): Promise<PriceResponse | null> => {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 5000)
+    const timeout = setTimeout(() => controller.abort(), PRICE_FETCH_TIMEOUT_MS)
     try {
       const res = await fetch(url, { cache: 'no-store', signal: controller.signal })
       if (!res.ok) return null

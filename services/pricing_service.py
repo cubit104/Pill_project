@@ -75,7 +75,7 @@ class NADACPricingService:
         stale_days_raw = os.getenv("PRICING_STALE_DAYS", "14")
         try:
             self.stale_threshold_days = max(1, int(stale_days_raw))
-        except (TypeError, ValueError):
+        except ValueError:
             self.stale_threshold_days = 14
         self._metadata_cache: dict[str, Any] | None = None
         self._metadata_cached_at: datetime | None = None
