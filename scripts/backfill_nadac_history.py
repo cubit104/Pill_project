@@ -180,6 +180,10 @@ async def run_nadac_history_backfill(
     dry_run: bool = False,
     sleep_ms: int = 200,
 ) -> dict[str, Any]:
+    # requested_weeks is the number of distinct weekly effective dates to process across all
+    # catalog datasets (not the number of catalog datasets). No upper cap is enforced here
+    # because some operators may want full historical coverage (e.g. --weeks 999); the
+    # filtering step below naturally limits processing to available data.
     requested_weeks = max(1, int(weeks))
     target_ndcs = _load_target_ndcs(limit_ndcs)
     service = NADACPricingService()

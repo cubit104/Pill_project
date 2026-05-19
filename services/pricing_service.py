@@ -569,7 +569,7 @@ class NADACPricingService:
                 fallback = await self._fetch_latest_effective_date(dataset_id)
                 return [fallback] if fallback else []
 
-            # Fetch distinct effective dates via groupBy
+            # 260 = 5 years × 52 weekly releases — enough to cover a full dataset
             body: dict[str, Any] = {
                 "results": False,
                 "count": False,

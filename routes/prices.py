@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio as _asyncio
 import logging
 import re
 from time import perf_counter
@@ -324,8 +325,6 @@ async def get_ndc_price_history(
 
 @router.get("/api/prices/{ndc}/strengths")
 async def get_ndc_strengths(ndc: str):
-    import asyncio as _asyncio
-
     normalized = _normalize_or_400(ndc)
     lookup_ndc = normalized.replace("-", "")
     empty_response: dict = {
@@ -422,6 +421,8 @@ async def get_ndc_strengths(ndc: str):
             )
 
         def _strength_sort_key(s: dict) -> float:
+            # Sort by leading numeric value in spl_strength (e.g. "500 mg" → 500.0).
+            # Non-numeric / missing strengths sort last (float("inf")).
             m = re.match(r"(\d+(?:\.\d+)?)", s.get("spl_strength") or "")
             return float(m.group(1)) if m else float("inf")
 
