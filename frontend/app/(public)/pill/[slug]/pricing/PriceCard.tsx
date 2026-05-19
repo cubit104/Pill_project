@@ -4,6 +4,7 @@ import React from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import AlternativesTable, { type AlternativePrice } from './AlternativesTable'
 import PriceHistorySparkline, { type PriceHistoryPoint } from './PriceHistorySparkline'
+import StrengthSelector, { type StrengthOption } from './StrengthSelector'
 import {
   fetchPriceCardDownstream,
   resolveDownstreamNdc,
@@ -46,6 +47,8 @@ export default function PriceCard({
   const [alternativesState, setAlternativesState] = useState<AlternativePrice[]>(initialData?.alternatives || [])
   const [historyState, setHistoryState] = useState<PriceHistoryPoint[]>(initialData?.history || [])
   const [genericVsBrandRatioState, setGenericVsBrandRatioState] = useState<number | null | undefined>(initialData?.generic_vs_brand_ratio)
+  const [strengthsState, setStrengthsState] = useState<StrengthOption[]>(initialData?.strengths || [])
+  const [ingredientState, setIngredientState] = useState<string | null>(initialData?.ingredient ?? null)
   const [loading, setLoading] = useState<boolean>(hasIdentifier && !initialData?.price)
   const [fetchError, setFetchError] = useState<boolean>(false)
   const [retryCount, setRetryCount] = useState<number>(0)
@@ -55,6 +58,8 @@ export default function PriceCard({
   const alternatives = preferServerData(initialData?.alternatives, alternativesState)
   const history = preferServerData(initialData?.history, historyState)
   const genericVsBrandRatio = preferServerData(initialData?.generic_vs_brand_ratio, genericVsBrandRatioState)
+  const strengths = preferServerData(initialData?.strengths, strengthsState)
+  const ingredient = preferServerData(initialData?.ingredient, ingredientState)
   const hasCompleteInitialData = !!(
     initialData?.price &&
     Array.isArray(initialData.alternatives) &&
@@ -79,6 +84,8 @@ export default function PriceCard({
     setAlternativesState([])
     setHistoryState([])
     setGenericVsBrandRatioState(null)
+    setStrengthsState([])
+    setIngredientState(null)
 
     const tryFetch = async (url: string): Promise<PriceResponse | null> => {
       try {
@@ -119,6 +126,8 @@ export default function PriceCard({
           setAlternativesState([])
           setHistoryState([])
           setGenericVsBrandRatioState(null)
+          setStrengthsState([])
+          setIngredientState(null)
           return
         }
       } catch {
@@ -129,6 +138,8 @@ export default function PriceCard({
           setAlternativesState([])
           setHistoryState([])
           setGenericVsBrandRatioState(null)
+          setStrengthsState([])
+          setIngredientState(null)
         }
       }
     }
@@ -145,6 +156,8 @@ export default function PriceCard({
       setAlternativesState([])
       setHistoryState([])
       setGenericVsBrandRatioState(null)
+      setStrengthsState([])
+      setIngredientState(null)
       return
     }
     if (!apiBase) return
@@ -154,6 +167,8 @@ export default function PriceCard({
     setAlternativesState([])
     setHistoryState([])
     setGenericVsBrandRatioState(null)
+    setStrengthsState([])
+    setIngredientState(null)
     if (!downstreamNdc) return
 
     let cancelled = false
@@ -169,6 +184,8 @@ export default function PriceCard({
       setAlternativesState(downstream.alternatives)
       setHistoryState(downstream.history)
       setGenericVsBrandRatioState(downstream.genericVsBrandRatio)
+      setStrengthsState(downstream.strengths)
+      setIngredientState(downstream.ingredient)
     }
 
     loadDownstream().catch(() => {
@@ -177,6 +194,8 @@ export default function PriceCard({
       setAlternativesState([])
       setHistoryState([])
       setGenericVsBrandRatioState(null)
+      setStrengthsState([])
+      setIngredientState(null)
     })
 
     return () => {
@@ -295,6 +314,13 @@ export default function PriceCard({
           <p className="text-xs text-slate-500 mt-0.5">For a typical 30-day supply (1 unit/day).</p>
         </div>
       </div>
+
+      {/* ── Section 1.5: 💊 Other Strengths ── */}
+      {strengths && strengths.length > 1 && (
+        <div className="border-t border-slate-100 px-6 py-5">
+          <StrengthSelector strengths={strengths} ingredient={ingredient ?? null} />
+        </div>
+      )}
 
       {/* ── Section 2: 🔄 Compare Alternatives ── */}
       <div className="border-t border-slate-100 px-6 py-5">

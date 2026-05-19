@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio as _asyncio
 import logging
+import re
 from time import perf_counter
 from urllib.parse import unquote
 
@@ -319,3 +321,120 @@ async def get_ndc_price_history(
     except Exception as exc:
         logger.exception("Unhandled error in pricing endpoint ndc=%s", ndc)
         raise HTTPException(status_code=503, detail=f"Pricing service error: {type(exc).__name__}: {exc}")
+
+
+@router.get("/api/prices/{ndc}/strengths")
+async def get_ndc_strengths(ndc: str):
+    normalized = _normalize_or_400(ndc)
+    lookup_ndc = normalized.replace("-", "")
+    empty_response: dict = {
+        "ndc": lookup_ndc,
+        "ingredient": None,
+        "ingredient_rxcui": None,
+        "strengths": [],
+    }
+
+    try:
+        rxcui = await pricing_service._ndc_to_rxcui(lookup_ndc)
+        if not rxcui:
+            return empty_response
+
+        ingredient_info = await pricing_service._ingredient_for_rxcui(rxcui)
+        if not ingredient_info:
+            return empty_response
+
+        ingredient_name = ingredient_info["name"].lower()
+        ingredient_rxcui = ingredient_info["rxcui"]
+
+        related_rxcuis = await pricing_service._related_product_rxcuis(ingredient_rxcui)
+        if not related_rxcuis:
+            return {**empty_response, "ingredient": ingredient_name, "ingredient_rxcui": ingredient_rxcui}
+
+        ndc_lists = await _asyncio.gather(
+            *(pricing_service._ndcs_for_rxcui(r["rxcui"]) for r in related_rxcuis),
+            return_exceptions=True,
+        )
+        all_ndcs: list[str] = []
+        for result in ndc_lists:
+            if isinstance(result, list):
+                all_ndcs.extend(result)
+
+        all_ndcs = list(dict.fromkeys(all_ndcs))
+        if not all_ndcs:
+            return {**empty_response, "ingredient": ingredient_name, "ingredient_rxcui": ingredient_rxcui}
+
+        if not database.db_engine and not database.connect_to_database():
+            return {**empty_response, "ingredient": ingredient_name, "ingredient_rxcui": ingredient_rxcui}
+
+        with database.db_engine.connect() as conn:
+            price_rows = conn.execute(
+                text(
+                    """
+                    SELECT ndc, price_per_unit, unit, effective_date
+                    FROM drug_prices
+                    WHERE ndc = ANY(:ndcs)
+                    """
+                ),
+                {"ndcs": all_ndcs},
+            ).mappings().all()
+
+        price_by_ndc: dict[str, dict] = {str(row["ndc"]): dict(row) for row in price_rows}
+        if not price_by_ndc:
+            return {**empty_response, "ingredient": ingredient_name, "ingredient_rxcui": ingredient_rxcui}
+
+        priced_ndcs = list(price_by_ndc.keys())
+
+        with database.db_engine.connect() as conn:
+            pf_rows = conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT ON (REGEXP_REPLACE(TRIM(ndc11), '[^0-9]', '', 'g'))
+                        slug, medicine_name, spl_strength,
+                        REGEXP_REPLACE(TRIM(ndc11), '[^0-9]', '', 'g') AS ndc_digits
+                    FROM pillfinder
+                    WHERE REGEXP_REPLACE(TRIM(ndc11), '[^0-9]', '', 'g') = ANY(:ndcs)
+                      AND slug IS NOT NULL
+                    """
+                ),
+                {"ndcs": priced_ndcs},
+            ).mappings().all()
+
+        strengths: list[dict] = []
+        seen_ndcs: set[str] = set()
+        for pf_row in pf_rows:
+            ndc_digits = str(pf_row["ndc_digits"])
+            if ndc_digits in seen_ndcs or ndc_digits not in price_by_ndc:
+                continue
+            seen_ndcs.add(ndc_digits)
+            price_info = price_by_ndc[ndc_digits]
+            strengths.append(
+                {
+                    "ndc": ndc_digits,
+                    "slug": pf_row["slug"],
+                    "medicine_name": pf_row["medicine_name"] or "",
+                    "spl_strength": pf_row["spl_strength"] or "",
+                    "price_per_unit": float(price_info["price_per_unit"]),
+                    "unit": str(price_info["unit"] or "EA"),
+                    "effective_date": str(price_info["effective_date"]),
+                    "is_current": ndc_digits == lookup_ndc,
+                }
+            )
+
+        def _strength_sort_key(s: dict) -> float:
+            # Sort by leading numeric value in spl_strength (e.g. "500 mg" → 500.0).
+            # Non-numeric / missing strengths sort last (float("inf")).
+            m = re.match(r"(\d+(?:\.\d+)?)", s.get("spl_strength") or "")
+            return float(m.group(1)) if m else float("inf")
+
+        strengths.sort(key=_strength_sort_key)
+
+        return {
+            "ndc": lookup_ndc,
+            "ingredient": ingredient_name,
+            "ingredient_rxcui": ingredient_rxcui,
+            "strengths": strengths,
+        }
+
+    except Exception as exc:
+        logger.warning("Strengths endpoint failed for ndc=%s: %s", lookup_ndc, exc)
+        return {"ndc": lookup_ndc, "ingredient": None, "ingredient_rxcui": None, "strengths": []}

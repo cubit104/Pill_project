@@ -85,11 +85,13 @@ def _load_target_ndcs(limit_ndcs: int = 0) -> list[str]:
         rows = conn.execute(
             text(
                 """
-                SELECT DISTINCT TRIM(ndc11) AS ndc11
+                SELECT DISTINCT ndc FROM drug_prices
+                UNION
+                SELECT DISTINCT REGEXP_REPLACE(TRIM(ndc11), '[^0-9]', '', 'g')
                 FROM pillfinder
                 WHERE ndc11 IS NOT NULL
                   AND TRIM(ndc11) != ''
-                ORDER BY TRIM(ndc11)
+                ORDER BY 1
                 """
             )
         ).fetchall()
@@ -98,7 +100,6 @@ def _load_target_ndcs(limit_ndcs: int = 0) -> list[str]:
     if limit_ndcs and limit_ndcs > 0:
         return deduped[:limit_ndcs]
     return deduped
-
 
 async def _fetch_recent_weekly_datasets(
     service: NADACPricingService,
@@ -179,26 +180,55 @@ async def run_nadac_history_backfill(
     dry_run: bool = False,
     sleep_ms: int = 200,
 ) -> dict[str, Any]:
-    requested_weeks = max(1, min(int(weeks), _MAX_WEEKS))
+    # requested_weeks is the number of distinct weekly effective dates to process across all
+    # catalog datasets (not the number of catalog datasets). No upper cap is enforced here
+    # because some operators may want full historical coverage (e.g. --weeks 999); the
+    # filtering step below naturally limits processing to available data.
+    requested_weeks = max(1, int(weeks))
     target_ndcs = _load_target_ndcs(limit_ndcs)
     service = NADACPricingService()
-    datasets = await _fetch_recent_weekly_datasets(service, weeks=requested_weeks, sleep_ms=sleep_ms)
+    # Always fetch all available catalog datasets; we'll take the last N weekly dates from them
+    datasets = await _fetch_recent_weekly_datasets(service, weeks=_MAX_WEEKS, sleep_ms=sleep_ms)
 
-    total_rows_inserted = 0
-    total_rows_skipped = 0
-    weeks_processed = 0
-
-    for week_idx, dataset in enumerate(reversed(datasets), start=1):
+    # Collect (effective_date, dataset_id, column_map) for every weekly date in every dataset
+    all_date_dataset_pairs: list[tuple[Any, str, dict[str, Any]]] = []
+    for dataset in datasets:
         dataset_id = dataset["dataset_id"]
         column_map = await service._resolve_column_map(dataset_id)
         await _sleep_if_needed(sleep_ms)
-        effective_date_obj = await service._fetch_latest_effective_date(dataset_id)
+        dates = await service._fetch_all_effective_dates(dataset_id)
         await _sleep_if_needed(sleep_ms)
-        effective_date = effective_date_obj.isoformat() if effective_date_obj else None
+        for d in dates:
+            all_date_dataset_pairs.append((d, dataset_id, column_map))
+
+    # Sort newest first, dedupe by date, take up to requested_weeks
+    all_date_dataset_pairs.sort(key=lambda x: x[0], reverse=True)
+    seen_dates: set[str] = set()
+    filtered_pairs: list[tuple[Any, str, dict[str, Any]]] = []
+    for d, did, cm in all_date_dataset_pairs:
+        d_str = d.isoformat()
+        if d_str not in seen_dates:
+            seen_dates.add(d_str)
+            filtered_pairs.append((d, did, cm))
+        if len(filtered_pairs) >= requested_weeks:
+            break
+
+    # Process oldest first for consistent log ordering
+    filtered_pairs.reverse()
+    total_weekly_dates = len(filtered_pairs)
+
+    total_rows_inserted = 0
+    total_rows_skipped = 0
+    weekly_dates_processed = 0
+
+    for date_idx, (effective_date_obj, dataset_id, column_map) in enumerate(filtered_pairs, start=1):
+        effective_date = effective_date_obj.isoformat()
 
         parsed_rows: list[dict[str, Any]] = []
         for chunk in _chunked(target_ndcs, _NDC_CHUNK_SIZE):
-            rows_by_ndc = await service._bulk_query_nadac_for_ndcs(dataset_id, chunk, column_map)
+            rows_by_ndc = await service._bulk_query_nadac_for_ndcs(
+                dataset_id, chunk, column_map, effective_date=effective_date
+            )
             await _sleep_if_needed(sleep_ms)
             for ndc, row in rows_by_ndc.items():
                 parsed = service._parse_nadac_row(
@@ -207,7 +237,7 @@ async def run_nadac_history_backfill(
                     as_of_week=effective_date,
                     column_map=column_map,
                 )
-                if parsed:
+                if parsed and parsed["effective_date"] == effective_date:
                     parsed_rows.append(
                         {
                             "ndc": parsed["ndc"],
@@ -223,12 +253,12 @@ async def run_nadac_history_backfill(
 
         total_rows_inserted += rows_inserted
         total_rows_skipped += rows_skipped
-        weeks_processed += 1
+        weekly_dates_processed += 1
 
         logger.info(
             "week %d/%d dataset_id=%s effective_date=%s rows_found=%d rows_inserted=%d",
-            week_idx,
-            len(datasets),
+            date_idx,
+            total_weekly_dates,
             dataset_id,
             effective_date,
             rows_found,
@@ -236,7 +266,7 @@ async def run_nadac_history_backfill(
         )
 
     return {
-        "weeks_processed": weeks_processed,
+        "weekly_dates_processed": weekly_dates_processed,
         "ndcs_queried": len(target_ndcs),
         "rows_inserted": total_rows_inserted,
         "rows_skipped": total_rows_skipped,
