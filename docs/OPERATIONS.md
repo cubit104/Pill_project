@@ -54,3 +54,23 @@ Run slug regeneration manually instead of on startup:
 ```bash
 python -m scripts.regenerate_slugs
 ```
+
+## NADAC history backfill
+
+Run this once after deploy to seed `drug_price_history` with prior weekly NADAC data. Do not rerun unless `drug_price_history` has been wiped or truncated.
+
+Run options:
+
+```bash
+make backfill-nadac-history
+```
+
+or admin API:
+
+- `POST /api/admin/backfill/nadac-history/run`
+
+Verify results:
+
+```sql
+SELECT COUNT(*), MIN(effective_date), MAX(effective_date) FROM drug_price_history;
+```
