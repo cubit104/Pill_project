@@ -375,13 +375,32 @@ class NADACPricingService:
                 raise PricingServiceError("Could not resolve NADAC dataset UUID from catalog")
 
             candidates.sort(key=lambda row: row[0], reverse=True)
-            _, item, dataset_id = candidates[0]
+            validated_dataset_id = None
+            validated_item = None
+            validated_as_of_week = None
+            for _, item, dataset_id in candidates:
+                try:
+                    as_of_week = await self._fetch_latest_effective_date(dataset_id)
+                    if as_of_week is not None:
+                        validated_dataset_id = dataset_id
+                        validated_item = item
+                        validated_as_of_week = as_of_week
+                        break
+                except Exception as exc:
+                    logger.warning(
+                        "_get_latest_dataset_metadata: dataset_id=%s failed validation (%s), trying next",
+                        dataset_id,
+                        exc,
+                    )
+                    continue
 
-            as_of_week = await self._fetch_latest_effective_date(dataset_id)
+            if not validated_dataset_id:
+                raise PricingServiceError("No accessible NADAC dataset found in catalog")
+
             metadata = {
-                "dataset_id": dataset_id,
-                "as_of_week": as_of_week.isoformat() if as_of_week else None,
-                "title": item.get("title") or item.get("name") or "NADAC",
+                "dataset_id": validated_dataset_id,
+                "as_of_week": validated_as_of_week.isoformat() if validated_as_of_week else None,
+                "title": validated_item.get("title") or validated_item.get("name") or "NADAC",
             }
             self._metadata_cache = metadata
             self._metadata_cached_at = now
@@ -404,6 +423,12 @@ class NADACPricingService:
             self._metadata_cache = metadata
             self._metadata_cached_at = now
             return metadata
+
+    def _invalidate_metadata_cache(self) -> None:
+        self._metadata_cache = None
+        self._metadata_cached_at = None
+        self._column_map.clear()
+        self._schema_cache.clear()
 
     def _nadac_query_url(self, dataset_id: str) -> str:
         return f"{self.nadac_api_base_url.rstrip('/')}/datastore/query/{dataset_id}/0"
@@ -683,6 +708,8 @@ class NADACPricingService:
                     limit=1,
                 )
             except PricingServiceError as exc:
+                if "no datastore storage" in str(exc).lower():
+                    raise
                 if "Column not found" in str(exc) or " 400 " in str(exc):
                     last_error = exc
                     logger.info("NADAC column '%s' not found, trying next candidate", ndc_field)
@@ -766,6 +793,8 @@ class NADACPricingService:
                     found[row_ndc] = row
             return found
         except Exception as exc:
+            if isinstance(exc, PricingServiceError) and "no datastore storage" in str(exc).lower():
+                raise
             # Some CMS datastore distributions reject `in`; fallback to chunked OR queries.
             logger.info("NADAC bulk IN query failed; falling back to OR chunks: %s", exc)
 
@@ -793,6 +822,8 @@ class NADACPricingService:
                         found[row_ndc] = row
             return found
         except Exception as exc:
+            if isinstance(exc, PricingServiceError) and "no datastore storage" in str(exc).lower():
+                raise
             logger.warning("NADAC bulk sibling query failed for %s ndcs: %s", len(normalized_ndcs), exc)
             return {}
 
@@ -1106,12 +1137,17 @@ class NADACPricingService:
 
         fetch_started = perf_counter()
         try:
-            latest = await self._fetch_nadac_latest_for_ndc(ndc_digits)
-        except PricingNotFoundError:
-            equivalent = await self._fetch_nadac_equivalent_for_ndc(ndc_digits)
-            if equivalent is None:
-                raise
-            latest = equivalent
+            try:
+                latest = await self._fetch_nadac_latest_for_ndc(ndc_digits)
+            except PricingNotFoundError:
+                equivalent = await self._fetch_nadac_equivalent_for_ndc(ndc_digits)
+                if equivalent is None:
+                    raise
+                latest = equivalent
+        except PricingServiceError as exc:
+            if "no datastore storage" in str(exc).lower():
+                self._invalidate_metadata_cache()
+            raise
         fetch_duration_ms = (perf_counter() - fetch_started) * 1000
         self._upsert_price_cache(latest)
         total_duration_ms = (perf_counter() - request_started) * 1000
@@ -1165,11 +1201,21 @@ class NADACPricingService:
             raise PricingNotFoundError(f"No NDCs found for RxCUI {rxcui_digits}")
 
         if metadata is None:
-            metadata = await self._get_latest_dataset_metadata()
+            try:
+                metadata = await self._get_latest_dataset_metadata()
+            except PricingServiceError as exc:
+                if "no datastore storage" in str(exc).lower():
+                    self._invalidate_metadata_cache()
+                raise
         dataset_id = metadata["dataset_id"]
         as_of_week = metadata.get("as_of_week")
-        column_map = await self._resolve_column_map(dataset_id)
-        rows_by_ndc = await self._bulk_query_nadac_for_ndcs(dataset_id, siblings, column_map)
+        try:
+            column_map = await self._resolve_column_map(dataset_id)
+            rows_by_ndc = await self._bulk_query_nadac_for_ndcs(dataset_id, siblings, column_map)
+        except PricingServiceError as exc:
+            if "no datastore storage" in str(exc).lower():
+                self._invalidate_metadata_cache()
+            raise
         if not rows_by_ndc:
             raise PricingNotFoundError(f"No NADAC pricing found for any NDC of RxCUI {rxcui_digits}")
 
@@ -1272,11 +1318,21 @@ class NADACPricingService:
             raise PricingNotFoundError(f"No NDCs found for ingredient '{ingredient['name']}'")
 
         if metadata is None:
-            metadata = await self._get_latest_dataset_metadata()
+            try:
+                metadata = await self._get_latest_dataset_metadata()
+            except PricingServiceError as exc:
+                if "no datastore storage" in str(exc).lower():
+                    self._invalidate_metadata_cache()
+                raise
         dataset_id = metadata["dataset_id"]
         as_of_week = metadata.get("as_of_week")
-        column_map = await self._resolve_column_map(dataset_id)
-        rows_by_ndc = await self._bulk_query_nadac_for_ndcs(dataset_id, ndcs, column_map)
+        try:
+            column_map = await self._resolve_column_map(dataset_id)
+            rows_by_ndc = await self._bulk_query_nadac_for_ndcs(dataset_id, ndcs, column_map)
+        except PricingServiceError as exc:
+            if "no datastore storage" in str(exc).lower():
+                self._invalidate_metadata_cache()
+            raise
         if not rows_by_ndc:
             raise PricingNotFoundError(f"No NADAC pricing found for any NDC of ingredient '{ingredient['name']}'")
 
@@ -1370,7 +1426,12 @@ class NADACPricingService:
 
         dataset_id = metadata["dataset_id"]
         as_of_week = metadata.get("as_of_week")
-        column_map = await self._resolve_column_map(dataset_id)
+        try:
+            column_map = await self._resolve_column_map(dataset_id)
+        except PricingServiceError as exc:
+            if "no datastore storage" in str(exc).lower():
+                self._invalidate_metadata_cache()
+            raise
         columns = column_map.get("all_columns") or []
 
         candidates: list[str] = []
@@ -1396,6 +1457,9 @@ class NADACPricingService:
                     limit=weeks,
                 )
             except PricingServiceError as exc:
+                if "no datastore storage" in str(exc).lower():
+                    self._invalidate_metadata_cache()
+                    raise
                 if "Column not found" in str(exc) or " 400 " in str(exc):
                     last_error = exc
                     logger.info("NADAC column '%s' not found for history, trying next candidate", ndc_field)
