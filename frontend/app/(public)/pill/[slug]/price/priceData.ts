@@ -63,6 +63,8 @@ export async function fetchInitialPriceData({
       alternatives: downstream.alternatives,
       history: downstream.history,
       generic_vs_brand_ratio: downstream.genericVsBrandRatio,
+      strengths: downstream.strengths,
+      ingredient: downstream.ingredient,
     }
   } finally {
     clearTimeout(timeout)

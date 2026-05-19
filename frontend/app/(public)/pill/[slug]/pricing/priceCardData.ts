@@ -1,5 +1,6 @@
 import type { AlternativePrice } from './AlternativesTable'
 import type { PriceHistoryPoint } from './PriceHistorySparkline'
+import type { StrengthOption } from './StrengthSelector'
 
 const NDC_DIGIT_LENGTH = 11
 
@@ -30,11 +31,20 @@ export interface HistoryResponse {
   history: PriceHistoryPoint[]
 }
 
+export interface StrengthsResponse {
+  ndc: string
+  ingredient: string | null
+  ingredient_rxcui: string | null
+  strengths: StrengthOption[]
+}
+
 export interface PriceCardInitialData {
   price: PriceResponse
   alternatives?: AlternativePrice[]
   history?: PriceHistoryPoint[]
   generic_vs_brand_ratio?: number | null
+  strengths?: StrengthOption[]
+  ingredient?: string | null
 }
 
 export interface PriceCardDownstreamResult {
@@ -43,6 +53,8 @@ export interface PriceCardDownstreamResult {
   genericVsBrandRatio: number | null
   alternativesFailed: boolean
   historyFailed: boolean
+  strengths: StrengthOption[]
+  ingredient: string | null
 }
 
 /** Normalize an input to digits-only NDC-11 so exported helpers can share one rule. */
@@ -86,9 +98,10 @@ export async function fetchPriceCardDownstream({
   fetchImpl?: FetchImpl
 }): Promise<PriceCardDownstreamResult> {
   const encoded = encodeURIComponent(downstreamNdc)
-  const [alternativesData, historyData] = await Promise.all([
+  const [alternativesData, historyData, strengthsData] = await Promise.all([
     fetchJsonOrNull<AlternativesResponse>(fetchImpl, `${apiBase}/api/prices/${encoded}/alternatives`),
     fetchJsonOrNull<HistoryResponse>(fetchImpl, `${apiBase}/api/prices/${encoded}/history?weeks=52`),
+    fetchJsonOrNull<StrengthsResponse>(fetchImpl, `${apiBase}/api/prices/${encoded}/strengths`),
   ])
 
   return {
@@ -97,5 +110,7 @@ export async function fetchPriceCardDownstream({
     genericVsBrandRatio: alternativesData?.generic_vs_brand_ratio ?? null,
     alternativesFailed: alternativesData === null,
     historyFailed: historyData === null,
+    strengths: strengthsData?.strengths || [],
+    ingredient: strengthsData?.ingredient ?? null,
   }
 }
