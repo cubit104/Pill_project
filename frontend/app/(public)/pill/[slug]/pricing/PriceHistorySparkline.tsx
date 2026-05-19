@@ -50,10 +50,10 @@ function ptY(v: number, minV: number, maxV: number): number {
 }
 
 export default function PriceHistorySparkline({ history }: { history: PriceHistoryPoint[] }) {
-  if (!history.length) return null
-
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
+
+  if (!history.length) return null
 
   const n = history.length
   const values = history.map((h) => h.price_per_unit)
