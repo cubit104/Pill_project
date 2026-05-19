@@ -269,13 +269,16 @@ test('resolveDownstreamNdc falls back to fallbackNdc digits for exact matches', 
   )
 })
 
-test('fetchPriceCardDownstream calls /alternatives and /history with matched_ndc', async () => {
+test('fetchPriceCardDownstream calls /alternatives, /history, and /strengths with matched_ndc', async () => {
   const calls: string[] = []
   const fetchImpl = async (input: RequestInfo | URL) => {
     const url = String(input)
     calls.push(url)
     if (url.endsWith('/alternatives')) {
       return new Response(JSON.stringify({ alternatives: [], generic_vs_brand_ratio: 4 }), { status: 200 })
+    }
+    if (url.endsWith('/strengths')) {
+      return new Response(JSON.stringify({ ndc: '00378018101', ingredient: null, ingredient_rxcui: null, strengths: [] }), { status: 200 })
     }
     return new Response(JSON.stringify({ history: [] }), { status: 200 })
   }
@@ -289,6 +292,7 @@ test('fetchPriceCardDownstream calls /alternatives and /history with matched_ndc
   assert.deepEqual(calls, [
     'https://api.example.com/api/prices/00378018101/alternatives',
     'https://api.example.com/api/prices/00378018101/history?weeks=52',
+    'https://api.example.com/api/prices/00378018101/strengths',
   ])
   assert.equal(result.genericVsBrandRatio, 4)
 })
@@ -313,6 +317,9 @@ test('PriceCard renders price immediately when initialData.price present, then f
           },
         ],
       }), { status: 200 })
+    }
+    if (url.endsWith('/strengths')) {
+      return new Response(JSON.stringify({ ndc: '00378018101', ingredient: null, ingredient_rxcui: null, strengths: [] }), { status: 200 })
     }
     return new Response(JSON.stringify({
       history: [
@@ -339,6 +346,7 @@ test('PriceCard renders price immediately when initialData.price present, then f
     assert.deepEqual(calls, [
       'http://localhost:8000/api/prices/00378018101/alternatives',
       'http://localhost:8000/api/prices/00378018101/history?weeks=52',
+      'http://localhost:8000/api/prices/00378018101/strengths',
     ])
     assert.match(JSON.stringify(renderer.toJSON()), /Equivalent Drug/)
     renderer.unmount()

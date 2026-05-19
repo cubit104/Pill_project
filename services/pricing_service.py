@@ -546,6 +546,71 @@ class NADACPricingService:
             logger.exception("Unable to derive latest NADAC effective_date from dataset rows")
             return None
 
+    async def _fetch_all_effective_dates(self, dataset_id: str) -> list[date]:
+        """Return all distinct effective dates within a dataset, sorted ascending.
+
+        Falls back to ``[_fetch_latest_effective_date(dataset_id)]`` on any error.
+        """
+        try:
+            column_map = await self._resolve_column_map(dataset_id)
+            date_col = str(column_map.get("effective_date") or "effective_date")
+            base_url = self.nadac_api_base_url.rstrip("/")
+            query_url = f"{base_url}/datastore/query/{dataset_id}"
+
+            # Confirm dataset is accessible
+            try:
+                await self._request_json(query_url, params={"limit": "0", "count": "true"})
+            except Exception as exc:
+                logger.warning(
+                    "_fetch_all_effective_dates: dataset %s health check failed (%s); falling back",
+                    dataset_id,
+                    exc,
+                )
+                fallback = await self._fetch_latest_effective_date(dataset_id)
+                return [fallback] if fallback else []
+
+            # Fetch distinct effective dates via groupBy
+            body: dict[str, Any] = {
+                "results": False,
+                "count": False,
+                "schema": False,
+                "keys": False,
+                "properties": [date_col],
+                "groupBy": [date_col],
+                "limit": 260,
+            }
+            payload = await self._request_json(query_url, method="POST", json_body=body)
+
+            if not isinstance(payload, dict):
+                raise ValueError(f"Unexpected response type: {type(payload)}")
+
+            rows = payload.get("results") or payload.get("result") or []
+            if not isinstance(rows, list) or not rows:
+                raise ValueError("No results in distinct-dates response")
+
+            dates: list[date] = []
+            for row in rows:
+                if isinstance(row, dict):
+                    val = row.get(date_col) or row.get("effective_date") or row.get("as_of_date")
+                    d = self._parse_date(val)
+                    if d:
+                        dates.append(d)
+
+            if not dates:
+                raise ValueError("No valid dates parsed from distinct-dates response")
+
+            dates.sort()
+            return dates
+
+        except Exception as exc:
+            logger.warning(
+                "_fetch_all_effective_dates failed for dataset_id=%s: %s; falling back to latest date",
+                dataset_id,
+                exc,
+            )
+            fallback = await self._fetch_latest_effective_date(dataset_id)
+            return [fallback] if fallback else []
+
     def _parse_nadac_row(
         self,
         row: dict[str, Any],
@@ -658,24 +723,41 @@ class NADACPricingService:
         dataset_id: str,
         ndcs: list[str],
         column_map: dict[str, Any],
+        *,
+        effective_date: str | None = None,
     ) -> dict[str, dict[str, Any]]:
         if not ndcs:
             return {}
         ndc_column = str(column_map.get("ndc") or "ndc")
+        date_col = str(column_map.get("effective_date") or "effective_date")
         normalized_ndcs = sorted({ndc for ndc in ndcs if ndc})
         found: dict[str, dict[str, Any]] = {}
 
         try:
-            payload = await self._request_datastore_query(
-                dataset_id,
-                conditions=[
+            conditions: list[dict[str, Any]] = [
+                {
+                    "resource": "t",
+                    "property": ndc_column,
+                    "operator": "in",
+                    "value": normalized_ndcs,
+                }
+            ]
+            group_operator: str | None = None
+            if effective_date:
+                conditions.append(
                     {
                         "resource": "t",
-                        "property": ndc_column,
-                        "operator": "in",
-                        "value": normalized_ndcs,
+                        "property": date_col,
+                        "operator": "=",
+                        "value": effective_date,
                     }
-                ],
+                )
+                group_operator = "and"
+
+            payload = await self._request_datastore_query(
+                dataset_id,
+                conditions=conditions,
+                group_operator=group_operator,
                 limit=len(normalized_ndcs),
             )
             for row in self._rows_from_payload(payload):
