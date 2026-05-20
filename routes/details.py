@@ -3,7 +3,7 @@ import logging
 import os
 import asyncio
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timezone
 from typing import Optional, List, Dict, Any
 from threading import Lock
@@ -210,12 +210,12 @@ def _first_ndc_with_history(conn, candidates: list[str], *, probe_live: bool = F
         return None
     with ThreadPoolExecutor(max_workers=min(len(uncached_candidates), 4)) as executor:
         probe_futures = {
-            ndc_digits: executor.submit(_probe_live_history_for_ndc, ndc_digits)
+            executor.submit(_probe_live_history_for_ndc, ndc_digits): ndc_digits
             for ndc_digits in uncached_candidates
         }
-        for ndc_digits in uncached_candidates:
-            if probe_futures[ndc_digits].result():
-                return ndc_digits
+        for future in as_completed(probe_futures):
+            if future.result():
+                return probe_futures[future]
     return None
 
 
