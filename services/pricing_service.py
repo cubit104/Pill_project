@@ -1518,15 +1518,13 @@ class NADACPricingService:
             ).mappings().all()
         if cached_rows:
             newest_cached = self._parse_date(cached_rows[0].get("effective_date"))
-            cache_has_enough_rows = len(cached_rows) >= weeks
             cache_recent_enough = (
                 latest_week is None
                 or (newest_cached is not None and newest_cached >= (latest_week - timedelta(days=7)))
             )
             if not metadata:
-                cache_has_enough_rows = True
                 cache_recent_enough = True
-            if cache_has_enough_rows and cache_recent_enough:
+            if cache_recent_enough:
                 ordered = list(reversed(cached_rows))
                 return [
                     {
@@ -1802,6 +1800,14 @@ class NADACPricingService:
             if ndc_digits:
                 normalized.append(ndc_digits)
         return list(dict.fromkeys(normalized))
+
+    async def _ingredient_rxcui_to_representative_ndc(self, ingredient_rxcui: str) -> str | None:
+        product_rxcuis = await self._related_product_rxcuis(ingredient_rxcui)
+        for product in product_rxcuis:
+            ndcs = await self._ndcs_for_rxcui(product["rxcui"])
+            if ndcs:
+                return ndcs[0]
+        return None
 
     async def get_alternatives_by_ingredient(self, rxcui_or_ingredient: str) -> dict[str, Any]:
         logger.info("Resolving NADAC alternatives for token=%s", rxcui_or_ingredient)

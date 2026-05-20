@@ -42,6 +42,7 @@ export interface PriceCardInitialData {
   price: PriceResponse
   alternatives?: AlternativePrice[]
   history?: PriceHistoryPoint[]
+  history_source?: 'ndc' | 'matched_ndc' | 'rxcui' | 'name'
   generic_vs_brand_ratio?: number | null
   strengths?: StrengthOption[]
   ingredient?: string | null
@@ -91,16 +92,19 @@ async function fetchJsonOrNull<T>(fetchImpl: FetchImpl, url: string): Promise<T 
 export async function fetchPriceCardDownstream({
   apiBase,
   downstreamNdc,
+  historyNdc,
   fetchImpl = fetch,
 }: {
   apiBase: string
   downstreamNdc: string
+  historyNdc?: string
   fetchImpl?: FetchImpl
 }): Promise<PriceCardDownstreamResult> {
   const encoded = encodeURIComponent(downstreamNdc)
+  const historyEncoded = encodeURIComponent(historyNdc || downstreamNdc)
   const [alternativesData, historyData, strengthsData] = await Promise.all([
     fetchJsonOrNull<AlternativesResponse>(fetchImpl, `${apiBase}/api/prices/${encoded}/alternatives`),
-    fetchJsonOrNull<HistoryResponse>(fetchImpl, `${apiBase}/api/prices/${encoded}/history?weeks=52`),
+    fetchJsonOrNull<HistoryResponse>(fetchImpl, `${apiBase}/api/prices/${historyEncoded}/history?weeks=52`),
     fetchJsonOrNull<StrengthsResponse>(fetchImpl, `${apiBase}/api/prices/${encoded}/strengths`),
   ])
 
