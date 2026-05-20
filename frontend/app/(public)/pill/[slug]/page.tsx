@@ -56,6 +56,8 @@ export async function fetchPill(slug: string): Promise<PillDetail | null> {
     updated_at: raw.updated_at ?? undefined,
     meta_description: raw.meta_description ?? undefined,
     indication: raw.indication ?? null,
+    history_ndc: raw.history_ndc ?? null,
+    history_source: raw.history_source ?? null,
     has_medguide:
       typeof raw.has_medguide === 'boolean'
         ? raw.has_medguide

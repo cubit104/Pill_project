@@ -148,7 +148,7 @@ This runs `pip install -r requirements.txt` and then builds the Next.js frontend
 | `GET` | `/search` | Serves search results page (Next.js) |
 | `GET` | `/details` | Full details for a specific pill (JSON) |
 | `GET` | `/ndc_lookup` | Lookup pill by NDC code (JSON) |
-| `GET` | `/api/pill/{slug}` | Get pill by URL slug (JSON, used by frontend) |
+| `GET` | `/api/pill/{slug}` | Get pill by URL slug (JSON, used by frontend; includes `history_ndc`/`history_source` for price history resolution) |
 | `GET` | `/pill/{slug}` | Serves pill detail page (Next.js HTML) |
 | `GET` | `/api/prices/{ndc}` | NADAC benchmark + fair retail estimate |
 | `GET` | `/api/prices/{ndc}/alternatives` | NADAC alternatives by active ingredient |

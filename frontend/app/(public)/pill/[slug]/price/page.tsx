@@ -63,6 +63,8 @@ export default async function PillPricePage(
     ndc: pill.ndc,
     rxcui: pill.rxcui,
     medicineName: pill.drug_name,
+    historyNdc: pill.history_ndc,
+    historySource: pill.history_source,
   })
 
   return (
@@ -102,6 +104,7 @@ export default async function PillPricePage(
         ndc={pill.ndc}
         rxcui={pill.rxcui}
         medicineName={pill.drug_name}
+        historyNdc={pill.history_ndc}
         initialData={initialPriceData}
       />
     </div>
