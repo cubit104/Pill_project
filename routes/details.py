@@ -208,14 +208,21 @@ def _first_ndc_with_history(conn, candidates: list[str], *, probe_live: bool = F
             uncached_candidates.append(ndc_digits)
     if not probe_live or not uncached_candidates:
         return None
-    with ThreadPoolExecutor(max_workers=min(len(uncached_candidates), 4)) as executor:
+    executor = ThreadPoolExecutor(max_workers=min(len(uncached_candidates), 4))
+    shutdown_early = False
+    try:
         probe_futures = {
             executor.submit(_probe_live_history_for_ndc, ndc_digits): ndc_digits
             for ndc_digits in uncached_candidates
         }
         for future in as_completed(probe_futures):
             if future.result():
+                shutdown_early = True
+                executor.shutdown(wait=False, cancel_futures=True)
                 return probe_futures[future]
+    finally:
+        if not shutdown_early:
+            executor.shutdown(wait=True, cancel_futures=True)
     return None
 
 
