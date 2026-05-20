@@ -10,6 +10,7 @@ export interface StrengthOption {
   spl_strength: string
   price_per_unit: number
   unit: string
+  has_price?: boolean
   is_current: boolean
 }
 
@@ -27,7 +28,12 @@ function unitLabel(unit: string): string {
 export default function StrengthSelector({ strengths, ingredient }: StrengthSelectorProps) {
   const router = useRouter()
 
-  if (strengths.length <= 1) return null
+  const hasPricedStrength = strengths.some((s) => s.has_price !== false)
+  const visibleStrengths = hasPricedStrength
+    ? strengths.filter((s) => s.has_price !== false)
+    : strengths
+
+  if (visibleStrengths.length === 0) return null
 
   const label = ingredient
     ? `Other strengths of ${ingredient.charAt(0).toUpperCase()}${ingredient.slice(1)}`
@@ -39,7 +45,7 @@ export default function StrengthSelector({ strengths, ingredient }: StrengthSele
         💊&nbsp; {label}
       </p>
       <div className="flex flex-wrap gap-2">
-        {strengths.map((s) => (
+        {visibleStrengths.map((s) => (
           <button
             key={s.ndc}
             onClick={() => {
@@ -55,7 +61,9 @@ export default function StrengthSelector({ strengths, ingredient }: StrengthSele
                 : 'min-w-[120px] px-3 py-2 rounded-full text-xs font-semibold bg-white text-sky-600 border border-sky-400 hover:bg-sky-50 cursor-pointer'
             }
           >
-            {s.spl_strength} · ${s.price_per_unit.toFixed(2)}/{unitLabel(s.unit)}
+            {hasPricedStrength
+              ? `${s.spl_strength} · $${s.price_per_unit.toFixed(2)}/${unitLabel(s.unit)}`
+              : s.spl_strength}
           </button>
         ))}
       </div>

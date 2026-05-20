@@ -6,7 +6,7 @@ import {
 } from '../pricing/priceCardData'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
-const PRICE_DATA_FETCH_TIMEOUT_MS = 5000
+const PRICE_DATA_FETCH_TIMEOUT_MS = 2500
 
 async function fetchPriceJson(
   url: string,
@@ -28,10 +28,14 @@ export async function fetchInitialPriceData({
   ndc,
   rxcui,
   medicineName,
+  historyNdc,
+  historySource,
 }: {
   ndc?: string
   rxcui?: string
   medicineName?: string
+  historyNdc?: string | null
+  historySource?: 'ndc' | 'matched_ndc' | 'rxcui' | 'by_name' | null
 }): Promise<PriceCardInitialData | undefined> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), PRICE_DATA_FETCH_TIMEOUT_MS)
@@ -51,6 +55,7 @@ export async function fetchInitialPriceData({
     const downstream = await fetchPriceCardDownstream({
       apiBase: API_BASE,
       downstreamNdc,
+      historyNdc: historyNdc === null ? null : (historyNdc || undefined),
       fetchImpl: (input, init) => fetch(input, {
         ...init,
         cache: 'no-store',
@@ -62,6 +67,7 @@ export async function fetchInitialPriceData({
       price,
       alternatives: downstream.alternatives,
       history: downstream.history,
+      history_source: historySource ?? undefined,
       generic_vs_brand_ratio: downstream.genericVsBrandRatio,
       strengths: downstream.strengths,
       ingredient: downstream.ingredient,

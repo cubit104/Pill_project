@@ -76,6 +76,10 @@ class NADACPricingService:
         self._metadata_cached_at: datetime | None = None
         self._schema_cache: dict[str, list[str]] = {}
         self._column_map: dict[str, dict[str, Any]] = {}
+        self._history_negative_cache: dict[tuple[str, str], datetime] = {}
+        self._history_negative_ttl_seconds = int(os.getenv("PRICING_HISTORY_NEG_TTL_SECONDS", "3600"))
+        self._logged_datasets: set[str] = set()
+        self._logged_schema_failures: set[str] = set()
         self._http_client: httpx.AsyncClient | None = None
 
     async def _ensure_client(self) -> httpx.AsyncClient:
@@ -435,6 +439,7 @@ class NADACPricingService:
         self._metadata_cached_at = None
         self._column_map.clear()
         self._schema_cache.clear()
+        self._history_negative_cache.clear()
 
     def _nadac_query_url(self, dataset_id: str) -> str:
         return f"{self.nadac_api_base_url.rstrip('/')}/datastore/query/{dataset_id}/0"
@@ -475,24 +480,121 @@ class NADACPricingService:
             return []
         return [row for row in rows if isinstance(row, dict)]
 
-    async def _get_dataset_columns(self, distribution_id: str) -> list[str]:
-        if distribution_id in self._schema_cache:
+    @staticmethod
+    def _extract_columns_from_schema_payload(payload: Any) -> list[str]:
+        columns: list[str] = []
+
+        def _append(name: Any) -> None:
+            if not isinstance(name, str):
+                return
+            cleaned = name.strip()
+            if cleaned and cleaned not in columns:
+                columns.append(cleaned)
+
+        def _walk(value: Any) -> None:
+            if isinstance(value, dict):
+                name = value.get("name")
+                if isinstance(name, str) and any(key in value for key in ("type", "title", "description")):
+                    _append(name)
+                for key in ("fields", "columns", "items", "schema", "properties", "attributes", "resources"):
+                    nested = value.get(key)
+                    if isinstance(nested, (list, dict)):
+                        _walk(nested)
+            elif isinstance(value, list):
+                for item in value:
+                    _walk(item)
+
+        _walk(payload)
+        return columns
+
+    async def _discover_dataset_columns_from_schema(self, dataset_id: str) -> list[str]:
+        base_url = self.nadac_api_base_url.rstrip("/")
+        describe_url = f"{base_url}/metastore/schemas/dataset/items/{dataset_id}"
+        candidate_distribution_ids: list[str] = [dataset_id]
+        fallback_columns: list[str] = []
+
+        try:
+            describe_payload = await self._request_json(describe_url)
+            fallback_columns = self._extract_columns_from_schema_payload(describe_payload)
+            resolved_distribution = (
+                self._extract_dataset_id(describe_payload)
+                if isinstance(describe_payload, dict)
+                else None
+            )
+            if resolved_distribution and resolved_distribution not in candidate_distribution_ids:
+                candidate_distribution_ids.append(resolved_distribution)
+        except Exception as exc:
+            logger.info("Dataset describe lookup failed for dataset_id=%s: %s", dataset_id, exc)
+
+        for distribution_id in candidate_distribution_ids:
+            for endpoint in (
+                f"{base_url}/datastore/imports/{distribution_id}",
+                f"{base_url}/datastore/schemas/{distribution_id}",
+            ):
+                try:
+                    payload = await self._request_json(endpoint)
+                except Exception:
+                    continue
+                schema_columns = self._extract_columns_from_schema_payload(payload)
+                if schema_columns:
+                    return schema_columns
+
+        return fallback_columns
+
+    async def _get_dataset_columns(self, distribution_id: str, *, bypass_cache: bool = False) -> list[str]:
+        if not bypass_cache and distribution_id in self._schema_cache:
             return self._schema_cache[distribution_id]
 
+        probe_error: Exception | None = None
         try:
             payload = await self._request_datastore_query(distribution_id, limit=1)
             rows = self._rows_from_payload(payload)
             columns = list(rows[0].keys()) if rows else []
-            self._schema_cache[distribution_id] = columns
-            return columns
+            if columns:
+                self._schema_cache[distribution_id] = columns
+                return columns
+            logger.info("NADAC probe returned no rows for dataset_id=%s; trying schema discovery", distribution_id)
         except Exception as exc:
+            probe_error = exc
+
+        schema_columns = await self._discover_dataset_columns_from_schema(distribution_id)
+        if schema_columns:
+            self._schema_cache[distribution_id] = schema_columns
+            return schema_columns
+
+        if distribution_id not in self._logged_schema_failures:
             logger.warning(
-                "Failed to discover NADAC schema for distribution_id=%s: %s",
+                "Failed to discover NADAC schema for dataset_id=%s; last error=%s",
                 distribution_id,
-                exc,
+                probe_error or "no rows from probe and schema discovery",
             )
-            self._schema_cache[distribution_id] = []
-            return []
+            self._logged_schema_failures.add(distribution_id)
+        self._schema_cache[distribution_id] = []
+        return []
+
+    @staticmethod
+    def _is_rejectable_ndc_description(selected_column: str | None, columns: list[str]) -> bool:
+        if not selected_column or selected_column.lower() != "ndc_description":
+            return False
+        return any("ndc" in col.lower() and "description" not in col.lower() for col in columns)
+
+    def _normalize_ndc_column_choice(
+        self,
+        selected_column: str | None,
+        columns: list[str],
+        *,
+        dataset_id: str,
+    ) -> str | None:
+        if not selected_column:
+            return None
+        if self._is_rejectable_ndc_description(selected_column, columns):
+            return None
+        if selected_column.lower() == "ndc_description":
+            logger.warning(
+                "Using ndc_description for dataset_id=%s because no better NDC column was found",
+                dataset_id,
+            )
+        return selected_column
 
     @staticmethod
     def _pick_column(
@@ -522,10 +624,16 @@ class NADACPricingService:
             return self._column_map[distribution_id]
 
         columns = await self._get_dataset_columns(distribution_id)
+        if distribution_id not in self._logged_datasets:
+            logger.info("NADAC dataset_id=%s columns=%s", distribution_id, columns)
+            self._logged_datasets.add(distribution_id)
 
-        ndc_col = self._pick_column(columns, ["ndc", "ndc_11", "ndc11", "ndc_code"], contains="ndc")
-        if ndc_col and "description" in ndc_col.lower():
-            ndc_col = None
+        ndc_col = self._pick_column(
+            columns,
+            ["ndc", "ndc11", "ndc_11", "ndc_code", "nadac_ndc", "ndc_number", "ndcnum"],
+            contains="ndc",
+        )
+        ndc_col = self._normalize_ndc_column_choice(ndc_col, columns, dataset_id=distribution_id)
 
         effective_date_col = self._pick_column(columns, ["effective_date", "as_of_date", "as_of"])
         if not effective_date_col:
@@ -1410,15 +1518,13 @@ class NADACPricingService:
             ).mappings().all()
         if cached_rows:
             newest_cached = self._parse_date(cached_rows[0].get("effective_date"))
-            cache_has_enough_rows = len(cached_rows) >= weeks
             cache_recent_enough = (
                 latest_week is None
                 or (newest_cached is not None and newest_cached >= (latest_week - timedelta(days=7)))
             )
             if not metadata:
-                cache_has_enough_rows = True
                 cache_recent_enough = True
-            if cache_has_enough_rows and cache_recent_enough:
+            if cache_recent_enough:
                 ordered = list(reversed(cached_rows))
                 return [
                     {
@@ -1435,6 +1541,12 @@ class NADACPricingService:
 
         dataset_id = metadata["dataset_id"]
         as_of_week = metadata.get("as_of_week")
+        negative_key = (dataset_id, ndc_digits)
+        negative_cached_at = self._history_negative_cache.get(negative_key)
+        if negative_cached_at is not None:
+            if datetime.now(timezone.utc) - negative_cached_at < timedelta(seconds=self._history_negative_ttl_seconds):
+                return []
+            self._history_negative_cache.pop(negative_key, None)
         try:
             column_map = await self._resolve_column_map(dataset_id)
         except PricingServiceError as exc:
@@ -1443,21 +1555,23 @@ class NADACPricingService:
             raise
         columns = column_map.get("all_columns") or []
 
+        ndc_column_candidates = ["ndc", "ndc11", "ndc_11", "ndc_code", "nadac_ndc", "ndc_number", "ndcnum"]
         candidates: list[str] = []
         if columns:
-            chosen = self._pick_column(columns, ["ndc", "ndc_11", "ndc11", "ndc_code"], contains="ndc")
-            if chosen and "description" in chosen.lower():
-                chosen = None
+            chosen = self._pick_column(columns, ndc_column_candidates, contains="ndc")
+            chosen = self._normalize_ndc_column_choice(chosen, columns, dataset_id=dataset_id)
             if chosen:
                 candidates.append(chosen)
-        for candidate in ("ndc", "ndc_11", "ndc11", "ndc_code"):
+        for candidate in ndc_column_candidates:
             if candidate.lower() not in {c.lower() for c in candidates}:
                 candidates.append(candidate)
 
         rows: list[dict[str, Any]] = []
         last_error: Exception | None = None
         date_col = str(column_map.get("effective_date") or "effective_date")
+        attempted_candidates: set[str] = set()
         for ndc_field in candidates:
+            attempted_candidates.add(ndc_field.lower())
             try:
                 payload = await self._request_datastore_query(
                     dataset_id,
@@ -1479,6 +1593,27 @@ class NADACPricingService:
                 rows = records
                 break
 
+        if not rows and last_error is not None:
+            refreshed_columns = await self._get_dataset_columns(dataset_id, bypass_cache=True)
+            column_map["all_columns"] = refreshed_columns
+            retry_column = self._pick_column(refreshed_columns, ndc_column_candidates, contains="ndc")
+            retry_column = self._normalize_ndc_column_choice(retry_column, refreshed_columns, dataset_id=dataset_id)
+            if retry_column and retry_column.lower() not in attempted_candidates:
+                try:
+                    retry_payload = await self._request_datastore_query(
+                        dataset_id,
+                        conditions=[{"resource": "t", "property": retry_column, "value": ndc_digits, "operator": "="}],
+                        sorts=[{"resource": "t", "property": date_col, "order": "desc"}],
+                        limit=weeks,
+                    )
+                except PricingServiceError as exc:
+                    if self._is_no_datastore_storage_error(exc):
+                        self._invalidate_metadata_cache()
+                        raise
+                    last_error = exc
+                else:
+                    rows = self._rows_from_payload(retry_payload)
+
         parsed_rows: list[dict[str, Any]] = []
         for row in rows:
             parsed = self._parse_nadac_row(row, ndc_digits=ndc_digits, as_of_week=as_of_week, column_map=column_map)
@@ -1488,6 +1623,7 @@ class NADACPricingService:
         if not parsed_rows:
             if last_error is not None:
                 logger.exception("All NDC history column candidates rejected by CMS", exc_info=self._exc_info(last_error))
+            self._history_negative_cache[negative_key] = datetime.now(timezone.utc)
             raise PricingNotFoundError(f"No NADAC history found for NDC {ndc_digits}")
 
         parsed_rows.sort(key=lambda row: row["effective_date"])
@@ -1664,6 +1800,14 @@ class NADACPricingService:
             if ndc_digits:
                 normalized.append(ndc_digits)
         return list(dict.fromkeys(normalized))
+
+    async def _ingredient_rxcui_to_representative_ndc(self, ingredient_rxcui: str) -> str | None:
+        product_rxcuis = await self._related_product_rxcuis(ingredient_rxcui)
+        for product in product_rxcuis:
+            ndcs = await self._ndcs_for_rxcui(product["rxcui"])
+            if ndcs:
+                return ndcs[0]
+        return None
 
     async def get_alternatives_by_ingredient(self, rxcui_or_ingredient: str) -> dict[str, Any]:
         logger.info("Resolving NADAC alternatives for token=%s", rxcui_or_ingredient)

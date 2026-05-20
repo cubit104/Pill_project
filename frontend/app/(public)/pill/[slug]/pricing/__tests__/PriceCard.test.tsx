@@ -297,6 +297,34 @@ test('fetchPriceCardDownstream calls /alternatives, /history, and /strengths wit
   assert.equal(result.genericVsBrandRatio, 4)
 })
 
+test('fetchPriceCardDownstream skips /history when historyNdc is null', async () => {
+  const calls: string[] = []
+  const fetchImpl = async (input: RequestInfo | URL) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.endsWith('/alternatives')) {
+      return new Response(JSON.stringify({ alternatives: [], generic_vs_brand_ratio: null }), { status: 200 })
+    }
+    if (url.endsWith('/strengths')) {
+      return new Response(JSON.stringify({ ndc: '00378018101', ingredient: null, ingredient_rxcui: null, strengths: [] }), { status: 200 })
+    }
+    throw new Error(`Unexpected URL ${url}`)
+  }
+
+  const result = await fetchPriceCardDownstream({
+    apiBase: 'https://api.example.com',
+    downstreamNdc: '00378018101',
+    historyNdc: null,
+    fetchImpl,
+  })
+
+  assert.deepEqual(calls, [
+    'https://api.example.com/api/prices/00378018101/alternatives',
+    'https://api.example.com/api/prices/00378018101/strengths',
+  ])
+  assert.deepEqual(result.history, [])
+})
+
 test('PriceCard renders price immediately when initialData.price present, then fetches alternatives/history', async () => {
   const originalFetch = global.fetch
   const calls: string[] = []

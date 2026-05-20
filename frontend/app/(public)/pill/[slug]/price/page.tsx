@@ -8,6 +8,18 @@ import { fetchPill } from '../page'
 import { formatStrength } from './formatStrength'
 import { fetchInitialPriceData } from './priceData'
 
+function resolveImageUrl(pill: {
+  image_url?: string | null
+  images?: Array<string | { url?: string | null } | null>
+}): string {
+  if (pill.image_url?.trim()) return pill.image_url.trim()
+  if (!Array.isArray(pill.images) || pill.images.length === 0) return ''
+  const first = pill.images[0]
+  if (typeof first === 'string') return first
+  if (first && typeof first === 'object' && 'url' in first) return first.url || ''
+  return ''
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
@@ -37,7 +49,7 @@ export default async function PillPricePage(
 
   const drugName = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : slug
   const formattedStrength = formatStrength(pill.strength ?? null)
-  const imageUrl = pill.image_url?.trim() || ''
+  const imageUrl = resolveImageUrl(pill)
   const genericFor = pill.generic_for?.trim() || ''
   const brandOrGeneric = pill.brand_or_generic
   let descriptor = ''
@@ -51,6 +63,8 @@ export default async function PillPricePage(
     ndc: pill.ndc,
     rxcui: pill.rxcui,
     medicineName: pill.drug_name,
+    historyNdc: pill.history_ndc,
+    historySource: pill.history_source,
   })
 
   return (
@@ -68,6 +82,8 @@ export default async function PillPricePage(
             <img
               src={imageUrl}
               alt={`${pill.drug_name} pill`}
+              loading="lazy"
+              referrerPolicy="no-referrer"
               className="w-16 h-16 md:w-20 md:h-20 rounded-lg border border-slate-200 object-contain bg-white"
             />
           ) : (
@@ -88,6 +104,7 @@ export default async function PillPricePage(
         ndc={pill.ndc}
         rxcui={pill.rxcui}
         medicineName={pill.drug_name}
+        historyNdc={pill.history_ndc}
         initialData={initialPriceData}
       />
     </div>
