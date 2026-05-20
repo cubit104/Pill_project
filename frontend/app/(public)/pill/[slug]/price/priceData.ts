@@ -56,6 +56,7 @@ export async function fetchInitialPriceData({
       apiBase: API_BASE,
       downstreamNdc,
       historyNdc: historyNdc === null ? null : (historyNdc || undefined),
+      priceResponse: price,
       fetchImpl: (input, init) => fetch(input, {
         ...init,
         cache: 'no-store',
