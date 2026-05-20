@@ -93,17 +93,28 @@ export async function fetchPriceCardDownstream({
   apiBase,
   downstreamNdc,
   historyNdc,
+  priceResponse,
   fetchImpl = fetch,
 }: {
   apiBase: string
   downstreamNdc: string
   historyNdc?: string | null
+  priceResponse?: PriceResponse | null
   fetchImpl?: FetchImpl
 }): Promise<PriceCardDownstreamResult> {
   const encoded = encodeURIComponent(downstreamNdc)
-  const historyPath = historyNdc === null
+  // When the price card displays an equivalent-NDC fallback price (the user's own
+  // NDC has no NADAC row, so we matched on RxCUI/ingredient), the history graph
+  // must use the SAME equivalent NDC. Otherwise we'd query history for an NDC
+  // we already know has zero NADAC rows and render an empty graph.
+  const priceMatchedNdc =
+    priceResponse?.match_type === 'equivalent' && priceResponse?.matched_ndc
+      ? normalizeNdcDigits(String(priceResponse.matched_ndc))
+      : null
+  const ndcForHistory = priceMatchedNdc ?? historyNdc
+  const historyPath = ndcForHistory === null
     ? null
-    : `${apiBase}/api/prices/${encodeURIComponent(historyNdc || downstreamNdc)}/history?weeks=52`
+    : `${apiBase}/api/prices/${encodeURIComponent(ndcForHistory || downstreamNdc)}/history?weeks=52`
   const [alternativesData, historyData, strengthsData] = await Promise.all([
     fetchJsonOrNull<AlternativesResponse>(fetchImpl, `${apiBase}/api/prices/${encoded}/alternatives`),
     historyPath ? fetchJsonOrNull<HistoryResponse>(fetchImpl, historyPath) : Promise.resolve({ history: [] }),

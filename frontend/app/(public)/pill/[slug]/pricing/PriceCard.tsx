@@ -179,6 +179,7 @@ export default function PriceCard({
         apiBase,
         downstreamNdc,
         historyNdc: historyNdc === null ? null : historyNdc,
+        priceResponse: priceData,
       })
       if (cancelled) return
       if (downstream.alternativesFailed || downstream.historyFailed) {

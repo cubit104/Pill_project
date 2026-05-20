@@ -418,6 +418,52 @@ def test_fetch_nadac_latest_for_ndc_raises_not_found_when_all_candidates_column_
             asyncio.run(svc._fetch_nadac_latest_for_ndc("00002140102"))
 
 
+def test_fetch_nadac_latest_for_ndc_uses_resolved_ndc_column_first():
+    """Fix 1: column_map['ndc'] must be the FIRST candidate tried, not a later fallback."""
+    svc = NADACPricingService()
+
+    with patch.object(
+        svc,
+        "_get_latest_dataset_metadata",
+        new=AsyncMock(return_value={"dataset_id": "dataset-123", "as_of_week": "2026-05-14"}),
+    ), patch.object(
+        svc,
+        "_resolve_column_map",
+        new=AsyncMock(
+            return_value={
+                "ndc": "nadac_ndc",
+                "effective_date": "effective_date",
+                "price": "nadac_per_unit",
+                "unit": "pricing_unit",
+                "all_columns": ["nadac_ndc", "effective_date", "nadac_per_unit", "pricing_unit"],
+            }
+        ),
+    ), patch.object(
+        svc,
+        "_request_datastore_query",
+        new=AsyncMock(
+            return_value={
+                "results": [
+                    {
+                        "nadac_ndc": "00002140102",
+                        "effective_date": "2026-05-14",
+                        "nadac_per_unit": "0.75",
+                        "pricing_unit": "EA",
+                    }
+                ]
+            }
+        ),
+    ) as mock_query:
+        result = asyncio.run(svc._fetch_nadac_latest_for_ndc("00002140102"))
+
+    assert result["price_per_unit"] == 0.75
+    # The very first call must use the resolved "nadac_ndc" column, not "ndc".
+    first_call_property = mock_query.await_args_list[0].kwargs["conditions"][0]["property"]
+    assert first_call_property == "nadac_ndc", (
+        f"Expected first candidate to be 'nadac_ndc' (from column_map['ndc']), got '{first_call_property}'"
+    )
+
+
 def test_get_latest_dataset_metadata_uses_fallback_when_catalog_raises_unexpected_error():
     svc = NADACPricingService()
 

@@ -255,6 +255,7 @@ class NADACPricingService:
         method: str = "GET",
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
+        probe: bool = False,
     ) -> Any:
         last_exc: Exception | None = None
         method = method.upper()
@@ -280,7 +281,18 @@ class NADACPricingService:
                     break
                 await asyncio.sleep(2**attempt)
         detail = self._format_request_failure(method, url, last_exc)
-        logger.exception("%s", detail, exc_info=self._exc_info(last_exc))
+        # Caller is in a probe/fallback loop and intentionally tolerates "Column not found"
+        # (HTTP 400) responses. Log them at INFO without a traceback so Render logs stay clean.
+        is_recoverable_probe_400 = (
+            probe
+            and isinstance(last_exc, httpx.HTTPStatusError)
+            and last_exc.response is not None
+            and last_exc.response.status_code == 400
+        )
+        if is_recoverable_probe_400:
+            logger.info("%s", detail)
+        else:
+            logger.exception("%s", detail, exc_info=self._exc_info(last_exc))
         raise PricingServiceError(detail) from last_exc
 
     @staticmethod
@@ -453,6 +465,7 @@ class NADACPricingService:
         sorts: list[dict[str, Any]] | None = None,
         limit: int | None = None,
         offset: int | None = None,
+        probe: bool = False,
     ) -> Any:
         body: dict[str, Any] = {}
         if conditions:
@@ -469,6 +482,7 @@ class NADACPricingService:
             self._nadac_query_url(dataset_id),
             method="POST",
             json_body=body,
+            probe=probe,
         )
 
     @staticmethod
@@ -800,14 +814,19 @@ class NADACPricingService:
         column_map = await self._resolve_column_map(dataset_id)
         columns = column_map.get("all_columns") or []
 
+        ndc_col_candidates = ["ndc", "ndc_11", "ndc11", "ndc_code", "nadac_ndc", "ndc_number", "ndcnum"]
         candidates: list[str] = []
+        # Authoritative column from _resolve_column_map goes FIRST.
+        resolved_ndc = column_map.get("ndc")
+        if resolved_ndc and "description" not in str(resolved_ndc).lower():
+            candidates.append(str(resolved_ndc))
+        # Then any wider candidates discovered in the schema.
         if columns:
-            chosen = self._pick_column(columns, ["ndc", "ndc_11", "ndc11", "ndc_code"], contains="ndc")
-            if chosen and "description" in chosen.lower():
-                chosen = None
-            if chosen:
+            chosen = self._pick_column(columns, ndc_col_candidates, contains="ndc")
+            if chosen and "description" not in chosen.lower() and chosen.lower() not in {c.lower() for c in candidates}:
                 candidates.append(chosen)
-        for candidate in ("ndc", "ndc_11", "ndc11", "ndc_code"):
+        # Finally, the hardcoded fallback list (in case schema discovery failed entirely).
+        for candidate in ndc_col_candidates:
             if candidate.lower() not in {c.lower() for c in candidates}:
                 candidates.append(candidate)
 
@@ -820,6 +839,7 @@ class NADACPricingService:
                     conditions=[{"resource": "t", "property": ndc_field, "value": ndc_digits, "operator": "="}],
                     sorts=[{"resource": "t", "property": date_col, "order": "desc"}],
                     limit=1,
+                    probe=True,
                 )
             except PricingServiceError as exc:
                 if self._is_no_datastore_storage_error(exc):
@@ -1557,10 +1577,14 @@ class NADACPricingService:
 
         ndc_column_candidates = ["ndc", "ndc11", "ndc_11", "ndc_code", "nadac_ndc", "ndc_number", "ndcnum"]
         candidates: list[str] = []
+        # Authoritative column from _resolve_column_map first.
+        resolved_ndc = column_map.get("ndc")
+        if resolved_ndc and "description" not in str(resolved_ndc).lower():
+            candidates.append(str(resolved_ndc))
         if columns:
             chosen = self._pick_column(columns, ndc_column_candidates, contains="ndc")
             chosen = self._normalize_ndc_column_choice(chosen, columns, dataset_id=dataset_id)
-            if chosen:
+            if chosen and chosen.lower() not in {c.lower() for c in candidates}:
                 candidates.append(chosen)
         for candidate in ndc_column_candidates:
             if candidate.lower() not in {c.lower() for c in candidates}:
@@ -1578,6 +1602,7 @@ class NADACPricingService:
                     conditions=[{"resource": "t", "property": ndc_field, "value": ndc_digits, "operator": "="}],
                     sorts=[{"resource": "t", "property": date_col, "order": "desc"}],
                     limit=weeks,
+                    probe=True,
                 )
             except PricingServiceError as exc:
                 if self._is_no_datastore_storage_error(exc):
