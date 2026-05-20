@@ -248,6 +248,20 @@ class NADACPricingService:
     def _is_no_datastore_storage_error(exc: BaseException) -> bool:
         return "no datastore storage" in str(exc).lower()
 
+    @staticmethod
+    def _is_probe_column_not_found_400(exc: Exception | None) -> bool:
+        if not isinstance(exc, httpx.HTTPStatusError):
+            return False
+        response = exc.response
+        if response is None or response.status_code != 400:
+            return False
+        try:
+            body_text = response.text or ""
+        except Exception:
+            body_text = ""
+        combined = f"{exc} {body_text}".lower()
+        return "column not found" in combined
+
     async def _request_json(
         self,
         url: str,
@@ -283,12 +297,7 @@ class NADACPricingService:
         detail = self._format_request_failure(method, url, last_exc)
         # Caller is in a probe/fallback loop and intentionally tolerates "Column not found"
         # (HTTP 400) responses. Log them at INFO without a traceback so Render logs stay clean.
-        is_recoverable_probe_400 = (
-            probe
-            and isinstance(last_exc, httpx.HTTPStatusError)
-            and last_exc.response is not None
-            and last_exc.response.status_code == 400
-        )
+        is_recoverable_probe_400 = probe and self._is_probe_column_not_found_400(last_exc)
         if is_recoverable_probe_400:
             logger.info("%s", detail)
         else:
@@ -847,7 +856,6 @@ class NADACPricingService:
                     raise
                 if "Column not found" in str(exc) or " 400 " in str(exc):
                     last_error = exc
-                    logger.info("NADAC column '%s' not found, trying next candidate", ndc_field)
                     continue
                 raise
             rows = self._rows_from_payload(payload)
@@ -1610,7 +1618,6 @@ class NADACPricingService:
                     raise
                 if "Column not found" in str(exc) or " 400 " in str(exc):
                     last_error = exc
-                    logger.info("NADAC column '%s' not found for history, trying next candidate", ndc_field)
                     continue
                 raise
             records = self._rows_from_payload(payload)
@@ -1630,6 +1637,7 @@ class NADACPricingService:
                         conditions=[{"resource": "t", "property": retry_column, "value": ndc_digits, "operator": "="}],
                         sorts=[{"resource": "t", "property": date_col, "order": "desc"}],
                         limit=weeks,
+                        probe=True,
                     )
                 except PricingServiceError as exc:
                     if self._is_no_datastore_storage_error(exc):

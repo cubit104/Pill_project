@@ -14,11 +14,11 @@ os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/tes
 from services.pricing_service import NADACPricingService, PricingServiceError
 
 
-def _400_response() -> httpx.Response:
+def _400_response(message: str = "Column not found.") -> httpx.Response:
     request = httpx.Request("POST", "https://data.medicaid.gov/api/1/datastore/query/mock/0")
     return httpx.Response(
         status_code=400,
-        json={"message": "Column not found."},
+        json={"message": message},
         request=request,
     )
 
@@ -70,3 +70,25 @@ def test_request_datastore_query_probe_false_logs_exception(caplog):
 
     error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
     assert error_records, "Expected at least one ERROR log record for non-probe 400"
+
+
+def test_request_datastore_query_probe_true_non_column_error_logs_exception(caplog):
+    """With probe=True, non-column 400s must remain ERROR-level."""
+    svc = NADACPricingService()
+
+    with patch(
+        "httpx.AsyncClient.request",
+        new=AsyncMock(return_value=_400_response(message="Bad request")),
+    ):
+        with caplog.at_level(logging.DEBUG, logger="services.pricing_service"):
+            with pytest.raises(PricingServiceError):
+                asyncio.run(
+                    svc._request_datastore_query(
+                        "mock",
+                        conditions=[{"resource": "t", "property": "ndc", "value": "00002140102", "operator": "="}],
+                        probe=True,
+                    )
+                )
+
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records, "Expected at least one ERROR log record for probe non-column 400"
