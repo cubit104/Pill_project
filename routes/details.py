@@ -1,9 +1,7 @@
 import re
 import logging
 import os
-import asyncio
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
 from datetime import timezone
 from typing import Optional, List, Dict, Any
 from threading import Lock
@@ -14,8 +12,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
+from ndc_normalize import normalize_ndc_to_11
 from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames, slugify_class
-from services.pricing_service import pricing_service
 
 logger = logging.getLogger(__name__)
 IMAGE_BASE = (os.getenv("IMAGE_BASE") or "").strip().rstrip("/")
@@ -119,9 +117,26 @@ def _build_image_urls(image_filenames: str) -> list[str]:
 
 
 def _normalize_ndc_digits(value: Any) -> Optional[str]:
+    """Return a digits-only 11-character NDC, handling FDA 4-4-2 / 5-3-2 / 5-4-1 / 5-4-2 forms.
+
+    Routes hyphenated inputs through ndc_normalize.normalize_ndc_to_11 so that
+    pillfinder values like '0169-4425-31' (4-4-2) are padded to canonical
+    '00169-4425-31' before being stripped to 11 digits. Returns None when the
+    input cannot be normalized (e.g. product-code-only NDCs like '0169-4425'
+    with no package segment).
+    """
     if not value:
         return None
-    digits = re.sub(r"[^0-9]", "", str(value))
+    raw = str(value).strip()
+    if not raw:
+        return None
+    canonical = normalize_ndc_to_11(raw)
+    if canonical:
+        digits = re.sub(r"[^0-9]", "", canonical)
+        if len(digits) == 11:
+            return digits
+    # Fallback: caller already passed 11 raw digits.
+    digits = re.sub(r"[^0-9]", "", raw)
     return digits if len(digits) == 11 else None
 
 
@@ -171,128 +186,54 @@ def _history_count_for_ndc(conn, ndc_digits: str) -> int:
         return 0
 
 
-def _first_ndc_with_history(conn, candidates: list[str]) -> Optional[str]:
-    seen = set()
-    for candidate in candidates:
-        ndc_digits = _normalize_ndc_digits(candidate)
-        if not ndc_digits or ndc_digits in seen:
-            continue
-        seen.add(ndc_digits)
-        if _history_count_for_ndc(conn, ndc_digits) > 0:
-            return ndc_digits
-    return None
+def _resolve_history_identifier(
+    conn,
+    *,
+    slug: str,
+    canonical_ndc: Optional[str],
+    rxcui: Optional[str],  # reserved for future use
+    medicine_name: Optional[str],  # reserved for future use
+) -> dict[str, Any]:
+    """Resolve the best NDC to use for the price-history graph.
 
+    Strategy (in priority order):
+      1. If the canonical pillfinder NDC normalizes successfully, return it
+         immediately. The frontend will call /api/prices/{ndc}/history which
+         hits NADAC live on cache miss and seeds drug_price_history. This
+         path is FAST and makes NO live HTTP calls from inside this function.
+      2. Otherwise (canonical NDC unparseable), fall back to checking
+         drug_price_history for any rows under the canonical digits — purely
+         a local DB query, still no live HTTP.
+      3. Otherwise return None. The frontend will not render a graph; the
+         drug almost certainly has a malformed pillfinder.ndc11 (no package
+         segment), which is a data-quality issue handled outside this code.
 
-def _run_async(coro):
-    return asyncio.run(coro)
-
-
-def _resolve_matched_ndc_candidate(canonical_ndc: Optional[str]) -> Optional[str]:
-    if not canonical_ndc:
-        return None
-    try:
-        price_result = _run_async(pricing_service.get_price(canonical_ndc))
-    except Exception as exc:
-        logger.debug("matched_ndc resolution skipped for ndc=%s: %s", canonical_ndc, exc)
-        return None
-    if str(price_result.get("match_type") or "") != "equivalent":
-        return None
-    return _normalize_ndc_digits(price_result.get("matched_ndc"))
-
-
-def _resolve_rxcui_history_candidates(rxcui: Optional[str]) -> list[str]:
-    if not rxcui:
-        return []
-    rxcui_digits = re.sub(r"\D", "", str(rxcui))
-    if not rxcui_digits:
-        return []
-    try:
-        return _run_async(pricing_service._ndcs_for_rxcui(rxcui_digits))
-    except Exception as exc:
-        logger.debug("rxcui history candidates skipped for rxcui=%s: %s", rxcui, exc)
-        return []
-
-
-def _resolve_name_history_candidates(name: Optional[str]) -> list[str]:
-    normalized_name = str(name or "").strip().lower()
-    if not normalized_name:
-        return []
-    try:
-        ingredient = _run_async(pricing_service._resolve_ingredient(normalized_name))
-        if not ingredient:
-            return []
-
-        ingredient_rxcui = str(ingredient.get("rxcui") or "").strip()
-        if not ingredient_rxcui:
-            return []
-
-        representative_ndc = _run_async(pricing_service._ingredient_rxcui_to_representative_ndc(ingredient_rxcui))
-        candidates: list[str] = [representative_ndc] if representative_ndc else []
-
-        related_products = _run_async(pricing_service._related_product_rxcuis(ingredient_rxcui))
-        if related_products:
-            ndc_lists = _run_async(
-                asyncio.gather(
-                    *(pricing_service._ndcs_for_rxcui(str(product.get("rxcui") or "")) for product in related_products),
-                    return_exceptions=True,
-                )
-            )
-            for ndc_list in ndc_lists:
-                if isinstance(ndc_list, Exception):
-                    continue
-                candidates.extend(ndc_list)
-
-        unique_candidates = []
-        seen = set()
-        for candidate in candidates:
-            ndc_digits = _normalize_ndc_digits(candidate)
-            if not ndc_digits or ndc_digits in seen:
-                continue
-            seen.add(ndc_digits)
-            unique_candidates.append(ndc_digits)
-        return unique_candidates
-    except Exception as exc:
-        logger.debug("name history candidates skipped for name=%s: %s", normalized_name, exc)
-        return []
-
-
-def _resolve_history_identifier(conn, *, slug: str, canonical_ndc: Optional[str], rxcui: Optional[str], medicine_name: Optional[str]) -> dict[str, Any]:
+    The previous implementation spawned a ThreadPoolExecutor with workers
+    that each called asyncio.run() — this leaked event loops and httpx
+    clients, exhausting the shared connection pool under concurrent load
+    and producing httpx.PoolTimeout exceptions that bubbled up as SSR 5xx
+    errors on the Next.js side.
+    """
     cached = _get_cached_history_resolution(slug)
     if cached is not None:
         return cached
 
     canonical_digits = _normalize_ndc_digits(canonical_ndc)
-    first_ndc = _first_ndc_with_history(conn, [canonical_digits] if canonical_digits else [])
-    if first_ndc:
-        payload = {"history_ndc": first_ndc, "history_source": "ndc"}
+    if canonical_digits:
+        # Fast path: trust the canonical NDC. /history will hit NADAC live
+        # on cache miss and seed drug_price_history.
+        payload = {"history_ndc": canonical_digits, "history_source": "ndc"}
         _set_cached_history_resolution(slug, payload)
         return payload
 
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        matched_future = executor.submit(_resolve_matched_ndc_candidate, canonical_digits)
-        rxcui_future = executor.submit(_resolve_rxcui_history_candidates, rxcui)
-        name_future = executor.submit(_resolve_name_history_candidates, medicine_name)
-
-        matched_ndc = matched_future.result()
-        matched_history_ndc = _first_ndc_with_history(conn, [matched_ndc] if matched_ndc else [])
-        if matched_history_ndc:
-            payload = {"history_ndc": matched_history_ndc, "history_source": "matched_ndc"}
-            _set_cached_history_resolution(slug, payload)
-            return payload
-
-        rxcui_candidates = rxcui_future.result()
-        rxcui_history_ndc = _first_ndc_with_history(conn, rxcui_candidates)
-        if rxcui_history_ndc:
-            payload = {"history_ndc": rxcui_history_ndc, "history_source": "rxcui"}
-            _set_cached_history_resolution(slug, payload)
-            return payload
-
-        name_candidates = name_future.result()
-        name_history_ndc = _first_ndc_with_history(conn, name_candidates)
-        if name_history_ndc:
-            payload = {"history_ndc": name_history_ndc, "history_source": "by_name"}
-            _set_cached_history_resolution(slug, payload)
-            return payload
+    # Canonical NDC was unparseable (e.g. truncated product-only NDC).
+    # Last-ditch: see if drug_price_history happens to have rows for the
+    # raw digits we extracted — purely local DB, still no live HTTP.
+    raw_digits = re.sub(r"[^0-9]", "", str(canonical_ndc or ""))
+    if len(raw_digits) == 11 and _history_count_for_ndc(conn, raw_digits) > 0:
+        payload = {"history_ndc": raw_digits, "history_source": "ndc"}
+        _set_cached_history_resolution(slug, payload)
+        return payload
 
     payload = {"history_ndc": None, "history_source": None}
     _set_cached_history_resolution(slug, payload)
