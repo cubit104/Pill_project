@@ -13,8 +13,7 @@ from utils import normalize_imprint, normalize_name, normalize_fields, process_i
 
 logger = logging.getLogger(__name__)
 IMAGE_BASE = (os.getenv("IMAGE_BASE") or "").strip().rstrip("/")
-if not IMAGE_BASE:
-    logger.warning("IMAGE_BASE is not set; returning raw image filenames in API responses")
+_IMAGE_BASE_WARNING_EMITTED = False
 
 router = APIRouter()
 
@@ -91,6 +90,10 @@ def _aggregate_image_filenames(conn, raw_medicine_name: str, raw_splimprint: str
 
 
 def _build_image_urls(image_filenames: str) -> list[str]:
+    global _IMAGE_BASE_WARNING_EMITTED
+    if not IMAGE_BASE and not _IMAGE_BASE_WARNING_EMITTED:
+        logger.warning("IMAGE_BASE is not set; returning raw image filenames in API responses")
+        _IMAGE_BASE_WARNING_EMITTED = True
     urls: list[str] = []
     for part in re.split(r"[,;]+", image_filenames or ""):
         value = part.strip()

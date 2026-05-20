@@ -22,6 +22,7 @@ from services.pricing_service import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+HISTORY_ENDPOINT_TIMEOUT_SECONDS = 1.5
 
 
 def _timing_value(result: dict, key: str, fallback: float) -> float:
@@ -308,7 +309,8 @@ async def get_ndc_price_history(
     try:
         history = await _asyncio.wait_for(
             pricing_service.get_price_history(normalized, weeks=weeks),
-            timeout=1.5,
+            # Keep SSR unblocked: /pill/[slug]/price initial render should not wait on slow upstream calls.
+            timeout=HISTORY_ENDPOINT_TIMEOUT_SECONDS,
         )
         return {
             "ndc": normalized.replace("-", ""),
@@ -484,11 +486,11 @@ async def get_ndc_strengths(ndc: str):
                         slug, medicine_name, spl_strength,
                         REGEXP_REPLACE(TRIM(ndc11), '[^0-9]', '', 'g') AS ndc_digits
                     FROM pillfinder
-                    WHERE REGEXP_REPLACE(TRIM(ndc11), '[^0-9]', '', 'g') = ANY(:all_ndcs)
+                    WHERE REGEXP_REPLACE(TRIM(ndc11), '[^0-9]', '', 'g') = ANY(:ndcs)
                       AND slug IS NOT NULL
                     """
                 ),
-                {"all_ndcs": all_ndcs},
+                {"ndcs": all_ndcs},
             ).mappings().all()
 
         strengths: list[dict] = []
