@@ -22,7 +22,7 @@ from services.pricing_service import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-HISTORY_ENDPOINT_TIMEOUT_SECONDS = 8.0
+HISTORY_ENDPOINT_TIMEOUT_SECONDS = 1.5
 
 
 def _timing_value(result: dict, key: str, fallback: float) -> float:
