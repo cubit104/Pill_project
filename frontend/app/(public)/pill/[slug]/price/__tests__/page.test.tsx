@@ -190,6 +190,11 @@ test('price page SSR fetches alternatives and history when price is found', asyn
     if (url.endsWith('/alternatives')) {
       return new Response(JSON.stringify({ alternatives: [] }), { status: 200 })
     }
+    if (url.includes('/api/prices/by-rxcui/12345/history?weeks=52')) {
+      return new Response(JSON.stringify({
+        history: [{ ndc: '00002140102', effective_date: '2026-05-08', price_per_unit: 0.45, unit: 'EA' }],
+      }), { status: 200 })
+    }
     if (url.includes('/history?weeks=52')) {
       return new Response(JSON.stringify({ history: [] }), { status: 200 })
     }
@@ -209,6 +214,65 @@ test('price page SSR fetches alternatives and history when price is found', asyn
 
   assert.ok(calls.some((url) => url.endsWith('/api/prices/00002140102/alternatives')))
   assert.ok(calls.some((url) => url.endsWith('/api/prices/00002140102/history?weeks=52')))
+  assert.ok(calls.some((url) => url.endsWith('/api/prices/by-rxcui/12345/history?weeks=52')))
+  assert.ok(!calls.some((url) => url.includes('/api/prices/by-name/')))
+})
+
+test('price data history fallback prefers matched_ndc before rxcui and name', async () => {
+  const originalFetch = global.fetch
+  const calls: string[] = []
+  global.fetch = async (input) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.endsWith('/api/prices/21695066530')) {
+      return new Response(JSON.stringify({
+        ndc: '21695066530',
+        price_per_unit: 8.22,
+        unit: 'EA',
+        effective_date: '2026-05-20',
+        source: 'NADAC (CMS)',
+        total_acquisition_cost: 246.6,
+        fair_retail_low: 369.9,
+        fair_retail_high: 739.8,
+        match_type: 'equivalent',
+        matched_ndc: '00024117190',
+        disclaimers: ['a', 'b', 'c'],
+      }), { status: 200 })
+    }
+    if (url.endsWith('/api/prices/00024117190/alternatives')) {
+      return new Response(JSON.stringify({ alternatives: [] }), { status: 200 })
+    }
+    if (url.endsWith('/api/prices/00024117190/strengths')) {
+      return new Response(JSON.stringify({ ndc: '00024117190', ingredient: null, ingredient_rxcui: null, strengths: [] }), { status: 200 })
+    }
+    if (url.endsWith('/api/prices/21695066530/history?weeks=52')) {
+      return new Response(JSON.stringify({ history: [] }), { status: 200 })
+    }
+    if (url.endsWith('/api/prices/00024117190/history?weeks=52')) {
+      return new Response(JSON.stringify({
+        history: [{ ndc: '00024117190', effective_date: '2026-05-14', price_per_unit: 8.2, unit: 'EA' }],
+      }), { status: 200 })
+    }
+    throw new Error(`Unexpected URL ${url}`)
+  }
+
+  try {
+    const mod = await import('../priceData')
+    const result = await mod.fetchInitialPriceData({
+      ndc: '21695066530',
+      rxcui: '213169',
+      medicineName: 'Plavix',
+    })
+
+    assert.equal(result?.history_source, 'matched_ndc')
+    assert.equal(result?.history?.length, 1)
+    assert.ok(calls.some((url) => url.endsWith('/api/prices/21695066530/history?weeks=52')))
+    assert.ok(calls.some((url) => url.endsWith('/api/prices/00024117190/history?weeks=52')))
+    assert.ok(!calls.some((url) => url.includes('/api/prices/by-rxcui/213169/history?weeks=52')))
+    assert.ok(!calls.some((url) => url.includes('/api/prices/by-name/Plavix/history?weeks=52')))
+  } finally {
+    global.fetch = originalFetch
+  }
 })
 
 test('price page still renders gracefully when one downstream fetch fails', async () => {

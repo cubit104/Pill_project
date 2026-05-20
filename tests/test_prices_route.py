@@ -256,6 +256,64 @@ def test_get_history_timeout_returns_empty_200(client):
     assert resp.headers["Cache-Control"] == "public, max-age=300"
 
 
+def test_history_by_name_returns_partial_cache(client):
+    payload = [
+        {"ndc": "00024117190", "effective_date": "2026-05-01", "price_per_unit": 8.1, "unit": "EA"},
+        {"ndc": "00024117190", "effective_date": "2026-05-08", "price_per_unit": 8.2, "unit": "EA"},
+    ]
+    with patch("routes.prices.pricing_service._resolve_ingredient", new=AsyncMock(return_value={"name": "clopidogrel", "rxcui": "32968"})), \
+         patch("routes.prices.pricing_service._ingredient_rxcui_to_representative_ndc", new=AsyncMock(return_value="00024117190")), \
+         patch("routes.prices.pricing_service._related_product_rxcuis", new=AsyncMock(return_value=[{"rxcui": "111"}])), \
+         patch("routes.prices.pricing_service._ndcs_for_rxcui", new=AsyncMock(return_value=["00024117190", "21695066530"])), \
+         patch("routes.prices._history_row_counts_for_ndcs", return_value={"00024117190": 14, "21695066530": 2}), \
+         patch("routes.prices.pricing_service.get_price_history", new=AsyncMock(return_value=payload)) as mock_history:
+        resp = client.get("/api/prices/by-name/plavix/history?weeks=52")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["name"] == "plavix"
+    assert body["resolved_ndc"] == "00024117190"
+    assert body["ingredient"] == "clopidogrel"
+    assert body["history"] == payload
+    mock_history.assert_awaited_once_with("00024117190", weeks=52)
+
+
+def test_history_by_rxcui_picks_ndc_with_most_history_rows(client):
+    payload = [{"ndc": "00024117190", "effective_date": "2026-05-08", "price_per_unit": 8.2, "unit": "EA"}]
+    with patch("routes.prices.pricing_service._ndcs_for_rxcui", new=AsyncMock(return_value=["21695066530", "00024117190"])), \
+         patch("routes.prices._history_row_counts_for_ndcs", return_value={"21695066530": 0, "00024117190": 14}), \
+         patch("routes.prices.pricing_service.get_price_history", new=AsyncMock(return_value=payload)) as mock_history:
+        resp = client.get("/api/prices/by-rxcui/213169/history?weeks=52")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["resolved_ndc"] == "00024117190"
+    assert body["history"] == payload
+    mock_history.assert_awaited_once_with("00024117190", weeks=52)
+
+
+def test_history_by_name_404_when_ingredient_unresolvable(client):
+    with patch("routes.prices.pricing_service._resolve_ingredient", new=AsyncMock(return_value=None)):
+        resp = client.get("/api/prices/by-name/missing/history?weeks=52")
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "No NADAC history is currently available for this NDC."
+
+
+def test_history_by_name_timeout_returns_empty_200(client):
+    with patch("routes.prices.pricing_service._resolve_ingredient", new=AsyncMock(return_value={"name": "clopidogrel", "rxcui": "32968"})), \
+         patch("routes.prices.pricing_service._ingredient_rxcui_to_representative_ndc", new=AsyncMock(return_value="00024117190")), \
+         patch("routes.prices.pricing_service._related_product_rxcuis", new=AsyncMock(return_value=[])), \
+         patch("routes.prices.pricing_service.get_price_history", new=AsyncMock(side_effect=asyncio.TimeoutError())):
+        resp = client.get("/api/prices/by-name/plavix/history?weeks=52")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["history"] == []
+    assert payload["weeks"] == 52
+    assert resp.headers["Cache-Control"] == "public, max-age=300"
+
+
 def test_get_price_unexpected_error_returns_503_with_exception_type(client):
     with patch("routes.prices.pricing_service.get_price", new=AsyncMock(side_effect=RuntimeError("boom"))):
         resp = client.get("/api/prices/00002-1401-02")

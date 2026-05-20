@@ -8,7 +8,7 @@ from urllib.parse import unquote
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 import database
 from ndc_normalize import normalize_ndc_to_11
@@ -68,6 +68,53 @@ def build_price_response(result: dict) -> dict:
         if field in result:
             response[field] = result[field]
     return response
+
+
+def _history_row_counts_for_ndcs(ndcs: list[str]) -> dict[str, int]:
+    if not ndcs:
+        return {}
+    try:
+        with database.db_engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT ndc, count(*) AS row_count
+                    FROM drug_price_history
+                    WHERE ndc IN :ndcs
+                    GROUP BY ndc
+                    """
+                ).bindparams(bindparam("ndcs", expanding=True)),
+                {"ndcs": ndcs},
+            ).mappings().all()
+    except Exception:
+        logger.exception("Failed to count cached history rows for ndc selection")
+        return {}
+    return {str(row["ndc"]): int(row["row_count"]) for row in rows}
+
+
+def _pick_ndc_with_most_history_rows(
+    candidates: list[str],
+    *,
+    tie_break_lowest: bool,
+) -> str | None:
+    if not candidates:
+        return None
+    unique_candidates = list(dict.fromkeys(candidates))
+    if len(unique_candidates) == 1:
+        return unique_candidates[0]
+
+    counts = _history_row_counts_for_ndcs(unique_candidates)
+    if not counts:
+        return unique_candidates[0]
+
+    max_count = max((counts.get(ndc, 0) for ndc in unique_candidates), default=0)
+    if max_count <= 0:
+        return unique_candidates[0]
+
+    best = [ndc for ndc in unique_candidates if counts.get(ndc, 0) == max_count]
+    if tie_break_lowest:
+        return min(best)
+    return best[0]
 
 
 @router.get("/api/prices/health")
@@ -335,6 +382,126 @@ async def get_ndc_price_history(
         raise HTTPException(status_code=503, detail=str(exc))
     except Exception as exc:
         logger.exception("Unhandled error in pricing endpoint ndc=%s", ndc)
+        raise HTTPException(status_code=503, detail=f"Pricing service error: {type(exc).__name__}: {exc}")
+
+
+@router.get("/api/prices/by-name/{name}/history")
+async def get_price_history_by_name_route(
+    name: str,
+    response: Response,
+    weeks: int = Query(52, ge=1, le=260),
+):
+    decoded_name = unquote(name)
+    normalized_name = decoded_name.strip().lower()
+    if not normalized_name:
+        raise HTTPException(status_code=400, detail="Drug name is required")
+
+    try:
+        ingredient = await pricing_service._resolve_ingredient(normalized_name)
+        if not ingredient:
+            raise PricingNotFoundError("Unable to resolve ingredient for name history lookup")
+
+        representative_ndc = await pricing_service._ingredient_rxcui_to_representative_ndc(ingredient["rxcui"])
+        candidate_ndcs: list[str] = [representative_ndc] if representative_ndc else []
+
+        related_products = await pricing_service._related_product_rxcuis(ingredient["rxcui"])
+        if related_products:
+            ndc_lists = await _asyncio.gather(
+                *(pricing_service._ndcs_for_rxcui(product["rxcui"]) for product in related_products),
+                return_exceptions=True,
+            )
+            for ndc_list in ndc_lists:
+                if isinstance(ndc_list, Exception):
+                    continue
+                candidate_ndcs.extend(ndc_list)
+
+        chosen_ndc = _pick_ndc_with_most_history_rows(candidate_ndcs, tie_break_lowest=False)
+        if not chosen_ndc:
+            raise PricingNotFoundError("No candidate NDC found for ingredient history lookup")
+
+        history = await _asyncio.wait_for(
+            pricing_service.get_price_history(chosen_ndc, weeks=weeks),
+            timeout=HISTORY_ENDPOINT_TIMEOUT_SECONDS,
+        )
+        return {
+            "name": decoded_name,
+            "resolved_ndc": chosen_ndc,
+            "ingredient": ingredient.get("name"),
+            "weeks": weeks,
+            "history": history,
+            "disclaimers": DEFAULT_DISCLAIMERS,
+        }
+    except _asyncio.TimeoutError:
+        response.headers["Cache-Control"] = "public, max-age=300"
+        return {
+            "name": decoded_name,
+            "resolved_ndc": None,
+            "ingredient": None,
+            "weeks": weeks,
+            "history": [],
+            "disclaimers": DEFAULT_DISCLAIMERS,
+        }
+    except PricingNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="No NADAC history is currently available for this NDC.",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except PricingServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Unhandled error in by-name history endpoint name=%s", name)
+        raise HTTPException(status_code=503, detail=f"Pricing service error: {type(exc).__name__}: {exc}")
+
+
+@router.get("/api/prices/by-rxcui/{rxcui}/history")
+async def get_price_history_by_rxcui_route(
+    rxcui: str,
+    response: Response,
+    weeks: int = Query(52, ge=1, le=260),
+):
+    rxcui_digits = re.sub(r"\D", "", (rxcui or "").strip())
+    if not rxcui_digits:
+        raise HTTPException(status_code=400, detail="Invalid RxCUI format")
+
+    try:
+        candidates = await pricing_service._ndcs_for_rxcui(rxcui_digits)
+        chosen_ndc = _pick_ndc_with_most_history_rows(candidates, tie_break_lowest=True)
+        if not chosen_ndc:
+            raise PricingNotFoundError(f"No NDCs found for RxCUI {rxcui_digits}")
+
+        history = await _asyncio.wait_for(
+            pricing_service.get_price_history(chosen_ndc, weeks=weeks),
+            timeout=HISTORY_ENDPOINT_TIMEOUT_SECONDS,
+        )
+        return {
+            "rxcui": rxcui,
+            "resolved_ndc": chosen_ndc,
+            "weeks": weeks,
+            "history": history,
+            "disclaimers": DEFAULT_DISCLAIMERS,
+        }
+    except _asyncio.TimeoutError:
+        response.headers["Cache-Control"] = "public, max-age=300"
+        return {
+            "rxcui": rxcui,
+            "resolved_ndc": None,
+            "weeks": weeks,
+            "history": [],
+            "disclaimers": DEFAULT_DISCLAIMERS,
+        }
+    except PricingNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="No NADAC history is currently available for this NDC.",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except PricingServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Unhandled error in by-rxcui history endpoint rxcui=%s", rxcui)
         raise HTTPException(status_code=503, detail=f"Pricing service error: {type(exc).__name__}: {exc}")
 
 
