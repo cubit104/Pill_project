@@ -1,8 +1,13 @@
 import re
 import logging
 import os
+import asyncio
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timezone
 from typing import Optional, List, Dict, Any
+from threading import Lock
+import time
 
 from fastapi import APIRouter, Query, HTTPException
 from sqlalchemy import text
@@ -10,10 +15,15 @@ from sqlalchemy.exc import SQLAlchemyError
 
 import database
 from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames, slugify_class
+from services.pricing_service import pricing_service
 
 logger = logging.getLogger(__name__)
 IMAGE_BASE = (os.getenv("IMAGE_BASE") or "").strip().rstrip("/")
 _IMAGE_BASE_WARNING_EMITTED = False
+_HISTORY_RESOLUTION_TTL_SECONDS = int(os.getenv("PILL_HISTORY_RESOLUTION_TTL_SECONDS", "3600"))
+_HISTORY_RESOLUTION_CACHE_MAX_ITEMS = int(os.getenv("PILL_HISTORY_RESOLUTION_CACHE_MAX_ITEMS", "1000"))
+_history_resolution_cache: "OrderedDict[str, tuple[float, dict[str, Any]]]" = OrderedDict()
+_history_resolution_cache_lock = Lock()
 
 router = APIRouter()
 
@@ -106,6 +116,187 @@ def _build_image_urls(image_filenames: str) -> list[str]:
         else:
             urls.append(value)
     return urls
+
+
+def _normalize_ndc_digits(value: Any) -> Optional[str]:
+    if not value:
+        return None
+    digits = re.sub(r"[^0-9]", "", str(value))
+    return digits if len(digits) == 11 else None
+
+
+def _get_cached_history_resolution(slug: str) -> Optional[dict[str, Any]]:
+    now = time.time()
+    with _history_resolution_cache_lock:
+        cached = _history_resolution_cache.get(slug)
+        if not cached:
+            return None
+        expires_at, payload = cached
+        if expires_at <= now:
+            _history_resolution_cache.pop(slug, None)
+            return None
+        _history_resolution_cache.move_to_end(slug)
+        return dict(payload)
+
+
+def _set_cached_history_resolution(slug: str, payload: dict[str, Any]) -> None:
+    now = time.time()
+    expires_at = now + _HISTORY_RESOLUTION_TTL_SECONDS
+    stored = {
+        "history_ndc": payload.get("history_ndc"),
+        "history_source": payload.get("history_source"),
+    }
+    with _history_resolution_cache_lock:
+        _history_resolution_cache[slug] = (expires_at, stored)
+        _history_resolution_cache.move_to_end(slug)
+        while len(_history_resolution_cache) > _HISTORY_RESOLUTION_CACHE_MAX_ITEMS:
+            _history_resolution_cache.popitem(last=False)
+
+
+def _history_count_for_ndc(conn, ndc_digits: str) -> int:
+    try:
+        count = conn.execute(
+            text("SELECT count(*) FROM drug_price_history WHERE ndc = :ndc"),
+            {"ndc": ndc_digits},
+        ).scalar()
+        return int(count or 0)
+    except SQLAlchemyError as e:
+        err_msg = str(e).lower()
+        if "drug_price_history" in err_msg and (
+            "does not exist" in err_msg or "no such table" in err_msg
+        ):
+            logger.debug("drug_price_history table not yet created: %s", e)
+            return 0
+        logger.warning("history count query failed for ndc=%s: %s", ndc_digits, e)
+        return 0
+
+
+def _first_ndc_with_history(conn, candidates: list[str]) -> Optional[str]:
+    seen = set()
+    for candidate in candidates:
+        ndc_digits = _normalize_ndc_digits(candidate)
+        if not ndc_digits or ndc_digits in seen:
+            continue
+        seen.add(ndc_digits)
+        if _history_count_for_ndc(conn, ndc_digits) > 0:
+            return ndc_digits
+    return None
+
+
+def _run_async(coro):
+    return asyncio.run(coro)
+
+
+def _resolve_matched_ndc_candidate(canonical_ndc: Optional[str]) -> Optional[str]:
+    if not canonical_ndc:
+        return None
+    try:
+        price_result = _run_async(pricing_service.get_price(canonical_ndc))
+    except Exception as exc:
+        logger.debug("matched_ndc resolution skipped for ndc=%s: %s", canonical_ndc, exc)
+        return None
+    if str(price_result.get("match_type") or "") != "equivalent":
+        return None
+    return _normalize_ndc_digits(price_result.get("matched_ndc"))
+
+
+def _resolve_rxcui_history_candidates(rxcui: Optional[str]) -> list[str]:
+    if not rxcui:
+        return []
+    rxcui_digits = re.sub(r"\D", "", str(rxcui))
+    if not rxcui_digits:
+        return []
+    try:
+        return _run_async(pricing_service._ndcs_for_rxcui(rxcui_digits))
+    except Exception as exc:
+        logger.debug("rxcui history candidates skipped for rxcui=%s: %s", rxcui, exc)
+        return []
+
+
+def _resolve_name_history_candidates(name: Optional[str]) -> list[str]:
+    normalized_name = str(name or "").strip().lower()
+    if not normalized_name:
+        return []
+    try:
+        ingredient = _run_async(pricing_service._resolve_ingredient(normalized_name))
+        if not ingredient:
+            return []
+
+        ingredient_rxcui = str(ingredient.get("rxcui") or "").strip()
+        if not ingredient_rxcui:
+            return []
+
+        representative_ndc = _run_async(pricing_service._ingredient_rxcui_to_representative_ndc(ingredient_rxcui))
+        candidates: list[str] = [representative_ndc] if representative_ndc else []
+
+        related_products = _run_async(pricing_service._related_product_rxcuis(ingredient_rxcui))
+        if related_products:
+            ndc_lists = _run_async(
+                asyncio.gather(
+                    *(pricing_service._ndcs_for_rxcui(str(product.get("rxcui") or "")) for product in related_products),
+                    return_exceptions=True,
+                )
+            )
+            for ndc_list in ndc_lists:
+                if isinstance(ndc_list, Exception):
+                    continue
+                candidates.extend(ndc_list)
+
+        unique_candidates = []
+        seen = set()
+        for candidate in candidates:
+            ndc_digits = _normalize_ndc_digits(candidate)
+            if not ndc_digits or ndc_digits in seen:
+                continue
+            seen.add(ndc_digits)
+            unique_candidates.append(ndc_digits)
+        return unique_candidates
+    except Exception as exc:
+        logger.debug("name history candidates skipped for name=%s: %s", normalized_name, exc)
+        return []
+
+
+def _resolve_history_identifier(conn, *, slug: str, canonical_ndc: Optional[str], rxcui: Optional[str], medicine_name: Optional[str]) -> dict[str, Any]:
+    cached = _get_cached_history_resolution(slug)
+    if cached is not None:
+        return cached
+
+    canonical_digits = _normalize_ndc_digits(canonical_ndc)
+    first_ndc = _first_ndc_with_history(conn, [canonical_digits] if canonical_digits else [])
+    if first_ndc:
+        payload = {"history_ndc": first_ndc, "history_source": "ndc"}
+        _set_cached_history_resolution(slug, payload)
+        return payload
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        matched_future = executor.submit(_resolve_matched_ndc_candidate, canonical_digits)
+        rxcui_future = executor.submit(_resolve_rxcui_history_candidates, rxcui)
+        name_future = executor.submit(_resolve_name_history_candidates, medicine_name)
+
+        matched_ndc = matched_future.result()
+        matched_history_ndc = _first_ndc_with_history(conn, [matched_ndc] if matched_ndc else [])
+        if matched_history_ndc:
+            payload = {"history_ndc": matched_history_ndc, "history_source": "matched_ndc"}
+            _set_cached_history_resolution(slug, payload)
+            return payload
+
+        rxcui_candidates = rxcui_future.result()
+        rxcui_history_ndc = _first_ndc_with_history(conn, rxcui_candidates)
+        if rxcui_history_ndc:
+            payload = {"history_ndc": rxcui_history_ndc, "history_source": "rxcui"}
+            _set_cached_history_resolution(slug, payload)
+            return payload
+
+        name_candidates = name_future.result()
+        name_history_ndc = _first_ndc_with_history(conn, name_candidates)
+        if name_history_ndc:
+            payload = {"history_ndc": name_history_ndc, "history_source": "by_name"}
+            _set_cached_history_resolution(slug, payload)
+            return payload
+
+    payload = {"history_ndc": None, "history_source": None}
+    _set_cached_history_resolution(slug, payload)
+    return payload
 
 
 @router.get("/details")
@@ -458,6 +649,16 @@ def get_pill_by_slug(slug: str):
                 "meta_description": pill_info.get("meta_description") or None,
                 "indication": None,
             }
+
+            history_resolution = _resolve_history_identifier(
+                conn,
+                slug=str(pill_info.get("slug") or slug),
+                canonical_ndc=pill_info.get("ndc11"),
+                rxcui=pill_info.get("rxcui"),
+                medicine_name=pill_info.get("medicine_name"),
+            )
+            mapped["history_ndc"] = history_resolution.get("history_ndc")
+            mapped["history_source"] = history_resolution.get("history_source")
 
             # Fetch patient-friendly indication text from drug_indications (keyed by rxcui).
             rxcui_val = pill_info.get("rxcui")

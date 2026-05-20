@@ -51,6 +51,10 @@ export interface PillDetail extends PillResult {
   has_medguide?: boolean
   /** True when a fallback Medication Summary exists. */
   has_medication_summary?: boolean
+  /** Preferred NDC to use for a single history query on price pages. */
+  history_ndc?: string | null
+  /** Source used by backend to resolve history_ndc. */
+  history_source?: 'ndc' | 'matched_ndc' | 'rxcui' | 'by_name' | null
 }
 
 export interface SimilarPill {

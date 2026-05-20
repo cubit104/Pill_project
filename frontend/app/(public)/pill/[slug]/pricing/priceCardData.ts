@@ -42,7 +42,7 @@ export interface PriceCardInitialData {
   price: PriceResponse
   alternatives?: AlternativePrice[]
   history?: PriceHistoryPoint[]
-  history_source?: 'ndc' | 'matched_ndc' | 'rxcui' | 'name'
+  history_source?: 'ndc' | 'matched_ndc' | 'rxcui' | 'by_name'
   generic_vs_brand_ratio?: number | null
   strengths?: StrengthOption[]
   ingredient?: string | null
@@ -97,14 +97,16 @@ export async function fetchPriceCardDownstream({
 }: {
   apiBase: string
   downstreamNdc: string
-  historyNdc?: string
+  historyNdc?: string | null
   fetchImpl?: FetchImpl
 }): Promise<PriceCardDownstreamResult> {
   const encoded = encodeURIComponent(downstreamNdc)
-  const historyEncoded = encodeURIComponent(historyNdc || downstreamNdc)
+  const historyPath = historyNdc === null
+    ? null
+    : `${apiBase}/api/prices/${encodeURIComponent(historyNdc || downstreamNdc)}/history?weeks=52`
   const [alternativesData, historyData, strengthsData] = await Promise.all([
     fetchJsonOrNull<AlternativesResponse>(fetchImpl, `${apiBase}/api/prices/${encoded}/alternatives`),
-    fetchJsonOrNull<HistoryResponse>(fetchImpl, `${apiBase}/api/prices/${historyEncoded}/history?weeks=52`),
+    historyPath ? fetchJsonOrNull<HistoryResponse>(fetchImpl, historyPath) : Promise.resolve({ history: [] }),
     fetchJsonOrNull<StrengthsResponse>(fetchImpl, `${apiBase}/api/prices/${encoded}/strengths`),
   ])
 
@@ -113,7 +115,7 @@ export async function fetchPriceCardDownstream({
     history: historyData?.history || [],
     genericVsBrandRatio: alternativesData?.generic_vs_brand_ratio ?? null,
     alternativesFailed: alternativesData === null,
-    historyFailed: historyData === null,
+    historyFailed: historyPath !== null && historyData === null,
     strengths: strengthsData?.strengths || [],
     ingredient: strengthsData?.ingredient ?? null,
   }

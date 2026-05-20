@@ -34,11 +34,13 @@ export default function PriceCard({
   ndc,
   rxcui,
   medicineName,
+  historyNdc,
   initialData,
 }: {
   ndc?: string
   rxcui?: string
   medicineName?: string
+  historyNdc?: string | null
   initialData?: PriceCardInitialData
 }) {
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '')
@@ -176,6 +178,7 @@ export default function PriceCard({
       const downstream = await fetchPriceCardDownstream({
         apiBase,
         downstreamNdc,
+        historyNdc: historyNdc === null ? null : historyNdc,
       })
       if (cancelled) return
       if (downstream.alternativesFailed || downstream.historyFailed) {
@@ -208,6 +211,7 @@ export default function PriceCard({
     initialData?.alternatives,
     initialData?.history,
     ndc,
+    historyNdc,
     priceState,
   ])
 
