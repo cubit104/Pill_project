@@ -1,5 +1,6 @@
 import re
 import logging
+import os
 from datetime import timezone
 from typing import Optional, List, Dict, Any
 
@@ -11,6 +12,9 @@ import database
 from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames, slugify_class
 
 logger = logging.getLogger(__name__)
+IMAGE_BASE = (os.getenv("IMAGE_BASE") or "").strip().rstrip("/")
+if not IMAGE_BASE:
+    logger.warning("IMAGE_BASE is not set; returning raw image filenames in API responses")
 
 router = APIRouter()
 
@@ -84,6 +88,21 @@ def _aggregate_image_filenames(conn, raw_medicine_name: str, raw_splimprint: str
         logger.warning(f"Image aggregation query failed: {e}")
 
     return ",".join(collected)
+
+
+def _build_image_urls(image_filenames: str) -> list[str]:
+    urls: list[str] = []
+    for part in re.split(r"[,;]+", image_filenames or ""):
+        value = part.strip()
+        if not value:
+            continue
+        if value.startswith(("http://", "https://")):
+            urls.append(value)
+        elif IMAGE_BASE:
+            urls.append(f"{IMAGE_BASE}/{value.lstrip('/')}")
+        else:
+            urls.append(value)
+    return urls
 
 
 @router.get("/details")
@@ -259,8 +278,7 @@ def get_pill_by_slug(slug: str):
             # Aggregate images: own row first, then other rows with same drug+imprint (normalized)
             filenames = _aggregate_image_filenames(conn, raw_medicine_name, raw_splimprint, raw_image_filename)
 
-            image_data = process_image_filenames(filenames)
-            image_urls = image_data.get("image_urls", [])
+            image_urls = _build_image_urls(filenames)
 
             logger.info(f"Slug {slug}: medicine_name={raw_medicine_name!r}, splimprint={raw_splimprint!r}, found {len(image_urls)} images, own_filename={raw_image_filename!r}")
 
@@ -418,6 +436,7 @@ def get_pill_by_slug(slug: str):
                 "route": pill_info.get("route"),
                 "meta_title": pill_info.get("meta_title") or None,
                 "image_url": image_urls[0] if image_urls else None,
+                "image_urls": image_urls,
                 "images": image_urls,
                 "has_multiple_images": len(image_urls) > 1,
                 "carousel_images": [{"id": i, "url": url} for i, url in enumerate(image_urls)],

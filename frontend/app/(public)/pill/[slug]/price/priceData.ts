@@ -6,7 +6,7 @@ import {
 } from '../pricing/priceCardData'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
-const PRICE_DATA_FETCH_TIMEOUT_MS = 5000
+const PRICE_DATA_FETCH_TIMEOUT_MS = 2500
 
 async function fetchPriceJson(
   url: string,

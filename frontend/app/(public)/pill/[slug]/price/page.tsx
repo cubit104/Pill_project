@@ -37,7 +37,12 @@ export default async function PillPricePage(
 
   const drugName = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : slug
   const formattedStrength = formatStrength(pill.strength ?? null)
-  const imageUrl = pill.image_url?.trim() || ''
+  const imageUrl =
+    pill.image_url?.trim() ||
+    (Array.isArray(pill.images) && pill.images.length > 0
+      ? (typeof pill.images[0] === 'string' ? pill.images[0] : (pill.images[0] as any)?.url)
+      : '') ||
+    ''
   const genericFor = pill.generic_for?.trim() || ''
   const brandOrGeneric = pill.brand_or_generic
   let descriptor = ''
@@ -68,6 +73,8 @@ export default async function PillPricePage(
             <img
               src={imageUrl}
               alt={`${pill.drug_name} pill`}
+              loading="lazy"
+              referrerPolicy="no-referrer"
               className="w-16 h-16 md:w-20 md:h-20 rounded-lg border border-slate-200 object-contain bg-white"
             />
           ) : (
