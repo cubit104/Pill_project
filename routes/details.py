@@ -23,6 +23,7 @@ _IMAGE_BASE_WARNING_EMITTED = False
 _HISTORY_RESOLUTION_TTL_SECONDS = int(os.getenv("PILL_HISTORY_RESOLUTION_TTL_SECONDS", "3600"))
 _HISTORY_RESOLUTION_NEGATIVE_TTL_SECONDS = int(os.getenv("PILL_HISTORY_RESOLUTION_NEGATIVE_TTL_SECONDS", "300"))
 _HISTORY_RESOLUTION_PROBE_TIMEOUT_SECONDS = float(os.getenv("PILL_HISTORY_RESOLUTION_PROBE_TIMEOUT_SECONDS", "3"))
+_HISTORY_RESOLUTION_PROBE_MAX_WORKERS = int(os.getenv("PILL_HISTORY_RESOLUTION_PROBE_MAX_WORKERS", "4"))
 _HISTORY_RESOLUTION_CACHE_MAX_ITEMS = int(os.getenv("PILL_HISTORY_RESOLUTION_CACHE_MAX_ITEMS", "1000"))
 _history_resolution_cache: "OrderedDict[str, tuple[float, dict[str, Any]]]" = OrderedDict()
 _history_resolution_cache_lock = Lock()
@@ -208,7 +209,7 @@ def _first_ndc_with_history(conn, candidates: list[str], *, probe_live: bool = F
             uncached_candidates.append(ndc_digits)
     if not probe_live or not uncached_candidates:
         return None
-    executor = ThreadPoolExecutor(max_workers=min(len(uncached_candidates), 4))
+    executor = ThreadPoolExecutor(max_workers=min(len(uncached_candidates), _HISTORY_RESOLUTION_PROBE_MAX_WORKERS))
     shutdown_early = False
     try:
         probe_futures = {
@@ -218,6 +219,9 @@ def _first_ndc_with_history(conn, candidates: list[str], *, probe_live: bool = F
         for future in as_completed(probe_futures):
             if future.result():
                 shutdown_early = True
+                for pending in probe_futures:
+                    if pending is not future:
+                        pending.cancel()
                 executor.shutdown(wait=False, cancel_futures=True)
                 return probe_futures[future]
     finally:
