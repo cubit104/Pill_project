@@ -7,11 +7,12 @@ from time import perf_counter
 from urllib.parse import unquote
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import text
 
 import database
 from ndc_normalize import normalize_ndc_to_11
+from routes.admin.auth import require_superuser
 from services.pricing_service import (
     DEFAULT_DISCLAIMERS,
     PricingNotFoundError,
@@ -21,6 +22,7 @@ from services.pricing_service import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+HISTORY_ENDPOINT_TIMEOUT_SECONDS = 1.5
 
 
 def _timing_value(result: dict, key: str, fallback: float) -> float:
@@ -300,15 +302,28 @@ async def get_ndc_alternatives(ndc: str):
 @router.get("/api/prices/{ndc}/history")
 async def get_ndc_price_history(
     ndc: str,
+    response: Response,
     weeks: int = Query(52, ge=1, le=260),
 ):
     normalized = _normalize_or_400(ndc)
     try:
-        history = await pricing_service.get_price_history(normalized, weeks=weeks)
+        history = await _asyncio.wait_for(
+            pricing_service.get_price_history(normalized, weeks=weeks),
+            # Keep SSR unblocked: /pill/[slug]/price initial render should not wait on slow upstream calls.
+            timeout=HISTORY_ENDPOINT_TIMEOUT_SECONDS,
+        )
         return {
             "ndc": normalized.replace("-", ""),
             "weeks": weeks,
             "history": history,
+            "disclaimers": DEFAULT_DISCLAIMERS,
+        }
+    except _asyncio.TimeoutError:
+        response.headers["Cache-Control"] = "public, max-age=300"
+        return {
+            "ndc": normalized.replace("-", ""),
+            "weeks": weeks,
+            "history": [],
             "disclaimers": DEFAULT_DISCLAIMERS,
         }
     except PricingNotFoundError:
@@ -321,6 +336,90 @@ async def get_ndc_price_history(
     except Exception as exc:
         logger.exception("Unhandled error in pricing endpoint ndc=%s", ndc)
         raise HTTPException(status_code=503, detail=f"Pricing service error: {type(exc).__name__}: {exc}")
+
+
+@router.get("/api/admin/diag/pricing")
+async def get_pricing_diag(
+    ndc: str = Query(...),
+    _admin: dict = Depends(require_superuser),
+):
+    normalized = _normalize_or_400(ndc).replace("-", "")
+    diag: dict = {
+        "ndc": normalized,
+        "dataset_id": None,
+        "as_of_week": None,
+        "columns": [],
+        "column_map": {
+            "ndc": None,
+            "effective_date": None,
+            "price": None,
+            "unit": None,
+        },
+        "datastore_probe": None,
+        "drug_prices": {"exists": False, "row_count": 0},
+        "drug_price_history": {"exists": False, "row_count": 0},
+    }
+
+    metadata: dict | None = None
+    metadata_error: str | None = None
+    try:
+        metadata = await pricing_service._get_latest_dataset_metadata()
+    except Exception as exc:
+        metadata_error = f"{type(exc).__name__}: {exc}"
+
+    if metadata:
+        dataset_id = metadata.get("dataset_id")
+        diag["dataset_id"] = dataset_id
+        diag["as_of_week"] = metadata.get("as_of_week")
+        if dataset_id:
+            try:
+                column_map = await pricing_service._resolve_column_map(dataset_id)
+                columns = column_map.get("all_columns") or []
+                diag["columns"] = columns
+                diag["column_map"] = {
+                    "ndc": column_map.get("ndc"),
+                    "effective_date": column_map.get("effective_date"),
+                    "price": column_map.get("price"),
+                    "unit": column_map.get("unit"),
+                }
+                ndc_column = str(column_map.get("ndc") or "")
+                if ndc_column:
+                    try:
+                        probe_payload = await pricing_service._request_datastore_query(
+                            dataset_id,
+                            conditions=[{"resource": "t", "property": ndc_column, "value": normalized, "operator": "="}],
+                            limit=1,
+                        )
+                        diag["datastore_probe"] = {"ok": True, "payload": probe_payload}
+                    except Exception as exc:
+                        diag["datastore_probe"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+                else:
+                    diag["datastore_probe"] = {"ok": False, "error": "No NDC column resolved"}
+            except Exception as exc:
+                diag["datastore_probe"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    elif metadata_error:
+        diag["datastore_probe"] = {"ok": False, "error": metadata_error}
+
+    if database.db_engine or database.connect_to_database():
+        with database.db_engine.connect() as conn:
+            price_count = int(
+                conn.execute(
+                    text("SELECT count(*) FROM drug_prices WHERE ndc = :ndc"),
+                    {"ndc": normalized},
+                ).scalar()
+                or 0
+            )
+            history_count = int(
+                conn.execute(
+                    text("SELECT count(*) FROM drug_price_history WHERE ndc = :ndc"),
+                    {"ndc": normalized},
+                ).scalar()
+                or 0
+            )
+        diag["drug_prices"] = {"exists": price_count > 0, "row_count": price_count}
+        diag["drug_price_history"] = {"exists": history_count > 0, "row_count": history_count}
+
+    return diag
 
 
 @router.get("/api/prices/{ndc}/strengths")
@@ -379,11 +478,6 @@ async def get_ndc_strengths(ndc: str):
             ).mappings().all()
 
         price_by_ndc: dict[str, dict] = {str(row["ndc"]): dict(row) for row in price_rows}
-        if not price_by_ndc:
-            return {**empty_response, "ingredient": ingredient_name, "ingredient_rxcui": ingredient_rxcui}
-
-        priced_ndcs = list(price_by_ndc.keys())
-
         with database.db_engine.connect() as conn:
             pf_rows = conn.execute(
                 text(
@@ -396,26 +490,28 @@ async def get_ndc_strengths(ndc: str):
                       AND slug IS NOT NULL
                     """
                 ),
-                {"ndcs": priced_ndcs},
+                {"ndcs": all_ndcs},
             ).mappings().all()
 
         strengths: list[dict] = []
         seen_ndcs: set[str] = set()
         for pf_row in pf_rows:
             ndc_digits = str(pf_row["ndc_digits"])
-            if ndc_digits in seen_ndcs or ndc_digits not in price_by_ndc:
+            if ndc_digits in seen_ndcs:
                 continue
             seen_ndcs.add(ndc_digits)
-            price_info = price_by_ndc[ndc_digits]
+            price_info = price_by_ndc.get(ndc_digits)
+            has_price = price_info is not None
             strengths.append(
                 {
                     "ndc": ndc_digits,
                     "slug": pf_row["slug"],
                     "medicine_name": pf_row["medicine_name"] or "",
                     "spl_strength": pf_row["spl_strength"] or "",
-                    "price_per_unit": float(price_info["price_per_unit"]),
-                    "unit": str(price_info["unit"] or "EA"),
-                    "effective_date": str(price_info["effective_date"]),
+                    "price_per_unit": float(price_info["price_per_unit"]) if has_price else 0.0,
+                    "unit": str((price_info or {}).get("unit") or "EA"),
+                    "effective_date": str((price_info or {}).get("effective_date") or ""),
+                    "has_price": has_price,
                     "is_current": ndc_digits == lookup_ndc,
                 }
             )

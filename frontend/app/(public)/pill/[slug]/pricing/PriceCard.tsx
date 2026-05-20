@@ -316,7 +316,7 @@ export default function PriceCard({
       </div>
 
       {/* ── Section 1.5: 💊 Other Strengths ── */}
-      {strengths && strengths.length > 1 && (
+      {strengths && strengths.some((s) => !s.is_current) && (
         <div className="border-t border-slate-100 px-6 py-5">
           <StrengthSelector strengths={strengths} ingredient={ingredient ?? null} />
         </div>

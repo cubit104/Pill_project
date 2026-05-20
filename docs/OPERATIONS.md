@@ -55,6 +55,11 @@ Run slug regeneration manually instead of on startup:
 python -m scripts.regenerate_slugs
 ```
 
+## Image configuration
+
+- Set `IMAGE_BASE` on production services (example: `https://<project>.supabase.co/storage/v1/object/public/<bucket>`).
+- If `IMAGE_BASE` is not set, the backend logs a startup warning and returns raw `image_filename` entries so the frontend can still attempt rendering.
+
 ## NADAC history backfill
 
 Run this once after deploy to seed `drug_price_history` with prior weekly NADAC data. The job is idempotent and safe to rerun, but additional reruns are usually unnecessary unless `drug_price_history` has been wiped/truncated or you intentionally need to re-scan historical datasets.

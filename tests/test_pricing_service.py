@@ -276,6 +276,33 @@ def test_resolve_column_map_picks_expected_columns_from_nadac_schema():
     assert resolved["all_columns"] == columns
 
 
+def test_pick_column_accepts_nadac_ndc_and_ndc_number_candidates():
+    svc = NADACPricingService()
+    columns = ["nadac_ndc", "effective_date", "nadac_per_unit", "pricing_unit"]
+    picked = svc._pick_column(columns, ["ndc", "nadac_ndc", "ndc_number"], contains="ndc")
+    assert picked == "nadac_ndc"
+
+    columns = ["ndc_number", "effective_date"]
+    picked = svc._pick_column(columns, ["ndc", "nadac_ndc", "ndc_number"], contains="ndc")
+    assert picked == "ndc_number"
+
+
+def test_normalize_ndc_column_choice_accepts_ndc_description_when_only_option():
+    svc = NADACPricingService()
+    columns = ["ndc_description", "effective_date", "nadac_per_unit", "pricing_unit"]
+    with patch("services.pricing_service.logger.warning") as mock_warning:
+        selected = svc._normalize_ndc_column_choice("ndc_description", columns, dataset_id="ds1")
+    assert selected == "ndc_description"
+    mock_warning.assert_called_once()
+
+
+def test_normalize_ndc_column_choice_rejects_ndc_description_when_better_column_exists():
+    svc = NADACPricingService()
+    columns = ["ndc_description", "nadac_ndc", "effective_date"]
+    selected = svc._normalize_ndc_column_choice("ndc_description", columns, dataset_id="ds1")
+    assert selected is None
+
+
 def test_fetch_nadac_latest_for_ndc_posts_datastore_query_body():
     svc = NADACPricingService()
 
@@ -1092,6 +1119,60 @@ def test_get_price_history_refreshes_when_cache_incomplete():
 
     assert len(history) == 2
     assert [h["effective_date"] for h in history] == ["2026-05-01", "2026-05-08"]
+
+
+def test_get_price_history_negative_cache_short_circuits_second_lookup():
+    svc = NADACPricingService()
+
+    mock_engine = MagicMock()
+    read_conn = MagicMock()
+    read_conn.__enter__.return_value = read_conn
+    read_conn.__exit__.return_value = False
+    mock_engine.connect.return_value = read_conn
+    read_result = MagicMock()
+    read_result.mappings.return_value.all.return_value = []
+    read_conn.execute.return_value = read_result
+
+    with patch("database.db_engine", mock_engine), \
+         patch.object(svc, "_ensure_db", return_value=None), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds", "as_of_week": "2026-05-14"})), \
+         patch.object(
+             svc,
+             "_resolve_column_map",
+             new=AsyncMock(
+                 return_value={
+                     "ndc": "ndc",
+                     "effective_date": "effective_date",
+                     "price": "nadac_per_unit",
+                     "unit": "pricing_unit",
+                     "all_columns": [],
+                 }
+             ),
+         ), \
+         patch.object(
+             svc,
+             "_request_datastore_query",
+             new=AsyncMock(
+                 side_effect=PricingServiceError(
+                     'Request failed: POST https://data.medicaid.gov/api/1/datastore/query/mock/0 — HTTPStatusError 400 — {"message":"Column not found."}'
+                 )
+             ),
+         ) as mock_query:
+        with pytest.raises(PricingNotFoundError):
+            asyncio.run(svc.get_price_history("00002-1401-02", weeks=2))
+        second = asyncio.run(svc.get_price_history("00002-1401-02", weeks=2))
+
+    assert second == []
+    assert mock_query.await_count == 8
+
+
+def test_invalidate_metadata_cache_clears_history_negative_cache():
+    svc = NADACPricingService()
+    svc._history_negative_cache[("dataset-1", "00002140102")] = datetime.now(timezone.utc)
+
+    svc._invalidate_metadata_cache()
+
+    assert svc._history_negative_cache == {}
 
 
 def test_get_alternatives_prefers_fresh_bulk_cache():

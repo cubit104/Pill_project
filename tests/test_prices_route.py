@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from unittest.mock import AsyncMock, patch
 
@@ -10,6 +11,7 @@ os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/tes
 os.environ.setdefault("ALLOWED_ORIGINS", "http://testserver")
 
 from services.pricing_service import PricingNotFoundError
+from routes.admin.auth import require_superuser
 
 
 @pytest.fixture(scope="module")
@@ -243,6 +245,17 @@ def test_get_history_404(client):
     assert resp.status_code == 404
 
 
+def test_get_history_timeout_returns_empty_200(client):
+    with patch("routes.prices.pricing_service.get_price_history", new=AsyncMock(side_effect=asyncio.TimeoutError())):
+        resp = client.get("/api/prices/00002-1401-02/history?weeks=52")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["history"] == []
+    assert payload["weeks"] == 52
+    assert resp.headers["Cache-Control"] == "public, max-age=300"
+
+
 def test_get_price_unexpected_error_returns_503_with_exception_type(client):
     with patch("routes.prices.pricing_service.get_price", new=AsyncMock(side_effect=RuntimeError("boom"))):
         resp = client.get("/api/prices/00002-1401-02")
@@ -450,3 +463,124 @@ def test_prices_health_route_is_not_captured_by_ndc_param(client):
     with patch("routes.prices.pricing_service.get_price", new=AsyncMock(side_effect=AssertionError("should not run"))):
         resp = client.get("/api/prices/health")
     assert resp.status_code == 200
+
+
+def test_admin_pricing_diag_returns_expected_shape(client):
+    class _Result:
+        def __init__(self, value):
+            self._value = value
+
+        def scalar(self):
+            return self._value
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, statement, params=None):
+            query = str(statement)
+            if "FROM drug_prices" in query:
+                return _Result(1)
+            if "FROM drug_price_history" in query:
+                return _Result(3)
+            raise AssertionError(f"Unexpected query: {query}")
+
+    class _Engine:
+        def connect(self):
+            return _Conn()
+
+    import main as app_module
+    app_module.app.dependency_overrides[require_superuser] = lambda: {"role": "superuser"}
+
+    try:
+        with patch("routes.prices.database.db_engine", _Engine()), \
+             patch("routes.prices.pricing_service._get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds1", "as_of_week": "2026-05-14"})), \
+             patch(
+                 "routes.prices.pricing_service._resolve_column_map",
+                 new=AsyncMock(
+                     return_value={
+                         "ndc": "nadac_ndc",
+                         "effective_date": "effective_date",
+                         "price": "nadac_per_unit",
+                         "unit": "pricing_unit",
+                         "all_columns": ["nadac_ndc", "effective_date", "nadac_per_unit", "pricing_unit"],
+                     }
+                 ),
+             ), \
+             patch("routes.prices.pricing_service._request_datastore_query", new=AsyncMock(return_value={"results": []})):
+            resp = client.get("/api/admin/diag/pricing?ndc=21695066530")
+    finally:
+        app_module.app.dependency_overrides.pop(require_superuser, None)
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["dataset_id"] == "ds1"
+    assert payload["column_map"]["ndc"] == "nadac_ndc"
+    assert "nadac_ndc" in payload["columns"]
+    assert payload["datastore_probe"]["ok"] is True
+    assert payload["drug_prices"]["row_count"] == 1
+    assert payload["drug_price_history"]["row_count"] == 3
+
+
+def test_get_strengths_returns_no_price_chips_when_drug_prices_missing(client):
+    class _Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def mappings(self):
+            return self
+
+        def all(self):
+            return self._rows
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, statement, params=None):
+            query = str(statement)
+            if "FROM drug_prices" in query:
+                return _Result([])
+            if "FROM pillfinder" in query:
+                return _Result(
+                    [
+                        {"slug": "plavix-75-1171", "medicine_name": "Plavix", "spl_strength": "75 mg", "ndc_digits": "21695066530"},
+                        {"slug": "plavix-300", "medicine_name": "Plavix", "spl_strength": "300 mg", "ndc_digits": "11111111111"},
+                    ]
+                )
+            raise AssertionError(f"Unexpected query: {query}")
+
+    class _Engine:
+        def connect(self):
+            return _Conn()
+
+    with patch("routes.prices.database.db_engine", _Engine()), \
+         patch("routes.prices.database.connect_to_database", return_value=True), \
+         patch("routes.prices.pricing_service._ndc_to_rxcui", new=AsyncMock(return_value="12345")), \
+         patch("routes.prices.pricing_service._ingredient_for_rxcui", new=AsyncMock(return_value={"name": "clopidogrel", "rxcui": "32968"})), \
+         patch(
+             "routes.prices.pricing_service._related_product_rxcuis",
+             new=AsyncMock(
+                 return_value=[
+                     {"rxcui": "12345", "name": "Plavix 75 MG", "tty": "SCD"},
+                     {"rxcui": "67890", "name": "Plavix 300 MG", "tty": "SCD"},
+                 ]
+             ),
+         ), \
+         patch(
+             "routes.prices.pricing_service._ndcs_for_rxcui",
+             new=AsyncMock(side_effect=[["21695066530"], ["11111111111"]]),
+         ):
+        resp = client.get("/api/prices/21695-0665-30/strengths")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert len(payload["strengths"]) == 2
+    assert all(item["has_price"] is False for item in payload["strengths"])
+    assert all(item["price_per_unit"] == 0 for item in payload["strengths"])

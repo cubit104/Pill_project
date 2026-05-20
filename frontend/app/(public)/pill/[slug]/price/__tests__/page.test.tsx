@@ -44,7 +44,42 @@ test('price page snapshot-like render includes back link and wrapper', async () 
     assert.match(html, /<h1[^>]*>Plavix 75 mg<\/h1>/)
     assert.match(html, /src="https:\/\/example\.com\/plavix\.png"/)
     assert.match(html, /alt="Plavix pill"/)
+    assert.match(html, /loading="lazy"/)
+    assert.match(html, /referrerPolicy="no-referrer"/)
     assert.match(html, /href="\/pill\/plavix-75-1171"/)
+  } finally {
+    global.fetch = originalFetch
+  }
+})
+
+test('price page falls back to images array when image_url is empty', async () => {
+  const originalFetch = global.fetch
+  global.fetch = async (input) => {
+    const url = String(input)
+    if (url.endsWith('/api/pill/plavix-images')) {
+      return new Response(
+        JSON.stringify({
+          drug_name: 'Plavix',
+          strength: '75 mg',
+          slug: 'plavix-images',
+          ndc: '00002140102',
+          rxcui: '12345',
+          brand_or_generic: 'brand',
+          image_url: '',
+          images: [{ url: 'https://example.com/plavix-from-array.png' }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    return new Response('not found', { status: 404 })
+  }
+
+  try {
+    const mod = await import('../page')
+    const element = await mod.default({ params: Promise.resolve({ slug: 'plavix-images' }) })
+    const html = renderToStaticMarkup(element)
+
+    assert.match(html, /src="https:\/\/example\.com\/plavix-from-array\.png"/)
   } finally {
     global.fetch = originalFetch
   }
