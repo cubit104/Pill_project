@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
+from ndc_normalize import normalize_ndc_to_11
 from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames, slugify_class
 from services.pricing_service import pricing_service
 
@@ -119,9 +120,26 @@ def _build_image_urls(image_filenames: str) -> list[str]:
 
 
 def _normalize_ndc_digits(value: Any) -> Optional[str]:
+    """Return a digits-only 11-character NDC, handling FDA 4-4-2 / 5-3-2 / 5-4-1 / 5-4-2 forms.
+
+    Uses ndc_normalize.normalize_ndc_to_11 so hyphenated inputs like '0169-4425-31'
+    (4-4-2) are padded to canonical '00169-4425-31' before being stripped to digits.
+    Returns None when the input cannot be normalized (e.g. product-code-only NDCs
+    like '0169-4425' with no package segment).
+    """
     if not value:
         return None
-    digits = re.sub(r"[^0-9]", "", str(value))
+    raw = str(value).strip()
+    if not raw:
+        return None
+    # Try the canonical normalizer first (handles all hyphenated FDA forms)
+    canonical = normalize_ndc_to_11(raw)
+    if canonical:
+        digits = re.sub(r"[^0-9]", "", canonical)
+        if len(digits) == 11:
+            return digits
+    # Fallback: caller already passed 11 raw digits (e.g. cached/stripped value)
+    digits = re.sub(r"[^0-9]", "", raw)
     return digits if len(digits) == 11 else None
 
 
