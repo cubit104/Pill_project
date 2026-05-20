@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 IMAGE_BASE = (os.getenv("IMAGE_BASE") or "").strip().rstrip("/")
 _IMAGE_BASE_WARNING_EMITTED = False
 _HISTORY_RESOLUTION_TTL_SECONDS = int(os.getenv("PILL_HISTORY_RESOLUTION_TTL_SECONDS", "3600"))
+_HISTORY_RESOLUTION_NEGATIVE_TTL_SECONDS = int(os.getenv("PILL_HISTORY_RESOLUTION_NEGATIVE_TTL_SECONDS", "300"))
+_HISTORY_RESOLUTION_PROBE_TIMEOUT_SECONDS = float(os.getenv("PILL_HISTORY_RESOLUTION_PROBE_TIMEOUT_SECONDS", "3"))
 _HISTORY_RESOLUTION_CACHE_MAX_ITEMS = int(os.getenv("PILL_HISTORY_RESOLUTION_CACHE_MAX_ITEMS", "1000"))
 _history_resolution_cache: "OrderedDict[str, tuple[float, dict[str, Any]]]" = OrderedDict()
 _history_resolution_cache_lock = Lock()
@@ -141,7 +143,12 @@ def _get_cached_history_resolution(slug: str) -> Optional[dict[str, Any]]:
 
 def _set_cached_history_resolution(slug: str, payload: dict[str, Any]) -> None:
     now = time.time()
-    expires_at = now + _HISTORY_RESOLUTION_TTL_SECONDS
+    ttl_seconds = (
+        _HISTORY_RESOLUTION_TTL_SECONDS
+        if payload.get("history_ndc")
+        else _HISTORY_RESOLUTION_NEGATIVE_TTL_SECONDS
+    )
+    expires_at = now + ttl_seconds
     stored = {
         "history_ndc": payload.get("history_ndc"),
         "history_source": payload.get("history_source"),
@@ -171,8 +178,25 @@ def _history_count_for_ndc(conn, ndc_digits: str) -> int:
         return 0
 
 
-def _first_ndc_with_history(conn, candidates: list[str]) -> Optional[str]:
+def _probe_live_history_for_ndc(ndc_digits: str) -> bool:
+    if not ndc_digits:
+        return False
+    try:
+        history = _run_async(
+            asyncio.wait_for(
+                pricing_service.get_price_history(ndc_digits, weeks=1),
+                timeout=_HISTORY_RESOLUTION_PROBE_TIMEOUT_SECONDS,
+            )
+        )
+        return bool(history)
+    except Exception as exc:
+        logger.debug("live history probe skipped for ndc=%s: %s", ndc_digits, exc)
+        return False
+
+
+def _first_ndc_with_history(conn, candidates: list[str], *, probe_live: bool = False) -> Optional[str]:
     seen = set()
+    uncached_candidates: list[str] = []
     for candidate in candidates:
         ndc_digits = _normalize_ndc_digits(candidate)
         if not ndc_digits or ndc_digits in seen:
@@ -180,6 +204,18 @@ def _first_ndc_with_history(conn, candidates: list[str]) -> Optional[str]:
         seen.add(ndc_digits)
         if _history_count_for_ndc(conn, ndc_digits) > 0:
             return ndc_digits
+        if probe_live:
+            uncached_candidates.append(ndc_digits)
+    if not probe_live or not uncached_candidates:
+        return None
+    with ThreadPoolExecutor(max_workers=min(len(uncached_candidates), 4)) as executor:
+        probe_futures = {
+            ndc_digits: executor.submit(_probe_live_history_for_ndc, ndc_digits)
+            for ndc_digits in uncached_candidates
+        }
+        for ndc_digits in uncached_candidates:
+            if probe_futures[ndc_digits].result():
+                return ndc_digits
     return None
 
 
@@ -274,21 +310,21 @@ def _resolve_history_identifier(conn, *, slug: str, canonical_ndc: Optional[str]
         name_future = executor.submit(_resolve_name_history_candidates, medicine_name)
 
         matched_ndc = matched_future.result()
-        matched_history_ndc = _first_ndc_with_history(conn, [matched_ndc] if matched_ndc else [])
-        if matched_history_ndc:
-            payload = {"history_ndc": matched_history_ndc, "history_source": "matched_ndc"}
+        if matched_ndc:
+            matched_history_ndc = _first_ndc_with_history(conn, [matched_ndc], probe_live=True)
+            payload = {"history_ndc": matched_history_ndc or matched_ndc, "history_source": "matched_ndc"}
             _set_cached_history_resolution(slug, payload)
             return payload
 
         rxcui_candidates = rxcui_future.result()
-        rxcui_history_ndc = _first_ndc_with_history(conn, rxcui_candidates)
+        rxcui_history_ndc = _first_ndc_with_history(conn, rxcui_candidates, probe_live=True)
         if rxcui_history_ndc:
             payload = {"history_ndc": rxcui_history_ndc, "history_source": "rxcui"}
             _set_cached_history_resolution(slug, payload)
             return payload
 
         name_candidates = name_future.result()
-        name_history_ndc = _first_ndc_with_history(conn, name_candidates)
+        name_history_ndc = _first_ndc_with_history(conn, name_candidates, probe_live=True)
         if name_history_ndc:
             payload = {"history_ndc": name_history_ndc, "history_source": "by_name"}
             _set_cached_history_resolution(slug, payload)
