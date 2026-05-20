@@ -297,7 +297,7 @@ test('fetchPriceCardDownstream calls /alternatives, /history, and /strengths wit
   assert.equal(result.genericVsBrandRatio, 4)
 })
 
-test('fetchPriceCardDownstream uses matched_ndc history URL when equivalent match has historyNdc', async () => {
+test('fetchPriceCardDownstream prefers matched_ndc over historyNdc for equivalent matches', async () => {
   const calls: string[] = []
   const fetchImpl = async (input: RequestInfo | URL) => {
     const url = String(input)
@@ -311,7 +311,7 @@ test('fetchPriceCardDownstream uses matched_ndc history URL when equivalent matc
     return new Response(JSON.stringify({ history: [] }), { status: 200 })
   }
 
-  await fetchPriceCardDownstream({
+  const result = await fetchPriceCardDownstream({
     apiBase: 'https://api.example.com',
     downstreamNdc: '00378018101',
     historyNdc: '00002140102',
@@ -327,6 +327,7 @@ test('fetchPriceCardDownstream uses matched_ndc history URL when equivalent matc
     calls[1],
     'https://api.example.com/api/prices/00378018101/history?weeks=52'
   )
+  assert.deepEqual(result.history, [])
 })
 
 test('fetchPriceCardDownstream skips /history when historyNdc is null', async () => {
@@ -371,7 +372,7 @@ test('fetchPriceCardDownstream uses matched_ndc history URL when equivalent matc
     return new Response(JSON.stringify({ history: [] }), { status: 200 })
   }
 
-  await fetchPriceCardDownstream({
+  const result = await fetchPriceCardDownstream({
     apiBase: 'https://api.example.com',
     downstreamNdc: '00378018101',
     historyNdc: null,
@@ -387,6 +388,7 @@ test('fetchPriceCardDownstream uses matched_ndc history URL when equivalent matc
     calls[1],
     'https://api.example.com/api/prices/00378018101/history?weeks=52'
   )
+  assert.deepEqual(result.history, [])
 })
 
 test('PriceCard renders price immediately when initialData.price present, then fetches alternatives/history', async () => {
