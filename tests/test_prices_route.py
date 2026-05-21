@@ -232,6 +232,7 @@ def test_get_history_success(client):
     assert data["weeks"] == 2
     assert len(data["history"]) == 2
     assert len(data["disclaimers"]) == 3
+    assert resp.headers["X-Price-History"] == "ready"
 
 
 def test_get_history_invalid_ndc_returns_400(client):
@@ -254,6 +255,7 @@ def test_get_history_timeout_returns_empty_200(client):
     assert payload["history"] == []
     assert payload["weeks"] == 52
     assert resp.headers["Cache-Control"] == "public, max-age=300"
+    assert resp.headers["X-Price-History"] == "warming"
 
 
 def test_history_by_name_returns_partial_cache(client):
@@ -275,6 +277,7 @@ def test_history_by_name_returns_partial_cache(client):
     assert body["resolved_ndc"] == "00024117190"
     assert body["ingredient"] == "clopidogrel"
     assert body["history"] == payload
+    assert resp.headers["X-Price-History"] == "ready"
     mock_history.assert_awaited_once_with("00024117190", weeks=52)
 
 
@@ -289,6 +292,7 @@ def test_history_by_rxcui_picks_ndc_with_most_history_rows(client):
     body = resp.json()
     assert body["resolved_ndc"] == "00024117190"
     assert body["history"] == payload
+    assert resp.headers["X-Price-History"] == "ready"
     mock_history.assert_awaited_once_with("00024117190", weeks=52)
 
 
@@ -312,6 +316,21 @@ def test_history_by_name_timeout_returns_empty_200(client):
     assert payload["history"] == []
     assert payload["weeks"] == 52
     assert resp.headers["Cache-Control"] == "public, max-age=300"
+    assert resp.headers["X-Price-History"] == "warming"
+
+
+def test_history_by_rxcui_timeout_returns_empty_200(client):
+    with patch("routes.prices.pricing_service._ndcs_for_rxcui", new=AsyncMock(return_value=["00024117190"])), \
+         patch("routes.prices._history_row_counts_for_ndcs", return_value={"00024117190": 14}), \
+         patch("routes.prices.pricing_service.get_price_history", new=AsyncMock(side_effect=asyncio.TimeoutError())):
+        resp = client.get("/api/prices/by-rxcui/213169/history?weeks=52")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["history"] == []
+    assert payload["weeks"] == 52
+    assert resp.headers["Cache-Control"] == "public, max-age=300"
+    assert resp.headers["X-Price-History"] == "warming"
 
 
 def test_get_price_unexpected_error_returns_503_with_exception_type(client):

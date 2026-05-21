@@ -353,12 +353,15 @@ async def get_ndc_price_history(
     weeks: int = Query(52, ge=1, le=260),
 ):
     normalized = _normalize_or_400(ndc)
+    ndc_digits = re.sub(r"\D", "", normalized)
     try:
+        task = pricing_service._get_or_start_history_task(ndc_digits, weeks)
         history = await _asyncio.wait_for(
-            pricing_service.get_price_history(normalized, weeks=weeks),
+            _asyncio.shield(task),
             # Keep SSR unblocked: /pill/[slug]/price initial render should not wait on slow upstream calls.
             timeout=HISTORY_ENDPOINT_TIMEOUT_SECONDS,
         )
+        response.headers["X-Price-History"] = "ready"
         return {
             "ndc": normalized.replace("-", ""),
             "weeks": weeks,
@@ -367,6 +370,7 @@ async def get_ndc_price_history(
         }
     except _asyncio.TimeoutError:
         response.headers["Cache-Control"] = "public, max-age=300"
+        response.headers["X-Price-History"] = "warming"
         return {
             "ndc": normalized.replace("-", ""),
             "weeks": weeks,
@@ -419,10 +423,12 @@ async def get_price_history_by_name_route(
         if not chosen_ndc:
             raise PricingNotFoundError("No candidate NDC found for ingredient history lookup")
 
+        task = pricing_service._get_or_start_history_task(chosen_ndc, weeks)
         history = await _asyncio.wait_for(
-            pricing_service.get_price_history(chosen_ndc, weeks=weeks),
+            _asyncio.shield(task),
             timeout=HISTORY_ENDPOINT_TIMEOUT_SECONDS,
         )
+        response.headers["X-Price-History"] = "ready"
         return {
             "name": decoded_name,
             "resolved_ndc": chosen_ndc,
@@ -433,6 +439,7 @@ async def get_price_history_by_name_route(
         }
     except _asyncio.TimeoutError:
         response.headers["Cache-Control"] = "public, max-age=300"
+        response.headers["X-Price-History"] = "warming"
         return {
             "name": decoded_name,
             "resolved_ndc": None,
@@ -471,10 +478,12 @@ async def get_price_history_by_rxcui_route(
         if not chosen_ndc:
             raise PricingNotFoundError(f"No NDCs found for RxCUI {rxcui_digits}")
 
+        task = pricing_service._get_or_start_history_task(chosen_ndc, weeks)
         history = await _asyncio.wait_for(
-            pricing_service.get_price_history(chosen_ndc, weeks=weeks),
+            _asyncio.shield(task),
             timeout=HISTORY_ENDPOINT_TIMEOUT_SECONDS,
         )
+        response.headers["X-Price-History"] = "ready"
         return {
             "rxcui": rxcui,
             "resolved_ndc": chosen_ndc,
@@ -484,6 +493,7 @@ async def get_price_history_by_rxcui_route(
         }
     except _asyncio.TimeoutError:
         response.headers["Cache-Control"] = "public, max-age=300"
+        response.headers["X-Price-History"] = "warming"
         return {
             "rxcui": rxcui,
             "resolved_ndc": None,
