@@ -8,6 +8,10 @@ import { fetchPill } from '../page'
 import { formatStrength } from './formatStrength'
 import { fetchInitialPriceData } from './priceData'
 
+const SITE_URL = (
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
+).replace(/\/$/, '')
+
 function resolveImageUrl(pill: {
   image_url?: string | null
   images?: Array<string | { url?: string | null } | null>
@@ -35,8 +39,17 @@ export async function generateMetadata(
   const drugName = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : slug
   const strength = pill.strength?.trim() || ''
   const titleName = [drugName, strength].filter(Boolean).join(' ').trim()
+  const title = `${titleName || drugName} – Price details | PillSeek`
+  const canonicalUrl = `${SITE_URL}/pill/${encodeURIComponent(slug)}/price`
+
   return {
-    title: `${titleName || drugName} – Price details | PillSeek`,
+    title,
+    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/price` },
+    robots: { index: true, follow: true },
+    openGraph: {
+      title,
+      url: canonicalUrl,
+    },
   }
 }
 
