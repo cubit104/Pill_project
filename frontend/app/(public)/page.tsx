@@ -1,43 +1,51 @@
 import type { Metadata } from 'next'
 import Image from 'next/image'
-import HomeSearch from '../components/HomeSearch'
 import Link from 'next/link'
-import { websiteSchema, organizationSchema, safeJsonLd } from '../lib/structured-data'
+import HomeFaq, { HOME_FAQS } from '../components/HomeFaq'
+import HomeSearch from '../components/HomeSearch'
 import PopularMedications from '../components/PopularMedications'
+import TrendingPills from '../components/TrendingPills'
+import {
+  faqSchema,
+  organizationSchema,
+  safeJsonLd,
+  websiteSchema,
+} from '../lib/structured-data'
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
+const HOME_LAST_UPDATED = 'May 21, 2026'
 
 export const metadata: Metadata = {
-  title: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
+  title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
   description:
-    'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Powered by FDA & DailyMed data. Trusted by patients and caregivers.',
+    'Free pill identifier, drug price checks, and patient-friendly medication guides powered by FDA, DailyMed, and NADAC data.',
   alternates: { canonical: '/' },
   openGraph: {
-    title: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
+    title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
     description:
-      'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Powered by FDA & DailyMed data.',
+      'Free pill identifier, drug price checks, and patient-friendly medication guides powered by FDA, DailyMed, and NADAC data.',
     url: SITE_URL,
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
+    title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
     description:
-      'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Powered by FDA & DailyMed data.',
+      'Free pill identifier, drug price checks, and patient-friendly medication guides powered by FDA, DailyMed, and NADAC data.',
   },
 }
 
 export default function HomePage() {
   const pillarCards = [
     {
-      href: '/search?q=lisinopril',
+      href: '/pill/plavix-75-1171',
       icon: '💊',
       iconLabel: 'Pill identification',
       title: 'Identify a Pill',
       description: 'Match any tablet or capsule by imprint, color, shape, or drug name.',
-      cta: 'Try Lisinopril →',
+      cta: 'View Plavix details →',
     },
     {
       href: '/pill/plavix-75-1171/price',
@@ -48,12 +56,12 @@ export default function HomePage() {
       cta: 'Try Plavix →',
     },
     {
-      href: '/search?q=metformin',
+      href: '/pill/plavix-75-1171/medication-guide',
       icon: '📋',
       iconLabel: 'Patient medication guide',
       title: 'Patient Guide',
       description: 'Plain-language dosing, side effects, and what to know before taking your medication.',
-      cta: 'Try Metformin →',
+      cta: 'Read Plavix guide →',
     },
   ] as const
 
@@ -67,26 +75,48 @@ export default function HomePage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: safeJsonLd(organizationSchema()) }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(faqSchema(HOME_FAQS)) }}
+      />
 
-      {/* Hero Section — tighter spacing */}
-      <section className="bg-gradient-to-b from-slate-50 to-white py-6 sm:py-8 px-4">
+      <section className="bg-gradient-to-b from-slate-50 to-white py-8 sm:py-10 px-4">
         <div className="max-w-4xl mx-auto text-center">
           <Image
             src="/logo-mark.svg"
-            alt=""
+            alt="PillSeek logo"
             width={68}
             height={68}
             priority
-            className="mx-auto mb-3"
+            className="mx-auto mb-4"
           />
-          <h1 className="text-3xl sm:text-4xl font-bold mb-2 tracking-tight text-slate-900">
-            Know your pill. <span className="text-emerald-700">Know the price.</span>{' '}
-            <span className="text-emerald-700">Know how to take it.</span>
+          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-slate-900">
+            Free Pill Identifier, <span className="text-emerald-700">Drug Price Check</span>{' '}
+            &amp; Patient Guide
           </h1>
-          <p className="text-slate-600 text-sm sm:text-base mb-6 max-w-4xl mx-auto">
-            Free, FDA-sourced medication info for pill ID, price checks, and patient-friendly guides — no account needed.
+          <p className="mt-4 text-base sm:text-lg text-slate-700">
+            Know your pill. Know the price. Know how to take it.
           </p>
-          <HomeSearch />
+          <p className="mt-3 text-sm sm:text-base text-slate-600 max-w-3xl mx-auto">
+            Free, FDA-sourced medication info for pill ID, price checks, and patient-friendly
+            guides — no account needed.
+          </p>
+
+          <div className="mt-8 grid gap-6 md:grid-cols-10 md:items-center">
+            <div className="md:col-span-7">
+              <HomeSearch />
+            </div>
+            <div className="hidden md:flex md:col-span-3 items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <Image
+                src="/logo-mark.svg"
+                alt="PillSeek logo"
+                width={160}
+                height={160}
+                className="h-auto w-28 lg:w-32"
+              />
+            </div>
+          </div>
+
           <div className="mt-6 grid gap-3 md:grid-cols-3 text-left">
             {pillarCards.map((card) => (
               <Link
@@ -94,10 +124,14 @@ export default function HomePage() {
                 href={card.href}
                 className="block rounded-xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
               >
-                <span className="text-2xl" role="img" aria-label={card.iconLabel}>{card.icon}</span>
+                <span className="text-2xl" role="img" aria-label={card.iconLabel}>
+                  {card.icon}
+                </span>
                 <h3 className="mt-2.5 text-lg font-semibold text-slate-900">{card.title}</h3>
                 <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{card.description}</p>
-                <span className="mt-2.5 inline-flex text-sm font-semibold text-emerald-700">{card.cta}</span>
+                <span className="mt-2.5 inline-flex text-sm font-semibold text-emerald-700">
+                  {card.cta}
+                </span>
               </Link>
             ))}
           </div>
@@ -119,30 +153,58 @@ export default function HomePage() {
           ))}
         </div>
         <p className="max-w-4xl mx-auto mt-6 text-center text-xs sm:text-sm text-slate-500">
-          PillSeek is an information service. Always consult your pharmacist or doctor before making medication decisions.
+          PillSeek is an information service. Always consult your pharmacist or doctor before
+          making medication decisions.
         </p>
       </section>
 
-      {/* How It Works — illustrated cards */}
       <section className="py-14 px-4">
         <div className="max-w-5xl mx-auto">
           <h2 className="text-2xl sm:text-3xl font-bold text-center text-slate-900 mb-3">
             How It Works
           </h2>
           <p className="text-center text-slate-600 mb-10 max-w-2xl mx-auto">
-            Find your medication in three simple steps — no account, no fees, just fast, FDA-sourced answers.
+            Find your medication in three simple steps — no account, no fees, just fast,
+            FDA-sourced answers.
           </p>
           <div className="grid md:grid-cols-3 gap-6">
-            {/* Card 1 — Search by Imprint */}
             <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center gap-2 mb-4">
-                <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded-full">STEP 1</span>
+                <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded-full">
+                  STEP 1
+                </span>
               </div>
               <div className="flex justify-center mb-4">
                 <svg viewBox="0 0 120 80" className="w-32 h-20" aria-hidden="true">
-                  <ellipse cx="60" cy="40" rx="45" ry="22" fill="#fef3c7" stroke="#d97706" strokeWidth="2" />
-                  <text x="40" y="46" fontFamily="monospace" fontSize="14" fontWeight="bold" fill="#78350f">M</text>
-                  <text x="68" y="46" fontFamily="monospace" fontSize="14" fontWeight="bold" fill="#78350f">321</text>
+                  <ellipse
+                    cx="60"
+                    cy="40"
+                    rx="45"
+                    ry="22"
+                    fill="#fef3c7"
+                    stroke="#d97706"
+                    strokeWidth="2"
+                  />
+                  <text
+                    x="40"
+                    y="46"
+                    fontFamily="monospace"
+                    fontSize="14"
+                    fontWeight="bold"
+                    fill="#78350f"
+                  >
+                    M
+                  </text>
+                  <text
+                    x="68"
+                    y="46"
+                    fontFamily="monospace"
+                    fontSize="14"
+                    fontWeight="bold"
+                    fill="#78350f"
+                  >
+                    321
+                  </text>
                 </svg>
               </div>
               <h3 className="font-semibold text-slate-900 mb-2 text-center">Read the Imprint</h3>
@@ -155,17 +217,26 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Card 2 — Filter by Color/Shape */}
             <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center gap-2 mb-4">
-                <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded-full">STEP 2</span>
+                <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded-full">
+                  STEP 2
+                </span>
               </div>
               <div className="flex justify-center gap-2 mb-4">
                 <svg viewBox="0 0 40 40" className="w-12 h-12" aria-hidden="true">
                   <circle cx="20" cy="20" r="15" fill="#10b981" stroke="#047857" strokeWidth="1.5" />
                 </svg>
                 <svg viewBox="0 0 40 40" className="w-12 h-12" aria-hidden="true">
-                  <ellipse cx="20" cy="20" rx="17" ry="10" fill="#3b82f6" stroke="#1d4ed8" strokeWidth="1.5" />
+                  <ellipse
+                    cx="20"
+                    cy="20"
+                    rx="17"
+                    ry="10"
+                    fill="#3b82f6"
+                    stroke="#1d4ed8"
+                    strokeWidth="1.5"
+                  />
                 </svg>
                 <svg viewBox="0 0 40 40" className="w-12 h-12" aria-hidden="true">
                   <rect x="4" y="14" width="32" height="12" rx="6" fill="#f59e0b" stroke="#b45309" strokeWidth="1.5" />
@@ -182,10 +253,11 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Card 3 — View Full Details */}
             <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center gap-2 mb-4">
-                <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded-full">STEP 3</span>
+                <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded-full">
+                  STEP 3
+                </span>
               </div>
               <div className="flex justify-center mb-4">
                 <svg viewBox="0 0 80 80" className="w-20 h-20" aria-hidden="true">
@@ -212,7 +284,10 @@ export default function HomePage() {
       </section>
 
       <section className="py-8 px-4">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-4xl mx-auto space-y-3">
+          <p className="text-center text-xs sm:text-sm text-slate-500">
+            Medical content reviewed by licensed pharmacists · Last updated: {HOME_LAST_UPDATED}
+          </p>
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
             <p className="text-amber-800 text-sm text-center leading-relaxed">
               <strong>⚠️ Medical Disclaimer:</strong> PillSeek is for educational and
@@ -287,6 +362,7 @@ export default function HomePage() {
       </section>
 
       <PopularMedications />
+      <TrendingPills />
 
       <section className="py-12 px-4">
         <div className="max-w-4xl mx-auto">
@@ -317,6 +393,8 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      <HomeFaq />
     </>
   )
 }
