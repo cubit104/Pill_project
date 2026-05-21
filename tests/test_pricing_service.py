@@ -462,6 +462,7 @@ def test_fetch_nadac_latest_for_ndc_uses_resolved_ndc_column_first():
     assert first_call_property == "nadac_ndc", (
         f"Expected first candidate to be 'nadac_ndc' (from column_map['ndc']), got '{first_call_property}'"
     )
+    assert mock_query.await_count == 1
 
 
 def test_get_latest_dataset_metadata_uses_fallback_when_catalog_raises_unexpected_error():
@@ -1257,6 +1258,77 @@ def test_get_price_history_negative_cache_short_circuits_second_lookup():
 
     assert second == []
     assert mock_query.await_count == 8
+
+
+def test_get_or_start_history_task_reuses_inflight_task_and_cleans_up():
+    svc = NADACPricingService()
+
+    async def _run():
+        gate = asyncio.Event()
+
+        async def _slow_history(*_args, **_kwargs):
+            await gate.wait()
+            return [{"ndc": "00002140102"}]
+
+        with patch.object(svc, "get_price_history", new=AsyncMock(side_effect=_slow_history)) as mock_history:
+            first = svc._get_or_start_history_task("00002140102", 52)
+            second = svc._get_or_start_history_task("00002140102", 52)
+            assert first is second
+            assert ("00002140102", 52) in svc._inflight_history
+
+            gate.set()
+            results = await asyncio.gather(first, second)
+            assert results[0] == results[1]
+            await asyncio.sleep(0)
+
+            assert ("00002140102", 52) not in svc._inflight_history
+            mock_history.assert_awaited_once_with("00002140102", weeks=52)
+
+    asyncio.run(_run())
+
+
+def test_get_price_history_uses_resolved_ndc_column_without_extra_probes_on_success():
+    svc = NADACPricingService()
+
+    mock_engine = MagicMock()
+    read_conn = MagicMock()
+    read_conn.__enter__.return_value = read_conn
+    read_conn.__exit__.return_value = False
+    mock_engine.connect.return_value = read_conn
+    read_result = MagicMock()
+    read_result.mappings.return_value.all.return_value = []
+    read_conn.execute.return_value = read_result
+
+    write_conn = MagicMock()
+    write_conn.__enter__.return_value = write_conn
+    write_conn.__exit__.return_value = False
+    mock_engine.begin.return_value = write_conn
+
+    upstream_rows = [
+        {"nadac_ndc": "00002140102", "effective_date": "2026-05-08", "nadac_per_unit": "0.50", "pricing_unit": "EA"},
+    ]
+    with patch("database.db_engine", mock_engine), \
+         patch.object(svc, "_ensure_db", return_value=None), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"dataset_id": "ds", "as_of_week": "2026-05-14"})), \
+         patch.object(
+             svc,
+             "_resolve_column_map",
+             new=AsyncMock(
+                 return_value={
+                     "ndc": "nadac_ndc",
+                     "effective_date": "effective_date",
+                     "price": "nadac_per_unit",
+                     "unit": "pricing_unit",
+                     "all_columns": ["nadac_ndc", "effective_date", "nadac_per_unit", "pricing_unit"],
+                 }
+             ),
+         ), \
+         patch.object(svc, "_request_datastore_query", new=AsyncMock(return_value={"results": upstream_rows})) as mock_query:
+        history = asyncio.run(svc.get_price_history("00002-1401-02", weeks=2))
+
+    assert len(history) == 1
+    assert mock_query.await_count == 1
+    assert mock_query.await_args.kwargs["conditions"][0]["property"] == "nadac_ndc"
 
 
 def test_invalidate_metadata_cache_clears_history_negative_cache():

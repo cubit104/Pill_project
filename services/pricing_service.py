@@ -78,6 +78,7 @@ class NADACPricingService:
         self._column_map: dict[str, dict[str, Any]] = {}
         self._history_negative_cache: dict[tuple[str, str], datetime] = {}
         self._history_negative_ttl_seconds = int(os.getenv("PRICING_HISTORY_NEG_TTL_SECONDS", "3600"))
+        self._inflight_history: dict[tuple[str, int], asyncio.Task] = {}
         self._logged_datasets: set[str] = set()
         self._logged_schema_failures: set[str] = set()
         self._http_client: httpx.AsyncClient | None = None
@@ -99,6 +100,23 @@ class NADACPricingService:
         if self._http_client is not None:
             await self._http_client.aclose()
             self._http_client = None
+
+    def _get_or_start_history_task(self, ndc_digits: str, weeks: int) -> asyncio.Task:
+        key = (ndc_digits, weeks)
+        task = self._inflight_history.get(key)
+        if task is not None and not task.done():
+            logger.info("[history-inflight] reusing task ndc=%s weeks=%s", ndc_digits, weeks)
+            return task
+        task = asyncio.create_task(self.get_price_history(ndc_digits, weeks=weeks))
+        self._inflight_history[key] = task
+        logger.info("[history-inflight] started task ndc=%s weeks=%s", ndc_digits, weeks)
+
+        def _cleanup(_t: asyncio.Task) -> None:
+            if self._inflight_history.get(key) is task:
+                self._inflight_history.pop(key, None)
+
+        task.add_done_callback(_cleanup)
+        return task
 
     @staticmethod
     def _is_missing_relation(exc: Exception) -> bool:
@@ -827,20 +845,31 @@ class NADACPricingService:
         candidates: list[str] = []
         # Authoritative column from _resolve_column_map goes FIRST.
         resolved_ndc = column_map.get("ndc")
-        if resolved_ndc and "description" not in str(resolved_ndc).lower():
-            candidates.append(str(resolved_ndc))
+        resolved_ndc = str(resolved_ndc) if resolved_ndc is not None else ""
+        resolved_ndc = resolved_ndc.strip()
+        resolved_in_schema = bool(
+            resolved_ndc
+            and "description" not in resolved_ndc.lower()
+            and any(str(column).lower() == resolved_ndc.lower() for column in columns)
+        )
+        if resolved_in_schema:
+            candidates.append(resolved_ndc)
+        elif resolved_ndc and "description" not in resolved_ndc.lower():
+            candidates.append(resolved_ndc)
         # Then any wider candidates discovered in the schema.
-        if columns:
+        if columns and not resolved_in_schema:
             chosen = self._pick_column(columns, ndc_col_candidates, contains="ndc")
             if chosen and "description" not in chosen.lower() and chosen.lower() not in {c.lower() for c in candidates}:
                 candidates.append(chosen)
-        # Finally, the hardcoded fallback list (in case schema discovery failed entirely).
-        for candidate in ndc_col_candidates:
-            if candidate.lower() not in {c.lower() for c in candidates}:
-                candidates.append(candidate)
+        if not resolved_in_schema:
+            # Finally, the hardcoded fallback list (in case schema discovery failed entirely).
+            for candidate in ndc_col_candidates:
+                if candidate.lower() not in {c.lower() for c in candidates}:
+                    candidates.append(candidate)
 
         last_error: Exception | None = None
         date_col = str(column_map.get("effective_date") or "effective_date")
+        resolved_fallback_enabled = not resolved_in_schema
         for ndc_field in candidates:
             try:
                 payload = await self._request_datastore_query(
@@ -856,6 +885,15 @@ class NADACPricingService:
                     raise
                 if "Column not found" in str(exc) or " 400 " in str(exc):
                     last_error = exc
+                    if (
+                        resolved_in_schema
+                        and not resolved_fallback_enabled
+                        and ndc_field.lower() == resolved_ndc.lower()
+                    ):
+                        for candidate in ndc_col_candidates:
+                            if candidate.lower() not in {c.lower() for c in candidates}:
+                                candidates.append(candidate)
+                        resolved_fallback_enabled = True
                     continue
                 raise
             rows = self._rows_from_payload(payload)
@@ -1587,21 +1625,32 @@ class NADACPricingService:
         candidates: list[str] = []
         # Authoritative column from _resolve_column_map first.
         resolved_ndc = column_map.get("ndc")
-        if resolved_ndc and "description" not in str(resolved_ndc).lower():
-            candidates.append(str(resolved_ndc))
-        if columns:
+        resolved_ndc = str(resolved_ndc) if resolved_ndc is not None else ""
+        resolved_ndc = resolved_ndc.strip()
+        resolved_in_schema = bool(
+            resolved_ndc
+            and "description" not in resolved_ndc.lower()
+            and any(str(column).lower() == resolved_ndc.lower() for column in columns)
+        )
+        if resolved_in_schema:
+            candidates.append(resolved_ndc)
+        elif resolved_ndc and "description" not in resolved_ndc.lower():
+            candidates.append(resolved_ndc)
+        if columns and not resolved_in_schema:
             chosen = self._pick_column(columns, ndc_column_candidates, contains="ndc")
             chosen = self._normalize_ndc_column_choice(chosen, columns, dataset_id=dataset_id)
             if chosen and chosen.lower() not in {c.lower() for c in candidates}:
                 candidates.append(chosen)
-        for candidate in ndc_column_candidates:
-            if candidate.lower() not in {c.lower() for c in candidates}:
-                candidates.append(candidate)
+        if not resolved_in_schema:
+            for candidate in ndc_column_candidates:
+                if candidate.lower() not in {c.lower() for c in candidates}:
+                    candidates.append(candidate)
 
         rows: list[dict[str, Any]] = []
         last_error: Exception | None = None
         date_col = str(column_map.get("effective_date") or "effective_date")
         attempted_candidates: set[str] = set()
+        resolved_fallback_enabled = not resolved_in_schema
         for ndc_field in candidates:
             attempted_candidates.add(ndc_field.lower())
             try:
@@ -1618,6 +1667,15 @@ class NADACPricingService:
                     raise
                 if "Column not found" in str(exc) or " 400 " in str(exc):
                     last_error = exc
+                    if (
+                        resolved_in_schema
+                        and not resolved_fallback_enabled
+                        and ndc_field.lower() == resolved_ndc.lower()
+                    ):
+                        for candidate in ndc_column_candidates:
+                            if candidate.lower() not in {c.lower() for c in candidates}:
+                                candidates.append(candidate)
+                        resolved_fallback_enabled = True
                     continue
                 raise
             records = self._rows_from_payload(payload)
