@@ -2,34 +2,64 @@ import type { Metadata } from 'next'
 import Image from 'next/image'
 import HomeSearch from '../components/HomeSearch'
 import Link from 'next/link'
-import { websiteSchema, organizationSchema, safeJsonLd } from '../lib/structured-data'
+import { faqSchema, websiteSchema, organizationSchema, safeJsonLd } from '../lib/structured-data'
 import PopularMedications from '../components/PopularMedications'
+import HomeFaq from '../components/HomeFaq'
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
 
 export const metadata: Metadata = {
-  title: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
+  title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
   description:
-    'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Powered by FDA & DailyMed data. Trusted by patients and caregivers.',
+    'Free pill identifier by imprint, drug name, NDC, color or shape — plus real medication prices from NADAC (CMS) and plain-language patient guides. Powered by FDA & DailyMed data. No account needed.',
   alternates: { canonical: '/' },
   openGraph: {
-    title: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
+    title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
     description:
-      'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Powered by FDA & DailyMed data.',
+      'Free pill identifier by imprint, drug name, NDC, color or shape — plus real medication prices from NADAC (CMS) and plain-language patient guides. Powered by FDA & DailyMed data. No account needed.',
     url: SITE_URL,
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'PillSeek — Free Pill Identifier by Imprint, Drug Name, NDC, Color & Shape',
+    title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
     description:
-      'Identify any pill free using imprint codes, drug name, NDC number, color, or shape. Powered by FDA & DailyMed data.',
+      'Free pill identifier by imprint, drug name, NDC, color or shape — plus real medication prices from NADAC (CMS) and plain-language patient guides. Powered by FDA & DailyMed data. No account needed.',
   },
 }
 
+const homeFaqs = [
+  {
+    question: 'How do I identify a pill by its imprint?',
+    answer:
+      'Every prescription pill in the U.S. has a unique imprint code stamped on it. Enter the letters and numbers exactly as they appear (e.g., "M321"), and PillSeek will match it against the FDA\'s National Drug Code (NDC) Directory. You can narrow results further by color and shape.',
+  },
+  {
+    question: 'Does PillSeek show medication prices?',
+    answer:
+      'Yes. PillSeek shows pharmacy acquisition cost data from NADAC (the National Average Drug Acquisition Cost dataset published by CMS), including 12-month price trends and generic vs. brand comparisons. These are benchmark prices — your actual out-of-pocket cost will depend on your pharmacy and insurance.',
+  },
+  {
+    question: 'Where does PillSeek get its data?',
+    answer:
+      'PillSeek sources data directly from the FDA National Drug Code (NDC) Directory, DailyMed, RxNorm, and NADAC (CMS). These are the same authoritative databases used by pharmacists and healthcare professionals.',
+  },
+  {
+    question: 'Is PillSeek free? Do I need an account?',
+    answer:
+      'PillSeek is 100% free with no account required, no ads, and no tracking-based monetization. It is an informational service for patients, caregivers, and healthcare professionals.',
+  },
+  {
+    question: 'Can PillSeek replace advice from my doctor or pharmacist?',
+    answer:
+      'No. PillSeek is an informational reference only. Always confirm pill identification and any dosing or safety questions with a licensed pharmacist or your healthcare provider. In an emergency, call 911 or Poison Control (1-800-222-1222 in the U.S.).',
+  },
+] as const
+
 export default function HomePage() {
+  const faqJsonLd = faqSchema(homeFaqs.map((item) => ({ question: item.question, answer: item.answer })))
   const pillarCards = [
     {
       href: '/search?q=lisinopril',
@@ -67,26 +97,75 @@ export default function HomePage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: safeJsonLd(organizationSchema()) }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(faqJsonLd) }}
+      />
 
       {/* Hero Section — tighter spacing */}
       <section className="bg-gradient-to-b from-slate-50 to-white py-6 sm:py-8 px-4">
-        <div className="max-w-4xl mx-auto text-center">
-          <Image
-            src="/logo-mark.svg"
-            alt=""
-            width={68}
-            height={68}
-            priority
-            className="mx-auto mb-3"
-          />
-          <h1 className="text-3xl sm:text-4xl font-bold mb-2 tracking-tight text-slate-900">
-            Know your pill. <span className="text-emerald-700">Know the price.</span>{' '}
-            <span className="text-emerald-700">Know how to take it.</span>
-          </h1>
-          <p className="text-slate-600 text-sm sm:text-base mb-6 max-w-4xl mx-auto">
-            Free, FDA-sourced medication info for pill ID, price checks, and patient-friendly guides — no account needed.
-          </p>
-          <HomeSearch />
+        <div className="max-w-4xl mx-auto">
+          <div className="grid md:grid-cols-2 gap-8 items-center text-center md:text-left">
+            <div>
+              <Image
+                src="/logo-mark.svg"
+                alt=""
+                width={68}
+                height={68}
+                priority
+                className="mx-auto md:mx-0 mb-3"
+              />
+              <h1 className="text-4xl sm:text-5xl font-bold mb-3 tracking-tight text-slate-900">
+                Free Pill Identifier, <span className="text-emerald-700">Drug Price Check</span> &amp; Patient Guide
+              </h1>
+              <p className="text-lg sm:text-xl text-slate-700 mb-3 font-medium">
+                Know your pill. <span className="text-emerald-700">Know the price.</span> Know how to take it.
+              </p>
+              <p className="text-slate-600 text-base mb-2 max-w-2xl mx-auto md:mx-0">
+                Identify any medication by imprint, drug name, NDC, color, or shape — and see real medication prices sourced from NADAC (CMS) plus patient-friendly dosing guides.
+              </p>
+              <p className="text-slate-500 text-sm mb-8">
+                10,000+ FDA-approved medications · No account · Always free
+              </p>
+              <HomeSearch />
+              <div className="mt-4 flex flex-wrap justify-center md:justify-start gap-2 text-sm">
+                <span className="text-slate-500">Popular:</span>
+                {[
+                  { label: 'Lisinopril', href: '/search?q=lisinopril' },
+                  { label: 'Metformin', href: '/search?q=metformin' },
+                  { label: 'Atorvastatin', href: '/search?q=atorvastatin' },
+                  { label: 'Ibuprofen 800', href: '/search?q=ibuprofen+800' },
+                  { label: 'M367', href: '/search?q=M367' },
+                ].map((p) => (
+                  <Link
+                    key={p.label}
+                    href={p.href}
+                    className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                  >
+                    {p.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+            <div className="hidden md:block">
+              <svg viewBox="0 0 480 360" className="w-full max-w-md mx-auto" aria-hidden="true">
+                <rect x="56" y="44" width="368" height="268" rx="24" fill="#ffffff" stroke="#cbd5e1" strokeWidth="2" />
+                <ellipse cx="220" cy="168" rx="96" ry="46" fill="#fde68a" stroke="#d97706" strokeWidth="3" />
+                <text x="175" y="177" fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace" fontSize="30" fontWeight="700" fill="#78350f">M321</text>
+                <line x1="124" y1="130" x2="76" y2="105" stroke="#64748b" strokeWidth="2" />
+                <rect x="18" y="84" width="116" height="32" rx="10" fill="#f8fafc" stroke="#cbd5e1" />
+                <text x="30" y="104" fontSize="14" fill="#334155">Color: Yellow</text>
+                <line x1="160" y1="202" x2="84" y2="228" stroke="#64748b" strokeWidth="2" />
+                <rect x="20" y="214" width="110" height="32" rx="10" fill="#f8fafc" stroke="#cbd5e1" />
+                <text x="32" y="234" fontSize="14" fill="#334155">Shape: Oval</text>
+                <line x1="284" y1="170" x2="402" y2="132" stroke="#64748b" strokeWidth="2" />
+                <rect x="320" y="112" width="134" height="32" rx="10" fill="#f8fafc" stroke="#cbd5e1" />
+                <text x="332" y="132" fontSize="14" fill="#334155">Imprint: M321</text>
+                <rect x="272" y="226" width="172" height="42" rx="12" fill="#ecfdf5" stroke="#6ee7b7" />
+                <text x="288" y="252" fontSize="16" fill="currentColor" className="text-emerald-700">$0.04 / pill (NADAC)</text>
+              </svg>
+            </div>
+          </div>
           <div className="mt-6 grid gap-3 md:grid-cols-3 text-left">
             {pillarCards.map((card) => (
               <Link
@@ -213,6 +292,12 @@ export default function HomePage() {
 
       <section className="py-8 px-4">
         <div className="max-w-4xl mx-auto">
+          {/* TODO: bump on content review */}
+          <p className="text-center text-xs text-slate-500 mb-4">
+            Medical content reviewed by licensed pharmacists ·{' '}
+            <span className="font-medium text-slate-600">Last updated: November 2025</span>{' '}
+            · <Link href="/about" className="underline hover:text-slate-700">About our editorial process</Link>
+          </p>
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
             <p className="text-amber-800 text-sm text-center leading-relaxed">
               <strong>⚠️ Medical Disclaimer:</strong> PillSeek is for educational and
@@ -287,6 +372,16 @@ export default function HomePage() {
       </section>
 
       <PopularMedications />
+
+      <section className="py-12 px-4 bg-slate-50 border-t border-slate-200">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-2xl font-bold text-slate-900 text-center mb-3">Frequently Asked Questions</h2>
+          <p className="text-slate-600 text-center max-w-2xl mx-auto mb-8">
+            Common questions about pill identification, pricing data, and how PillSeek works.
+          </p>
+          <HomeFaq items={homeFaqs} />
+        </div>
+      </section>
 
       <section className="py-12 px-4">
         <div className="max-w-4xl mx-auto">
