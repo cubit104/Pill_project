@@ -30,6 +30,30 @@ export const metadata: Metadata = {
 }
 
 export default function HomePage() {
+  const pillarCards = [
+    {
+      href: '/pill/lisinopril',
+      icon: '💊',
+      title: 'Identify a Pill',
+      description: 'Match any tablet or capsule by imprint, color, shape, or drug name.',
+      cta: 'Try Lisinopril →',
+    },
+    {
+      href: '/pill/plavix-75-1171/price',
+      icon: '💰',
+      title: 'Price Check',
+      description: 'Compare generic vs. brand prices and see 12-month price trends — sourced from NADAC (CMS).',
+      cta: 'Try Plavix →',
+    },
+    {
+      href: '/pill/metformin/medication-guide',
+      icon: '📋',
+      title: 'Patient Guide',
+      description: 'Plain-language dosing, side effects, and what to know before taking your medication.',
+      cta: 'Try Metformin →',
+    },
+  ] as const
+
   return (
     <>
       <script
@@ -53,25 +77,37 @@ export default function HomePage() {
             className="mx-auto mb-4"
           />
           <h1 className="text-4xl sm:text-5xl font-bold mb-3 tracking-tight text-slate-900">
-            Know your pill. <span className="text-emerald-700">Be sure.</span>
+            Know your pill. <span className="text-emerald-700">Know the price.</span>{' '}
+            <span className="text-emerald-700">Know how to take it.</span>
           </h1>
-          <p className="text-lg sm:text-xl text-slate-600 mb-2 font-medium">
-            Identify Any Medication by Imprint, Color, Shape, Drug Name, or NDC
-          </p>
-          <p className="text-slate-500 text-sm mb-8">
-            Search our database of thousands of FDA-approved medications instantly
+          <p className="text-slate-600 text-base sm:text-lg mb-8 max-w-3xl mx-auto">
+            Free, FDA-sourced medication info — identification, pricing, and patient-friendly guides. No account needed.
           </p>
           <HomeSearch />
+          <div className="mt-8 grid gap-4 md:grid-cols-3 text-left">
+            {pillarCards.map((card) => (
+              <Link
+                key={card.title}
+                href={card.href}
+                className="block rounded-xl border border-slate-200 bg-slate-50/90 p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+              >
+                <span className="text-2xl" aria-hidden="true">{card.icon}</span>
+                <h2 className="mt-3 text-lg font-semibold text-slate-900">{card.title}</h2>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">{card.description}</p>
+                <span className="mt-3 inline-flex text-sm font-semibold text-emerald-700">{card.cta}</span>
+              </Link>
+            ))}
+          </div>
         </div>
       </section>
 
       <section className="bg-white border-y border-slate-200 py-10 px-4">
         <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
           {[
-            { value: '10,000+', label: 'Medications' },
-            { value: 'Free', label: 'Always Free' },
-            { value: 'FDA', label: 'Data Source' },
-            { value: '24/7', label: 'Available' },
+            { value: '10,000+', label: 'FDA-approved medications' },
+            { value: 'Free', label: 'No ads · No account' },
+            { value: 'Official', label: 'FDA · NADAC (CMS) · RxNorm' },
+            { value: 'Weekly', label: 'Pricing data updated' },
           ].map((stat) => (
             <div key={stat.label}>
               <p className="text-3xl font-bold text-emerald-700">{stat.value}</p>
@@ -79,6 +115,9 @@ export default function HomePage() {
             </div>
           ))}
         </div>
+        <p className="max-w-4xl mx-auto mt-6 text-center text-xs sm:text-sm text-slate-500">
+          PillSeek is an information service. Always consult your pharmacist or doctor before making medication decisions.
+        </p>
       </section>
 
       {/* How It Works — illustrated cards */}
