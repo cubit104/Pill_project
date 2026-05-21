@@ -578,7 +578,7 @@ def test_get_price_cache_hit_with_recent_effective_date_skips_metadata():
     mock_fetch.assert_not_awaited()
 
 
-def test_get_price_cache_hit_with_old_effective_date_fetches_metadata():
+def test_get_price_cache_hit_with_old_effective_date_skips_metadata_when_fetched_at_is_fresh():
     svc = NADACPricingService()
     old_effective_date = date.today() - timedelta(days=svc.stale_threshold_days + 1)
     cached = {
@@ -592,28 +592,36 @@ def test_get_price_cache_hit_with_old_effective_date_fetches_metadata():
     }
 
     with patch.object(svc, "_get_cached_price", return_value=cached), \
-         patch.object(svc, "_cache_fresh", side_effect=[True, False]), \
-         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": date.today().isoformat()})) as mock_metadata, \
-         patch.object(
-             svc,
-             "_fetch_nadac_latest_for_ndc",
-             new=AsyncMock(
-                 return_value={
-                     "ndc": "00002140102",
-                     "price_per_unit": 0.5,
-                     "unit": "EA",
-                     "effective_date": date.today().isoformat(),
-                     "source": "NADAC (CMS)",
-                     "as_of_week": date.today().isoformat(),
-                     "raw_payload": {},
-                 }
-             ),
-         ), \
-         patch.object(svc, "_upsert_price_cache", return_value=None):
+         patch.object(svc, "_cache_fresh", return_value=True), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock()) as mock_metadata, \
+         patch.object(svc, "_fetch_nadac_latest_for_ndc", new=AsyncMock()) as mock_fetch:
         result = asyncio.run(svc.get_price("00002-1401-02"))
 
-    assert result["cache_status"] == "stale"
-    mock_metadata.assert_awaited_once()
+    assert result["cache_status"] == "hit"
+    mock_metadata.assert_not_awaited()
+    mock_fetch.assert_not_awaited()
+
+
+def test_get_price_uses_fresh_cache_without_metadata_lookup():
+    svc = NADACPricingService()
+    fixed_now = datetime(2026, 5, 20, tzinfo=timezone.utc)
+    cached = {
+        "ndc": "00002140102",
+        "price_per_unit": 0.25,
+        "unit": "EA",
+        "effective_date": "2026-01-01",
+        "source": "NADAC",
+        "raw_payload": {},
+        "fetched_at": fixed_now,
+    }
+
+    with patch.object(svc, "_get_cached_price", return_value=cached), \
+         patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(side_effect=AssertionError("metadata should not be called"))), \
+         patch.object(svc, "_fetch_nadac_latest_for_ndc", new=AsyncMock()) as mock_fetch:
+        result = asyncio.run(svc.get_price("00002-1401-02"))
+
+    assert result["cache_status"] == "hit"
+    mock_fetch.assert_not_awaited()
 
 
 def test_get_price_cache_miss_when_stale_refreshes():
@@ -1132,6 +1140,40 @@ def test_get_price_history_uses_cache_when_present():
     assert [h["effective_date"] for h in history] == ["2026-05-01", "2026-05-08"]
 
 
+def test_get_price_history_recent_cache_skips_metadata_lookup():
+    svc = NADACPricingService()
+
+    mock_engine = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.__enter__.return_value = mock_conn
+    mock_conn.__exit__.return_value = False
+    mock_engine.connect.return_value = mock_conn
+
+    rows = [
+        {
+            "ndc": "00002140102",
+            "effective_date": (date.today() - timedelta(days=1)).isoformat(),
+            "price_per_unit": 0.45,
+            "unit": "EA",
+        },
+    ]
+    mock_result = MagicMock()
+    mock_result.mappings.return_value.all.return_value = rows
+    mock_conn.execute.return_value = mock_result
+
+    with patch("database.db_engine", mock_engine), \
+         patch.object(svc, "_ensure_db", return_value=None), \
+         patch.object(
+             svc,
+             "_get_latest_dataset_metadata",
+             new=AsyncMock(side_effect=AssertionError("metadata should not be called")),
+         ):
+        history = asyncio.run(svc.get_price_history("00002-1401-02", weeks=2))
+
+    assert len(history) == 1
+    assert history[0]["ndc"] == "00002140102"
+
+
 def test_get_price_history_refreshes_when_cache_stale():
     svc = NADACPricingService()
 
@@ -1353,6 +1395,8 @@ def test_get_alternatives_prefers_fresh_bulk_cache():
     }
 
     with patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "Lisinopril", "rxcui": "123"})), \
+         patch.object(svc, "_get_cached_ingredient_ndcs", return_value=None), \
+         patch.object(svc, "_upsert_ingredient_ndcs", return_value=None), \
          patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
          patch.object(svc, "_related_product_rxcuis", new=AsyncMock(return_value=[{"rxcui": "111", "name": "Lisinopril", "tty": "SCD"}])), \
          patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(return_value=["00002140102"])), \
@@ -1365,6 +1409,126 @@ def test_get_alternatives_prefers_fresh_bulk_cache():
     assert len(result["alternatives"]) == 1
     assert result["alternatives"][0]["ndc"] == "00002140102"
     mock_get_price.assert_not_called()
+
+
+def test_get_alternatives_uses_ingredient_ndcs_and_drug_prices_cache_only():
+    svc = NADACPricingService()
+    fixed_now = datetime(2026, 5, 20, tzinfo=timezone.utc)
+    fresh_cached = {
+        "00002140102": {
+            "ndc": "00002140102",
+            "price_per_unit": 0.25,
+            "unit": "EA",
+            "effective_date": "2026-05-14",
+            "source": "NADAC",
+            "fetched_at": fixed_now,
+            "raw_payload": {},
+        },
+        "00093123401": {
+            "ndc": "00093123401",
+            "price_per_unit": 0.10,
+            "unit": "EA",
+            "effective_date": "2026-05-14",
+            "source": "NADAC",
+            "fetched_at": fixed_now,
+            "raw_payload": {},
+        },
+        "00071015423": {
+            "ndc": "00071015423",
+            "price_per_unit": 8.06,
+            "unit": "EA",
+            "effective_date": "2026-05-14",
+            "source": "NADAC",
+            "fetched_at": fixed_now,
+            "raw_payload": {},
+        },
+    }
+    products = [
+        {"ndc": "00002140102", "rxcui": "111", "name": "clopidogrel 75 MG Oral Tablet", "tty": "SCD"},
+        {"ndc": "00093123401", "rxcui": "222", "name": "clopidogrel 75 MG Oral Tablet", "tty": "SCD"},
+        {"ndc": "00071015423", "rxcui": "333", "name": "Plavix 75 MG Oral Tablet", "tty": "SBD"},
+    ]
+
+    with patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "clopidogrel", "rxcui": "32968"})), \
+         patch.object(
+             svc,
+             "_get_cached_ingredient_ndcs",
+             return_value={
+                 "ingredient_rxcui": "32968",
+                 "ingredient_name": "clopidogrel",
+                 "products": products,
+                 "refreshed_at": fixed_now,
+             },
+         ), \
+         patch.object(svc, "_get_cached_prices_bulk", return_value=fresh_cached), \
+         patch.object(svc, "_related_product_rxcuis", new=AsyncMock(side_effect=AssertionError("rxnav should not be called"))), \
+         patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(side_effect=AssertionError("rxnav should not be called"))), \
+         patch.object(svc, "get_price", new=AsyncMock(side_effect=AssertionError("cms should not be called"))):
+        result = asyncio.run(svc.get_alternatives_by_ingredient("00002140102"))
+
+    assert result["ingredient_rxcui"] == "32968"
+    assert len(result["alternatives"]) >= 1
+
+
+def test_get_or_start_alternatives_task_reuses_inflight_task_and_cleans_up():
+    svc = NADACPricingService()
+
+    async def _run():
+        gate = asyncio.Event()
+
+        async def _slow_alternatives(*_args, **_kwargs):
+            await gate.wait()
+            return {"ingredient": "clopidogrel", "ingredient_rxcui": "32968", "alternatives": []}
+
+        with patch.object(svc, "get_alternatives_by_ingredient", new=AsyncMock(side_effect=_slow_alternatives)) as mock_alts:
+            first = svc._get_or_start_alternatives_task("plavix")
+            second = svc._get_or_start_alternatives_task("plavix")
+            assert first is second
+            assert "plavix" in svc._inflight_alternatives
+
+            gate.set()
+            await asyncio.gather(first, second)
+            await asyncio.sleep(0)
+
+            assert "plavix" not in svc._inflight_alternatives
+            mock_alts.assert_awaited_once_with("plavix")
+
+    asyncio.run(_run())
+
+
+def test_get_or_refresh_ingredient_ndcs_upserts_then_reads_from_cache():
+    svc = NADACPricingService()
+    cached_row: dict[str, Any] | None = None
+    now = datetime(2026, 5, 20, tzinfo=timezone.utc)
+
+    def _get_cached(_ingredient_rxcui):
+        return cached_row
+
+    def _upsert(_ingredient_rxcui, _ingredient_name, products):
+        nonlocal cached_row
+        cached_row = {
+            "ingredient_rxcui": _ingredient_rxcui,
+            "ingredient_name": _ingredient_name,
+            "products": products,
+            "refreshed_at": now,
+        }
+
+    with patch.object(svc, "_get_cached_ingredient_ndcs", side_effect=_get_cached), \
+         patch.object(svc, "_upsert_ingredient_ndcs", side_effect=_upsert) as mock_upsert, \
+         patch.object(
+             svc,
+             "_related_product_rxcuis",
+             new=AsyncMock(return_value=[{"rxcui": "111", "name": "clopidogrel 75 MG Oral Tablet", "tty": "SCD"}]),
+         ) as mock_related, \
+         patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(return_value=["00002140102"])) as mock_ndcs:
+        first = asyncio.run(svc._get_or_refresh_ingredient_ndcs("32968", "clopidogrel"))
+        second = asyncio.run(svc._get_or_refresh_ingredient_ndcs("32968", "clopidogrel"))
+
+    assert first == second
+    assert first == [{"ndc": "00002140102", "rxcui": "111", "name": "clopidogrel 75 MG Oral Tablet", "tty": "SCD"}]
+    assert mock_upsert.call_count == 1
+    mock_related.assert_awaited_once()
+    mock_ndcs.assert_awaited_once()
 
 
 def test_get_alternatives_deduplicates_by_name_and_kind_keeps_cheapest():
@@ -1400,6 +1564,8 @@ def test_get_alternatives_deduplicates_by_name_and_kind_keeps_cheapest():
     }
 
     with patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "clopidogrel", "rxcui": "32968"})), \
+         patch.object(svc, "_get_cached_ingredient_ndcs", return_value=None), \
+         patch.object(svc, "_upsert_ingredient_ndcs", return_value=None), \
          patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
          patch.object(svc, "_related_product_rxcuis", new=AsyncMock(return_value=[{"rxcui": "111", "name": "clopidogrel 75 MG Oral Tablet", "tty": "SCD"}])), \
          patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(side_effect=_ndcs_for_rxcui_side_effect)), \
@@ -1440,6 +1606,8 @@ def test_get_alternatives_limits_to_5_and_marks_cheapest():
         return [ndcs[idx]]
 
     with patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "testdrug", "rxcui": "999"})), \
+         patch.object(svc, "_get_cached_ingredient_ndcs", return_value=None), \
+         patch.object(svc, "_upsert_ingredient_ndcs", return_value=None), \
          patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
          patch.object(svc, "_related_product_rxcuis", new=AsyncMock(return_value=related)), \
          patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(side_effect=_ndcs_side)), \
@@ -1483,6 +1651,8 @@ def test_get_alternatives_computes_generic_vs_brand_ratio():
         return [ndc_generic] if rxcui == "111" else [ndc_brand]
 
     with patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "clopidogrel", "rxcui": "32968"})), \
+         patch.object(svc, "_get_cached_ingredient_ndcs", return_value=None), \
+         patch.object(svc, "_upsert_ingredient_ndcs", return_value=None), \
          patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
          patch.object(svc, "_related_product_rxcuis", new=AsyncMock(return_value=related)), \
          patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(side_effect=_ndcs_side)), \
@@ -1510,6 +1680,8 @@ def test_get_alternatives_no_ratio_when_no_brand():
     related = [{"rxcui": "111", "name": "metformin 500 MG Oral Tablet", "tty": "SCD"}]
 
     with patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "metformin", "rxcui": "6809"})), \
+         patch.object(svc, "_get_cached_ingredient_ndcs", return_value=None), \
+         patch.object(svc, "_upsert_ingredient_ndcs", return_value=None), \
          patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
          patch.object(svc, "_related_product_rxcuis", new=AsyncMock(return_value=related)), \
          patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(return_value=[ndc_generic])), \
@@ -1549,6 +1721,8 @@ def test_get_alternatives_broadens_filters_until_it_has_five_rows():
         return [ndc_for_rxcui[rxcui]]
 
     with patch.object(svc, "_resolve_ingredient", new=AsyncMock(return_value={"name": "amox / clav", "rxcui": "combo"})), \
+         patch.object(svc, "_get_cached_ingredient_ndcs", return_value=None), \
+         patch.object(svc, "_upsert_ingredient_ndcs", return_value=None), \
          patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
          patch.object(svc, "_related_product_rxcuis", new=AsyncMock(return_value=related)), \
          patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(side_effect=_ndcs_side)), \
@@ -1601,6 +1775,8 @@ def test_get_alternatives_marks_primary_ingredient_only_matches_when_needed():
         return None
 
     with patch.object(svc, "_resolve_ingredient", new=AsyncMock(side_effect=_resolve_side)), \
+         patch.object(svc, "_get_cached_ingredient_ndcs", return_value=None), \
+         patch.object(svc, "_upsert_ingredient_ndcs", return_value=None), \
          patch.object(svc, "_get_latest_dataset_metadata", new=AsyncMock(return_value={"as_of_week": "2026-05-14"})), \
          patch.object(svc, "_related_product_rxcuis", new=AsyncMock(side_effect=_related_side)), \
          patch.object(svc, "_ndcs_for_rxcui", new=AsyncMock(side_effect=_ndcs_side)), \

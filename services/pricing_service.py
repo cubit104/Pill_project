@@ -79,6 +79,7 @@ class NADACPricingService:
         self._history_negative_cache: dict[tuple[str, str], datetime] = {}
         self._history_negative_ttl_seconds = int(os.getenv("PRICING_HISTORY_NEG_TTL_SECONDS", "3600"))
         self._inflight_history: dict[tuple[str, int], asyncio.Task] = {}
+        self._inflight_alternatives: dict[str, asyncio.Task] = {}
         self._logged_datasets: set[str] = set()
         self._logged_schema_failures: set[str] = set()
         self._http_client: httpx.AsyncClient | None = None
@@ -114,6 +115,23 @@ class NADACPricingService:
         def _cleanup(_t: asyncio.Task) -> None:
             if self._inflight_history.get(key) is task:
                 self._inflight_history.pop(key, None)
+
+        task.add_done_callback(_cleanup)
+        return task
+
+    def _get_or_start_alternatives_task(self, lookup_token: str) -> asyncio.Task:
+        key = self._slugify_token(lookup_token.strip().lower())
+        task = self._inflight_alternatives.get(key)
+        if task is not None and not task.done():
+            logger.info("[alternatives-inflight] reusing task token=%s", lookup_token)
+            return task
+        task = asyncio.create_task(self.get_alternatives_by_ingredient(lookup_token))
+        self._inflight_alternatives[key] = task
+        logger.info("[alternatives-inflight] started task token=%s", lookup_token)
+
+        def _cleanup(_t: asyncio.Task) -> None:
+            if self._inflight_alternatives.get(key) is task:
+                self._inflight_alternatives.pop(key, None)
 
         task.add_done_callback(_cleanup)
         return task
@@ -1100,6 +1118,158 @@ class NADACPricingService:
                 raise PricingServiceError("drug_prices table missing — did the migration run?") from exc
             raise
 
+    @staticmethod
+    def _normalize_ingredient_products(products: Any) -> list[dict[str, str]]:
+        if isinstance(products, str):
+            try:
+                products = json.loads(products)
+            except Exception:
+                products = None
+        if not isinstance(products, list):
+            return []
+        out: list[dict[str, str]] = []
+        for item in products:
+            if not isinstance(item, dict):
+                continue
+            ndc = str(item.get("ndc") or "").strip()
+            rxcui = str(item.get("rxcui") or "").strip()
+            if not ndc:
+                continue
+            out.append(
+                {
+                    "ndc": ndc,
+                    "rxcui": rxcui,
+                    "name": str(item.get("name") or ""),
+                    "tty": str(item.get("tty") or ""),
+                }
+            )
+        return out
+
+    # connection scoped to function body.
+    def _get_cached_ingredient_ndcs(self, ingredient_rxcui: str) -> dict[str, Any] | None:
+        self._ensure_db()
+        try:
+            with database.db_engine.connect() as conn:
+                row = conn.execute(
+                    text(
+                        """
+                        SELECT ingredient_rxcui, ingredient_name, products, refreshed_at
+                        FROM ingredient_ndcs
+                        WHERE ingredient_rxcui = :ingredient_rxcui
+                        LIMIT 1
+                        """
+                    ),
+                    {"ingredient_rxcui": ingredient_rxcui},
+                ).mappings().first()
+                return dict(row) if row else None
+        except ProgrammingError as exc:
+            if self._is_missing_relation(exc):
+                logger.error("ingredient_ndcs table missing — did the migration run?")
+                raise PricingServiceError("ingredient_ndcs table missing — did the migration run?") from exc
+            raise
+
+    # connection scoped to function body.
+    def _find_cached_ingredient_for_ndc(self, ndc_digits: str) -> dict[str, Any] | None:
+        self._ensure_db()
+        try:
+            with database.db_engine.connect() as conn:
+                row = conn.execute(
+                    text(
+                        """
+                        SELECT ingredient_rxcui, ingredient_name, products, refreshed_at
+                        FROM ingredient_ndcs
+                        WHERE products @> CAST(:needle AS JSONB)
+                        ORDER BY refreshed_at DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"needle": json.dumps([{"ndc": ndc_digits}])},
+                ).mappings().first()
+                return dict(row) if row else None
+        except ProgrammingError as exc:
+            if self._is_missing_relation(exc):
+                logger.error("ingredient_ndcs table missing — did the migration run?")
+                raise PricingServiceError("ingredient_ndcs table missing — did the migration run?") from exc
+            raise
+
+    # connection scoped to function body.
+    def _upsert_ingredient_ndcs(
+        self,
+        ingredient_rxcui: str,
+        ingredient_name: str,
+        products: list[dict[str, str]],
+    ) -> None:
+        self._ensure_db()
+        with database.db_engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO ingredient_ndcs (ingredient_rxcui, ingredient_name, products, refreshed_at)
+                    VALUES (:ingredient_rxcui, :ingredient_name, CAST(:products AS JSONB), NOW())
+                    ON CONFLICT (ingredient_rxcui) DO UPDATE
+                    SET ingredient_name = EXCLUDED.ingredient_name,
+                        products = EXCLUDED.products,
+                        refreshed_at = NOW()
+                    """
+                ),
+                {
+                    "ingredient_rxcui": ingredient_rxcui,
+                    "ingredient_name": ingredient_name,
+                    "products": json.dumps(products),
+                },
+            )
+
+    async def _get_or_refresh_ingredient_ndcs(
+        self,
+        ingredient_rxcui: str,
+        ingredient_name: str,
+    ) -> list[dict[str, str]]:
+        cached = self._get_cached_ingredient_ndcs(ingredient_rxcui)
+        if cached:
+            refreshed_at = cached.get("refreshed_at")
+            if isinstance(refreshed_at, str):
+                try:
+                    refreshed_at = datetime.fromisoformat(refreshed_at.replace("Z", "+00:00"))
+                except Exception:
+                    refreshed_at = None
+            if isinstance(refreshed_at, datetime):
+                if refreshed_at.tzinfo is None:
+                    refreshed_at = refreshed_at.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - refreshed_at <= self.cache_ttl:
+                    return self._normalize_ingredient_products(cached.get("products"))
+
+        related_rxcuis = await self._related_product_rxcuis(ingredient_rxcui)
+        if not related_rxcuis:
+            self._upsert_ingredient_ndcs(ingredient_rxcui, ingredient_name, [])
+            return []
+
+        ndc_lists = await asyncio.gather(
+            *(self._ndcs_for_rxcui(product["rxcui"]) for product in related_rxcuis[:MAX_RELATED_RXCUIS]),
+            return_exceptions=True,
+        )
+        products: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for related, ndc_list in zip(related_rxcuis[:MAX_RELATED_RXCUIS], ndc_lists):
+            if isinstance(ndc_list, Exception):
+                logger.debug("Skipping RxCUI=%s ingredient cache refresh error: %s", related["rxcui"], ndc_list)
+                continue
+            for ndc in ndc_list:
+                key = (ndc, related["rxcui"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                products.append(
+                    {
+                        "ndc": ndc,
+                        "rxcui": related["rxcui"],
+                        "name": related.get("name", ""),
+                        "tty": related.get("tty", ""),
+                    }
+                )
+
+        self._upsert_ingredient_ndcs(ingredient_rxcui, ingredient_name, products)
+        return products
+
     # connection scoped to function body.
     def _upsert_price_cache(
         self,
@@ -1287,7 +1457,7 @@ class NADACPricingService:
         cache_started = perf_counter()
         cached = self._get_cached_price(ndc_digits)
         cache_duration_ms = (perf_counter() - cache_started) * 1000
-        if cached and self._cache_fresh(cached, None) and self._is_effective_date_within_threshold(cached):
+        if cached and self._cache_fresh(cached, None):
             total_duration_ms = (perf_counter() - request_started) * 1000
             logger.info("[price-cache] %s - hit - %.2fms", ndc_digits, total_duration_ms)
             return self._build_hit_response(
@@ -1561,14 +1731,6 @@ class NADACPricingService:
         weeks = max(1, min(int(weeks), 260))
         self._ensure_db()
 
-        latest_week = None
-        metadata: dict[str, Any] | None = None
-        try:
-            metadata = await self._get_latest_dataset_metadata()
-            latest_week = self._parse_date(metadata.get("as_of_week"))
-        except Exception:
-            logger.exception("Failed to resolve NADAC metadata for history lookup")
-
         with database.db_engine.connect() as conn:
             cached_rows = conn.execute(
                 text(
@@ -1582,6 +1744,29 @@ class NADACPricingService:
                 ),
                 {"ndc": ndc_digits, "weeks": weeks},
             ).mappings().all()
+        if cached_rows:
+            newest_cached = self._parse_date(cached_rows[0].get("effective_date"))
+            cache_recent_enough = newest_cached is not None and newest_cached >= (date.today() - timedelta(days=14))
+            if cache_recent_enough:
+                ordered = list(reversed(cached_rows))
+                return [
+                    {
+                        "ndc": row["ndc"],
+                        "effective_date": str(row["effective_date"]),
+                        "price_per_unit": float(row["price_per_unit"]),
+                        "unit": row["unit"],
+                    }
+                    for row in ordered
+                ]
+
+        latest_week = None
+        metadata: dict[str, Any] | None = None
+        try:
+            metadata = await self._get_latest_dataset_metadata()
+            latest_week = self._parse_date(metadata.get("as_of_week"))
+        except Exception:
+            logger.exception("Failed to resolve NADAC metadata for history lookup")
+
         if cached_rows:
             newest_cached = self._parse_date(cached_rows[0].get("effective_date"))
             cache_recent_enough = (
@@ -1900,76 +2085,98 @@ class NADACPricingService:
                 return ndcs[0]
         return None
 
-    async def get_alternatives_by_ingredient(self, rxcui_or_ingredient: str) -> dict[str, Any]:
-        logger.info("Resolving NADAC alternatives for token=%s", rxcui_or_ingredient)
-        token = rxcui_or_ingredient.strip()
+    async def get_alternatives_db_only(self, rxcui_or_ingredient: str) -> dict[str, Any]:
+        token = (rxcui_or_ingredient or "").strip()
         if not token:
-            raise ValueError("Ingredient or RxCUI is required")
+            return {"ingredient": None, "ingredient_rxcui": None, "alternatives": [], "disclaimers": DEFAULT_DISCLAIMERS}
 
-        ingredient = await self._resolve_ingredient(token)
-        if not ingredient:
-            raise PricingNotFoundError("Could not resolve ingredient for alternatives lookup")
+        ingredient_row: dict[str, Any] | None = None
+        normalized_ndc = self._normalize_ndc_digits(token)
+        if normalized_ndc:
+            ingredient_row = self._find_cached_ingredient_for_ndc(normalized_ndc)
+        if ingredient_row is None and token.isdigit():
+            ingredient_row = self._get_cached_ingredient_ndcs(token)
 
-        latest_week = None
-        try:
-            metadata = await self._get_latest_dataset_metadata()
-            latest_week = self._parse_date(metadata.get("as_of_week"))
-        except Exception:
-            logger.exception("Failed to resolve NADAC metadata for alternatives lookup")
+        if not ingredient_row:
+            return {"ingredient": None, "ingredient_rxcui": None, "alternatives": [], "disclaimers": DEFAULT_DISCLAIMERS}
 
-        async def _collect_alternatives(related_rxcuis: list[dict[str, str]]) -> list[dict[str, Any]]:
+        ingredient = {
+            "name": str(ingredient_row.get("ingredient_name") or ""),
+            "rxcui": str(ingredient_row.get("ingredient_rxcui") or ""),
+        }
+        related_rxcuis = self._normalize_ingredient_products(ingredient_row.get("products"))
+
+        return await self._build_alternatives_response(
+            token,
+            ingredient,
+            related_rxcuis,
+            refresh_prices=False,
+            raise_on_empty=False,
+        )
+
+    async def _build_alternatives_response(
+        self,
+        token: str,
+        ingredient: dict[str, str],
+        related_rxcuis: list[dict[str, str]],
+        *,
+        refresh_prices: bool,
+        raise_on_empty: bool,
+    ) -> dict[str, Any]:
+        async def _collect_alternatives(related_rows: list[dict[str, str]], *, refresh_prices_inner: bool) -> list[dict[str, Any]]:
             ndc_meta: dict[str, dict[str, str]] = {}
-            related_subset = related_rxcuis[:MAX_RELATED_RXCUIS]
-            ndc_lists = await asyncio.gather(
-                *(self._ndcs_for_rxcui(related["rxcui"]) for related in related_subset),
-                return_exceptions=True,
-            )
-
+            pending_rxcuies: list[dict[str, str]] = []
             ndcs: list[str] = []
-            for related, ndc_list in zip(related_subset, ndc_lists):
-                if isinstance(ndc_list, Exception):
-                    logger.debug("Skipping RxCUI=%s NDC lookup error: %s", related["rxcui"], ndc_list)
-                    continue
-                ndcs.extend(ndc_list)
-                for ndc in ndc_list:
-                    ndc_meta.setdefault(ndc, related)
-            ndcs = list(dict.fromkeys(ndcs))[:MAX_ALTERNATIVE_NDCS]
 
+            for related in related_rows[:MAX_RELATED_RXCUIS]:
+                existing_ndc = self._normalize_ndc_digits(str(related.get("ndc") or ""))
+                if existing_ndc:
+                    ndcs.append(existing_ndc)
+                    ndc_meta.setdefault(existing_ndc, related)
+                    continue
+                if related.get("rxcui"):
+                    pending_rxcuies.append(related)
+
+            if pending_rxcuies:
+                ndc_lists = await asyncio.gather(
+                    *(self._ndcs_for_rxcui(str(related["rxcui"])) for related in pending_rxcuies),
+                    return_exceptions=True,
+                )
+                for related, ndc_list in zip(pending_rxcuies, ndc_lists):
+                    if isinstance(ndc_list, Exception):
+                        logger.debug("Skipping RxCUI=%s NDC lookup error: %s", related["rxcui"], ndc_list)
+                        continue
+                    ndcs.extend(ndc_list)
+                    for ndc in ndc_list:
+                        ndc_meta.setdefault(ndc, related)
+
+            ndcs = list(dict.fromkeys(ndcs))[:MAX_ALTERNATIVE_NDCS]
+            cached_rows = self._get_cached_prices_bulk(ndcs)
             rows: list[dict[str, Any]] = []
             stale_or_missing_ndcs: list[str] = []
-            cached_rows = self._get_cached_prices_bulk(ndcs)
+
             for ndc in ndcs:
                 cached = cached_rows.get(ndc)
-                if cached and self._cache_fresh(cached, latest_week):
-                    item = {
+                if not cached or not self._cache_fresh(cached, None):
+                    stale_or_missing_ndcs.append(ndc)
+                    continue
+                meta = ndc_meta.get(ndc, {})
+                tty = str(meta.get("tty") or "")
+                rows.append(
+                    {
                         "ndc": str(cached["ndc"]),
                         "price_per_unit": float(cached["price_per_unit"]),
                         "unit": str(cached["unit"]),
                         "effective_date": str(cached["effective_date"]),
                         "source": NADAC_SOURCE,
-                        "as_of_week": latest_week.isoformat() if latest_week else None,
-                    }
-                else:
-                    stale_or_missing_ndcs.append(ndc)
-                    continue
-
-                meta = ndc_meta.get(ndc, {})
-                tty = str(meta.get("tty") or "")
-                rows.append(
-                    {
-                        "ndc": item["ndc"],
-                        "price_per_unit": item["price_per_unit"],
-                        "unit": item["unit"],
-                        "effective_date": item["effective_date"],
-                        "source": item["source"],
-                        "as_of_week": item.get("as_of_week"),
+                        "as_of_week": None,
                         "name": meta.get("name"),
                         "tty": tty,
                         "kind": "brand" if tty.startswith(("SB", "BP")) else "generic",
                     }
                 )
 
-            if stale_or_missing_ndcs:
+            if refresh_prices_inner and stale_or_missing_ndcs:
                 semaphore = asyncio.Semaphore(ALTERNATIVES_FETCH_CONCURRENCY)
 
                 async def _fetch_missing_price(ndc: str):
@@ -2006,11 +2213,17 @@ class NADACPricingService:
 
             return rows
 
-        related_rxcuis = await self._related_product_rxcuis(ingredient["rxcui"])
-        alternatives = await _collect_alternatives(related_rxcuis)
+        alternatives = await _collect_alternatives(related_rxcuis, refresh_prices_inner=refresh_prices)
+        if not alternatives and raise_on_empty:
+            raise PricingNotFoundError("No NADAC alternatives found for this ingredient")
 
         if not alternatives:
-            raise PricingNotFoundError("No NADAC alternatives found for this ingredient")
+            return {
+                "ingredient": ingredient.get("name"),
+                "ingredient_rxcui": ingredient.get("rxcui"),
+                "alternatives": [],
+                "disclaimers": DEFAULT_DISCLAIMERS,
+            }
 
         ingredient_terms = self._normalize_ingredient_terms(ingredient["name"])
         normalized_ndc = self._normalize_ndc_digits(token)
@@ -2044,12 +2257,15 @@ class NADACPricingService:
         if len(scoped) < 3:
             scoped = _filter_rows(include_dose_form=False, include_strength=False)
 
-        if len(scoped) < 3 and len(ingredient_terms) > 1:
+        if refresh_prices and len(scoped) < 3 and len(ingredient_terms) > 1:
             primary_token = ingredient_terms[0]
             primary_ingredient = await self._resolve_ingredient(primary_token)
             if primary_ingredient and primary_ingredient.get("rxcui") and primary_ingredient["rxcui"] != ingredient["rxcui"]:
-                primary_related = await self._related_product_rxcuis(primary_ingredient["rxcui"])
-                primary_rows = await _collect_alternatives(primary_related)
+                primary_related = await self._get_or_refresh_ingredient_ndcs(
+                    primary_ingredient["rxcui"],
+                    primary_ingredient["name"],
+                )
+                primary_rows = await _collect_alternatives(primary_related, refresh_prices_inner=refresh_prices)
                 primary_only_rows: list[dict[str, Any]] = []
                 for row in primary_rows:
                     lowered_name = str(row.get("name") or "").lower()
@@ -2062,14 +2278,10 @@ class NADACPricingService:
                     primary_only_rows.append(tagged)
                 scoped = self._dedupe_alternatives(scoped + primary_only_rows)
 
-        # Limit to top 5 unique products.
         alternatives = scoped[:5]
-
-        # Mark the single cheapest result.
         for i, alt in enumerate(alternatives):
             alt["is_cheapest"] = i == 0
 
-        # Compute generic_vs_brand_ratio when both brand and generic exist.
         brands = [a for a in alternatives if a.get("kind") == "brand"]
         generics = [a for a in alternatives if a.get("kind") != "brand"]
         generic_vs_brand_ratio: int | None = None
@@ -2088,6 +2300,50 @@ class NADACPricingService:
         if generic_vs_brand_ratio is not None:
             result["generic_vs_brand_ratio"] = generic_vs_brand_ratio
         return result
+
+    async def get_alternatives_by_ingredient(self, rxcui_or_ingredient: str) -> dict[str, Any]:
+        logger.info("Resolving NADAC alternatives for token=%s", rxcui_or_ingredient)
+        token = rxcui_or_ingredient.strip()
+        if not token:
+            raise ValueError("Ingredient or RxCUI is required")
+
+        ingredient = await self._resolve_ingredient(token)
+        if not ingredient:
+            raise PricingNotFoundError("Could not resolve ingredient for alternatives lookup")
+
+        cached_mapping = self._get_cached_ingredient_ndcs(ingredient["rxcui"])
+        if cached_mapping:
+            refreshed_at = cached_mapping.get("refreshed_at")
+            if isinstance(refreshed_at, str):
+                try:
+                    refreshed_at = datetime.fromisoformat(refreshed_at.replace("Z", "+00:00"))
+                except Exception:
+                    refreshed_at = None
+            mapping_fresh = isinstance(refreshed_at, datetime) and (
+                datetime.now(timezone.utc) - (
+                    refreshed_at if refreshed_at.tzinfo else refreshed_at.replace(tzinfo=timezone.utc)
+                )
+                <= self.cache_ttl
+            )
+            if mapping_fresh:
+                fast_result = await self._build_alternatives_response(
+                    token,
+                    ingredient,
+                    self._normalize_ingredient_products(cached_mapping.get("products")),
+                    refresh_prices=False,
+                    raise_on_empty=False,
+                )
+                if len(fast_result.get("alternatives") or []) >= 3:
+                    return fast_result
+
+        related_rxcuis = await self._get_or_refresh_ingredient_ndcs(ingredient["rxcui"], ingredient["name"])
+        return await self._build_alternatives_response(
+            token,
+            ingredient,
+            related_rxcuis,
+            refresh_prices=True,
+            raise_on_empty=True,
+        )
 
     async def fetch_latest_week_rows(self, *, limit: int = 5000, offset: int = 0) -> tuple[str | None, list[dict[str, Any]]]:
         metadata = await self._get_latest_dataset_metadata()
