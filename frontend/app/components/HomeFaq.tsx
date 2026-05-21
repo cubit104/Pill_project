@@ -24,7 +24,7 @@ export const HOME_FAQS = [
     answer:
       'PillSeek uses authoritative medication data from the FDA NDC Directory, DailyMed, RxNorm, and NADAC pricing files.',
   },
-] as const
+]
 
 export default function HomeFaq() {
   return (
