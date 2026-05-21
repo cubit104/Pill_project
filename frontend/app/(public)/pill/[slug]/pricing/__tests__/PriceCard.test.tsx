@@ -391,6 +391,89 @@ test('fetchPriceCardDownstream uses matched_ndc history URL when equivalent matc
   assert.deepEqual(result.history, [])
 })
 
+test('fetchPriceCardDownstream retries history once when backend is warming', async () => {
+  const calls: string[] = []
+  const originalSetTimeout = globalThis.setTimeout
+  globalThis.setTimeout = ((fn: (...args: any[]) => void) => {
+    fn()
+    return 0 as any
+  }) as typeof setTimeout
+
+  try {
+    let historyCallCount = 0
+    const fetchImpl = async (input: RequestInfo | URL) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.endsWith('/alternatives')) {
+        return new Response(JSON.stringify({ alternatives: [], generic_vs_brand_ratio: null }), { status: 200 })
+      }
+      if (url.endsWith('/strengths')) {
+        return new Response(JSON.stringify({ ndc: '00378018101', ingredient: null, ingredient_rxcui: null, strengths: [] }), { status: 200 })
+      }
+      historyCallCount += 1
+      if (historyCallCount === 1) {
+        return new Response(JSON.stringify({ history: [] }), {
+          status: 200,
+          headers: { 'X-Price-History': 'warming' },
+        })
+      }
+      return new Response(JSON.stringify({
+        history: [{ ndc: '00378018101', effective_date: '2026-05-20', price_per_unit: 0.31, unit: 'EA' }],
+      }), { status: 200 })
+    }
+
+    const result = await fetchPriceCardDownstream({
+      apiBase: 'https://api.example.com',
+      downstreamNdc: '00378018101',
+      fetchImpl,
+    })
+
+    const historyCalls = calls.filter((url) => url.endsWith('/history?weeks=52'))
+    assert.equal(historyCalls.length, 2)
+    assert.equal(result.history.length, 1)
+  } finally {
+    globalThis.setTimeout = originalSetTimeout
+  }
+})
+
+test('fetchPriceCardDownstream does only one warming retry before returning empty history', async () => {
+  const calls: string[] = []
+  const originalSetTimeout = globalThis.setTimeout
+  globalThis.setTimeout = ((fn: (...args: any[]) => void) => {
+    fn()
+    return 0 as any
+  }) as typeof setTimeout
+
+  try {
+    const fetchImpl = async (input: RequestInfo | URL) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.endsWith('/alternatives')) {
+        return new Response(JSON.stringify({ alternatives: [], generic_vs_brand_ratio: null }), { status: 200 })
+      }
+      if (url.endsWith('/strengths')) {
+        return new Response(JSON.stringify({ ndc: '00378018101', ingredient: null, ingredient_rxcui: null, strengths: [] }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ history: [] }), {
+        status: 200,
+        headers: { 'X-Price-History': 'warming' },
+      })
+    }
+
+    const result = await fetchPriceCardDownstream({
+      apiBase: 'https://api.example.com',
+      downstreamNdc: '00378018101',
+      fetchImpl,
+    })
+
+    const historyCalls = calls.filter((url) => url.endsWith('/history?weeks=52'))
+    assert.equal(historyCalls.length, 2)
+    assert.deepEqual(result.history, [])
+  } finally {
+    globalThis.setTimeout = originalSetTimeout
+  }
+})
+
 test('PriceCard renders price immediately when initialData.price present, then fetches alternatives/history', async () => {
   const originalFetch = global.fetch
   const calls: string[] = []

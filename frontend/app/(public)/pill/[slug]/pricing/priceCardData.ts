@@ -3,6 +3,7 @@ import type { PriceHistoryPoint } from './PriceHistorySparkline'
 import type { StrengthOption } from './StrengthSelector'
 
 const NDC_DIGIT_LENGTH = 11
+const HISTORY_WARMING_RETRY_DELAY_MS = 12_000
 
 export interface PriceResponse {
   ndc: string
@@ -89,6 +90,24 @@ async function fetchJsonOrNull<T>(fetchImpl: FetchImpl, url: string): Promise<T 
   }
 }
 
+async function fetchHistoryWithWarmRetry(fetchImpl: FetchImpl, url: string): Promise<HistoryResponse | null> {
+  try {
+    const response = await fetchImpl(url)
+    if (!response.ok) return null
+    const history = await response.json() as HistoryResponse
+    const isWarming = response.headers.get('X-Price-History')?.toLowerCase() === 'warming'
+    if (isWarming && Array.isArray(history.history) && history.history.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, HISTORY_WARMING_RETRY_DELAY_MS))
+      const retryResponse = await fetchImpl(url)
+      if (!retryResponse.ok) return history
+      return await retryResponse.json() as HistoryResponse
+    }
+    return history
+  } catch {
+    return null
+  }
+}
+
 export async function fetchPriceCardDownstream({
   apiBase,
   downstreamNdc,
@@ -117,7 +136,7 @@ export async function fetchPriceCardDownstream({
     : `${apiBase}/api/prices/${encodeURIComponent(ndcForHistory || downstreamNdc)}/history?weeks=52`
   const [alternativesData, historyData, strengthsData] = await Promise.all([
     fetchJsonOrNull<AlternativesResponse>(fetchImpl, `${apiBase}/api/prices/${encoded}/alternatives`),
-    historyPath ? fetchJsonOrNull<HistoryResponse>(fetchImpl, historyPath) : Promise.resolve({ history: [] }),
+    historyPath ? fetchHistoryWithWarmRetry(fetchImpl, historyPath) : Promise.resolve({ history: [] }),
     fetchJsonOrNull<StrengthsResponse>(fetchImpl, `${apiBase}/api/prices/${encoded}/strengths`),
   ])
 
