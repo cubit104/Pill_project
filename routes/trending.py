@@ -7,7 +7,7 @@ from threading import Lock
 from typing import Any
 
 from fastapi import APIRouter, Query
-from sqlalchemy import text
+from sqlalchemy import String, bindparam, column, func, select, table, text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
@@ -23,12 +23,12 @@ _SLUG_COLUMNS = ("slug", "pill_slug")
 _TIMESTAMP_COLUMNS = ("viewed_at", "created_at", "timestamp", "viewed_on", "inserted_at")
 
 
-def _iso_now() -> str:
+def _utc_iso_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _empty_payload(days: int) -> dict[str, Any]:
-    return {"pills": [], "as_of": _iso_now(), "window_days": days}
+    return {"pills": [], "as_of": _utc_iso_now(), "window_days": days}
 
 
 def _row_value(row: Any, key: str, index: int) -> Any:
@@ -62,6 +62,12 @@ def _discover_pill_views_columns(conn) -> tuple[str | None, str | None]:
     return slug_column, timestamp_column
 
 
+def _validated_identifier(column: str, allowed: tuple[str, ...]) -> str:
+    if column not in allowed:
+        raise ValueError(f"Unexpected SQL identifier: {column}")
+    return column
+
+
 def _load_trending_pills(limit: int, days: int) -> list[dict[str, Any]]:
     if not database.db_engine and not database.connect_to_database():
         return []
@@ -73,63 +79,77 @@ def _load_trending_pills(limit: int, days: int) -> list[dict[str, Any]]:
             slug_column, timestamp_column = _discover_pill_views_columns(conn)
             if not slug_column or not timestamp_column:
                 return []
+            safe_slug_column = _validated_identifier(slug_column, _SLUG_COLUMNS)
+            safe_timestamp_column = _validated_identifier(timestamp_column, _TIMESTAMP_COLUMNS)
+            pill_views = table(
+                "pill_views",
+                column(safe_slug_column),
+                column(safe_timestamp_column),
+            )
+            slug_col = getattr(pill_views.c, safe_slug_column)
+            timestamp_col = getattr(pill_views.c, safe_timestamp_column)
 
-            rows = conn.execute(
-                text(
-                    f"""
-                    SELECT
-                        stats.slug,
-                        pill.medicine_name,
-                        pill.spl_strength,
-                        pill.splcolor_text,
-                        pill.splshape_text,
-                        stats.view_count
-                    FROM (
-                        SELECT
-                            {slug_column} AS slug,
-                            COUNT(*) AS view_count
-                        FROM pill_views
-                        WHERE {slug_column} IS NOT NULL
-                          AND TRIM(CAST({slug_column} AS TEXT)) <> ''
-                          AND {timestamp_column} >= :window_start
-                        GROUP BY {slug_column}
-                        ORDER BY COUNT(*) DESC, {slug_column}
-                        LIMIT :limit
-                    ) AS stats
-                    LEFT JOIN LATERAL (
-                        SELECT
-                            medicine_name,
-                            spl_strength,
-                            splcolor_text,
-                            splshape_text
-                        FROM pillfinder
-                        WHERE deleted_at IS NULL
-                          AND published = true
-                          AND slug = stats.slug
-                        LIMIT 1
-                    ) AS pill ON TRUE
-                    ORDER BY stats.view_count DESC, stats.slug
-                    """
-                ),
-                {"window_start": window_start, "limit": limit},
+            stats_rows = conn.execute(
+                select(
+                    slug_col.label("slug"),
+                    func.count().label("view_count"),
+                )
+                .where(slug_col.is_not(None))
+                .where(func.trim(func.cast(slug_col, String)) != "")
+                .where(timestamp_col >= window_start)
+                .group_by(slug_col)
+                .order_by(func.count().desc(), slug_col)
+                .limit(limit)
             ).fetchall()
+
+            slugs = [str(_row_value(row, "slug", 0)) for row in stats_rows if _row_value(row, "slug", 0)]
+            pillfinder = table(
+                "pillfinder",
+                column("slug"),
+                column("medicine_name"),
+                column("spl_strength"),
+                column("splcolor_text"),
+                column("splshape_text"),
+                column("deleted_at"),
+                column("published"),
+            )
+            details_by_slug: dict[str, Any] = {}
+            if slugs:
+                detail_rows = conn.execute(
+                    select(
+                        pillfinder.c.slug,
+                        pillfinder.c.medicine_name,
+                        pillfinder.c.spl_strength,
+                        pillfinder.c.splcolor_text,
+                        pillfinder.c.splshape_text,
+                    )
+                    .where(pillfinder.c.deleted_at.is_(None))
+                    .where(pillfinder.c.published.is_(True))
+                    .where(pillfinder.c.slug.in_(bindparam("slugs", expanding=True))),
+                    {"slugs": slugs},
+                ).fetchall()
+                for row in detail_rows:
+                    slug = _row_value(row, "slug", 0)
+                    if slug and slug not in details_by_slug:
+                        details_by_slug[str(slug)] = row
     except SQLAlchemyError as exc:
         logger.info("Unable to load trending pills: %s", exc)
         return []
 
     pills: list[dict[str, Any]] = []
-    for rank, row in enumerate(rows, start=1):
+    for rank, row in enumerate(stats_rows, start=1):
         slug = _row_value(row, "slug", 0)
         if not slug:
             continue
+        detail_row = details_by_slug.get(str(slug))
         pills.append(
             {
                 "slug": str(slug),
-                "drug_name": _row_value(row, "medicine_name", 1),
-                "strength": _row_value(row, "spl_strength", 2),
-                "color": _row_value(row, "splcolor_text", 3),
-                "shape": _row_value(row, "splshape_text", 4),
-                "view_count": int(_row_value(row, "view_count", 5) or 0),
+                "drug_name": _row_value(detail_row, "medicine_name", 1) if detail_row else None,
+                "strength": _row_value(detail_row, "spl_strength", 2) if detail_row else None,
+                "color": _row_value(detail_row, "splcolor_text", 3) if detail_row else None,
+                "shape": _row_value(detail_row, "splshape_text", 4) if detail_row else None,
+                "view_count": int(_row_value(row, "view_count", 1) or 0),
                 "rank": rank,
             }
         )
@@ -153,6 +173,11 @@ def _get_cached_payload(limit: int, days: int) -> dict[str, Any] | None:
 def _set_cached_payload(limit: int, days: int, payload: dict[str, Any]) -> None:
     with _CACHE_LOCK:
         _CACHE[(limit, days)] = (time.time() + _CACHE_TTL_SECONDS, payload)
+
+
+def clear_trending_cache() -> None:
+    with _CACHE_LOCK:
+        _CACHE.clear()
 
 
 @router.get("/api/trending")

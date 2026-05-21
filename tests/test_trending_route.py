@@ -23,8 +23,7 @@ def client():
 def test_api_trending_returns_empty_shape_when_no_rows(client):
     import routes.trending as trending
 
-    with trending._CACHE_LOCK:
-      trending._CACHE.clear()
+    trending.clear_trending_cache()
 
     with patch.object(trending, "_load_trending_pills", return_value=[]):
         response = client.get("/api/trending")
@@ -39,8 +38,7 @@ def test_api_trending_returns_empty_shape_when_no_rows(client):
 def test_api_trending_returns_ranked_pill_rows(client):
     import routes.trending as trending
 
-    with trending._CACHE_LOCK:
-      trending._CACHE.clear()
+    trending.clear_trending_cache()
 
     with patch.object(
         trending,
