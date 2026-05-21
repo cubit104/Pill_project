@@ -17,15 +17,16 @@ const SITE_URL = (
 ).replace(/\/$/, '')
 const HOME_LAST_UPDATED = 'May 21, 2026'
 
-type PillarCard = {
+type PillarCardBase = {
   href: string
   iconLabel: string
   title: string
   description: string
   cta: string
-  icon?: string
-  iconSrc?: string
 }
+type PillarCard =
+  | (PillarCardBase & { iconType: 'image', iconSrc: string })
+  | (PillarCardBase & { iconType: 'emoji', icon: string })
 
 export const metadata: Metadata = {
   title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
@@ -51,6 +52,7 @@ export default function HomePage() {
   const pillarCards: PillarCard[] = [
     {
       href: '/pill/plavix-75-1171',
+      iconType: 'image',
       iconSrc: '/logo-mark.svg',
       iconLabel: 'Pill identification',
       title: 'Identify a Pill',
@@ -59,6 +61,7 @@ export default function HomePage() {
     },
     {
       href: '/pill/plavix-75-1171/price',
+      iconType: 'emoji',
       icon: '💰',
       iconLabel: 'Medication pricing',
       title: 'Price Check',
@@ -67,6 +70,7 @@ export default function HomePage() {
     },
     {
       href: '/pill/plavix-75-1171/medication-guide',
+      iconType: 'emoji',
       icon: '📋',
       iconLabel: 'Patient medication guide',
       title: 'Patient Guide',
@@ -166,7 +170,7 @@ export default function HomePage() {
                 href={card.href}
                 className="block rounded-xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
               >
-                {card.iconSrc ? (
+                {card.iconType === 'image' ? (
                   <Image
                     src={card.iconSrc}
                     alt={card.iconLabel}
@@ -176,7 +180,7 @@ export default function HomePage() {
                   />
                 ) : (
                   <span className="text-2xl" role="img" aria-label={card.iconLabel}>
-                    {card.icon ?? ''}
+                    {card.icon}
                   </span>
                 )}
                 <h3 className="mt-2.5 text-lg font-semibold text-slate-900">{card.title}</h3>

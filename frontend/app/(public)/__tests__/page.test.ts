@@ -19,10 +19,12 @@ test('home page hero keeps a centered intro with a 70/30 search row', () => {
 
 test('home page links cards and lower sections to the intended components', () => {
   assert.match(source, /href: '\/pill\/plavix-75-1171'/)
+  assert.match(source, /iconType: 'image'/)
   assert.match(source, /iconSrc: '\/logo-mark\.svg'/)
   assert.match(source, /href: '\/pill\/plavix-75-1171\/price'/)
+  assert.match(source, /iconType: 'emoji'/)
   assert.match(source, /href: '\/pill\/plavix-75-1171\/medication-guide'/)
-  assert.match(source, /card\.iconSrc \? \(/)
+  assert.match(source, /card\.iconType === 'image' \? \(/)
   assert.match(source, /<TrendingPills \/>/)
   assert.match(source, /<HomeFaq \/>/)
   assert.match(source, /Medical content reviewed by licensed pharmacists · Last updated: \{HOME_LAST_UPDATED\}/)
