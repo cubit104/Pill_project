@@ -137,7 +137,13 @@ def test_get_alternatives_success(client):
             {"ndc": "00002140102", "price_per_unit": 0.25, "unit": "EA", "effective_date": "2026-05-14", "source": "NADAC (CMS)", "is_cheapest": True}
         ],
     }
-    with patch("routes.prices.pricing_service.get_alternatives_by_ingredient", new=AsyncMock(return_value=payload)):
+    async def _result():
+        return payload
+
+    with patch(
+        "routes.prices.pricing_service._get_or_start_alternatives_task",
+        side_effect=lambda _token: asyncio.create_task(_result()),
+    ):
         resp = client.get("/api/prices/00002-1401-02/alternatives")
 
     assert resp.status_code == 200
@@ -145,6 +151,7 @@ def test_get_alternatives_success(client):
     assert data["ingredient"] == "LISINOPRIL"
     assert len(data["alternatives"]) == 1
     assert len(data["disclaimers"]) == 3
+    assert resp.headers["X-Alternatives"] == "ready"
 
 
 def test_get_alternatives_returns_at_most_5_rows_sorted_ascending(client):
@@ -161,7 +168,13 @@ def test_get_alternatives_returns_at_most_5_rows_sorted_ascending(client):
         "ingredient_rxcui": "9999",
         "alternatives": alts,
     }
-    with patch("routes.prices.pricing_service.get_alternatives_by_ingredient", new=AsyncMock(return_value=payload)):
+    async def _result():
+        return payload
+
+    with patch(
+        "routes.prices.pricing_service._get_or_start_alternatives_task",
+        side_effect=lambda _token: asyncio.create_task(_result()),
+    ):
         resp = client.get("/api/prices/00002-1401-02/alternatives")
 
     assert resp.status_code == 200
@@ -185,7 +198,13 @@ def test_get_alternatives_includes_generic_vs_brand_ratio_when_present(client):
         ],
         "generic_vs_brand_ratio": 161,
     }
-    with patch("routes.prices.pricing_service.get_alternatives_by_ingredient", new=AsyncMock(return_value=payload)):
+    async def _result():
+        return payload
+
+    with patch(
+        "routes.prices.pricing_service._get_or_start_alternatives_task",
+        side_effect=lambda _token: asyncio.create_task(_result()),
+    ):
         resp = client.get("/api/prices/00002-1401-02/alternatives")
 
     assert resp.status_code == 200
@@ -202,7 +221,13 @@ def test_get_alternatives_no_ratio_when_omitted(client):
              "price_per_unit": 0.04, "unit": "EA", "effective_date": "2026-05-14", "is_cheapest": True},
         ],
     }
-    with patch("routes.prices.pricing_service.get_alternatives_by_ingredient", new=AsyncMock(return_value=payload)):
+    async def _result():
+        return payload
+
+    with patch(
+        "routes.prices.pricing_service._get_or_start_alternatives_task",
+        side_effect=lambda _token: asyncio.create_task(_result()),
+    ):
         resp = client.get("/api/prices/00002-1401-02/alternatives")
 
     assert resp.status_code == 200
@@ -211,12 +236,42 @@ def test_get_alternatives_no_ratio_when_omitted(client):
 
 
 def test_get_alternatives_404(client):
+    async def _raise_not_found():
+        raise PricingNotFoundError("none")
+
     with patch(
-        "routes.prices.pricing_service.get_alternatives_by_ingredient",
-        new=AsyncMock(side_effect=PricingNotFoundError("none")),
+        "routes.prices.pricing_service._get_or_start_alternatives_task",
+        side_effect=lambda _token: asyncio.create_task(_raise_not_found()),
     ):
         resp = client.get("/api/prices/00002-1401-02/alternatives")
     assert resp.status_code == 404
+
+
+def test_get_alternatives_timeout_returns_partial_warming(client):
+    async def _slow():
+        await asyncio.sleep(0.05)
+        return {"ingredient": "clopidogrel", "ingredient_rxcui": "32968", "alternatives": []}
+
+    partial = {
+        "ingredient": "clopidogrel",
+        "ingredient_rxcui": "32968",
+        "alternatives": [
+            {"ndc": "00093123401", "name": "clopidogrel 75 MG Oral Tablet", "kind": "generic", "price_per_unit": 0.05, "unit": "EA", "effective_date": "2026-05-14", "is_cheapest": True}
+        ],
+    }
+
+    with patch("routes.prices.ALTERNATIVES_ENDPOINT_TIMEOUT_SECONDS", 0.001), \
+         patch(
+             "routes.prices.pricing_service._get_or_start_alternatives_task",
+             side_effect=lambda _token: asyncio.create_task(_slow()),
+         ), \
+         patch("routes.prices.pricing_service.get_alternatives_db_only", new=AsyncMock(return_value=partial)):
+        resp = client.get("/api/prices/00002-1401-02/alternatives")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["alternatives"] == partial["alternatives"]
+    assert resp.headers["X-Alternatives"] == "warming"
 
 
 def test_get_history_success(client):
