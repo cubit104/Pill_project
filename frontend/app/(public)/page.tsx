@@ -1,10 +1,11 @@
 import type { Metadata } from 'next'
 import Image from 'next/image'
 import Link from 'next/link'
-import HomeFaq, { HOME_FAQS } from '../components/HomeFaq'
+import HomeFaq from '../components/HomeFaq'
 import HomeSearch from '../components/HomeSearch'
 import PopularMedications from '../components/PopularMedications'
 import TrendingPills from '../components/TrendingPills'
+import { HOME_FAQS } from '../components/homeFaqItems'
 import {
   faqSchema,
   organizationSchema,
@@ -419,6 +420,7 @@ export default function HomePage() {
 
       <PopularMedications />
       <TrendingPills />
+      <HomeFaq />
 
       <section className="py-12 px-4">
         <div className="max-w-4xl mx-auto">
@@ -450,7 +452,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      <HomeFaq />
     </>
   )
 }
