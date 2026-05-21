@@ -22,7 +22,8 @@ from services.pricing_service import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-HISTORY_ENDPOINT_TIMEOUT_SECONDS = 1.5
+HISTORY_ENDPOINT_TIMEOUT_SECONDS = 8.0
+ALTERNATIVES_ENDPOINT_TIMEOUT_SECONDS = 8.0
 
 
 def _timing_value(result: dict, key: str, fallback: float) -> float:
@@ -319,12 +320,17 @@ async def get_price_by_name_route(
 
 
 @router.get("/api/prices/{ndc}/alternatives")
-async def get_ndc_alternatives(ndc: str):
+async def get_ndc_alternatives(ndc: str, response: Response):
     normalized = _normalize_or_400(ndc)
     lookup_token = normalized.replace("-", "")
     try:
-        result = await pricing_service.get_alternatives_by_ingredient(lookup_token)
-        response: dict = {
+        task = pricing_service._get_or_start_alternatives_task(lookup_token)
+        result = await _asyncio.wait_for(
+            _asyncio.shield(task),
+            timeout=ALTERNATIVES_ENDPOINT_TIMEOUT_SECONDS,
+        )
+        response.headers["X-Alternatives"] = "ready"
+        payload: dict = {
             "ndc": lookup_token,
             "ingredient": result["ingredient"],
             "ingredient_rxcui": result["ingredient_rxcui"],
@@ -332,8 +338,22 @@ async def get_ndc_alternatives(ndc: str):
             "disclaimers": DEFAULT_DISCLAIMERS,
         }
         if "generic_vs_brand_ratio" in result:
-            response["generic_vs_brand_ratio"] = result["generic_vs_brand_ratio"]
-        return response
+            payload["generic_vs_brand_ratio"] = result["generic_vs_brand_ratio"]
+        return payload
+    except _asyncio.TimeoutError:
+        partial = await pricing_service.get_alternatives_db_only(lookup_token)
+        response.headers["Cache-Control"] = "public, max-age=300"
+        response.headers["X-Alternatives"] = "warming"
+        payload: dict = {
+            "ndc": lookup_token,
+            "ingredient": partial.get("ingredient"),
+            "ingredient_rxcui": partial.get("ingredient_rxcui"),
+            "alternatives": partial.get("alternatives") or [],
+            "disclaimers": DEFAULT_DISCLAIMERS,
+        }
+        if "generic_vs_brand_ratio" in partial:
+            payload["generic_vs_brand_ratio"] = partial["generic_vs_brand_ratio"]
+        return payload
     except PricingNotFoundError:
         raise HTTPException(
             status_code=404,
