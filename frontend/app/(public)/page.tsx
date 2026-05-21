@@ -32,7 +32,7 @@ export const metadata: Metadata = {
 export default function HomePage() {
   const pillarCards = [
     {
-      href: '/pill/lisinopril',
+      href: '/search?q=lisinopril',
       icon: '💊',
       iconLabel: 'Pill identification',
       title: 'Identify a Pill',
@@ -48,7 +48,7 @@ export default function HomePage() {
       cta: 'Try Plavix →',
     },
     {
-      href: '/pill/metformin/medication-guide',
+      href: '/search?q=metformin',
       icon: '📋',
       iconLabel: 'Patient medication guide',
       title: 'Patient Guide',
@@ -69,35 +69,35 @@ export default function HomePage() {
       />
 
       {/* Hero Section — tighter spacing */}
-      <section className="bg-gradient-to-b from-slate-50 to-white pt-8 pb-12 px-4">
+      <section className="bg-gradient-to-b from-slate-50 to-white py-6 sm:py-8 px-4">
         <div className="max-w-4xl mx-auto text-center">
           <Image
             src="/logo-mark.svg"
             alt=""
-            width={96}
-            height={96}
+            width={68}
+            height={68}
             priority
-            className="mx-auto mb-4"
+            className="mx-auto mb-3"
           />
-          <h1 className="text-4xl sm:text-5xl font-bold mb-3 tracking-tight text-slate-900">
+          <h1 className="text-3xl sm:text-4xl font-bold mb-2 tracking-tight text-slate-900">
             Know your pill. <span className="text-emerald-700">Know the price.</span>{' '}
             <span className="text-emerald-700">Know how to take it.</span>
           </h1>
-          <p className="text-slate-600 text-base sm:text-lg mb-8 max-w-3xl mx-auto">
-            Free, FDA-sourced medication info — identification, pricing, and patient-friendly guides. No account needed.
+          <p className="text-slate-600 text-sm sm:text-base mb-6 max-w-4xl mx-auto">
+            Free, FDA-sourced medication info for pill ID, price checks, and patient-friendly guides — no account needed.
           </p>
           <HomeSearch />
-          <div className="mt-8 grid gap-4 md:grid-cols-3 text-left">
+          <div className="mt-6 grid gap-3 md:grid-cols-3 text-left">
             {pillarCards.map((card) => (
               <Link
                 key={card.title}
                 href={card.href}
-                className="block rounded-xl border border-slate-200 bg-slate-50/90 p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+                className="block rounded-xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
               >
                 <span className="text-2xl" role="img" aria-label={card.iconLabel}>{card.icon}</span>
-                <h3 className="mt-3 text-lg font-semibold text-slate-900">{card.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-600">{card.description}</p>
-                <span className="mt-3 inline-flex text-sm font-semibold text-emerald-700">{card.cta}</span>
+                <h3 className="mt-2.5 text-lg font-semibold text-slate-900">{card.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{card.description}</p>
+                <span className="mt-2.5 inline-flex text-sm font-semibold text-emerald-700">{card.cta}</span>
               </Link>
             ))}
           </div>
