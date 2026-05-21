@@ -34,6 +34,7 @@ export default function HomePage() {
     {
       href: '/pill/lisinopril',
       icon: '💊',
+      iconLabel: 'Pill identification',
       title: 'Identify a Pill',
       description: 'Match any tablet or capsule by imprint, color, shape, or drug name.',
       cta: 'Try Lisinopril →',
@@ -41,6 +42,7 @@ export default function HomePage() {
     {
       href: '/pill/plavix-75-1171/price',
       icon: '💰',
+      iconLabel: 'Medication pricing',
       title: 'Price Check',
       description: 'Compare generic vs. brand prices and see 12-month price trends — sourced from NADAC (CMS).',
       cta: 'Try Plavix →',
@@ -48,6 +50,7 @@ export default function HomePage() {
     {
       href: '/pill/metformin/medication-guide',
       icon: '📋',
+      iconLabel: 'Patient medication guide',
       title: 'Patient Guide',
       description: 'Plain-language dosing, side effects, and what to know before taking your medication.',
       cta: 'Try Metformin →',
@@ -91,8 +94,8 @@ export default function HomePage() {
                 href={card.href}
                 className="block rounded-xl border border-slate-200 bg-slate-50/90 p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
               >
-                <span className="text-2xl" aria-hidden="true">{card.icon}</span>
-                <h2 className="mt-3 text-lg font-semibold text-slate-900">{card.title}</h2>
+                <span className="text-2xl" role="img" aria-label={card.iconLabel}>{card.icon}</span>
+                <h3 className="mt-3 text-lg font-semibold text-slate-900">{card.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-slate-600">{card.description}</p>
                 <span className="mt-3 inline-flex text-sm font-semibold text-emerald-700">{card.cta}</span>
               </Link>
