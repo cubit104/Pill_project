@@ -2189,7 +2189,9 @@ class NADACPricingService:
                             logger.debug("Skipping alternative price lookup for ndc=%s due to error: %s", ndc, exc)
                             return ndc, None
 
-                fetched = await asyncio.gather(*(_fetch_missing_price(ndc) for ndc in stale_or_missing_ndcs))
+                fetched = await asyncio.gather(
+                    *(_fetch_missing_price(ndc) for ndc in stale_or_missing_ndcs),
+                )
                 for ndc, item in fetched:
                     if not item:
                         continue

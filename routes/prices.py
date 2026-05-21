@@ -344,7 +344,7 @@ async def get_ndc_alternatives(ndc: str, response: Response):
         partial = await pricing_service.get_alternatives_db_only(lookup_token)
         response.headers["Cache-Control"] = "public, max-age=300"
         response.headers["X-Alternatives"] = "warming"
-        payload: dict = {
+        warming_payload: dict = {
             "ndc": lookup_token,
             "ingredient": partial.get("ingredient"),
             "ingredient_rxcui": partial.get("ingredient_rxcui"),
@@ -352,8 +352,8 @@ async def get_ndc_alternatives(ndc: str, response: Response):
             "disclaimers": DEFAULT_DISCLAIMERS,
         }
         if "generic_vs_brand_ratio" in partial:
-            payload["generic_vs_brand_ratio"] = partial["generic_vs_brand_ratio"]
-        return payload
+            warming_payload["generic_vs_brand_ratio"] = partial["generic_vs_brand_ratio"]
+        return warming_payload
     except PricingNotFoundError:
         raise HTTPException(
             status_code=404,

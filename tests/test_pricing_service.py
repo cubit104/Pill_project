@@ -604,6 +604,7 @@ def test_get_price_cache_hit_with_old_effective_date_skips_metadata_when_fetched
 
 def test_get_price_uses_fresh_cache_without_metadata_lookup():
     svc = NADACPricingService()
+    fixed_now = datetime(2026, 5, 20, tzinfo=timezone.utc)
     cached = {
         "ndc": "00002140102",
         "price_per_unit": 0.25,
@@ -611,7 +612,7 @@ def test_get_price_uses_fresh_cache_without_metadata_lookup():
         "effective_date": "2026-01-01",
         "source": "NADAC",
         "raw_payload": {},
-        "fetched_at": datetime.now(timezone.utc),
+        "fetched_at": fixed_now,
     }
 
     with patch.object(svc, "_get_cached_price", return_value=cached), \
@@ -1412,6 +1413,7 @@ def test_get_alternatives_prefers_fresh_bulk_cache():
 
 def test_get_alternatives_uses_ingredient_ndcs_and_drug_prices_cache_only():
     svc = NADACPricingService()
+    fixed_now = datetime(2026, 5, 20, tzinfo=timezone.utc)
     fresh_cached = {
         "00002140102": {
             "ndc": "00002140102",
@@ -1419,7 +1421,7 @@ def test_get_alternatives_uses_ingredient_ndcs_and_drug_prices_cache_only():
             "unit": "EA",
             "effective_date": "2026-05-14",
             "source": "NADAC",
-            "fetched_at": datetime.now(timezone.utc),
+            "fetched_at": fixed_now,
             "raw_payload": {},
         },
         "00093123401": {
@@ -1428,7 +1430,7 @@ def test_get_alternatives_uses_ingredient_ndcs_and_drug_prices_cache_only():
             "unit": "EA",
             "effective_date": "2026-05-14",
             "source": "NADAC",
-            "fetched_at": datetime.now(timezone.utc),
+            "fetched_at": fixed_now,
             "raw_payload": {},
         },
         "00071015423": {
@@ -1437,7 +1439,7 @@ def test_get_alternatives_uses_ingredient_ndcs_and_drug_prices_cache_only():
             "unit": "EA",
             "effective_date": "2026-05-14",
             "source": "NADAC",
-            "fetched_at": datetime.now(timezone.utc),
+            "fetched_at": fixed_now,
             "raw_payload": {},
         },
     }
@@ -1455,7 +1457,7 @@ def test_get_alternatives_uses_ingredient_ndcs_and_drug_prices_cache_only():
                  "ingredient_rxcui": "32968",
                  "ingredient_name": "clopidogrel",
                  "products": products,
-                 "refreshed_at": datetime.now(timezone.utc),
+                 "refreshed_at": fixed_now,
              },
          ), \
          patch.object(svc, "_get_cached_prices_bulk", return_value=fresh_cached), \
@@ -1497,7 +1499,7 @@ def test_get_or_start_alternatives_task_reuses_inflight_task_and_cleans_up():
 def test_get_or_refresh_ingredient_ndcs_upserts_then_reads_from_cache():
     svc = NADACPricingService()
     cached_row: dict[str, Any] | None = None
-    now = datetime.now(timezone.utc)
+    now = datetime(2026, 5, 20, tzinfo=timezone.utc)
 
     def _get_cached(_ingredient_rxcui):
         return cached_row
