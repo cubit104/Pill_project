@@ -11,7 +11,7 @@ test('home page pillar cards use non-404 launch links', () => {
   assert.match(source, /href: '\/search\?q=metformin'/)
 })
 
-test('home page hero uses tighter launch spacing', () => {
+test('home page hero uses compact spacing and sizing', () => {
   assert.match(source, /section className="bg-gradient-to-b from-slate-50 to-white py-6 sm:py-8 px-4"/)
   assert.match(source, /width=\{68\}/)
   assert.match(source, /height=\{68\}/)
