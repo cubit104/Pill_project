@@ -17,6 +17,16 @@ const SITE_URL = (
 ).replace(/\/$/, '')
 const HOME_LAST_UPDATED = 'May 21, 2026'
 
+type PillarCard = {
+  href: string
+  iconLabel: string
+  title: string
+  description: string
+  cta: string
+  icon?: string
+  iconSrc?: string
+}
+
 export const metadata: Metadata = {
   title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
   description:
@@ -38,10 +48,10 @@ export const metadata: Metadata = {
 }
 
 export default function HomePage() {
-  const pillarCards = [
+  const pillarCards: PillarCard[] = [
     {
       href: '/pill/plavix-75-1171',
-      icon: '💊',
+      iconSrc: '/logo-mark.svg',
       iconLabel: 'Pill identification',
       title: 'Identify a Pill',
       description: 'Match any tablet or capsule by imprint, color, shape, or drug name.',
@@ -63,7 +73,7 @@ export default function HomePage() {
       description: 'Plain-language dosing, side effects, and what to know before taking your medication.',
       cta: 'Read Plavix guide →',
     },
-  ] as const
+  ]
 
   return (
     <>
@@ -106,14 +116,46 @@ export default function HomePage() {
             <div className="md:col-span-7">
               <HomeSearch />
             </div>
-            <div className="hidden md:flex md:col-span-3 items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <Image
-                src="/logo-mark.svg"
-                alt="PillSeek logo"
-                width={160}
-                height={160}
-                className="h-auto w-28 lg:w-32"
-              />
+            <div className="hidden md:flex md:col-span-3 items-center justify-center rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <svg
+                viewBox="0 0 320 220"
+                role="img"
+                aria-label="Example pill: M321 yellow oval, NADAC price $0.04"
+                className="w-full h-auto max-w-[280px]"
+              >
+                <line x1="96" y1="68" x2="118" y2="90" stroke="#cbd5e1" strokeWidth="1" />
+                <line x1="240" y1="88" x2="208" y2="100" stroke="#cbd5e1" strokeWidth="1" />
+                <line x1="96" y1="168" x2="122" y2="134" stroke="#cbd5e1" strokeWidth="1" />
+                <line x1="226" y1="186" x2="202" y2="145" stroke="#10b981" strokeWidth="1" />
+                <ellipse cx="160" cy="110" rx="70" ry="42" fill="#fcd34d" stroke="#d97706" strokeWidth="3" />
+                <text
+                  x="160"
+                  y="118"
+                  textAnchor="middle"
+                  fontFamily="system-ui, sans-serif"
+                  fontSize="28"
+                  fontWeight="700"
+                  fill="#78350f"
+                >
+                  M321
+                </text>
+                <g>
+                  <rect x="20" y="50" rx="10" ry="10" width="108" height="28" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1" />
+                  <text x="74" y="67" textAnchor="middle" fontFamily="system-ui, sans-serif" fontSize="11" fill="#475569">Color: Yellow</text>
+                </g>
+                <g>
+                  <rect x="200" y="70" rx="10" ry="10" width="108" height="28" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1" />
+                  <text x="254" y="87" textAnchor="middle" fontFamily="system-ui, sans-serif" fontSize="11" fill="#475569">Imprint: M321</text>
+                </g>
+                <g>
+                  <rect x="20" y="156" rx="10" ry="10" width="102" height="28" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1" />
+                  <text x="71" y="173" textAnchor="middle" fontFamily="system-ui, sans-serif" fontSize="11" fill="#475569">Shape: Oval</text>
+                </g>
+                <g>
+                  <rect x="170" y="166" rx="10" ry="10" width="140" height="28" fill="#ecfdf5" stroke="#10b981" strokeWidth="1" />
+                  <text x="240" y="184" textAnchor="middle" fontFamily="system-ui, sans-serif" fontSize="11" fontWeight="600" fill="#047857">$0.04 / pill (NADAC)</text>
+                </g>
+              </svg>
             </div>
           </div>
 
@@ -124,9 +166,19 @@ export default function HomePage() {
                 href={card.href}
                 className="block rounded-xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
               >
-                <span className="text-2xl" role="img" aria-label={card.iconLabel}>
-                  {card.icon}
-                </span>
+                {card.iconSrc ? (
+                  <Image
+                    src={card.iconSrc}
+                    alt={card.iconLabel}
+                    width={28}
+                    height={28}
+                    className="h-7 w-7"
+                  />
+                ) : (
+                  <span className="text-2xl" role="img" aria-label={card.iconLabel}>
+                    {card.icon ?? ''}
+                  </span>
+                )}
                 <h3 className="mt-2.5 text-lg font-semibold text-slate-900">{card.title}</h3>
                 <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{card.description}</p>
                 <span className="mt-2.5 inline-flex text-sm font-semibold text-emerald-700">
