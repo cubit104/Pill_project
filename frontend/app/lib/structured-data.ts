@@ -256,7 +256,9 @@ export function guidePageSchema(opts: {
   })
 }
 
-export function faqSchema(items: Array<{ question: string; answer: string }>) {
+export function faqSchema(
+  items: ReadonlyArray<{ readonly question: string; readonly answer: string }>
+) {
   return {
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
