@@ -38,6 +38,9 @@ function DetailRow({ label, value, stripe }: { label: string; value?: string; st
   )
 }
 
+const PILL_SPECS_STRIPE_CLASSES =
+  'grid grid-cols-1 sm:grid-cols-2 gap-x-6 [&>div:nth-child(even)]:bg-teal-50 [&>div:nth-child(even)]:rounded sm:[&>div:nth-child(even)]:bg-transparent sm:[&>div:nth-child(even)]:rounded-none sm:[&>div:nth-child(4n+3)]:bg-teal-50 sm:[&>div:nth-child(4n+3)]:rounded sm:[&>div:nth-child(4n+4)]:bg-teal-50 sm:[&>div:nth-child(4n+4)]:rounded'
+
 function buildImageAlt(pill: PillDetail, index?: number): string {
   const parts = [
     pill.color,
@@ -420,7 +423,7 @@ export default function PillDetailClient({
         {/* Pill Specifications */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Pill Specifications</h2>
-          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 [&>div:nth-child(even)]:bg-teal-50 [&>div:nth-child(even)]:rounded sm:[&>div:nth-child(even)]:bg-transparent sm:[&>div:nth-child(even)]:rounded-none sm:[&>div:nth-child(4n+3)]:bg-teal-50 sm:[&>div:nth-child(4n+3)]:rounded sm:[&>div:nth-child(4n+4)]:bg-teal-50 sm:[&>div:nth-child(4n+4)]:rounded">
+          <dl className={PILL_SPECS_STRIPE_CLASSES}>
             {specsRows.filter(row => Boolean(row.value)).map((row) => (
               <div key={row.label} className="py-2 px-3 flex flex-row items-start gap-2 rounded">
                 <dt className="text-sm font-medium text-slate-500 w-36 shrink-0">{row.label}</dt>

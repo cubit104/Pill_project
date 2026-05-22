@@ -17,9 +17,11 @@ test('pill specs heading and grid striping classes are updated', () => {
 
   assert.match(source, />Pill Specifications<\/h2>/)
   assert.doesNotMatch(source, />Pill Specs<\/h2>/)
+  assert.match(source, /const PILL_SPECS_STRIPE_CLASSES =/)
   assert.match(source, /\[\&>div:nth-child\(even\)\]:bg-teal-50/)
   assert.match(source, /sm:\[\&>div:nth-child\(4n\+3\)\]:bg-teal-50/)
   assert.match(source, /sm:\[\&>div:nth-child\(4n\+4\)\]:bg-teal-50/)
+  assert.match(source, /<dl className=\{PILL_SPECS_STRIPE_CLASSES\}>/)
   assert.match(source, /className="col-span-full py-2 px-3 flex flex-row items-start gap-2 rounded"/)
 })
 
