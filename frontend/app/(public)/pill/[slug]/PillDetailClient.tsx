@@ -239,33 +239,33 @@ export default function PillDetailClient({
 
         {/* Hero Card */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          <div className="flex flex-col sm:flex-row gap-6 items-center sm:items-start">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
             {/* Image */}
-            <div className="shrink-0">
+            <div className="w-full">
               {images.length > 0 ? (
                 <button
                   onClick={() => setZoomImage(images[0])}
-                  className="block rounded-xl overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="block w-full rounded-xl overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
                   aria-label="Click to zoom pill image"
                 >
                   <img
                     src={images[0]}
                     alt={pill.image_alt_text || buildImageAlt(pill)}
-                    className="w-72 h-72 object-contain bg-slate-50"
-                    width={288}
-                    height={288}
+                    className="w-full aspect-square object-contain bg-slate-50"
+                    width={400}
+                    height={400}
                     loading="eager"
                   />
                 </button>
               ) : (
-                <div className="w-72 h-72 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center">
+                <div className="w-full aspect-square bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center">
                   <PillIconLarge />
                 </div>
               )}
             </div>
 
             {/* Header Info */}
-            <div className="flex-1 text-center sm:text-left">
+            <div className="text-center sm:text-left">
               <h1 className="text-2xl font-bold text-slate-900 mb-1">{pill.drug_name}</h1>
               {pill.strength && (
                 <p className="text-slate-500 text-sm mb-3">{pill.strength}</p>
@@ -304,7 +304,7 @@ export default function PillDetailClient({
                 )}
               </div>
               {resolvedSlug && (
-                <div className="mt-4 text-left">
+                <div className="mt-4 hidden sm:block text-left">
                   <PriceSummaryCard
                     slug={resolvedSlug}
                     ndc={pill.ndc}
@@ -339,6 +339,18 @@ export default function PillDetailClient({
             </div>
           )}
         </div>
+
+        {/* Mobile-only price card — separate card below hero on small screens */}
+        {resolvedSlug && (
+          <div className="sm:hidden mb-6">
+            <PriceSummaryCard
+              slug={resolvedSlug}
+              ndc={pill.ndc}
+              rxcui={pill.rxcui}
+              medicineName={pill.drug_name}
+            />
+          </div>
+        )}
 
         {/* Share this page */}
         {(() => {
