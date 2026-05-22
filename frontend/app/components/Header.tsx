@@ -7,12 +7,21 @@ export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [hidden, setHidden] = useState(false)
   const lastScrollY = useRef(0)
+  const isMobile = useRef(false)
 
   useEffect(() => {
-    const handleScroll = () => {
-      if (window.innerWidth >= 640) {
+    const mobileBreakpoint = window.matchMedia('(max-width: 639px)')
+
+    const syncViewportState = () => {
+      isMobile.current = mobileBreakpoint.matches
+      if (!isMobile.current) {
         setHidden(false)
-        lastScrollY.current = window.scrollY
+      }
+      lastScrollY.current = window.scrollY
+    }
+
+    const handleScroll = () => {
+      if (!isMobile.current) {
         return
       }
 
@@ -27,9 +36,14 @@ export default function Header() {
       lastScrollY.current = currentY
     }
 
-    lastScrollY.current = window.scrollY
+    syncViewportState()
     window.addEventListener('scroll', handleScroll, { passive: true })
-    return () => window.removeEventListener('scroll', handleScroll)
+    mobileBreakpoint.addEventListener('change', syncViewportState)
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll)
+      mobileBreakpoint.removeEventListener('change', syncViewportState)
+    }
   }, [])
 
   return (

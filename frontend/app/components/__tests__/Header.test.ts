@@ -14,7 +14,8 @@ test('header uses tighter container height while keeping brand sizing classes', 
 test('header applies mobile-only hide on scroll behavior with smooth transform', () => {
   assert.match(source, /const \[hidden, setHidden\] = useState\(false\)/)
   assert.match(source, /const lastScrollY = useRef\(0\)/)
-  assert.match(source, /if \(window\.innerWidth >= 640\) \{/)
+  assert.match(source, /const mobileBreakpoint = window\.matchMedia\('\(max-width: 639px\)'\)/)
+  assert.match(source, /mobileBreakpoint\.addEventListener\('change', syncViewportState\)/)
   assert.match(source, /window\.addEventListener\('scroll', handleScroll, \{ passive: true \}\)/)
   assert.match(source, /transition-transform duration-300 sm:transition-none/)
   assert.match(source, /hidden \? '-translate-y-full sm:translate-y-0' : 'translate-y-0'/)
