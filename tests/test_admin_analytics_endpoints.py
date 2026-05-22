@@ -78,6 +78,7 @@ def client():
 ANALYTICS_GET_ENDPOINTS = [
     "/api/admin/analytics/ga4/overview",
     "/api/admin/analytics/search-console/overview",
+    "/api/admin/analytics/pill-views-status",
     "/api/admin/analytics/page-health",
     "/api/admin/analytics/posthog/live",
 ]
@@ -183,6 +184,60 @@ class TestPageSpeedNotConfigured:
 
     def test_configured_false(self, client):
         assert self._post(client).json()["configured"] is False
+
+
+def _make_pill_views_status_engine(table_exists=True, row_count=0):
+    mock_engine = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    def _execute(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        if "profiles" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = FAKE_SUPERUSER_PROFILE
+            result.fetchall.return_value = []
+            result.scalar.return_value = None
+        elif "admin_users" in sql_str:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = None
+        elif "to_regclass" in sql_str:
+            result.scalar.return_value = "pill_views" if table_exists else None
+        elif "count(*)" in sql_str and "public.pill_views" in sql_str:
+            result.scalar.return_value = row_count
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = _execute
+    mock_engine.connect.return_value = mock_conn
+    return mock_engine
+
+
+def test_pill_views_status_reports_missing_table(client):
+    import database as db_module
+
+    db_module.db_engine = _make_pill_views_status_engine(table_exists=False)
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get("/api/admin/analytics/pill-views-status", headers=AUTH_HEADERS)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"pill_views_table_exists": False, "row_count": None}
+
+
+def test_pill_views_status_reports_row_count(client):
+    import database as db_module
+
+    db_module.db_engine = _make_pill_views_status_engine(table_exists=True, row_count=12)
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get("/api/admin/analytics/pill-views-status", headers=AUTH_HEADERS)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"pill_views_table_exists": True, "row_count": 12}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

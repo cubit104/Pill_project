@@ -128,6 +128,7 @@ This runs `pip install -r requirements.txt` and then builds the Next.js frontend
    - `SITE_URL` — `https://pillseek.com`
    - `INDEXNOW_KEY` — generated IndexNow key
    - `INDEXNOW_KEY_LOCATION` — optional override, otherwise `{SITE_URL}/{INDEXNOW_KEY}.txt`
+   - Ensure the `supabase/migrations/20260522010000_create_pill_views.sql` migration has been applied before deploying the trending feature, or `/api/pill-views` will not be able to persist view rows.
 
 2. Set **Build Command** in Render dashboard:
    ```bash
