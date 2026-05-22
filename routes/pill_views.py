@@ -65,7 +65,6 @@ def record_pill_view(body: PillViewBody, request: Request) -> dict:
                     {"slug": slug, "ip_hash": ip_hash, "cutoff": cutoff},
                 ).fetchone()
                 if existing:
-                    conn.commit()
                     return {"ok": True, "recorded": False}
 
             conn.execute(
