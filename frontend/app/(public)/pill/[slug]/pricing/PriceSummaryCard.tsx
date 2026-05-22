@@ -22,8 +22,6 @@ interface PriceResponse {
   disclaimers: string[]
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '')
-
 function hasCompactPriceData(price: PriceResponse | null): price is PriceResponse {
   return Boolean(
     price &&
@@ -51,10 +49,6 @@ export default function PriceSummaryCard({
 
   useEffect(() => {
     if ((!ndc && !rxcui && !medicineName) || initialData) return
-    if (!API_BASE) {
-      console.error('NEXT_PUBLIC_API_BASE_URL not configured')
-      return
-    }
     let cancelled = false
 
     const tryFetch = async (url: string): Promise<PriceResponse | null> => {
@@ -68,22 +62,24 @@ export default function PriceSummaryCard({
       }
     }
 
+    // Use relative paths so the request is proxied through the Next.js rewrite
+    // (`/api/:path* → ${API_BASE_URL}/api/:path*`) — no CORS issues.
     const load = async () => {
-      const byNdc = ndc ? await tryFetch(`${API_BASE}/api/prices/${encodeURIComponent(ndc)}`) : null
+      const byNdc = ndc ? await tryFetch(`/api/prices/${encodeURIComponent(ndc)}`) : null
       if (cancelled) return
       if (byNdc) {
         setPrice(byNdc)
         return
       }
 
-      const byRxcui = rxcui ? await tryFetch(`${API_BASE}/api/prices/by-rxcui/${encodeURIComponent(rxcui)}`) : null
+      const byRxcui = rxcui ? await tryFetch(`/api/prices/by-rxcui/${encodeURIComponent(rxcui)}`) : null
       if (cancelled) return
       if (byRxcui) {
         setPrice(byRxcui)
         return
       }
 
-      const byName = medicineName ? await tryFetch(`${API_BASE}/api/prices/by-name/${encodeURIComponent(medicineName)}`) : null
+      const byName = medicineName ? await tryFetch(`/api/prices/by-name/${encodeURIComponent(medicineName)}`) : null
       if (cancelled) return
       setPrice(byName)
     }

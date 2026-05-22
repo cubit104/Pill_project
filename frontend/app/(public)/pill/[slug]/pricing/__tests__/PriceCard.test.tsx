@@ -521,9 +521,9 @@ test('PriceCard renders price immediately when initialData.price present, then f
     })
 
     assert.deepEqual(calls, [
-      'http://localhost:8000/api/prices/00378018101/alternatives',
-      'http://localhost:8000/api/prices/00378018101/history?weeks=52',
-      'http://localhost:8000/api/prices/00378018101/strengths',
+      '/api/prices/00378018101/alternatives',
+      '/api/prices/00378018101/history?weeks=52',
+      '/api/prices/00378018101/strengths',
     ])
     assert.match(JSON.stringify(renderer.toJSON()), /Equivalent Drug/)
     renderer.unmount()
