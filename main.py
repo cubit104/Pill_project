@@ -69,15 +69,25 @@ app = FastAPI(
 )
 
 # Enable CORS
+# ALLOWED_ORIGINS_REGEX extends the static list with a regex pattern (e.g. for
+# Vercel preview deployments like https://pill-project-git-*.vercel.app).
+# Defaults to the standard Vercel git-branch preview URL pattern.
+_allowed_origins = [
+    o.strip()
+    for o in os.getenv(
+        "ALLOWED_ORIGINS",
+        "https://pill0project.onrender.com,https://pill-project.vercel.app,https://pillseek.com,https://www.pillseek.com",
+    ).split(",")
+    if o.strip()
+]
+_allow_origin_regex = os.getenv(
+    "ALLOWED_ORIGINS_REGEX",
+    r"https://pill-project-git-[a-z0-9\-]+\.vercel\.app",
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        o.strip()
-        for o in os.getenv(
-            "ALLOWED_ORIGINS",
-            "https://pill0project.onrender.com,https://pill-project.vercel.app,https://pillseek.com,https://www.pillseek.com",
-        ).split(",")
-    ],
+    allow_origins=_allowed_origins,
+    allow_origin_regex=_allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

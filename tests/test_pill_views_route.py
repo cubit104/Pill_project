@@ -6,6 +6,11 @@ import pytest
 
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/testdb")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://testserver")
+# Allow Vercel preview URLs via regex — must be set before main is imported.
+os.environ.setdefault(
+    "ALLOWED_ORIGINS_REGEX",
+    r"https://pill-project-git-[a-z0-9\-]+\.vercel\.app",
+)
 os.environ.setdefault("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-key")
 
@@ -83,3 +88,63 @@ def test_pill_views_rejects_empty_slug(client):
 def test_pill_views_rejects_missing_slug(client):
     response = client.post("/api/pill-views", json={})
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# CORS preflight tests — verify the OPTIONS preflight for /api/pill-views
+# returns the correct status and Access-Control-Allow-* headers.
+# ---------------------------------------------------------------------------
+
+def test_pill_views_preflight_from_allowed_static_origin(client):
+    """OPTIONS preflight from a whitelisted origin (ALLOWED_ORIGINS) returns
+    200/204 with the correct CORS headers."""
+    response = client.options(
+        "/api/pill-views",
+        headers={
+            "Origin": "http://testserver",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        },
+    )
+    assert response.status_code in (200, 204), (
+        f"Expected 200 or 204 for allowed origin, got {response.status_code}"
+    )
+    assert response.headers.get("access-control-allow-origin") == "http://testserver"
+    allow_methods = response.headers.get("access-control-allow-methods", "")
+    assert "POST" in allow_methods
+
+
+def test_pill_views_preflight_from_vercel_preview_origin(client):
+    """OPTIONS preflight from a Vercel preview URL matching ALLOWED_ORIGINS_REGEX
+    returns 200/204 — this is the core fix for Bug 1."""
+    vercel_preview = "https://pill-project-git-feature-abc123.vercel.app"
+    response = client.options(
+        "/api/pill-views",
+        headers={
+            "Origin": vercel_preview,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        },
+    )
+    assert response.status_code in (200, 204), (
+        f"Expected 200 or 204 for Vercel preview origin, got {response.status_code}. "
+        "Check that ALLOWED_ORIGINS_REGEX matches Vercel preview URL format."
+    )
+    assert response.headers.get("access-control-allow-origin") == vercel_preview
+    allow_methods = response.headers.get("access-control-allow-methods", "")
+    assert "POST" in allow_methods
+
+
+def test_pill_views_preflight_from_disallowed_origin_returns_400(client):
+    """OPTIONS preflight from an origin that matches neither ALLOWED_ORIGINS nor the
+    regex pattern should return 400 (Starlette CORSMiddleware behaviour for
+    disallowed origins on preflight requests)."""
+    response = client.options(
+        "/api/pill-views",
+        headers={
+            "Origin": "https://evil.example.com",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        },
+    )
+    assert response.status_code == 400

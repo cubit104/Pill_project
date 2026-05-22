@@ -2,8 +2,20 @@ import Link from 'next/link'
 
 const API_BASE = (process.env.API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
 
-/** Minimum total views across all pills before showing the section. */
-const MIN_TOTAL_VIEWS = 50
+/**
+ * Minimum total views across all pills before showing the section.
+ * Override with NEXT_PUBLIC_TRENDING_MIN_VIEWS env var (e.g. set to 0 on
+ * preview deployments to verify the layout without waiting for organic traffic).
+ * Defaults to 50 to avoid showing a "dead" list with only a handful of views.
+ */
+const MIN_TOTAL_VIEWS = (() => {
+  const raw = process.env.NEXT_PUBLIC_TRENDING_MIN_VIEWS
+  if (raw !== undefined && raw !== '') {
+    const parsed = parseInt(raw, 10)
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed
+  }
+  return 50
+})()
 
 interface TrendingPill {
   slug: string

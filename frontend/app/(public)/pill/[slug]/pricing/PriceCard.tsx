@@ -43,7 +43,9 @@ export default function PriceCard({
   historyNdc?: string | null
   initialData?: PriceCardInitialData
 }) {
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '')
+  // Use relative paths so requests go through the Next.js rewrite proxy
+  // (`/api/:path* → ${API_BASE_URL}/api/:path*`) — no CORS issues from the browser.
+  const apiBase = ''
   const hasIdentifier = !!(ndc || rxcui || medicineName)
   const [priceState, setPriceState] = useState<PriceResponse | null>(initialData?.price || null)
   const [alternativesState, setAlternativesState] = useState<AlternativePrice[]>(initialData?.alternatives || [])
@@ -71,12 +73,6 @@ export default function PriceCard({
   useEffect(() => {
     if ((!ndc && !rxcui && !medicineName) || initialData?.price) {
       setLoading(false)
-      return
-    }
-    if (!apiBase) {
-      console.error('NEXT_PUBLIC_API_BASE_URL not configured')
-      setLoading(false)
-      setFetchError(true)
       return
     }
     let cancelled = false
@@ -150,7 +146,7 @@ export default function PriceCard({
     return () => {
       cancelled = true
     }
-  }, [apiBase, ndc, rxcui, medicineName, initialData?.price, retryCount])
+  }, [ndc, rxcui, medicineName, initialData?.price, retryCount])
 
   useEffect(() => {
     const priceData = initialData?.price ?? priceState
@@ -162,7 +158,6 @@ export default function PriceCard({
       setIngredientState(null)
       return
     }
-    if (!apiBase) return
     if (hasCompleteInitialData) return
 
     const downstreamNdc = resolveDownstreamNdc(priceData, ndc)
@@ -206,7 +201,6 @@ export default function PriceCard({
       cancelled = true
     }
   }, [
-    apiBase,
     hasCompleteInitialData,
     initialData?.price,
     initialData?.alternatives,
