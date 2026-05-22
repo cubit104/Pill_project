@@ -91,9 +91,9 @@ export default async function PillPricePage(
       offers: {
         '@type': 'AggregateOffer',
         priceCurrency: 'USD',
-        lowPrice: initialPriceData.price.price_per_unit.toFixed(2),
-        highPrice: initialPriceData.price.total_acquisition_cost.toFixed(2),
-        offerCount: '1',
+        lowPrice: initialPriceData.price.fair_retail_low,
+        highPrice: initialPriceData.price.fair_retail_high,
+        offerCount: 1,
       },
     } : {}),
   }

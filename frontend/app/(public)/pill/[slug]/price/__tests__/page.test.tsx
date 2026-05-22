@@ -330,8 +330,8 @@ test('price page still renders gracefully when one downstream fetch fails', asyn
     assert.deepEqual(data?.alternatives, [])
     assert.match(html, /data-testid="pill-price-page"/)
     assert.match(html, /"@type":"AggregateOffer"/)
-    assert.match(html, /"lowPrice":"0\.45"/)
-    assert.match(html, /"highPrice":"13\.50"/)
+    assert.match(html, /"lowPrice":20\.25/)
+    assert.match(html, /"highPrice":40\.5/)
   } finally {
     global.fetch = originalFetch
   }
