@@ -11,8 +11,11 @@ const faqItemsSource = readFileSync(faqItemsPath, 'utf8')
 
 test('home page hero keeps a centered intro with a 70/30 search row', () => {
   assert.match(source, /title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide \(FDA Data\)'/)
-  assert.match(source, /Free Pill Identifier, <span className="text-emerald-700">Drug Price Check<\/span>\s*\{' '\}\s*&amp; Patient Guide/)
-  assert.match(source, /Know your pill\. Know the price\. Know how to take it\./)
+  assert.match(source, /className="bg-gradient-to-b from-slate-50 to-white py-4 sm:py-6 px-4"/)
+  assert.match(source, /className="hidden sm:block mx-auto mb-2"/)
+  assert.match(source, /className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-900"/)
+  assert.match(source, /Free Pill Identifier, <span className="text-emerald-700">Prices<\/span>\s*\{' '\}\s*&amp; Patient Guide/)
+  assert.match(source, /Know your pill\. Know the price\. Free, FDA-sourced — no account needed\./)
   assert.match(source, /grid gap-6 md:grid-cols-10 md:items-center/)
   assert.match(source, /<div className="md:col-span-7">/)
   assert.match(source, /hidden md:flex md:col-span-3 items-center justify-center rounded-2xl border border-slate-200 bg-white p-4 shadow-sm/)
