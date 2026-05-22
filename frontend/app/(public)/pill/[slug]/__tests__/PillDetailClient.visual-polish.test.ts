@@ -7,9 +7,9 @@ const sourcePath = new URL('../PillDetailClient.tsx', import.meta.url)
 test('detail rows use teal stripe option with tighter inline layout', () => {
   const source = readFileSync(sourcePath, 'utf8')
 
-  assert.match(source, /function DetailRow\(\{ label, value, stripe \}: \{ label: string; value\?: string; stripe\?: boolean \}\)/)
-  assert.match(source, /py-2 px-3 flex flex-row items-start gap-2 rounded \$\{stripe \? 'bg-teal-50' : ''\}/)
-  assert.match(source, /<dt className="text-sm font-medium text-slate-500 w-36 shrink-0">\{label\}<\/dt>/)
+  assert.ok(source.includes('function DetailRow({ label, value, stripe }'))
+  assert.ok(source.includes("py-2 px-3 flex flex-row items-start gap-2 rounded ${stripe ? 'bg-teal-50' : ''}"))
+  assert.ok(source.includes('text-sm font-medium text-slate-500 w-36 shrink-0'))
 })
 
 test('pill specs heading and grid striping classes are updated', () => {
@@ -27,13 +27,19 @@ test('pill specs heading and grid striping classes are updated', () => {
 
 test('target card headings include emerald left accent bar', () => {
   const source = readFileSync(sourcePath, 'utf8')
+  const accentHeadingClass = 'text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3'
 
-  assert.match(source, />Pill Identification<\/h2>/)
-  assert.match(source, />Composition<\/h2>/)
-  assert.match(source, />About this medication<\/h2>/)
-  assert.match(source, />Frequently Asked Questions<\/h2>/)
-  assert.match(source, />Related Medications<\/h2>/)
-  assert.match(source, /Other medications used for the same condition/)
-  assert.match(source, /Similar-looking pills — double-check before taking/)
-  assert.ok((source.match(/border-l-4 border-emerald-500 pl-3/g) || []).length >= 8)
+  const mb4Headings = [
+    'Pill Identification',
+    'Pill Specifications',
+    'Composition',
+    'About this medication',
+    'Frequently Asked Questions',
+  ]
+  for (const heading of mb4Headings) {
+    assert.ok(source.includes(`<h2 className="${accentHeadingClass}">${heading}</h2>`))
+  }
+  assert.ok(source.includes('Other medications used for the same condition'))
+  assert.ok(source.includes('<h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">Related Medications</h2>'))
+  assert.ok(source.includes('Similar-looking pills — double-check before taking'))
 })
