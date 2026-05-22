@@ -9,6 +9,7 @@ import { classSlugify, slugifyDrugName } from '../../../lib/slug'
 import { slugifyUrl } from '../../../lib/url-utils'
 import DrugIndicationSection from './DrugIndicationSection'
 import PriceSummaryCard from './pricing/PriceSummaryCard'
+import { usePillView } from './usePillView'
 
 function PillIconLarge() {
   return (
@@ -145,6 +146,7 @@ export default function PillDetailClient({
   const router = useRouter()
   const [zoomImage, setZoomImage] = useState<string | null>(null)
   const resolvedSlug = slug ?? pill?.slug
+  usePillView(resolvedSlug)
 
   const images = pill.images && pill.images.length > 0
     ? pill.images
