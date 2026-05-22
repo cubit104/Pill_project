@@ -94,16 +94,26 @@ export default function PriceSummaryCard({
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 h-full" aria-label="Price summary">
-      <h2 className="text-sm font-semibold text-slate-800">💰 Price</h2>
+      <h3 className="text-sm font-semibold text-slate-800">
+        💰 {medicineName ? `${medicineName} Retail Price` : 'Price'}
+      </h3>
       {hasPriceData ? (
         <>
-          <p className="mt-2 text-2xl font-bold text-slate-900">
-            ${price.price_per_unit.toFixed(2)}
-            <span className="text-sm font-medium text-slate-500"> / {price.unit}</span>
-          </p>
-          <p className="mt-1 text-sm text-slate-700">
-            30-day est: <span className="font-semibold text-slate-900">${price.total_acquisition_cost.toFixed(2)}</span>
-          </p>
+          <div className="mt-3 space-y-1.5">
+            <div className="flex justify-between items-baseline">
+              <span className="text-xs text-slate-500">Per unit</span>
+              <span className="text-xl font-bold text-slate-900">
+                ${price.price_per_unit.toFixed(2)}
+                <span className="text-sm font-medium text-slate-500"> / {price.unit}</span>
+              </span>
+            </div>
+            <div className="flex justify-between items-baseline">
+              <span className="text-xs text-slate-500">30-day est.</span>
+              <span className="text-base font-semibold text-slate-800">
+                ${price.total_acquisition_cost.toFixed(2)}
+              </span>
+            </div>
+          </div>
           {(price.match_type === 'equivalent' || price.match_type === 'approximate') && (
             <p className="mt-2 text-xs text-slate-500">
               ⓘ {price.match_type === 'equivalent' ? 'Equivalent product pricing shown.' : 'Ingredient-based estimate shown.'}
@@ -116,8 +126,12 @@ export default function PriceSummaryCard({
         </p>
       )}
       <div className="mt-4 pt-3 border-t border-slate-100">
-        <Link href={`/pill/${encodeURIComponent(slug)}/price`} className="text-sm font-semibold text-emerald-700 hover:underline">
-          {hasPriceData ? 'See full price details →' : 'See pricing details →'}
+        <Link
+          href={`/pill/${encodeURIComponent(slug)}/price`}
+          className="inline-flex w-full items-center justify-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors"
+        >
+          {hasPriceData ? 'See Full Price Details' : 'See Pricing Details'}
+          <span aria-hidden="true">→</span>
         </Link>
       </div>
     </section>
