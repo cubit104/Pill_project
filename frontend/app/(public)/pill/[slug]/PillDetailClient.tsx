@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
@@ -28,21 +28,10 @@ function PillIconLarge() {
   )
 }
 
-function DetailRow({ label, value }: { label: string; value?: string }) {
+function DetailRow({ label, value, stripe }: { label: string; value?: string; stripe?: boolean }) {
   if (!value) return null
   return (
-    <div className="py-3 border-b border-slate-100 last:border-0 flex flex-col sm:flex-row sm:items-start gap-1">
-      <dt className="text-sm font-medium text-slate-500 sm:w-44 shrink-0">{label}</dt>
-      <dd className="text-sm text-slate-800 sm:flex-1">{value}</dd>
-    </div>
-  )
-}
-
-function StripedDetailRow({ label, value, index }: { label: string; value?: ReactNode; index: number }) {
-  if (!value) return null
-  const isEven = index % 2 === 0
-  return (
-    <div className={`flex flex-row items-start py-2 px-3 rounded ${isEven ? 'bg-emerald-50/50' : 'bg-white'}`}>
+    <div className={`py-2 px-3 flex flex-row items-start gap-2 rounded ${stripe ? 'bg-teal-50' : ''}`}>
       <dt className="text-sm font-medium text-slate-500 w-36 shrink-0">{label}</dt>
       <dd className="text-sm text-slate-800 flex-1">{value}</dd>
     </div>
@@ -423,34 +412,37 @@ export default function PillDetailClient({
         {/* Identification Summary */}
         {identificationSummary && (
           <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-3">Pill Identification</h2>
+            <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Pill Identification</h2>
             <p className="text-sm text-slate-700 leading-relaxed">{identificationSummary}</p>
           </section>
         )}
 
-        {/* Pill Specs */}
+        {/* Pill Specifications */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          <h2 className="text-base font-semibold text-slate-800 mb-4">Pill Specs</h2>
-          <dl className="space-y-0.5">
-            {specsRows.filter(row => Boolean(row.value)).map((row, idx) => (
-              <StripedDetailRow key={row.label} label={row.label} value={row.value} index={idx} />
+          <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Pill Specifications</h2>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 [&>div:nth-child(even)]:bg-teal-50 [&>div:nth-child(even)]:rounded sm:[&>div:nth-child(even)]:bg-transparent sm:[&>div:nth-child(even)]:rounded-none sm:[&>div:nth-child(4n+3)]:bg-teal-50 sm:[&>div:nth-child(4n+3)]:rounded sm:[&>div:nth-child(4n+4)]:bg-teal-50 sm:[&>div:nth-child(4n+4)]:rounded">
+            {specsRows.filter(row => Boolean(row.value)).map((row) => (
+              <div key={row.label} className="py-2 px-3 flex flex-row items-start gap-2 rounded">
+                <dt className="text-sm font-medium text-slate-500 w-36 shrink-0">{row.label}</dt>
+                <dd className="text-sm text-slate-800 flex-1">{row.value}</dd>
+              </div>
             ))}
             {pill.pharma_class && (() => {
-              const visibleCount = specsRows.filter(r => Boolean(r.value)).length
               return (
-                <StripedDetailRow
+                <div
                   key="Pharmacologic Class"
-                  label="Pharmacologic Class"
-                  value={
+                  className="col-span-full py-2 px-3 flex flex-row items-start gap-2 rounded"
+                >
+                  <dt className="text-sm font-medium text-slate-500 w-36 shrink-0">Pharmacologic Class</dt>
+                  <dd className="text-sm text-slate-800 flex-1">
                     <Link
                       href={`/class/${encodeURIComponent(classSlugify(pill.pharma_class))}`}
                       className="text-emerald-700 hover:underline"
                     >
                       {pill.pharma_class}
                     </Link>
-                  }
-                  index={visibleCount}
-                />
+                  </dd>
+                </div>
               )
             })()}
           </dl>
@@ -459,13 +451,13 @@ export default function PillDetailClient({
         {/* Ingredients / Composition */}
         {(pill.ingredients || pill.inactive_ingredients) && (
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-4">Composition</h2>
+            <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Composition</h2>
             <dl className="space-y-0.5">
               {[
                 { label: 'Active Ingredients', value: pill.ingredients },
                 { label: 'Inactive Ingredients', value: pill.inactive_ingredients },
               ].filter(row => Boolean(row.value)).map((row, idx) => (
-                <StripedDetailRow key={row.label} label={row.label} value={row.value} index={idx} />
+                <DetailRow key={row.label} label={row.label} value={row.value} stripe={idx % 2 === 1} />
               ))}
             </dl>
           </div>
@@ -473,7 +465,7 @@ export default function PillDetailClient({
 
         {/* About this medication */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          <h2 className="text-base font-semibold text-slate-800 mb-4">About this medication</h2>
+          <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">About this medication</h2>
           <dl className="space-y-0.5">
             {[
               { label: 'Manufacturer', value: pill.manufacturer },
@@ -481,7 +473,7 @@ export default function PillDetailClient({
               { label: 'Brand Names', value: pill.brand_names },
               { label: 'NDC Code', value: pill.ndc },
             ].filter(row => Boolean(row.value)).map((row, idx) => (
-              <StripedDetailRow key={row.label} label={row.label} value={row.value} index={idx} />
+              <DetailRow key={row.label} label={row.label} value={row.value} stripe={idx % 2 === 1} />
             ))}
           </dl>
           <div className="border-t border-slate-100 mt-3 pt-3">
@@ -571,7 +563,7 @@ export default function PillDetailClient({
         {/* FAQ Block */}
         {faqItems && faqItems.length > 0 && (
           <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-4">Frequently Asked Questions</h2>
+            <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Frequently Asked Questions</h2>
             <div>
               {faqItems.map((item) => (
                 <FaqItem key={item.question} question={item.question} answer={item.answer} />
@@ -587,7 +579,7 @@ export default function PillDetailClient({
           )
           return (
             <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-              <h2 className="text-base font-semibold text-slate-800 mb-1">
+              <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">
                 Other medications used for the same condition
               </h2>
               <p className="text-xs text-slate-500 mb-4">
@@ -638,7 +630,7 @@ export default function PillDetailClient({
         {/* Related Medications — capped at 6, same card layout as condition drugs */}
         {related && related.length > 0 && pharmaClass && (
           <section className="mb-6 bg-white border border-slate-200 rounded-xl p-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-1">Related Medications</h2>
+            <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">Related Medications</h2>
             <p className="text-sm text-slate-500 mb-4">
               Other drugs in the same class:{' '}
               <Link
@@ -684,7 +676,7 @@ export default function PillDetailClient({
         {/* Similar-looking Pills (Confusion Risk) */}
         {similar && similar.length > 0 && (
           <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-1">
+            <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">
               Similar-looking pills — double-check before taking
             </h2>
             <p className="text-xs text-slate-500 mb-4">
