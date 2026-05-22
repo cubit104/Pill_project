@@ -10,7 +10,9 @@ const faqItemsPath = new URL('../../components/homeFaqItems.ts', import.meta.url
 const faqItemsSource = readFileSync(faqItemsPath, 'utf8')
 
 test('home page hero keeps a centered intro with a 70/30 search row', () => {
-  assert.match(source, /title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide \(FDA Data\)'/)
+  assert.match(source, /title: \{ absolute: 'Free Pill Identifier, Prices & Patient Guide \| PillSeek' \}/)
+  assert.match(source, /openGraph:\s*\{[\s\S]*title: 'Free Pill Identifier, Prices & Patient Guide \| PillSeek'/)
+  assert.match(source, /twitter:\s*\{[\s\S]*title: 'Free Pill Identifier, Prices & Patient Guide \| PillSeek'/)
   assert.match(source, /className="bg-gradient-to-b from-slate-50 to-white py-4 sm:py-6 px-4"/)
   assert.match(source, /className="hidden sm:block mx-auto mb-2"/)
   assert.match(source, /className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-900"/)

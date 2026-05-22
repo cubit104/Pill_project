@@ -31,7 +31,7 @@ export async function generateMetadata(
   const pill = await fetchPill(slug)
   if (!pill) {
     return {
-      title: 'Price details | PillSeek',
+      title: 'Price details',
       robots: { index: false, follow: true },
     }
   }
@@ -39,7 +39,7 @@ export async function generateMetadata(
   const drugName = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : slug
   const strength = pill.strength?.trim() || ''
   const titleName = [drugName, strength].filter(Boolean).join(' ').trim()
-  const title = `${titleName || drugName} – Price details | PillSeek`
+  const title = `${titleName || drugName} – Price details`
   const canonicalUrl = `${SITE_URL}/pill/${encodeURIComponent(slug)}/price`
 
   return {
