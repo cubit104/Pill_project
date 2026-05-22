@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
@@ -75,42 +75,31 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
   )
 }
 
-function MedicationInfoWithPrice({
+function MedicationInfoCard({
   testId,
   title,
   description,
   ctaHref,
   ctaLabel,
-  priceSummary,
 }: {
   testId: string
   title: string
   description: string
   ctaHref: string
   ctaLabel: string
-  priceSummary: ReactNode
 }) {
   return (
     <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mt-6">
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-5 md:items-start" data-testid={testId}>
-        <div className="md:col-span-3">
-          <h2 className="text-xl font-semibold text-slate-900 mb-2">
-            {title}
-          </h2>
-          <p className="text-slate-600 mb-4">
-            {description}
-          </p>
-          <Link
-            href={ctaHref}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
-          >
-            {ctaLabel}
-            <span aria-hidden="true">→</span>
-          </Link>
-        </div>
-        <div className="md:col-span-2">
-          {priceSummary}
-        </div>
+      <div data-testid={testId}>
+        <h2 className="text-xl font-semibold text-slate-900 mb-2">{title}</h2>
+        <p className="text-slate-600 mb-4">{description}</p>
+        <Link
+          href={ctaHref}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
+        >
+          {ctaLabel}
+          <span aria-hidden="true">→</span>
+        </Link>
       </div>
     </section>
   )
@@ -189,7 +178,7 @@ export default function PillDetailClient({
         </div>
       )}
 
-      <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Breadcrumbs */}
         <nav aria-label="Breadcrumb" className="mb-4">
           <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
@@ -250,33 +239,33 @@ export default function PillDetailClient({
 
         {/* Hero Card */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          <div className="flex flex-col sm:flex-row gap-6 items-center sm:items-start">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
             {/* Image */}
-            <div className="shrink-0">
+            <div className="w-full">
               {images.length > 0 ? (
                 <button
                   onClick={() => setZoomImage(images[0])}
-                  className="block rounded-xl overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="block w-full rounded-xl overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
                   aria-label="Click to zoom pill image"
                 >
                   <img
                     src={images[0]}
                     alt={pill.image_alt_text || buildImageAlt(pill)}
-                    className="w-72 h-72 object-contain bg-slate-50"
-                    width={288}
-                    height={288}
+                    className="w-full aspect-square object-contain bg-slate-50"
+                    width={400}
+                    height={400}
                     loading="eager"
                   />
                 </button>
               ) : (
-                <div className="w-72 h-72 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center">
+                <div className="w-full aspect-square bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center">
                   <PillIconLarge />
                 </div>
               )}
             </div>
 
             {/* Header Info */}
-            <div className="flex-1 text-center sm:text-left">
+            <div className="text-center sm:text-left">
               <h1 className="text-2xl font-bold text-slate-900 mb-1">{pill.drug_name}</h1>
               {pill.strength && (
                 <p className="text-slate-500 text-sm mb-3">{pill.strength}</p>
@@ -314,6 +303,16 @@ export default function PillDetailClient({
                   </span>
                 )}
               </div>
+              {resolvedSlug && (
+                <div className="mt-4 hidden sm:block text-left">
+                  <PriceSummaryCard
+                    slug={resolvedSlug}
+                    ndc={pill.ndc}
+                    rxcui={pill.rxcui}
+                    medicineName={pill.drug_name}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -340,6 +339,18 @@ export default function PillDetailClient({
             </div>
           )}
         </div>
+
+        {/* Mobile-only price card — separate card below hero on small screens */}
+        {resolvedSlug && (
+          <div className="sm:hidden mb-6">
+            <PriceSummaryCard
+              slug={resolvedSlug}
+              ndc={pill.ndc}
+              rxcui={pill.rxcui}
+              medicineName={pill.drug_name}
+            />
+          </div>
+        )}
 
         {/* Share this page */}
         {(() => {
@@ -476,58 +487,34 @@ export default function PillDetailClient({
 
         {/* Official Medication Guide card: only when an official guide exists. */}
         {resolvedSlug && pill.has_medguide === true && (
-          <MedicationInfoWithPrice
+          <MedicationInfoCard
             testId="medication-info-grid-guide"
             title="Medication Information"
             description="Read the official FDA Medication Guide — written for patients, sourced from DailyMed."
             ctaHref={`/pill/${resolvedSlug}/medication-guide`}
             ctaLabel="Read Medication Guide"
-            priceSummary={(
-              <PriceSummaryCard
-                slug={resolvedSlug}
-                ndc={pill.ndc}
-                rxcui={pill.rxcui}
-                medicineName={pill.drug_name}
-              />
-            )}
           />
         )}
 
         {/* Fallback summary card when no official guide exists but a summary is available. */}
         {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary === true && (
-          <MedicationInfoWithPrice
+          <MedicationInfoCard
             testId="medication-info-grid-summary"
             title="Medication Summary"
             description="No separate FDA Medication Guide was found for this label. Read a patient-friendly summary based on FDA/DailyMed prescribing information."
             ctaHref={`/pill/${resolvedSlug}/medication-summary`}
             ctaLabel="Read Medication Summary"
-            priceSummary={(
-              <PriceSummaryCard
-                slug={resolvedSlug}
-                ndc={pill.ndc}
-                rxcui={pill.rxcui}
-                medicineName={pill.drug_name}
-              />
-            )}
           />
         )}
 
         {/* Generic fallback when neither official guide nor summary flags are available. */}
         {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary !== true && (
-          <MedicationInfoWithPrice
+          <MedicationInfoCard
             testId="medication-info-grid-fallback"
             title="Medication Information"
             description="Read prescribing information and professional label data sourced from FDA/DailyMed."
             ctaHref={`/pill/${resolvedSlug}/medication-guide`}
             ctaLabel="Read Medication Information"
-            priceSummary={(
-              <PriceSummaryCard
-                slug={resolvedSlug}
-                ndc={pill.ndc}
-                rxcui={pill.rxcui}
-                medicineName={pill.drug_name}
-              />
-            )}
           />
         )}
 

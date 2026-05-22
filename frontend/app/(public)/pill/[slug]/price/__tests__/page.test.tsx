@@ -10,6 +10,8 @@ test('price page source references full PriceCard component', () => {
   const source = readFileSync(pagePath, 'utf8')
   assert.match(source, /<PriceCard/)
   assert.match(source, /initialData=\{initialPriceData\}/)
+  assert.match(source, /type="application\/ld\+json"/)
+  assert.match(source, /'@type': 'Product'/)
 })
 
 test('price page snapshot-like render includes back link and wrapper', async () => {
@@ -47,6 +49,8 @@ test('price page snapshot-like render includes back link and wrapper', async () 
     assert.match(html, /loading="lazy"/)
     assert.match(html, /referrerPolicy="no-referrer"/)
     assert.match(html, /href="\/pill\/plavix-75-1171"/)
+    assert.match(html, /application\/ld\+json/)
+    assert.match(html, /Retail price and cost comparison for Plavix 75 mg\./)
   } finally {
     global.fetch = originalFetch
   }
@@ -325,6 +329,9 @@ test('price page still renders gracefully when one downstream fetch fails', asyn
     assert.equal(data?.price.ndc, '00002140102')
     assert.deepEqual(data?.alternatives, [])
     assert.match(html, /data-testid="pill-price-page"/)
+    assert.match(html, /"@type":"AggregateOffer"/)
+    assert.match(html, /"lowPrice":20\.25/)
+    assert.match(html, /"highPrice":40\.5/)
   } finally {
     global.fetch = originalFetch
   }

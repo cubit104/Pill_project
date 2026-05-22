@@ -14,39 +14,40 @@ test('detail page source keeps What it’s used for as a full-width section outs
   assert.doesNotMatch(source, /data-testid="medical-price-grid"/)
 })
 
-test('detail page source renders guide, summary, and fallback medication sections with PriceSummaryCard', () => {
+test('detail page source renders guide, summary, and fallback medication sections without embedded price cards', () => {
   const source = readFileSync(sourcePath, 'utf8')
 
   assert.match(source, /data-testid=\{testId\}/)
   assert.match(source, /testId="medication-info-grid-guide"/)
   assert.match(source, /testId="medication-info-grid-summary"/)
   assert.match(source, /testId="medication-info-grid-fallback"/)
-  assert.match(source, /grid grid-cols-1 gap-6 md:grid-cols-5/)
-  assert.match(source, /md:col-span-3/)
-  assert.match(source, /md:col-span-2/)
+  assert.match(source, /function MedicationInfoCard/)
+  assert.doesNotMatch(source, /function MedicationInfoWithPrice/)
 
   assert.match(
     source,
-    /\{resolvedSlug && pill\.has_medguide === true && \(\s*<MedicationInfoWithPrice[\s\S]*?ctaLabel="Read Medication Guide"[\s\S]*?<PriceSummaryCard/
+    /\{resolvedSlug && pill\.has_medguide === true && \(\s*<MedicationInfoCard[\s\S]*?ctaLabel="Read Medication Guide"/
   )
   assert.match(
     source,
-    /\{resolvedSlug && pill\.has_medguide !== true && pill\.has_medication_summary === true && \(\s*<MedicationInfoWithPrice[\s\S]*?ctaLabel="Read Medication Summary"[\s\S]*?<PriceSummaryCard/
+    /\{resolvedSlug && pill\.has_medguide !== true && pill\.has_medication_summary === true && \(\s*<MedicationInfoCard[\s\S]*?ctaLabel="Read Medication Summary"/
   )
   assert.match(
     source,
-    /\{resolvedSlug && pill\.has_medguide !== true && pill\.has_medication_summary !== true && \(\s*<MedicationInfoWithPrice[\s\S]*?ctaLabel="Read Medication Information"[\s\S]*?<PriceSummaryCard/
+    /\{resolvedSlug && pill\.has_medguide !== true && pill\.has_medication_summary !== true && \(\s*<MedicationInfoCard[\s\S]*?ctaLabel="Read Medication Information"/
   )
 
   assert.match(source, /Read Medication Guide/)
   assert.match(source, /Read Medication Summary/)
   assert.match(source, /Read Medication Information/)
-  assert.equal((source.match(/<PriceSummaryCard/g) || []).length, 3)
+  assert.equal((source.match(/<PriceSummaryCard/g) || []).length, 1)
 })
 
-test('detail page source passes resolved slug into each PriceSummaryCard for /pill\\/\\[slug\\]\\/price links', () => {
+test('detail page source passes resolved slug into hero PriceSummaryCard for /pill\\/\\[slug\\]\\/price links', () => {
   const source = readFileSync(sourcePath, 'utf8')
-  assert.equal((source.match(/slug=\{resolvedSlug\}/g) || []).length, 3)
+  assert.equal((source.match(/slug=\{resolvedSlug\}/g) || []).length, 1)
+  assert.match(source, /<div className="mt-4 text-left">\s*<PriceSummaryCard/)
+  assert.match(source, /max-w-4xl mx-auto px-4 py-8/)
 })
 
 test('detail page source does not render the long inline price card content', () => {
