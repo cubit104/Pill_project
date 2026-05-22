@@ -86,9 +86,11 @@ cp .env.example .env
 | `DATABASE_URL` | PostgreSQL connection string | ✅ Yes |
 | `IMAGE_BASE` | Base URL for pill images on Supabase storage | No (has default) |
 | `ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins | No (defaults to `https://pill0project.onrender.com,https://pill-project.vercel.app,https://pillseek.com,https://www.pillseek.com`) |
+| `ALLOWED_ORIGINS_REGEX` | Regex pattern for additional CORS origins (e.g. Vercel preview URLs) | No (defaults to `https://pill-project-git-[a-z0-9\-]+\.vercel\.app`) |
 | `SITE_URL` | Public site URL used in sitemap | No (defaults to `https://pillseek.com`) |
 | `INDEXNOW_KEY` | IndexNow verification/submission key | No |
 | `INDEXNOW_KEY_LOCATION` | Public IndexNow key file URL (defaults to `{SITE_URL}/{INDEXNOW_KEY}.txt`) | No |
+| `NEXT_PUBLIC_TRENDING_MIN_VIEWS` | Minimum total pill views before showing "Trending This Week" on homepage (set to `0` on preview to verify without organic traffic) | No (defaults to `50`) |
 
 ### 4. Build the frontend
 
@@ -126,6 +128,7 @@ This runs `pip install -r requirements.txt` and then builds the Next.js frontend
    - `SITE_URL` — `https://pillseek.com`
    - `INDEXNOW_KEY` — generated IndexNow key
    - `INDEXNOW_KEY_LOCATION` — optional override, otherwise `{SITE_URL}/{INDEXNOW_KEY}.txt`
+   - Ensure the `supabase/migrations/20260522010000_create_pill_views.sql` migration has been applied before deploying the trending feature, or `/api/pill-views` will not be able to persist view rows.
 
 2. Set **Build Command** in Render dashboard:
    ```bash

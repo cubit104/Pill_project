@@ -48,6 +48,14 @@ async def lifespan(app: FastAPI):
     """Application lifespan that bounds startup/shutdown resource lifecycles."""
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, warmup_system)
+    try:
+        pill_views_status = await loop.run_in_executor(None, pill_views.get_pill_views_table_status)
+        if not pill_views_status["pill_views_table_exists"]:
+            logger.error(
+                "pill_views table is missing — run supabase migration 20260522010000_create_pill_views.sql"
+            )
+    except Exception as exc:
+        logger.warning("Unable to verify pill_views table at startup: %s", exc, exc_info=True)
     if _env_truthy("RUN_SLUG_REGEN_ON_STARTUP"):
         await loop.run_in_executor(None, regenerate_slugs)
     logger.info("Pill identification system initialized successfully")
@@ -69,15 +77,25 @@ app = FastAPI(
 )
 
 # Enable CORS
+# ALLOWED_ORIGINS_REGEX extends the static list with a regex pattern (e.g. for
+# Vercel preview deployments like https://pill-project-git-*.vercel.app).
+# Defaults to the standard Vercel git-branch preview URL pattern.
+_allowed_origins = [
+    o.strip()
+    for o in os.getenv(
+        "ALLOWED_ORIGINS",
+        "https://pill0project.onrender.com,https://pill-project.vercel.app,https://pillseek.com,https://www.pillseek.com",
+    ).split(",")
+    if o.strip()
+]
+_allow_origin_regex = os.getenv(
+    "ALLOWED_ORIGINS_REGEX",
+    r"https://pill-project-git-[a-z0-9\-]+\.vercel\.app",
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        o.strip()
-        for o in os.getenv(
-            "ALLOWED_ORIGINS",
-            "https://pill0project.onrender.com,https://pill-project.vercel.app,https://pillseek.com,https://www.pillseek.com",
-        ).split(",")
-    ],
+    allow_origins=_allowed_origins,
+    allow_origin_regex=_allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -98,7 +116,7 @@ except Exception as e:
 
 # Include all route modules
 from routes import search, details, filters, ndc, sitemap, health, similar, prices, trending  # noqa: E402
-from routes import pill_images, conditions, medication_guide  # noqa: E402
+from routes import pill_images, conditions, medication_guide, pill_views  # noqa: E402
 from routes.admin import pills as admin_pills, drafts as admin_drafts, images as admin_images  # noqa: E402
 from routes.admin import audit as admin_audit, users as admin_users, stats as admin_stats  # noqa: E402
 from routes.admin import duplicates as admin_duplicates  # noqa: E402
@@ -117,6 +135,7 @@ app.include_router(similar.router)
 app.include_router(prices.router)
 app.include_router(trending.router)
 app.include_router(medication_guide.router)
+app.include_router(pill_views.router)
 app.include_router(pill_images.router)
 app.include_router(conditions.router)
 app.include_router(admin_pills.router)

@@ -13,6 +13,7 @@ from sqlalchemy import text
 import database
 from routes.admin.auth import get_admin_user
 from routes.admin.pills import _build_meta_title as _pill_build_meta_title
+from routes.pill_views import get_pill_views_table_status
 
 logger = logging.getLogger(__name__)
 
@@ -974,6 +975,18 @@ def _is_garbage_drug_name(name: str) -> bool:
         if pat.search(name):
             return True
     return False
+
+
+@router.get("/pill-views-status")
+def pill_views_status(admin: dict = Depends(get_admin_user)):
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        return get_pill_views_table_status()
+    except Exception as exc:
+        logger.warning("pill_views status check failed: %s", exc, exc_info=True)
+        return {"pill_views_table_exists": False, "row_count": None}
 
 
 @router.get("/page-health")
