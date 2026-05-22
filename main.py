@@ -48,6 +48,14 @@ async def lifespan(app: FastAPI):
     """Application lifespan that bounds startup/shutdown resource lifecycles."""
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, warmup_system)
+    try:
+        pill_views_status = await loop.run_in_executor(None, pill_views.get_pill_views_table_status)
+        if not pill_views_status["pill_views_table_exists"]:
+            logger.error(
+                "pill_views table is missing — run supabase migration 20260522010000_create_pill_views.sql"
+            )
+    except Exception as exc:
+        logger.warning("Unable to verify pill_views table at startup: %s", exc, exc_info=True)
     if _env_truthy("RUN_SLUG_REGEN_ON_STARTUP"):
         await loop.run_in_executor(None, regenerate_slugs)
     logger.info("Pill identification system initialized successfully")
