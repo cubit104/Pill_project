@@ -145,7 +145,7 @@ test('price page metadata includes the drug name in the title', async () => {
     const mod = await import('../page')
     const metadata = await mod.generateMetadata({ params: Promise.resolve({ slug: 'plavix-75-1171' }) })
 
-    assert.equal(metadata.title, 'Plavix 75 mg – Price details | PillSeek')
+    assert.equal(metadata.title, 'Plavix 75 mg – Price details')
   } finally {
     global.fetch = originalFetch
   }

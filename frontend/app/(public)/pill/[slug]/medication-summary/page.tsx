@@ -177,7 +177,7 @@ export async function generateMetadata({ params }: { params: PageParams }): Prom
   }
 
   return {
-    title: `${drugName} Medication Summary — FDA Label Overview | PillSeek`,
+    title: `${drugName} Medication Summary — FDA Label Overview`,
     description: `Patient-friendly FDA/DailyMed label summary for ${drugName}, including warnings, usage, side effects, and interactions.`,
     alternates: { canonical: `/pill/${encodeURIComponent(slug)}/medication-summary` },
     robots: { index: true, follow: true },

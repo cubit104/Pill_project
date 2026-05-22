@@ -30,12 +30,12 @@ type PillarCard =
   | (PillarCardBase & { iconType: 'emoji', icon: string })
 
 export const metadata: Metadata = {
-  title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
+  title: { absolute: 'Free Pill Identifier, Prices & Patient Guide | PillSeek' },
   description:
     'Free pill identifier, drug price checks, and patient-friendly medication guides powered by FDA, DailyMed, and NADAC data.',
   alternates: { canonical: '/' },
   openGraph: {
-    title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
+    title: 'Free Pill Identifier, Prices & Patient Guide | PillSeek',
     description:
       'Free pill identifier, drug price checks, and patient-friendly medication guides powered by FDA, DailyMed, and NADAC data.',
     url: SITE_URL,
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
+    title: 'Free Pill Identifier, Prices & Patient Guide | PillSeek',
     description:
       'Free pill identifier, drug price checks, and patient-friendly medication guides powered by FDA, DailyMed, and NADAC data.',
   },
