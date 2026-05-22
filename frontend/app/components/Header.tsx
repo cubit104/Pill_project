@@ -1,14 +1,44 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [hidden, setHidden] = useState(false)
+  const lastScrollY = useRef(0)
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.innerWidth >= 640) {
+        setHidden(false)
+        lastScrollY.current = window.scrollY
+        return
+      }
+
+      const currentY = window.scrollY
+
+      if (currentY > lastScrollY.current && currentY > 60) {
+        setHidden(true)
+      } else {
+        setHidden(false)
+      }
+
+      lastScrollY.current = currentY
+    }
+
+    lastScrollY.current = window.scrollY
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
 
   return (
-    <header className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+    <header
+      className={`bg-white border-b border-slate-200 shadow-sm sticky top-0 z-40 transition-transform duration-300 sm:transition-none ${
+        hidden ? '-translate-y-full sm:translate-y-0' : 'translate-y-0'
+      }`}
+    >
+      <div className="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
         <Link
           href="/"
           className="flex items-center gap-1 hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 rounded"
