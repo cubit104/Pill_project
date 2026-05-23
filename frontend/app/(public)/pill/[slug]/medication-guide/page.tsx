@@ -113,15 +113,15 @@ const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
 
 const MEDGUIDE_PROSE_CLASSES = [
   '[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-900 [&_h1]:mb-4',
-  '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mt-10 [&_h2]:mb-4',
-  '[&_h3]:text-base [&_h3]:font-medium [&_h3]:text-slate-800 [&_h3]:mt-8 [&_h3]:mb-3',
+  '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-10 [&_h2]:mb-4',
+  '[&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-900 [&_h3]:mt-8 [&_h3]:mb-3',
   '[&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:mt-5 [&_h4]:mb-2',
-  '[&_p]:text-sm [&_p]:leading-8 [&_p]:text-slate-700 [&_p]:my-4',
+  '[&_p]:text-sm [&_p]:leading-relaxed [&_p]:text-slate-800 [&_p]:my-4',
   '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4 [&_ul]:space-y-2',
   '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4 [&_ol]:space-y-2',
-  '[&_li]:text-sm [&_li]:leading-8 [&_li]:text-slate-700 [&_li]:my-2',
+  '[&_li]:text-sm [&_li]:leading-relaxed [&_li]:text-slate-800 [&_li]:my-2',
   '[&_a]:text-emerald-600 [&_a:hover]:underline',
-  '[&_strong]:font-semibold [&_strong]:text-slate-800',
+  '[&_strong]:font-semibold [&_strong]:text-slate-900',
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
   '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:align-top',
@@ -129,15 +129,15 @@ const MEDGUIDE_PROSE_CLASSES = [
 
 const PRO_PROSE_CLASSES = [
   '[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-900 [&_h1]:mb-4',
-  '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mt-10 [&_h2]:mb-4',
-  '[&_h3]:text-base [&_h3]:font-medium [&_h3]:text-slate-800 [&_h3]:mt-8 [&_h3]:mb-3',
+  '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-10 [&_h2]:mb-4',
+  '[&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-900 [&_h3]:mt-8 [&_h3]:mb-3',
   '[&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:mt-5 [&_h4]:mb-2',
-  '[&_p]:text-sm [&_p]:leading-8 [&_p]:text-slate-700 [&_p]:my-4',
+  '[&_p]:text-sm [&_p]:leading-relaxed [&_p]:text-slate-800 [&_p]:my-4',
   '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4 [&_ul]:space-y-2',
   '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4 [&_ol]:space-y-2',
-  '[&_li]:text-sm [&_li]:leading-8 [&_li]:text-slate-700 [&_li]:my-2',
+  '[&_li]:text-sm [&_li]:leading-relaxed [&_li]:text-slate-800 [&_li]:my-2',
   '[&_a]:text-emerald-600 [&_a:hover]:underline',
-  '[&_strong]:font-semibold [&_strong]:text-slate-800',
+  '[&_strong]:font-semibold [&_strong]:text-slate-900',
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
   '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
   '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:align-top',
@@ -146,7 +146,7 @@ const PRO_PROSE_CLASSES = [
 const BOXED_WARNING_CARD_CLASSES =
   'rounded-xl border border-rose-300 border-l-4 border-l-rose-600 bg-rose-50 p-5 text-rose-950 [&[open]>summary]:mb-3'
 const BOXED_WARNING_PROSE_CLASSES =
-  'text-sm [&_.boxed-warning-content]:space-y-0 [&_.boxed-warning-content_h2]:mt-5 [&_.boxed-warning-content_h2]:mb-3 [&_.boxed-warning-content_h2]:text-base [&_.boxed-warning-content_h2]:font-semibold [&_.boxed-warning-content_h2]:text-rose-900 [&_.boxed-warning-content_h3]:mt-4 [&_.boxed-warning-content_h3]:mb-2 [&_.boxed-warning-content_h3]:text-sm [&_.boxed-warning-content_h3]:font-semibold [&_.boxed-warning-content_h3]:text-rose-900 [&_.boxed-warning-content_p]:my-3 [&_.boxed-warning-content_p]:leading-8 [&_.boxed-warning-content_p]:text-rose-950 [&_.boxed-warning-content_ul]:my-3 [&_.boxed-warning-content_ul]:list-disc [&_.boxed-warning-content_ul]:pl-5 [&_.boxed-warning-content_ul]:space-y-2 [&_.boxed-warning-content_ol]:my-3 [&_.boxed-warning-content_ol]:list-decimal [&_.boxed-warning-content_ol]:pl-5 [&_.boxed-warning-content_ol]:space-y-2 [&_.boxed-warning-content_li]:my-2 [&_.boxed-warning-content_li]:leading-8 [&_.boxed-warning-content_li]:text-rose-950 [&_.boxed-warning-content_a]:text-rose-800 [&_.boxed-warning-content_a:hover]:text-rose-950 [&_.boxed-warning-content_strong]:font-semibold [&_.boxed-warning-content_strong]:text-rose-950'
+  'text-sm [&_.boxed-warning-content]:space-y-0 [&_.boxed-warning-content_h2]:mt-5 [&_.boxed-warning-content_h2]:mb-3 [&_.boxed-warning-content_h2]:text-base [&_.boxed-warning-content_h2]:font-semibold [&_.boxed-warning-content_h2]:text-rose-900 [&_.boxed-warning-content_h3]:mt-4 [&_.boxed-warning-content_h3]:mb-2 [&_.boxed-warning-content_h3]:text-sm [&_.boxed-warning-content_h3]:font-semibold [&_.boxed-warning-content_h3]:text-rose-900 [&_.boxed-warning-content_p]:my-3 [&_.boxed-warning-content_p]:leading-relaxed [&_.boxed-warning-content_p]:text-rose-950 [&_.boxed-warning-content_ul]:my-3 [&_.boxed-warning-content_ul]:list-disc [&_.boxed-warning-content_ul]:pl-5 [&_.boxed-warning-content_ul]:space-y-2 [&_.boxed-warning-content_ol]:my-3 [&_.boxed-warning-content_ol]:list-decimal [&_.boxed-warning-content_ol]:pl-5 [&_.boxed-warning-content_ol]:space-y-2 [&_.boxed-warning-content_li]:my-2 [&_.boxed-warning-content_li]:leading-relaxed [&_.boxed-warning-content_li]:text-rose-950 [&_.boxed-warning-content_a]:text-rose-800 [&_.boxed-warning-content_a:hover]:text-rose-950 [&_.boxed-warning-content_strong]:font-semibold [&_.boxed-warning-content_strong]:text-rose-950'
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
   for (const value of values) {
@@ -388,7 +388,7 @@ function GuideText({
   drugNames: string[]
 }) {
   return (
-    <p className="my-4 whitespace-pre-line text-sm leading-8 text-slate-700">
+    <p className="my-4 whitespace-pre-line text-sm leading-relaxed text-slate-800">
       {linkifyText(content, drugName, conditionTags, drugNames)}
     </p>
   )
@@ -412,7 +412,7 @@ function SectionBlock({
   if (!content) return null
   return (
     <section className="border-b border-slate-100 py-5 last:border-b-0">
-      <h2 className="mb-4 text-base font-semibold text-slate-800">{label}</h2>
+      <h2 className="mb-4 text-base font-semibold text-slate-900">{label}</h2>
       {isHtmlContent(content) ? (
         <GuideHtml content={content} linkTargets={linkTargets} />
       ) : (
@@ -736,7 +736,7 @@ export default async function MedicationGuidePage({
                 />
               ) : (
                 <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
-                  <p className="text-sm text-slate-600 mb-3">
+                  <p className="text-sm text-slate-800 mb-3">
                     Full prescribing information is not available for this medication in our cache.
                   </p>
                   {professionalData?.source_url && (
@@ -907,7 +907,7 @@ export default async function MedicationGuidePage({
                 dangerouslySetInnerHTML={{ __html: linkedBoxedWarningHtml }}
               />
             ) : (
-              <p className="text-sm leading-8 text-rose-950">
+              <p className="text-sm leading-relaxed text-rose-950">
                 This medication includes an FDA boxed warning. See the Full Prescribing Information for details.
               </p>
             )}
