@@ -52,7 +52,7 @@ export default function ProfessionalToc({ sections }: { sections: Section[] }) {
 
   return (
     <nav aria-label="On this page" className="w-full max-w-[16rem]">
-      <div className="text-xs uppercase tracking-wide text-slate-500 mb-3">On this page</div>
+      <div className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-4">On this page</div>
       <ul className="space-y-1.5">
         {sections.map((section) => (
           <li key={section.slug}>
@@ -60,7 +60,7 @@ export default function ProfessionalToc({ sections }: { sections: Section[] }) {
               href={`#${section.slug}`}
               title={section.label}
               className={
-                'block py-1 text-xs leading-5 transition-colors ' +
+                'block py-1 text-sm leading-6 transition-colors ' +
                 (activeId === section.slug
                   ? 'text-emerald-800 font-semibold'
                   : 'text-emerald-600 hover:text-emerald-800')
