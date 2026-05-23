@@ -3,6 +3,7 @@ import React from 'react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
+import { safeJsonLd } from '../../../../lib/structured-data'
 import PriceCard from '../pricing/PriceCard'
 import { fetchPill } from '../page'
 import { formatStrength } from './formatStrength'
@@ -31,7 +32,7 @@ export async function generateMetadata(
   const pill = await fetchPill(slug)
   if (!pill) {
     return {
-      title: 'Price details | PillSeek',
+      title: 'Price details',
       robots: { index: false, follow: true },
     }
   }
@@ -39,7 +40,7 @@ export async function generateMetadata(
   const drugName = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : slug
   const strength = pill.strength?.trim() || ''
   const titleName = [drugName, strength].filter(Boolean).join(' ').trim()
-  const title = `${titleName || drugName} – Price details | PillSeek`
+  const title = `${titleName || drugName} – Price details`
   const canonicalUrl = `${SITE_URL}/pill/${encodeURIComponent(slug)}/price`
 
   return {
@@ -79,47 +80,70 @@ export default async function PillPricePage(
     historyNdc: pill.history_ndc,
     historySource: pill.history_source,
   })
+  const schemaDisplayName = `${pill.drug_name}${formattedStrength ? ` ${formattedStrength}` : ''}`.trim()
+  const schemaData = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: schemaDisplayName,
+    description: `Retail price and cost comparison for ${schemaDisplayName}.`,
+    ...(imageUrl ? { image: imageUrl } : {}),
+    ...(initialPriceData?.price ? {
+      offers: {
+        '@type': 'AggregateOffer',
+        priceCurrency: 'USD',
+        lowPrice: initialPriceData.price.fair_retail_low,
+        highPrice: initialPriceData.price.fair_retail_high,
+        offerCount: 1,
+      },
+    } : {}),
+  }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6" data-testid="pill-price-page">
-      <Link
-        href={`/pill/${encodeURIComponent(slug)}`}
-        className="inline-flex items-center text-sm font-medium text-sky-700 hover:underline"
-      >
-        ← Back to {drugName}
-      </Link>
-
-      <header className="mb-6">
-        <div className="flex items-start gap-4 mb-6">
-          {imageUrl ? (
-            <img
-              src={imageUrl}
-              alt={`${pill.drug_name} pill`}
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              className="w-16 h-16 md:w-20 md:h-20 rounded-lg border border-slate-200 object-contain bg-white"
-            />
-          ) : (
-            <div className="w-16 h-16 md:w-20 md:h-20 rounded-lg border border-slate-200 bg-white flex items-center justify-center">
-              <span className="text-5xl">💊</span>
-            </div>
-          )}
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold text-slate-900">
-              {pill.drug_name}{formattedStrength ? ` ${formattedStrength}` : ''}
-            </h1>
-            {detailsText ? <p className="text-slate-600 mt-1">{detailsText}</p> : null}
-          </div>
-        </div>
-      </header>
-
-      <PriceCard
-        ndc={pill.ndc}
-        rxcui={pill.rxcui}
-        medicineName={pill.drug_name}
-        historyNdc={pill.history_ndc}
-        initialData={initialPriceData}
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(schemaData) }}
       />
-    </div>
+      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6" data-testid="pill-price-page">
+        <Link
+          href={`/pill/${encodeURIComponent(slug)}`}
+          className="inline-flex items-center text-sm font-medium text-sky-700 hover:underline"
+        >
+          ← Back to {drugName}
+        </Link>
+
+        <header className="mb-6">
+          <div className="flex items-start gap-4 mb-6">
+            {imageUrl ? (
+              <img
+                src={imageUrl}
+                alt={`${pill.drug_name} pill`}
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                className="w-16 h-16 md:w-20 md:h-20 rounded-lg border border-slate-200 object-contain bg-white"
+              />
+            ) : (
+              <div className="w-16 h-16 md:w-20 md:h-20 rounded-lg border border-slate-200 bg-white flex items-center justify-center">
+                <span className="text-5xl">💊</span>
+              </div>
+            )}
+            <div>
+              <h1 className="text-xl md:text-2xl font-bold text-slate-900">
+                {pill.drug_name}{formattedStrength ? ` ${formattedStrength}` : ''}
+              </h1>
+              {detailsText ? <p className="text-slate-600 mt-1">{detailsText}</p> : null}
+            </div>
+          </div>
+        </header>
+
+        <PriceCard
+          ndc={pill.ndc}
+          rxcui={pill.rxcui}
+          medicineName={pill.drug_name}
+          historyNdc={pill.history_ndc}
+          initialData={initialPriceData}
+        />
+      </div>
+    </>
   )
 }

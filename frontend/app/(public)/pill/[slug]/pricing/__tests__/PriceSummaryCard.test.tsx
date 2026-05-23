@@ -10,6 +10,7 @@ test('PriceSummaryCard snapshot-like render includes compact pricing and details
     <PriceSummaryCard
       slug="plavix-75-1171"
       ndc="00002140102"
+      medicineName="Plavix"
       initialData={{
         ndc: '00002140102',
         price_per_unit: 8.06,
@@ -24,11 +25,13 @@ test('PriceSummaryCard snapshot-like render includes compact pricing and details
     />
   )
 
-  assert.match(html, /💰 Price/)
+  assert.match(html, /💰 Plavix Retail Price/)
+  assert.match(html, /Per unit/)
   assert.match(html, /\$8\.06/)
-  assert.match(html, /30-day est:.*\$241\.65/)
+  assert.match(html, /30-day est\./)
+  assert.match(html, /\$241\.65/)
   assert.match(html, /href="\/pill\/plavix-75-1171\/price"/)
-  assert.match(html, /See full price details/)
+  assert.match(html, /See Full Price Details/)
 })
 
 test('PriceSummaryCard shows tiny equivalent note for fallback pricing', () => {
@@ -62,5 +65,5 @@ test('PriceSummaryCard renders fallback markup when price data is unavailable', 
   assert.match(html, /💰 Price/)
   assert.match(html, /Price data unavailable for this NDC\./)
   assert.match(html, /href="\/pill\/plavix-75-1171\/price"/)
-  assert.match(html, /See pricing details/)
+  assert.match(html, /See Pricing Details/)
 })

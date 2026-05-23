@@ -51,7 +51,7 @@ export async function generateMetadata(
   }
 
   const { class_name, count } = data
-  const title = `${class_name} — Drug List & Pill Identifier | PillSeek`
+  const title = `${class_name} — Drug List & Pill Identifier`
   const description = `View all ${count} medications classified as ${class_name}. Identify pills in this class by color, shape, imprint, or NDC. Free, FDA-sourced data.`.slice(0, 155)
   const canonicalUrl = `${SITE_URL}/class/${encodeURIComponent(slug)}`
 

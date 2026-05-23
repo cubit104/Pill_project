@@ -7,7 +7,7 @@ export const SHARED_CONTENT_CARD_CLASSES =
 export const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
   'rounded-xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-5'
 export const PRO_HIGHLIGHTS_PROSE_CLASSES =
-  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-800 [&_h2]:mb-2 [&_h2]:mt-3 [&_p]:text-sm [&_p]:text-slate-700 [&_p]:leading-relaxed [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_li]:text-sm [&_li]:text-slate-700 [&_a]:text-emerald-600 [&_a:hover]:underline [&_strong]:font-semibold [&_strong]:text-slate-800'
+  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mb-3 [&_h2]:mt-3 [&_p]:text-sm [&_p]:text-slate-800 [&_p]:leading-8 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_li]:text-sm [&_li]:text-slate-800 [&_li]:leading-8 [&_a]:text-emerald-600 [&_a:hover]:underline [&_strong]:font-semibold [&_strong]:text-slate-900'
 export const PRO_BOXED_WARNING_PROSE_CLASSES = [
   '[&_.pro-boxed-warning-callout]:my-8 [&_.pro-boxed-warning-callout]:rounded-xl [&_.pro-boxed-warning-callout]:border [&_.pro-boxed-warning-callout]:border-rose-300 [&_.pro-boxed-warning-callout]:border-l-4 [&_.pro-boxed-warning-callout]:border-l-rose-600 [&_.pro-boxed-warning-callout]:bg-rose-50 [&_.pro-boxed-warning-callout]:p-5',
   '[&_.pro-boxed-warning-callout_h2]:mt-0 [&_.pro-boxed-warning-callout_h2]:mb-3 [&_.pro-boxed-warning-callout_h2]:text-base [&_.pro-boxed-warning-callout_h2]:font-semibold [&_.pro-boxed-warning-callout_h2]:text-rose-900',

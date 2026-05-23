@@ -30,12 +30,12 @@ type PillarCard =
   | (PillarCardBase & { iconType: 'emoji', icon: string })
 
 export const metadata: Metadata = {
-  title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
+  title: { absolute: 'Free Pill Identifier, Prices & Patient Guide | PillSeek' },
   description:
     'Free pill identifier, drug price checks, and patient-friendly medication guides powered by FDA, DailyMed, and NADAC data.',
   alternates: { canonical: '/' },
   openGraph: {
-    title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
+    title: 'Free Pill Identifier, Prices & Patient Guide | PillSeek',
     description:
       'Free pill identifier, drug price checks, and patient-friendly medication guides powered by FDA, DailyMed, and NADAC data.',
     url: SITE_URL,
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'PillSeek — Free Pill Identifier, Drug Price Check & Patient Guide (FDA Data)',
+    title: 'Free Pill Identifier, Prices & Patient Guide | PillSeek',
     description:
       'Free pill identifier, drug price checks, and patient-friendly medication guides powered by FDA, DailyMed, and NADAC data.',
   },
@@ -95,7 +95,7 @@ export default function HomePage() {
         dangerouslySetInnerHTML={{ __html: safeJsonLd(faqSchema(HOME_FAQS)) }}
       />
 
-      <section className="bg-gradient-to-b from-slate-50 to-white py-8 sm:py-10 px-4">
+      <section className="bg-gradient-to-b from-slate-50 to-white py-4 sm:py-6 px-4">
         <div className="max-w-4xl mx-auto text-center">
           <Image
             src="/logo-mark.svg"
@@ -103,18 +103,14 @@ export default function HomePage() {
             width={68}
             height={68}
             priority
-            className="mx-auto mb-4"
+            className="hidden sm:block mx-auto mb-2"
           />
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-slate-900">
-            Free Pill Identifier, <span className="text-emerald-700">Drug Price Check</span>{' '}
+          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-900">
+            Free Pill Identifier, <span className="text-emerald-700">Prices</span>{' '}
             &amp; Patient Guide
           </h1>
-          <p className="mt-4 text-base sm:text-lg text-slate-700">
-            Know your pill. Know the price. Know how to take it.
-          </p>
-          <p className="mt-3 text-sm sm:text-base text-slate-600 max-w-3xl mx-auto">
-            Free, FDA-sourced medication info for pill ID, price checks, and patient-friendly
-            guides — no account needed.
+          <p className="mt-4 text-base sm:text-lg text-slate-600 max-w-3xl mx-auto">
+            Know your pill. Know the price. Free, FDA-sourced — no account needed.
           </p>
 
           <div className="mt-8 grid gap-6 md:grid-cols-10 md:items-center">

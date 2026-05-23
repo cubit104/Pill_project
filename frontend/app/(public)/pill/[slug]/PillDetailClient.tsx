@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
@@ -28,12 +28,12 @@ function PillIconLarge() {
   )
 }
 
-function DetailRow({ label, value }: { label: string; value?: string }) {
+function DetailRow({ label, value, stripe }: { label: string; value?: string; stripe?: boolean }) {
   if (!value) return null
   return (
-    <div className="py-3 border-b border-slate-100 last:border-0 flex flex-col sm:flex-row sm:items-start gap-1">
-      <dt className="text-sm font-medium text-slate-500 sm:w-44 shrink-0">{label}</dt>
-      <dd className="text-sm text-slate-800 sm:flex-1">{value}</dd>
+    <div className={`py-2 px-3 flex flex-row items-start gap-2 rounded ${stripe ? 'bg-teal-50' : ''}`}>
+      <dt className="text-sm font-semibold text-slate-600 w-36 shrink-0">{label}</dt>
+      <dd className="text-sm text-slate-800 flex-1">{value}</dd>
     </div>
   )
 }
@@ -75,42 +75,31 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
   )
 }
 
-function MedicationInfoWithPrice({
+function MedicationInfoCard({
   testId,
   title,
   description,
   ctaHref,
   ctaLabel,
-  priceSummary,
 }: {
   testId: string
   title: string
   description: string
   ctaHref: string
   ctaLabel: string
-  priceSummary: ReactNode
 }) {
   return (
-    <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mt-6">
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-5 md:items-start" data-testid={testId}>
-        <div className="md:col-span-3">
-          <h2 className="text-xl font-semibold text-slate-900 mb-2">
-            {title}
-          </h2>
-          <p className="text-slate-600 mb-4">
-            {description}
-          </p>
-          <Link
-            href={ctaHref}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
-          >
-            {ctaLabel}
-            <span aria-hidden="true">→</span>
-          </Link>
-        </div>
-        <div className="md:col-span-2">
-          {priceSummary}
-        </div>
+    <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mb-6">
+      <div data-testid={testId}>
+        <h2 className="text-xl font-semibold text-slate-900 mb-2">{title}</h2>
+        <p className="text-slate-600 mb-4">{description}</p>
+        <Link
+          href={ctaHref}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
+        >
+          {ctaLabel}
+          <span aria-hidden="true">→</span>
+        </Link>
       </div>
     </section>
   )
@@ -153,6 +142,22 @@ export default function PillDetailClient({
     : pill.image_url
     ? [pill.image_url]
     : []
+  const [selectedImage, setSelectedImage] = useState<string>(images[0] ?? '')
+  const selectedIndex = images.indexOf(selectedImage) === -1 ? 0 : images.indexOf(selectedImage)
+
+  useEffect(() => {
+    setSelectedImage((current) => (current && images.includes(current) ? current : (images[0] ?? '')))
+  }, [pill.image_url, pill.images])
+
+  const goPrev = () => {
+    const prevIndex = (selectedIndex - 1 + images.length) % images.length
+    setSelectedImage(images[prevIndex])
+  }
+
+  const goNext = () => {
+    const nextIndex = (selectedIndex + 1) % images.length
+    setSelectedImage(images[nextIndex])
+  }
 
   const deaLabels: Record<string, string> = {
     '1': 'Schedule I – High abuse potential, no accepted medical use',
@@ -160,6 +165,24 @@ export default function PillDetailClient({
     '3': 'Schedule III – Moderate abuse potential',
     '4': 'Schedule IV – Low abuse potential',
     '5': 'Schedule V – Lowest abuse potential',
+  }
+
+  const specsRows = [
+    { label: 'Imprint', value: pill.imprint },
+    { label: 'Strength', value: pill.strength },
+    { label: 'Color', value: pill.color },
+    { label: 'Dosage Form', value: pill.dosage_form },
+    { label: 'Shape', value: pill.shape },
+    { label: 'Route', value: pill.route },
+    { label: 'Size', value: pill.size ? `${pill.size} mm` : undefined },
+    { label: 'RxCUI', value: pill.rxcui },
+    { label: 'DEA Schedule', value: pill.dea_schedule ? (deaLabels[pill.dea_schedule] || `Schedule ${pill.dea_schedule}`) : undefined },
+  ]
+  const filteredSpecsRows = specsRows.filter(row => Boolean(row.value))
+  const specsStripeClass = (i: number) => {
+    const mobileStripe = i % 2 === 0 ? 'bg-teal-50' : ''
+    const desktopStripe = Math.floor(i / 2) % 2 === 0 ? 'sm:bg-teal-50' : 'sm:bg-transparent'
+    return `py-2 px-3 flex flex-row items-start gap-2 rounded ${mobileStripe} ${desktopStripe}`.trim()
   }
 
   return (
@@ -189,7 +212,7 @@ export default function PillDetailClient({
         </div>
       )}
 
-      <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Breadcrumbs */}
         <nav aria-label="Breadcrumb" className="mb-4">
           <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
@@ -249,34 +272,63 @@ export default function PillDetailClient({
         )}
 
         {/* Hero Card */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          <div className="flex flex-col sm:flex-row gap-6 items-center sm:items-start">
+        <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
             {/* Image */}
-            <div className="shrink-0">
+            <div className="w-full">
               {images.length > 0 ? (
-                <button
-                  onClick={() => setZoomImage(images[0])}
-                  className="block rounded-xl overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  aria-label="Click to zoom pill image"
-                >
-                  <img
-                    src={images[0]}
-                    alt={pill.image_alt_text || buildImageAlt(pill)}
-                    className="w-72 h-72 object-contain bg-slate-50"
-                    width={288}
-                    height={288}
-                    loading="eager"
-                  />
-                </button>
+                <div className="relative w-full">
+                  <button
+                    type="button"
+                    onClick={() => setZoomImage(selectedImage)}
+                    className="block w-full rounded-xl overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    aria-label="Click to zoom pill image"
+                  >
+                    <img
+                      src={selectedImage}
+                      alt={pill.image_alt_text || buildImageAlt(pill)}
+                      className="w-full aspect-square object-contain bg-slate-50"
+                      width={400}
+                      height={400}
+                      loading="eager"
+                    />
+                  </button>
+                  {images.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        goPrev()
+                      }}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg transition-colors focus:outline-none focus:ring-2 focus:ring-white z-10"
+                      aria-label="Previous image"
+                    >
+                      ‹
+                    </button>
+                  )}
+                  {images.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        goNext()
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg transition-colors focus:outline-none focus:ring-2 focus:ring-white z-10"
+                      aria-label="Next image"
+                    >
+                      ›
+                    </button>
+                  )}
+                </div>
               ) : (
-                <div className="w-72 h-72 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center">
+                <div className="w-full aspect-square bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center">
                   <PillIconLarge />
                 </div>
               )}
             </div>
 
             {/* Header Info */}
-            <div className="flex-1 text-center sm:text-left">
+            <div className="text-center sm:text-left">
               <h1 className="text-2xl font-bold text-slate-900 mb-1">{pill.drug_name}</h1>
               {pill.strength && (
                 <p className="text-slate-500 text-sm mb-3">{pill.strength}</p>
@@ -314,22 +366,35 @@ export default function PillDetailClient({
                   </span>
                 )}
               </div>
+              {resolvedSlug && (
+                <div className="mt-4 hidden sm:block text-left">
+                  <PriceSummaryCard
+                    slug={resolvedSlug}
+                    ndc={pill.ndc}
+                    rxcui={pill.rxcui}
+                    medicineName={pill.drug_name}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
           {/* Additional Images */}
           {images.length > 1 && (
-            <div className="mt-4 flex flex-wrap gap-3">
-              {images.slice(1).map((img, idx) => (
+            <div className="flex flex-row gap-3 overflow-x-auto pb-1 mt-4 sm:flex-wrap">
+              {images.map((img, idx) => (
                 <button
-                  key={idx}
-                  onClick={() => setZoomImage(img)}
-                  className="rounded-lg overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  aria-label={`View alternate pill image ${idx + 2}`}
+                  key={`${img}-${idx}`}
+                  type="button"
+                  onClick={() => setSelectedImage(img)}
+                  className={`shrink-0 rounded-lg overflow-hidden border-2 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-sky-500 ${
+                    selectedImage === img ? 'border-emerald-400 ring-2 ring-emerald-300' : 'border-slate-100'
+                  }`}
+                  aria-label={`View pill image ${idx + 1}`}
                 >
                   <img
                     src={img}
-                    alt={buildImageAlt(pill, idx + 2)}
+                    alt={buildImageAlt(pill, idx + 1)}
                     className="w-28 h-28 object-contain bg-slate-50"
                     width={112}
                     height={112}
@@ -341,6 +406,18 @@ export default function PillDetailClient({
           )}
         </div>
 
+        {/* Mobile-only price card — separate card below hero on small screens */}
+        {resolvedSlug && (
+          <div className="sm:hidden mb-6">
+            <PriceSummaryCard
+              slug={resolvedSlug}
+              ndc={pill.ndc}
+              rxcui={pill.rxcui}
+              medicineName={pill.drug_name}
+            />
+          </div>
+        )}
+
         {/* Share this page */}
         {(() => {
           const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com').replace(/\/$/, '')
@@ -350,7 +427,7 @@ export default function PillDetailClient({
           const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`
           const pinterestUrl = `https://pinterest.com/pin/create/button/?url=${encodeURIComponent(pageUrl)}&description=${encodeURIComponent(shareText)}${images[0] ? `&media=${encodeURIComponent(images[0])}` : ''}`
           return (
-            <section aria-label="Share this page" className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-3 mb-6 flex items-center gap-3 flex-wrap">
+            <section aria-label="Share this page" className="bg-white border border-emerald-200 rounded-xl shadow-sm px-5 py-3 mb-6 flex items-center gap-3 flex-wrap">
               <span className="text-xs font-medium text-slate-500">Share:</span>
               <a
                 href={twitterUrl}
@@ -388,319 +465,70 @@ export default function PillDetailClient({
 
         {/* Identification Summary */}
         {identificationSummary && (
-          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-3">Pill Identification</h2>
+          <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Pill Identification</h2>
             <p className="text-sm text-slate-700 leading-relaxed">{identificationSummary}</p>
           </section>
         )}
 
-        {/* Drug Indication */}
-        {pill.indication && (
-          <DrugIndicationSection
-            indication={pill.indication}
-            drugName={pill.drug_name}
-            imprint={pill.imprint}
-            conditionTags={conditionTags}
-          />
-        )}
-
-        {/* Safety Checklist */}
-        <section className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6" aria-label="Safety checklist">
-          <h2 className="text-sm font-semibold text-amber-900 mb-3">⚠️ What to verify before taking this medication</h2>
-          <ul className="space-y-2 text-sm text-amber-800 leading-relaxed list-none">
-            <li className="flex gap-2">
-              <span aria-hidden="true">✓</span>
-              <span>Verify the imprint, color, and shape match exactly — even a single different character can mean a different drug.</span>
-            </li>
-            <li className="flex gap-2">
-              <span aria-hidden="true">✓</span>
-              <span>Check the expiration date on the original packaging.</span>
-            </li>
-            <li className="flex gap-2">
-              <span aria-hidden="true">✓</span>
-              <span>Look for signs of tampering, discoloration, or unusual odor.</span>
-            </li>
-            <li className="flex gap-2">
-              <span aria-hidden="true">✓</span>
-              <span>Confirm with your pharmacist or prescriber before taking any medication you are unsure about.</span>
-            </li>
-            <li className="flex gap-2">
-              <span aria-hidden="true">✓</span>
-              <span>Never take medication prescribed to someone else.</span>
-            </li>
-          </ul>
-          <p className="mt-3 text-xs text-amber-700">
-            This is patient-safety guidance, not medical advice.{' '}
-            <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
-              Read full medical disclaimer
-            </Link>
-            .
-          </p>
-        </section>
-
-        {/* Pill Specs */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          <h2 className="text-base font-semibold text-slate-800 mb-4">Pill Specs</h2>
-          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1 [&>div]:border-0 [&>div]:py-1.5">
-            <DetailRow label="Imprint" value={pill.imprint} />
-            <DetailRow label="Strength" value={pill.strength} />
-            <DetailRow label="Color" value={pill.color} />
-            <DetailRow label="Dosage Form" value={pill.dosage_form} />
-            <DetailRow label="Shape" value={pill.shape} />
-            <DetailRow label="Route" value={pill.route} />
-            <DetailRow label="Size" value={pill.size ? `${pill.size} mm` : undefined} />
-            <DetailRow label="RxCUI" value={pill.rxcui} />
-            <DetailRow
-              label="DEA Schedule"
-              value={
-                pill.dea_schedule
-                  ? deaLabels[pill.dea_schedule] || `Schedule ${pill.dea_schedule}`
-                  : undefined
-              }
-            />
-            {pill.pharma_class && (
-              <div className="col-span-full py-1.5 flex flex-col sm:flex-row sm:items-start gap-1">
-                <dt className="text-sm font-medium text-slate-500 sm:w-44 shrink-0">Pharmacologic Class</dt>
-                <dd className="text-sm text-slate-800 sm:flex-1">
-                  <Link
-                    href={`/class/${encodeURIComponent(classSlugify(pill.pharma_class))}`}
-                    className="text-emerald-700 hover:underline"
-                  >
-                    {pill.pharma_class}
-                  </Link>
-                </dd>
+        {/* Pill Specifications */}
+        <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Pill Specifications</h2>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+            {filteredSpecsRows.map((row, index) => (
+              <div key={row.label} className={specsStripeClass(index)}>
+                <dt className="text-sm font-semibold text-slate-600 w-36 shrink-0">{row.label}</dt>
+                <dd className="text-sm text-slate-800 flex-1">{row.value}</dd>
               </div>
-            )}
+            ))}
+            {pill.pharma_class && (() => {
+              return (
+                <div
+                  key="Pharmacologic Class"
+                  className={`col-span-full ${specsStripeClass(filteredSpecsRows.length)}`}
+                >
+                  <dt className="text-sm font-semibold text-slate-600 w-36 shrink-0">Pharmacologic Class</dt>
+                  <dd className="text-sm text-slate-800 flex-1">
+                    <Link
+                      href={`/class/${encodeURIComponent(classSlugify(pill.pharma_class))}`}
+                      className="text-emerald-700 hover:underline"
+                    >
+                      {pill.pharma_class}
+                    </Link>
+                  </dd>
+                </div>
+              )
+            })()}
           </dl>
         </div>
 
-        {/* Official Medication Guide card: only when an official guide exists. */}
-        {resolvedSlug && pill.has_medguide === true && (
-          <MedicationInfoWithPrice
-            testId="medication-info-grid-guide"
-            title="Medication Information"
-            description="Read the official FDA Medication Guide — written for patients, sourced from DailyMed."
-            ctaHref={`/pill/${resolvedSlug}/medication-guide`}
-            ctaLabel="Read Medication Guide"
-            priceSummary={(
-              <PriceSummaryCard
-                slug={resolvedSlug}
-                ndc={pill.ndc}
-                rxcui={pill.rxcui}
-                medicineName={pill.drug_name}
-              />
-            )}
-          />
-        )}
-
-        {/* Fallback summary card when no official guide exists but a summary is available. */}
-        {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary === true && (
-          <MedicationInfoWithPrice
-            testId="medication-info-grid-summary"
-            title="Medication Summary"
-            description="No separate FDA Medication Guide was found for this label. Read a patient-friendly summary based on FDA/DailyMed prescribing information."
-            ctaHref={`/pill/${resolvedSlug}/medication-summary`}
-            ctaLabel="Read Medication Summary"
-            priceSummary={(
-              <PriceSummaryCard
-                slug={resolvedSlug}
-                ndc={pill.ndc}
-                rxcui={pill.rxcui}
-                medicineName={pill.drug_name}
-              />
-            )}
-          />
-        )}
-
-        {/* Generic fallback when neither official guide nor summary flags are available. */}
-        {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary !== true && (
-          <MedicationInfoWithPrice
-            testId="medication-info-grid-fallback"
-            title="Medication Information"
-            description="Read prescribing information and professional label data sourced from FDA/DailyMed."
-            ctaHref={`/pill/${resolvedSlug}/medication-guide`}
-            ctaLabel="Read Medication Information"
-            priceSummary={(
-              <PriceSummaryCard
-                slug={resolvedSlug}
-                ndc={pill.ndc}
-                rxcui={pill.rxcui}
-                medicineName={pill.drug_name}
-              />
-            )}
-          />
-        )}
-
-        {/* Similar-looking Pills (Confusion Risk) */}
-        {similar && similar.length > 0 && (
-          <section className="bg-white border border-amber-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-1">
-              Similar-looking pills — double-check before taking
-            </h2>
-            <p className="text-xs text-slate-500 mb-4">
-              This pill looks similar to the following. Verify the imprint, color, and shape carefully before taking any medication.
-            </p>
-            <ul className="grid sm:grid-cols-2 gap-3">
-              {similar.map((p) => (
-                <li key={p.slug}>
-                  <Link
-                    href={`/pill/${encodeURIComponent(p.slug)}`}
-                    className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-amber-300 hover:bg-amber-50 transition-colors"
-                  >
-                    {p.image_url && (
-                      <img
-                        src={p.image_url}
-                        alt={`${p.drug_name}${p.strength ? ` ${p.strength}` : ''} — ${[p.color, p.shape].filter(Boolean).join(' ') || 'pill'}${p.imprint ? ` with imprint ${p.imprint}` : ''}`}
-                        className="w-12 h-12 object-contain rounded bg-slate-50 shrink-0"
-                        width={48}
-                        height={48}
-                        loading="lazy"
-                      />
-                    )}
-                    <div className="min-w-0">
-                      <div className="font-medium text-slate-900 truncate">{p.drug_name}</div>
-                      {p.strength && <div className="text-xs text-slate-500">{p.strength}</div>}
-                      {p.imprint && <div className="text-xs text-slate-400 font-mono">Imprint: {p.imprint}</div>}
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {/* Other medications for the same condition */}
-        {conditionDrugs && conditionDrugs.length >= 2 && (() => {
-          const displayedTags = Array.from(
-            new Set(conditionDrugs.flatMap(d => d.shared_tags))
-          )
-          return (
-            <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
-              <h2 className="text-base font-semibold text-slate-800 mb-1">
-                Other medications used for the same condition
-              </h2>
-              <p className="text-xs text-slate-500 mb-4">
-                These medications are used to treat similar conditions:{' '}
-                {displayedTags.map((tag, i) => (
-                  <span key={tag}>
-                    <span className="font-medium text-emerald-700">{tag}</span>
-                    {i < displayedTags.length - 1 ? ', ' : ''}
-                  </span>
-                ))}
-              </p>
-              <ul className="grid sm:grid-cols-2 gap-3">
-                {conditionDrugs.map((d) => (
-                  <li key={d.slug}>
-                    <Link
-                      href={`/pill/${encodeURIComponent(d.slug)}`}
-                      className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
-                    >
-                      {d.image_url && (
-                        <img
-                          src={d.image_url}
-                          alt={`${d.drug_name}${d.strength ? ` ${d.strength}` : ''}`}
-                          className="w-12 h-12 object-contain rounded bg-slate-50 shrink-0"
-                          width={48}
-                          height={48}
-                          loading="lazy"
-                        />
-                      )}
-                      <div className="min-w-0">
-                        <div className="font-medium text-slate-900 truncate">{d.drug_name}</div>
-                        {d.strength && <div className="text-xs text-slate-500">{d.strength}</div>}
-                        <div className="flex flex-wrap gap-1 mt-0.5">
-                          {d.shared_tags.map(sharedTag => (
-                            <span key={sharedTag} className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-full">
-                              {sharedTag}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )
-        })()}
-
-        {/* Related Medications — capped at 6, same card layout as condition drugs */}
-        {related && related.length > 0 && pharmaClass && (
-          <section className="mt-0 mb-6 bg-white border border-slate-200 rounded-xl p-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-1">Related Medications</h2>
-            <p className="text-sm text-slate-500 mb-4">
-              Other drugs in the same class:{' '}
-              <Link
-                href={`/class/${encodeURIComponent(classSlugify(pharmaClass))}`}
-                className="text-emerald-700 hover:underline"
-              >
-                {pharmaClass}
-              </Link>
-            </p>
-            <ul className="grid sm:grid-cols-2 gap-3">
-              {related.slice(0, 6).map((r) => (
-                <li key={r.slug}>
-                  <Link
-                    href={`/pill/${encodeURIComponent(r.slug)}`}
-                    className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
-                  >
-                    {r.image_url && (
-                      <img
-                        src={r.image_url}
-                        alt={`${r.drug_name}${r.strength ? ` ${r.strength}` : ''}`}
-                        className="w-12 h-12 object-contain rounded bg-slate-50 shrink-0"
-                        width={48}
-                        height={48}
-                        loading="lazy"
-                      />
-                    )}
-                    <div className="min-w-0">
-                      <div className="font-medium text-slate-900 truncate">{r.drug_name}</div>
-                      {r.strength && <div className="text-xs text-slate-500">{r.strength}</div>}
-                      {(r.color || r.shape) && (
-                        <div className="text-xs text-slate-400 mt-0.5">
-                          {[r.color, r.shape].filter(Boolean).join(' • ')}
-                        </div>
-                      )}
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {/* Ingredients */}
+        {/* Ingredients / Composition */}
         {(pill.ingredients || pill.inactive_ingredients) && (
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-4">Composition</h2>
-            <dl>
-              <DetailRow label="Active Ingredients" value={pill.ingredients} />
-              <DetailRow label="Inactive Ingredients" value={pill.inactive_ingredients} />
+          <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Composition</h2>
+            <dl className="space-y-0.5">
+              {[
+                { label: 'Active Ingredients', value: pill.ingredients },
+                { label: 'Inactive Ingredients', value: pill.inactive_ingredients },
+              ].filter(row => Boolean(row.value)).map((row, idx) => (
+                <DetailRow key={row.label} label={row.label} value={row.value} stripe={idx % 2 === 0} />
+              ))}
             </dl>
           </div>
         )}
 
-        {/* FAQ Block */}
-        {faqItems && faqItems.length > 0 && (
-          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-4">Frequently Asked Questions</h2>
-            <div>
-              {faqItems.map((item) => (
-                <FaqItem key={item.question} question={item.question} answer={item.answer} />
-              ))}
-            </div>
-          </section>
-        )}
-
         {/* About this medication */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          <h2 className="text-base font-semibold text-slate-800 mb-4">About this medication</h2>
-          <dl>
-            <DetailRow label="Manufacturer" value={pill.manufacturer} />
-            <DetailRow label="Status (Rx/OTC)" value={pill.status_rx_otc} />
-            <DetailRow label="Brand Names" value={pill.brand_names} />
-            <DetailRow label="NDC Code" value={pill.ndc} />
+        <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">About this medication</h2>
+          <dl className="space-y-0.5">
+            {[
+              { label: 'Manufacturer', value: pill.manufacturer },
+              { label: 'Status (Rx/OTC)', value: pill.status_rx_otc },
+              { label: 'Brand Names', value: pill.brand_names },
+              { label: 'NDC Code', value: pill.ndc },
+            ].filter(row => Boolean(row.value)).map((row, idx) => (
+              <DetailRow key={row.label} label={row.label} value={row.value} stripe={idx % 2 === 0} />
+            ))}
           </dl>
           <div className="border-t border-slate-100 mt-3 pt-3">
             <p className="text-sm font-medium text-slate-500 mb-2">Data Sources</p>
@@ -742,6 +570,234 @@ export default function PillDetailClient({
             )}
           </div>
         </div>
+
+        {/* Drug Indication */}
+        {pill.indication && (
+          <DrugIndicationSection
+            indication={pill.indication}
+            drugName={pill.drug_name}
+            imprint={pill.imprint}
+            conditionTags={conditionTags}
+          />
+        )}
+
+        {/* Official Medication Guide card: only when an official guide exists. */}
+        {resolvedSlug && pill.has_medguide === true && (
+          <MedicationInfoCard
+            testId="medication-info-grid-guide"
+            title="Medication Information"
+            description="Read the official FDA Medication Guide — written for patients, sourced from DailyMed."
+            ctaHref={`/pill/${resolvedSlug}/medication-guide`}
+            ctaLabel="Read Medication Guide"
+          />
+        )}
+
+        {/* Fallback summary card when no official guide exists but a summary is available. */}
+        {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary === true && (
+          <MedicationInfoCard
+            testId="medication-info-grid-summary"
+            title="Medication Summary"
+            description="No separate FDA Medication Guide was found for this label. Read a patient-friendly summary based on FDA/DailyMed prescribing information."
+            ctaHref={`/pill/${resolvedSlug}/medication-summary`}
+            ctaLabel="Read Medication Summary"
+          />
+        )}
+
+        {/* Generic fallback when neither official guide nor summary flags are available. */}
+        {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary !== true && (
+          <MedicationInfoCard
+            testId="medication-info-grid-fallback"
+            title="Medication Information"
+            description="Read prescribing information and professional label data sourced from FDA/DailyMed."
+            ctaHref={`/pill/${resolvedSlug}/medication-guide`}
+            ctaLabel="Read Medication Information"
+          />
+        )}
+
+        {/* FAQ Block */}
+        {faqItems && faqItems.length > 0 && (
+          <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Frequently Asked Questions</h2>
+            <div>
+              {faqItems.map((item) => (
+                <FaqItem key={item.question} question={item.question} answer={item.answer} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Other medications for the same condition */}
+        {conditionDrugs && conditionDrugs.length >= 2 && (() => {
+          const displayedTags = Array.from(
+            new Set(conditionDrugs.flatMap(d => d.shared_tags))
+          )
+          return (
+            <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+              <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">
+                Other medications used for the same condition
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                These medications are used to treat similar conditions:{' '}
+                {displayedTags.map((tag, i) => (
+                  <span key={tag}>
+                    <span className="font-medium text-emerald-700">{tag}</span>
+                    {i < displayedTags.length - 1 ? ', ' : ''}
+                  </span>
+                ))}
+              </p>
+              <ul className="grid sm:grid-cols-2 gap-3">
+                {conditionDrugs.map((d) => (
+                  <li key={d.slug}>
+                    <Link
+                      href={`/pill/${encodeURIComponent(d.slug)}`}
+                      className="flex items-center gap-3 p-3 border border-emerald-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                    >
+                      {d.image_url && (
+                        <img
+                          src={d.image_url}
+                          alt={`${d.drug_name}${d.strength ? ` ${d.strength}` : ''}`}
+                          className="w-12 h-12 object-contain rounded bg-slate-50 shrink-0"
+                          width={48}
+                          height={48}
+                          loading="lazy"
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-medium text-slate-900 truncate">{d.drug_name}</div>
+                        {d.strength && <div className="text-xs text-slate-500">{d.strength}</div>}
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {d.shared_tags.map(sharedTag => (
+                            <span key={sharedTag} className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                              {sharedTag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )
+        })()}
+
+        {/* Related Medications — capped at 6, same card layout as condition drugs */}
+        {related && related.length > 0 && pharmaClass && (
+          <section className="mb-6 bg-white border border-emerald-200 rounded-xl p-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">Related Medications</h2>
+            <p className="text-sm text-slate-500 mb-4">
+              Other drugs in the same class:{' '}
+              <Link
+                href={`/class/${encodeURIComponent(classSlugify(pharmaClass))}`}
+                className="text-emerald-700 hover:underline"
+              >
+                {pharmaClass}
+              </Link>
+            </p>
+            <ul className="grid sm:grid-cols-2 gap-3">
+              {related.slice(0, 6).map((r) => (
+                <li key={r.slug}>
+                  <Link
+                    href={`/pill/${encodeURIComponent(r.slug)}`}
+                    className="flex items-center gap-3 p-3 border border-emerald-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                  >
+                    {r.image_url && (
+                      <img
+                        src={r.image_url}
+                        alt={`${r.drug_name}${r.strength ? ` ${r.strength}` : ''}`}
+                        className="w-12 h-12 object-contain rounded bg-slate-50 shrink-0"
+                        width={48}
+                        height={48}
+                        loading="lazy"
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-medium text-slate-900 truncate">{r.drug_name}</div>
+                      {r.strength && <div className="text-xs text-slate-500">{r.strength}</div>}
+                      {(r.color || r.shape) && (
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          {[r.color, r.shape].filter(Boolean).join(' • ')}
+                        </div>
+                      )}
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* Similar-looking Pills (Confusion Risk) */}
+        {similar && similar.length > 0 && (
+          <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">
+              Similar-looking pills — double-check before taking
+            </h2>
+            <p className="text-xs text-slate-500 mb-4">
+              This pill looks similar to the following. Verify the imprint, color, and shape carefully before taking any medication.
+            </p>
+            <ul className="grid sm:grid-cols-2 gap-3">
+              {similar.map((p) => (
+                <li key={p.slug}>
+                  <Link
+                    href={`/pill/${encodeURIComponent(p.slug)}`}
+                    className="flex items-center gap-3 p-3 border border-emerald-200 rounded-lg hover:border-amber-300 hover:bg-amber-50 transition-colors"
+                  >
+                    {p.image_url && (
+                      <img
+                        src={p.image_url}
+                        alt={`${p.drug_name}${p.strength ? ` ${p.strength}` : ''} — ${[p.color, p.shape].filter(Boolean).join(' ') || 'pill'}${p.imprint ? ` with imprint ${p.imprint}` : ''}`}
+                        className="w-12 h-12 object-contain rounded bg-slate-50 shrink-0"
+                        width={48}
+                        height={48}
+                        loading="lazy"
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-medium text-slate-900 truncate">{p.drug_name}</div>
+                      {p.strength && <div className="text-xs text-slate-500">{p.strength}</div>}
+                      {p.imprint && <div className="text-xs text-slate-400 font-mono">Imprint: {p.imprint}</div>}
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* Safety Checklist */}
+        <section className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6" aria-label="Safety checklist">
+          <h2 className="text-sm font-semibold text-amber-900 mb-3">⚠️ What to verify before taking this medication</h2>
+          <ul className="space-y-2 text-sm text-amber-800 leading-relaxed list-none">
+            <li className="flex gap-2">
+              <span aria-hidden="true">✓</span>
+              <span>Verify the imprint, color, and shape match exactly — even a single different character can mean a different drug.</span>
+            </li>
+            <li className="flex gap-2">
+              <span aria-hidden="true">✓</span>
+              <span>Check the expiration date on the original packaging.</span>
+            </li>
+            <li className="flex gap-2">
+              <span aria-hidden="true">✓</span>
+              <span>Look for signs of tampering, discoloration, or unusual odor.</span>
+            </li>
+            <li className="flex gap-2">
+              <span aria-hidden="true">✓</span>
+              <span>Confirm with your pharmacist or prescriber before taking any medication you are unsure about.</span>
+            </li>
+            <li className="flex gap-2">
+              <span aria-hidden="true">✓</span>
+              <span>Never take medication prescribed to someone else.</span>
+            </li>
+          </ul>
+          <p className="mt-3 text-xs text-amber-700">
+            This is patient-safety guidance, not medical advice.{' '}
+            <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
+              Read full medical disclaimer
+            </Link>
+            .
+          </p>
+        </section>
         <p className="text-center text-xs text-slate-400 mt-2 mb-8">
           For educational use only. Always consult your pharmacist or doctor.{' '}
           <Link href="/medical-disclaimer" className="underline hover:text-slate-600">
