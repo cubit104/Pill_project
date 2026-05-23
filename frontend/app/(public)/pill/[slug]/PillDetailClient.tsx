@@ -143,10 +143,21 @@ export default function PillDetailClient({
     ? [pill.image_url]
     : []
   const [selectedImage, setSelectedImage] = useState<string>(images[0] ?? '')
+  const selectedIndex = images.indexOf(selectedImage) === -1 ? 0 : images.indexOf(selectedImage)
 
   useEffect(() => {
     setSelectedImage((current) => (current && images.includes(current) ? current : (images[0] ?? '')))
   }, [pill.image_url, pill.images])
+
+  const goPrev = () => {
+    const prevIndex = (selectedIndex - 1 + images.length) % images.length
+    setSelectedImage(images[prevIndex])
+  }
+
+  const goNext = () => {
+    const nextIndex = (selectedIndex + 1) % images.length
+    setSelectedImage(images[nextIndex])
+  }
 
   const deaLabels: Record<string, string> = {
     '1': 'Schedule I – High abuse potential, no accepted medical use',
@@ -266,21 +277,49 @@ export default function PillDetailClient({
             {/* Image */}
             <div className="w-full">
               {images.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setZoomImage(selectedImage)}
-                  className="block w-full rounded-xl overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  aria-label="Click to zoom pill image"
-                >
-                  <img
-                    src={selectedImage}
-                    alt={pill.image_alt_text || buildImageAlt(pill)}
-                    className="w-full aspect-square object-contain bg-slate-50"
-                    width={400}
-                    height={400}
-                    loading="eager"
-                  />
-                </button>
+                <div className="relative w-full">
+                  <button
+                    type="button"
+                    onClick={() => setZoomImage(selectedImage)}
+                    className="block w-full rounded-xl overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    aria-label="Click to zoom pill image"
+                  >
+                    <img
+                      src={selectedImage}
+                      alt={pill.image_alt_text || buildImageAlt(pill)}
+                      className="w-full aspect-square object-contain bg-slate-50"
+                      width={400}
+                      height={400}
+                      loading="eager"
+                    />
+                  </button>
+                  {images.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        goPrev()
+                      }}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg transition-colors focus:outline-none focus:ring-2 focus:ring-white z-10"
+                      aria-label="Previous image"
+                    >
+                      ‹
+                    </button>
+                  )}
+                  {images.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        goNext()
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg transition-colors focus:outline-none focus:ring-2 focus:ring-white z-10"
+                      aria-label="Next image"
+                    >
+                      ›
+                    </button>
+                  )}
+                </div>
               ) : (
                 <div className="w-full aspect-square bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center">
                   <PillIconLarge />
@@ -342,13 +381,13 @@ export default function PillDetailClient({
 
           {/* Additional Images */}
           {images.length > 1 && (
-            <div className="mt-4 flex flex-wrap gap-3">
+            <div className="flex flex-row gap-3 overflow-x-auto pb-1 mt-4 sm:flex-wrap">
               {images.map((img, idx) => (
                 <button
                   key={`${img}-${idx}`}
                   type="button"
                   onClick={() => setSelectedImage(img)}
-                  className={`rounded-lg overflow-hidden border hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500 ${
+                  className={`shrink-0 rounded-lg overflow-hidden border-2 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-sky-500 ${
                     selectedImage === img ? 'border-emerald-400 ring-2 ring-emerald-300' : 'border-slate-100'
                   }`}
                   aria-label={`View pill image ${idx + 1}`}
