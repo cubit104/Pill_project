@@ -77,3 +77,16 @@ test('detail page source computes spec striping in JSX and uses emerald borders 
   assert.ok((source.match(/bg-white border border-emerald-200 rounded-xl/g) || []).length >= 8)
   assert.ok((source.match(/border border-emerald-200 rounded-lg/g) || []).length >= 3)
 })
+
+test('detail page source keeps thumbnail selection separate from zoom state', () => {
+  const source = readFileSync(sourcePath, 'utf8')
+
+  assert.match(source, /const \[selectedImage, setSelectedImage\] = useState<string>\(images\[0\] \?\? ''\)/)
+  assert.match(source, /useEffect\(\(\) => \{\s*setSelectedImage\(\(current\) => \(current && images\.includes\(current\) \? current : \(images\[0\] \?\? ''\)\)\)\s*\}, \[pill\.image_url, pill\.images\]\)/)
+  assert.match(source, /onClick=\{\(\) => setZoomImage\(selectedImage\)\}/)
+  assert.match(source, /src=\{selectedImage\}/)
+  assert.match(source, /\{images\.map\(\(img, idx\) => \(/)
+  assert.doesNotMatch(source, /images\.slice\(1\)\.map/)
+  assert.match(source, /onClick=\{\(\) => setSelectedImage\(img\)\}/)
+  assert.match(source, /selectedImage === img \? 'border-emerald-400 ring-2 ring-emerald-300' : 'border-slate-100'/)
+})

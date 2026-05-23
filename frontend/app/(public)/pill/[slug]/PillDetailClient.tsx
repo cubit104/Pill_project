@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
@@ -142,6 +142,11 @@ export default function PillDetailClient({
     : pill.image_url
     ? [pill.image_url]
     : []
+  const [selectedImage, setSelectedImage] = useState<string>(images[0] ?? '')
+
+  useEffect(() => {
+    setSelectedImage((current) => (current && images.includes(current) ? current : (images[0] ?? '')))
+  }, [pill.image_url, pill.images])
 
   const deaLabels: Record<string, string> = {
     '1': 'Schedule I – High abuse potential, no accepted medical use',
@@ -262,12 +267,13 @@ export default function PillDetailClient({
             <div className="w-full">
               {images.length > 0 ? (
                 <button
-                  onClick={() => setZoomImage(images[0])}
+                  type="button"
+                  onClick={() => setZoomImage(selectedImage)}
                   className="block w-full rounded-xl overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
                   aria-label="Click to zoom pill image"
                 >
                   <img
-                    src={images[0]}
+                    src={selectedImage}
                     alt={pill.image_alt_text || buildImageAlt(pill)}
                     className="w-full aspect-square object-contain bg-slate-50"
                     width={400}
@@ -337,16 +343,19 @@ export default function PillDetailClient({
           {/* Additional Images */}
           {images.length > 1 && (
             <div className="mt-4 flex flex-wrap gap-3">
-              {images.slice(1).map((img, idx) => (
+              {images.map((img, idx) => (
                 <button
-                  key={idx}
-                  onClick={() => setZoomImage(img)}
-                  className="rounded-lg overflow-hidden border border-slate-100 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  aria-label={`View alternate pill image ${idx + 2}`}
+                  key={`${img}-${idx}`}
+                  type="button"
+                  onClick={() => setSelectedImage(img)}
+                  className={`rounded-lg overflow-hidden border hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-500 ${
+                    selectedImage === img ? 'border-emerald-400 ring-2 ring-emerald-300' : 'border-slate-100'
+                  }`}
+                  aria-label={`View pill image ${idx + 1}`}
                 >
                   <img
                     src={img}
-                    alt={buildImageAlt(pill, idx + 2)}
+                    alt={buildImageAlt(pill, idx + 1)}
                     className="w-28 h-28 object-contain bg-slate-50"
                     width={112}
                     height={112}
