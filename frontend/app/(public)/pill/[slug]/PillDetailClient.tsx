@@ -38,9 +38,6 @@ function DetailRow({ label, value, stripe }: { label: string; value?: string; st
   )
 }
 
-const PILL_SPECS_STRIPE_CLASSES =
-  'grid grid-cols-1 sm:grid-cols-2 gap-x-6 [&>div:nth-child(even)]:bg-teal-50 [&>div:nth-child(even)]:rounded sm:[&>div:nth-child(even)]:bg-transparent sm:[&>div:nth-child(even)]:rounded-none sm:[&>div:nth-child(4n+3)]:bg-teal-50 sm:[&>div:nth-child(4n+3)]:rounded sm:[&>div:nth-child(4n+4)]:bg-teal-50 sm:[&>div:nth-child(4n+4)]:rounded'
-
 function buildImageAlt(pill: PillDetail, index?: number): string {
   const parts = [
     pill.color,
@@ -165,6 +162,12 @@ export default function PillDetailClient({
     { label: 'RxCUI', value: pill.rxcui },
     { label: 'DEA Schedule', value: pill.dea_schedule ? (deaLabels[pill.dea_schedule] || `Schedule ${pill.dea_schedule}`) : undefined },
   ]
+  const filteredSpecsRows = specsRows.filter(row => Boolean(row.value))
+  const specsStripeClass = (i: number) => {
+    const mobileStripe = i % 2 === 1 ? 'bg-teal-50' : ''
+    const desktopStripe = Math.floor(i / 2) % 2 === 1 ? 'sm:bg-teal-50' : 'sm:bg-transparent'
+    return `py-2 px-3 flex flex-row items-start gap-2 rounded ${mobileStripe} ${desktopStripe}`.trim()
+  }
 
   return (
     <>
@@ -253,7 +256,7 @@ export default function PillDetailClient({
         )}
 
         {/* Hero Card */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+        <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
             {/* Image */}
             <div className="w-full">
@@ -376,7 +379,7 @@ export default function PillDetailClient({
           const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`
           const pinterestUrl = `https://pinterest.com/pin/create/button/?url=${encodeURIComponent(pageUrl)}&description=${encodeURIComponent(shareText)}${images[0] ? `&media=${encodeURIComponent(images[0])}` : ''}`
           return (
-            <section aria-label="Share this page" className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-3 mb-6 flex items-center gap-3 flex-wrap">
+            <section aria-label="Share this page" className="bg-white border border-emerald-200 rounded-xl shadow-sm px-5 py-3 mb-6 flex items-center gap-3 flex-wrap">
               <span className="text-xs font-medium text-slate-500">Share:</span>
               <a
                 href={twitterUrl}
@@ -414,18 +417,18 @@ export default function PillDetailClient({
 
         {/* Identification Summary */}
         {identificationSummary && (
-          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+          <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
             <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Pill Identification</h2>
             <p className="text-sm text-slate-700 leading-relaxed">{identificationSummary}</p>
           </section>
         )}
 
         {/* Pill Specifications */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+        <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Pill Specifications</h2>
-          <dl className={PILL_SPECS_STRIPE_CLASSES}>
-            {specsRows.filter(row => Boolean(row.value)).map((row) => (
-              <div key={row.label} className="py-2 px-3 flex flex-row items-start gap-2 rounded">
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+            {filteredSpecsRows.map((row, index) => (
+              <div key={row.label} className={specsStripeClass(index)}>
                 <dt className="text-sm font-medium text-slate-500 w-36 shrink-0">{row.label}</dt>
                 <dd className="text-sm text-slate-800 flex-1">{row.value}</dd>
               </div>
@@ -434,7 +437,7 @@ export default function PillDetailClient({
               return (
                 <div
                   key="Pharmacologic Class"
-                  className="col-span-full py-2 px-3 flex flex-row items-start gap-2 rounded"
+                  className={`col-span-full ${specsStripeClass(filteredSpecsRows.length)}`}
                 >
                   <dt className="text-sm font-medium text-slate-500 w-36 shrink-0">Pharmacologic Class</dt>
                   <dd className="text-sm text-slate-800 flex-1">
@@ -453,7 +456,7 @@ export default function PillDetailClient({
 
         {/* Ingredients / Composition */}
         {(pill.ingredients || pill.inactive_ingredients) && (
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+          <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
             <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Composition</h2>
             <dl className="space-y-0.5">
               {[
@@ -467,7 +470,7 @@ export default function PillDetailClient({
         )}
 
         {/* About this medication */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+        <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">About this medication</h2>
           <dl className="space-y-0.5">
             {[
@@ -565,7 +568,7 @@ export default function PillDetailClient({
 
         {/* FAQ Block */}
         {faqItems && faqItems.length > 0 && (
-          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+          <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
             <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Frequently Asked Questions</h2>
             <div>
               {faqItems.map((item) => (
@@ -581,7 +584,7 @@ export default function PillDetailClient({
             new Set(conditionDrugs.flatMap(d => d.shared_tags))
           )
           return (
-            <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+            <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
               <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">
                 Other medications used for the same condition
               </h2>
@@ -599,7 +602,7 @@ export default function PillDetailClient({
                   <li key={d.slug}>
                     <Link
                       href={`/pill/${encodeURIComponent(d.slug)}`}
-                      className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                      className="flex items-center gap-3 p-3 border border-emerald-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
                     >
                       {d.image_url && (
                         <img
@@ -632,7 +635,7 @@ export default function PillDetailClient({
 
         {/* Related Medications — capped at 6, same card layout as condition drugs */}
         {related && related.length > 0 && pharmaClass && (
-          <section className="mb-6 bg-white border border-slate-200 rounded-xl p-6">
+          <section className="mb-6 bg-white border border-emerald-200 rounded-xl p-6">
             <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">Related Medications</h2>
             <p className="text-sm text-slate-500 mb-4">
               Other drugs in the same class:{' '}
@@ -648,7 +651,7 @@ export default function PillDetailClient({
                 <li key={r.slug}>
                   <Link
                     href={`/pill/${encodeURIComponent(r.slug)}`}
-                    className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                    className="flex items-center gap-3 p-3 border border-emerald-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
                   >
                     {r.image_url && (
                       <img
@@ -678,7 +681,7 @@ export default function PillDetailClient({
 
         {/* Similar-looking Pills (Confusion Risk) */}
         {similar && similar.length > 0 && (
-          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+          <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
             <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">
               Similar-looking pills — double-check before taking
             </h2>
@@ -690,7 +693,7 @@ export default function PillDetailClient({
                 <li key={p.slug}>
                   <Link
                     href={`/pill/${encodeURIComponent(p.slug)}`}
-                    className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-amber-300 hover:bg-amber-50 transition-colors"
+                    className="flex items-center gap-3 p-3 border border-emerald-200 rounded-lg hover:border-amber-300 hover:bg-amber-50 transition-colors"
                   >
                     {p.image_url && (
                       <img
