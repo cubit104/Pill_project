@@ -5,9 +5,10 @@ import { notFound } from 'next/navigation'
 
 import { safeJsonLd } from '../../../../lib/structured-data'
 import PriceCard from '../pricing/PriceCard'
+import type { PriceCardInitialData, PriceSnapshot } from '../pricing/priceCardData'
 import { fetchPill } from '../page'
 import { formatStrength } from './formatStrength'
-import { fetchInitialPriceData } from './priceData'
+import { fetchInitialPriceData, fetchPriceSnapshot } from './priceData'
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
@@ -54,6 +55,73 @@ export async function generateMetadata(
   }
 }
 
+function buildSchemaData({
+  slug,
+  name,
+  imageUrl,
+  snapshot,
+  fallbackData,
+}: {
+  slug: string
+  name: string
+  imageUrl: string
+  snapshot: PriceSnapshot | null
+  fallbackData?: PriceCardInitialData
+}) {
+  const pageUrl = `${SITE_URL}/pill/${encodeURIComponent(slug)}/price`
+  const base = {
+    '@context': 'https://schema.org',
+    name,
+    description: `Retail price and cost comparison for ${name}.`,
+    url: pageUrl,
+    ...(imageUrl ? { image: imageUrl } : {}),
+  }
+
+  if (snapshot) {
+    if (!snapshot.schema_offers_valid) {
+      return {
+        ...base,
+        '@type': 'WebPage',
+      }
+    }
+    return {
+      ...base,
+      '@type': 'Product',
+      offers: {
+        '@type': 'AggregateOffer',
+        priceCurrency: 'USD',
+        lowPrice: snapshot.fair_retail_low,
+        highPrice: snapshot.fair_retail_high,
+        offerCount: 1,
+      },
+    }
+  }
+
+  const price = fallbackData?.price
+  const hasValidOffers =
+    price?.fair_retail_low != null &&
+    price?.fair_retail_high != null
+
+  if (!hasValidOffers) {
+    return {
+      ...base,
+      '@type': 'WebPage',
+    }
+  }
+
+  return {
+    ...base,
+    '@type': 'Product',
+    offers: {
+      '@type': 'AggregateOffer',
+      priceCurrency: 'USD',
+      lowPrice: price.fair_retail_low,
+      highPrice: price.fair_retail_high,
+      offerCount: 1,
+    },
+  }
+}
+
 export default async function PillPricePage(
   { params }: { params: Promise<{ slug: string }> }
 ) {
@@ -73,30 +141,23 @@ export default async function PillPricePage(
     descriptor ? (genericFor ? `${descriptor} for: ${genericFor}` : descriptor) : (genericFor ? `Generic for: ${genericFor}` : ''),
     pill.ndc ? `NDC: ${pill.ndc}` : '',
   ].filter(Boolean).join(' · ')
-  const initialPriceData = await fetchInitialPriceData({
+  const priceSnapshot = await fetchPriceSnapshot(slug)
+  const fallbackPriceData = priceSnapshot ? undefined : await fetchInitialPriceData({
     ndc: pill.ndc,
     rxcui: pill.rxcui,
     medicineName: pill.drug_name,
     historyNdc: pill.history_ndc,
     historySource: pill.history_source,
   })
+  const initialPriceData = priceSnapshot ?? fallbackPriceData
   const schemaDisplayName = `${pill.drug_name}${formattedStrength ? ` ${formattedStrength}` : ''}`.trim()
-  const schemaData = {
-    '@context': 'https://schema.org',
-    '@type': 'Product',
+  const schemaData = buildSchemaData({
+    slug,
     name: schemaDisplayName,
-    description: `Retail price and cost comparison for ${schemaDisplayName}.`,
-    ...(imageUrl ? { image: imageUrl } : {}),
-    ...(initialPriceData?.price ? {
-      offers: {
-        '@type': 'AggregateOffer',
-        priceCurrency: 'USD',
-        lowPrice: initialPriceData.price.fair_retail_low,
-        highPrice: initialPriceData.price.fair_retail_high,
-        offerCount: 1,
-      },
-    } : {}),
-  }
+    imageUrl,
+    snapshot: priceSnapshot,
+    fallbackData: fallbackPriceData,
+  })
 
   return (
     <>

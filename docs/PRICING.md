@@ -62,6 +62,66 @@ Default assumptions: `units_per_day=1`, `days_supply=30`.
   - `drug_price_history` (weekly history points)
 - GitHub Action `refresh-nadac.yml` schedules refresh at `0 14 * * 3` (Wednesday, 14:00 UTC).
 
+## Pre-resolved snapshots
+
+The `/pill/{slug}/price` page now prefers a pre-resolved row from `pill_price_snapshot` before it falls back to the runtime pricing waterfall.
+
+Each snapshot stores:
+
+- the resolved NDC and match strategy
+- the current benchmark price and fair-retail range
+- cached `history_52w`
+- cached alternatives
+- schema safety fields such as `schema_offers_valid`
+
+This moves the slow NDC resolution path out of SSR and into an offline refresh step.
+
+### Refresh cadence
+
+- `refresh-nadac.yml` runs first to sync the latest NADAC data.
+- `refresh-snapshots.yml` then runs automatically on successful completion of that workflow.
+- Editors can also trigger the snapshot workflow manually with `workflow_dispatch`.
+
+### Local backfill / refresh
+
+Run the safe default refresh (all missing snapshots):
+
+```bash
+make refresh-snapshots
+```
+
+Useful one-off commands:
+
+```bash
+python -m scripts.refresh_pill_price_snapshots --dry-run --limit 10
+python -m scripts.refresh_pill_price_snapshots --slug Wegovy-9-mg
+python -m scripts.refresh_pill_price_snapshots --force --all
+```
+
+Each processed pill prints a JSON line with the slug, match type, resolver tier, and resolved unit price.
+
+### Debugging a single pill
+
+1. Resolve one slug locally with:
+
+   ```bash
+   python -m scripts.refresh_pill_price_snapshots --slug <slug> --dry-run
+   ```
+
+2. Inspect the public snapshot row:
+
+   ```bash
+   GET /api/snapshot/{slug}
+   ```
+
+3. Review unresolved rows in:
+
+   ```sql
+   SELECT * FROM public.v_snapshots_needing_attention;
+   ```
+
+If no snapshot row exists yet, the frontend still falls back to the live pricing waterfall so rollout is safe while the table is being backfilled.
+
 ## History Backfill
 
 `refresh_nadac.py` only writes the current NADAC week. Without a one-time history load, `drug_price_history` stays sparse (often 0-2 points per NDC) until enough weekly runs accumulate.

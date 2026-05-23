@@ -115,7 +115,7 @@ except Exception as e:
     logger.error(f"Error mounting images directory: {e}")
 
 # Include all route modules
-from routes import search, details, filters, ndc, sitemap, health, similar, prices, trending  # noqa: E402
+from routes import search, details, filters, ndc, sitemap, health, similar, prices, trending, snapshot  # noqa: E402
 from routes import pill_images, conditions, medication_guide, pill_views  # noqa: E402
 from routes.admin import pills as admin_pills, drafts as admin_drafts, images as admin_images  # noqa: E402
 from routes.admin import audit as admin_audit, users as admin_users, stats as admin_stats  # noqa: E402
@@ -133,6 +133,7 @@ app.include_router(sitemap.router)
 app.include_router(health.router)
 app.include_router(similar.router)
 app.include_router(prices.router)
+app.include_router(snapshot.router)
 app.include_router(trending.router)
 app.include_router(medication_guide.router)
 app.include_router(pill_views.router)
