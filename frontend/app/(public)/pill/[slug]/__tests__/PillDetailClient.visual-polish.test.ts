@@ -35,11 +35,11 @@ test('target card headings include emerald left accent bar', () => {
     'Composition',
     'About this medication',
     'Frequently Asked Questions',
+    'Other medications used for the same condition',
   ]
   for (const heading of mb4Headings) {
     assert.ok(source.includes(`<h2 className="${accentHeadingClass}">${heading}</h2>`))
   }
-  assert.ok(source.includes('Other medications used for the same condition'))
   assert.ok(source.includes('<h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">Related Medications</h2>'))
-  assert.ok(source.includes('Similar-looking pills — double-check before taking'))
+  assert.ok(source.includes('<h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Similar-looking pills — double-check before taking</h2>'))
 })
