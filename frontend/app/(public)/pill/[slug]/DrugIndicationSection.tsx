@@ -6,6 +6,8 @@ import type { DrugIndication } from '../../../types'
 import { slugFromTag } from '../../../lib/condition-utils'
 
 const COLLAPSE_THRESHOLD = 280
+const dataCardClassName = 'bg-white border border-emerald-200 rounded-xl shadow-sm p-6'
+const sectionHeadingClassName = 'border-l-4 border-emerald-500 pl-3 text-base font-semibold text-slate-800'
 
 const FRONTEND_KEYWORD_MAP: Record<string, string[]> = {
   "heart attack":              ["heart attack", "myocardial infarction"],
@@ -176,8 +178,8 @@ export default function DrugIndicationSection({ indication, drugName, imprint, c
   const leadIn = buildLeadIn(drugName, imprint, generic)
 
   return (
-    <section className={`bg-white border border-slate-200 rounded-xl shadow-sm p-6 ${className ?? 'mb-6'}`}>
-      <h2 className="text-base font-semibold text-slate-800 mb-3">What it&apos;s used for</h2>
+    <section className={`${dataCardClassName} ${className ?? 'mb-6'}`}>
+      <h2 className={`${sectionHeadingClassName} mb-3`}>What it&apos;s used for</h2>
       {leadIn && (
         <p className="text-sm text-slate-700 leading-relaxed mb-2">{leadIn}</p>
       )}
