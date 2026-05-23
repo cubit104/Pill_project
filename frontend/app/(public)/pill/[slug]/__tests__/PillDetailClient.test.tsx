@@ -40,13 +40,14 @@ test('detail page source renders guide, summary, and fallback medication section
   assert.match(source, /Read Medication Guide/)
   assert.match(source, /Read Medication Summary/)
   assert.match(source, /Read Medication Information/)
-  assert.equal((source.match(/<PriceSummaryCard/g) || []).length, 1)
+  assert.equal((source.match(/<PriceSummaryCard/g) || []).length, 2)
 })
 
-test('detail page source passes resolved slug into hero PriceSummaryCard for /pill\\/\\[slug\\]\\/price links', () => {
+test('detail page source passes resolved slug into both hero and mobile PriceSummaryCard placements', () => {
   const source = readFileSync(sourcePath, 'utf8')
-  assert.equal((source.match(/slug=\{resolvedSlug\}/g) || []).length, 1)
-  assert.match(source, /<div className="mt-4 text-left">\s*<PriceSummaryCard/)
+  assert.equal((source.match(/slug=\{resolvedSlug\}/g) || []).length, 2)
+  assert.match(source, /<div className="mt-4 hidden sm:block text-left">\s*<PriceSummaryCard/)
+  assert.match(source, /<div className="sm:hidden mb-6">\s*<PriceSummaryCard/)
   assert.match(source, /max-w-4xl mx-auto px-4 py-8/)
 })
 
@@ -57,4 +58,22 @@ test('detail page source does not render the long inline price card content', ()
   assert.doesNotMatch(source, /Important disclaimers/)
   assert.doesNotMatch(source, /PriceHistorySparkline/)
   assert.doesNotMatch(source, /AlternativesTable/)
+})
+
+test('detail page source computes spec striping in JSX and uses emerald borders on data cards', () => {
+  const source = readFileSync(sourcePath, 'utf8')
+
+  assert.match(source, /const filteredSpecsRows = specsRows\.filter\(row => Boolean\(row\.value\)\)/)
+  assert.match(source, /const specsStripeClass = \(i: number\) => \{/)
+  assert.match(source, /const mobileStripe = i % 2 === 0 \? 'bg-teal-50' : ''/)
+  assert.match(source, /const desktopStripe = Math\.floor\(i \/ 2\) % 2 === 0 \? 'sm:bg-teal-50' : 'sm:bg-transparent'/)
+  assert.match(source, /<dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">/)
+  assert.match(source, /filteredSpecsRows\.map\(\(row, index\) => \(\s*<div key=\{row\.label\} className=\{specsStripeClass\(index\)\}>/)
+  assert.match(source, /className=\{`col-span-full \$\{specsStripeClass\(filteredSpecsRows\.length\)\}`\}/)
+  assert.match(source, /stripe=\{idx % 2 === 0\}/)
+  assert.equal((source.match(/text-sm font-semibold text-slate-600 w-36 shrink-0/g) || []).length, 3)
+  assert.doesNotMatch(source, /const PILL_SPECS_STRIPE_CLASSES/)
+
+  assert.ok((source.match(/bg-white border border-emerald-200 rounded-xl/g) || []).length >= 8)
+  assert.ok((source.match(/border border-emerald-200 rounded-lg/g) || []).length >= 3)
 })

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
@@ -28,22 +28,11 @@ function PillIconLarge() {
   )
 }
 
-function DetailRow({ label, value }: { label: string; value?: string }) {
+function DetailRow({ label, value, stripe }: { label: string; value?: string; stripe?: boolean }) {
   if (!value) return null
   return (
-    <div className="py-3 border-b border-slate-100 last:border-0 flex flex-col sm:flex-row sm:items-start gap-1">
-      <dt className="text-sm font-medium text-slate-500 sm:w-44 shrink-0">{label}</dt>
-      <dd className="text-sm text-slate-800 sm:flex-1">{value}</dd>
-    </div>
-  )
-}
-
-function StripedDetailRow({ label, value, index }: { label: string; value?: ReactNode; index: number }) {
-  if (!value) return null
-  const isEven = index % 2 === 0
-  return (
-    <div className={`flex flex-row items-start py-2 px-3 rounded ${isEven ? 'bg-emerald-50/50' : 'bg-white'}`}>
-      <dt className="text-sm font-medium text-slate-500 w-36 shrink-0">{label}</dt>
+    <div className={`py-2 px-3 flex flex-row items-start gap-2 rounded ${stripe ? 'bg-teal-50' : ''}`}>
+      <dt className="text-sm font-semibold text-slate-600 w-36 shrink-0">{label}</dt>
       <dd className="text-sm text-slate-800 flex-1">{value}</dd>
     </div>
   )
@@ -173,6 +162,12 @@ export default function PillDetailClient({
     { label: 'RxCUI', value: pill.rxcui },
     { label: 'DEA Schedule', value: pill.dea_schedule ? (deaLabels[pill.dea_schedule] || `Schedule ${pill.dea_schedule}`) : undefined },
   ]
+  const filteredSpecsRows = specsRows.filter(row => Boolean(row.value))
+  const specsStripeClass = (i: number) => {
+    const mobileStripe = i % 2 === 0 ? 'bg-teal-50' : ''
+    const desktopStripe = Math.floor(i / 2) % 2 === 0 ? 'sm:bg-teal-50' : 'sm:bg-transparent'
+    return `py-2 px-3 flex flex-row items-start gap-2 rounded ${mobileStripe} ${desktopStripe}`.trim()
+  }
 
   return (
     <>
@@ -261,7 +256,7 @@ export default function PillDetailClient({
         )}
 
         {/* Hero Card */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+        <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
             {/* Image */}
             <div className="w-full">
@@ -384,7 +379,7 @@ export default function PillDetailClient({
           const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`
           const pinterestUrl = `https://pinterest.com/pin/create/button/?url=${encodeURIComponent(pageUrl)}&description=${encodeURIComponent(shareText)}${images[0] ? `&media=${encodeURIComponent(images[0])}` : ''}`
           return (
-            <section aria-label="Share this page" className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-3 mb-6 flex items-center gap-3 flex-wrap">
+            <section aria-label="Share this page" className="bg-white border border-emerald-200 rounded-xl shadow-sm px-5 py-3 mb-6 flex items-center gap-3 flex-wrap">
               <span className="text-xs font-medium text-slate-500">Share:</span>
               <a
                 href={twitterUrl}
@@ -422,35 +417,38 @@ export default function PillDetailClient({
 
         {/* Identification Summary */}
         {identificationSummary && (
-          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-3">Pill Identification</h2>
+          <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Pill Identification</h2>
             <p className="text-sm text-slate-700 leading-relaxed">{identificationSummary}</p>
           </section>
         )}
 
-        {/* Pill Specs */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          <h2 className="text-base font-semibold text-slate-800 mb-4">Pill Specs</h2>
-          <dl className="space-y-0.5">
-            {specsRows.filter(row => Boolean(row.value)).map((row, idx) => (
-              <StripedDetailRow key={row.label} label={row.label} value={row.value} index={idx} />
+        {/* Pill Specifications */}
+        <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Pill Specifications</h2>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+            {filteredSpecsRows.map((row, index) => (
+              <div key={row.label} className={specsStripeClass(index)}>
+                <dt className="text-sm font-semibold text-slate-600 w-36 shrink-0">{row.label}</dt>
+                <dd className="text-sm text-slate-800 flex-1">{row.value}</dd>
+              </div>
             ))}
             {pill.pharma_class && (() => {
-              const visibleCount = specsRows.filter(r => Boolean(r.value)).length
               return (
-                <StripedDetailRow
+                <div
                   key="Pharmacologic Class"
-                  label="Pharmacologic Class"
-                  value={
+                  className={`col-span-full ${specsStripeClass(filteredSpecsRows.length)}`}
+                >
+                  <dt className="text-sm font-semibold text-slate-600 w-36 shrink-0">Pharmacologic Class</dt>
+                  <dd className="text-sm text-slate-800 flex-1">
                     <Link
                       href={`/class/${encodeURIComponent(classSlugify(pill.pharma_class))}`}
                       className="text-emerald-700 hover:underline"
                     >
                       {pill.pharma_class}
                     </Link>
-                  }
-                  index={visibleCount}
-                />
+                  </dd>
+                </div>
               )
             })()}
           </dl>
@@ -458,22 +456,22 @@ export default function PillDetailClient({
 
         {/* Ingredients / Composition */}
         {(pill.ingredients || pill.inactive_ingredients) && (
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-4">Composition</h2>
+          <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Composition</h2>
             <dl className="space-y-0.5">
               {[
                 { label: 'Active Ingredients', value: pill.ingredients },
                 { label: 'Inactive Ingredients', value: pill.inactive_ingredients },
               ].filter(row => Boolean(row.value)).map((row, idx) => (
-                <StripedDetailRow key={row.label} label={row.label} value={row.value} index={idx} />
+                <DetailRow key={row.label} label={row.label} value={row.value} stripe={idx % 2 === 0} />
               ))}
             </dl>
           </div>
         )}
 
         {/* About this medication */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-          <h2 className="text-base font-semibold text-slate-800 mb-4">About this medication</h2>
+        <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">About this medication</h2>
           <dl className="space-y-0.5">
             {[
               { label: 'Manufacturer', value: pill.manufacturer },
@@ -481,7 +479,7 @@ export default function PillDetailClient({
               { label: 'Brand Names', value: pill.brand_names },
               { label: 'NDC Code', value: pill.ndc },
             ].filter(row => Boolean(row.value)).map((row, idx) => (
-              <StripedDetailRow key={row.label} label={row.label} value={row.value} index={idx} />
+              <DetailRow key={row.label} label={row.label} value={row.value} stripe={idx % 2 === 0} />
             ))}
           </dl>
           <div className="border-t border-slate-100 mt-3 pt-3">
@@ -570,8 +568,8 @@ export default function PillDetailClient({
 
         {/* FAQ Block */}
         {faqItems && faqItems.length > 0 && (
-          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-4">Frequently Asked Questions</h2>
+          <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3">Frequently Asked Questions</h2>
             <div>
               {faqItems.map((item) => (
                 <FaqItem key={item.question} question={item.question} answer={item.answer} />
@@ -586,8 +584,8 @@ export default function PillDetailClient({
             new Set(conditionDrugs.flatMap(d => d.shared_tags))
           )
           return (
-            <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-              <h2 className="text-base font-semibold text-slate-800 mb-1">
+            <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+              <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">
                 Other medications used for the same condition
               </h2>
               <p className="text-xs text-slate-500 mb-4">
@@ -604,7 +602,7 @@ export default function PillDetailClient({
                   <li key={d.slug}>
                     <Link
                       href={`/pill/${encodeURIComponent(d.slug)}`}
-                      className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                      className="flex items-center gap-3 p-3 border border-emerald-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
                     >
                       {d.image_url && (
                         <img
@@ -637,8 +635,8 @@ export default function PillDetailClient({
 
         {/* Related Medications — capped at 6, same card layout as condition drugs */}
         {related && related.length > 0 && pharmaClass && (
-          <section className="mb-6 bg-white border border-slate-200 rounded-xl p-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-1">Related Medications</h2>
+          <section className="mb-6 bg-white border border-emerald-200 rounded-xl p-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">Related Medications</h2>
             <p className="text-sm text-slate-500 mb-4">
               Other drugs in the same class:{' '}
               <Link
@@ -653,7 +651,7 @@ export default function PillDetailClient({
                 <li key={r.slug}>
                   <Link
                     href={`/pill/${encodeURIComponent(r.slug)}`}
-                    className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                    className="flex items-center gap-3 p-3 border border-emerald-200 rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
                   >
                     {r.image_url && (
                       <img
@@ -683,8 +681,8 @@ export default function PillDetailClient({
 
         {/* Similar-looking Pills (Confusion Risk) */}
         {similar && similar.length > 0 && (
-          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-slate-800 mb-1">
+          <section className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-emerald-500 pl-3">
               Similar-looking pills — double-check before taking
             </h2>
             <p className="text-xs text-slate-500 mb-4">
@@ -695,7 +693,7 @@ export default function PillDetailClient({
                 <li key={p.slug}>
                   <Link
                     href={`/pill/${encodeURIComponent(p.slug)}`}
-                    className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-amber-300 hover:bg-amber-50 transition-colors"
+                    className="flex items-center gap-3 p-3 border border-emerald-200 rounded-lg hover:border-amber-300 hover:bg-amber-50 transition-colors"
                   >
                     {p.image_url && (
                       <img
