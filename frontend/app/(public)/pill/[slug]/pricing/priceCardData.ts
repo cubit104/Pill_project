@@ -40,13 +40,42 @@ export interface StrengthsResponse {
 }
 
 export interface PriceCardInitialData {
-  price: PriceResponse
+  price?: PriceResponse
   alternatives?: AlternativePrice[]
   history?: PriceHistoryPoint[]
   history_source?: 'ndc' | 'matched_ndc' | 'rxcui' | 'by_name'
   generic_vs_brand_ratio?: number | null
   strengths?: StrengthOption[]
   ingredient?: string | null
+  estimate_basis?: string | null
+  display_disclaimer?: string | null
+  snapshot_present?: boolean
+}
+
+export interface PriceSnapshot {
+  slug: string
+  pill_id?: string | null
+  resolved_ndc11?: string | null
+  match_type: 'exact' | 'equivalent' | 'approximate' | 'none'
+  resolved_via?: 'self' | 'sibling' | 'rxcui' | 'name' | null
+  price_per_unit?: number | null
+  unit?: string | null
+  effective_date?: string | null
+  total_acquisition_cost?: number | null
+  fair_retail_low?: number | null
+  fair_retail_high?: number | null
+  history_52w?: PriceHistoryPoint[]
+  history_source_ndc?: string | null
+  alternatives?: AlternativePrice[]
+  is_estimate?: boolean
+  estimate_basis?: string | null
+  display_disclaimer?: string | null
+  schema_offers_valid?: boolean
+  resolved_at?: string | null
+  resolver_version?: number | null
+  resolver_notes?: string | null
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 export interface PriceCardDownstreamResult {
@@ -58,6 +87,12 @@ export interface PriceCardDownstreamResult {
   strengths: StrengthOption[]
   ingredient: string | null
 }
+
+const SNAPSHOT_PRICE_DISCLAIMERS = [
+  'NADAC reflects pharmacy acquisition cost, not your out-of-pocket cost.',
+  'Actual prices vary by pharmacy, insurance, and location.',
+  'This is not medical advice. Always consult your pharmacist.',
+]
 
 /** Normalize an input to digits-only NDC-11 so exported helpers can share one rule. */
 function normalizeNdcDigits(value?: string): string | null {
@@ -76,6 +111,49 @@ export function resolveDownstreamNdc(priceData: PriceResponse, fallbackNdc?: str
     return fallbackDigits
   }
   return normalizeNdcDigits(priceData.ndc)
+}
+
+export function isPriceSnapshot(value: PriceCardInitialData | PriceSnapshot | undefined): value is PriceSnapshot {
+  return !!value && typeof value === 'object' && 'slug' in value && 'match_type' in value
+}
+
+export function snapshotToPriceCardInitialData(snapshot: PriceSnapshot): PriceCardInitialData {
+  const resolvedNdc = normalizeNdcDigits(snapshot.resolved_ndc11 ?? undefined)
+  const hasPrice =
+    resolvedNdc !== null &&
+    snapshot.price_per_unit != null &&
+    snapshot.unit != null &&
+    snapshot.effective_date != null &&
+    snapshot.total_acquisition_cost != null &&
+    snapshot.fair_retail_low != null &&
+    snapshot.fair_retail_high != null
+
+  const price = hasPrice && resolvedNdc
+    ? {
+        ndc: resolvedNdc,
+        price_per_unit: Number(snapshot.price_per_unit),
+        unit: String(snapshot.unit),
+        effective_date: String(snapshot.effective_date),
+        source: 'NADAC (CMS)',
+        total_acquisition_cost: Number(snapshot.total_acquisition_cost),
+        fair_retail_low: Number(snapshot.fair_retail_low),
+        fair_retail_high: Number(snapshot.fair_retail_high),
+        disclaimers: SNAPSHOT_PRICE_DISCLAIMERS,
+        ...(snapshot.match_type !== 'exact' ? { match_type: snapshot.match_type } : {}),
+        ...(snapshot.resolved_ndc11 && snapshot.match_type !== 'exact'
+          ? { matched_ndc: snapshot.resolved_ndc11 }
+          : {}),
+      }
+    : undefined
+
+  return {
+    ...(price ? { price } : {}),
+    alternatives: Array.isArray(snapshot.alternatives) ? snapshot.alternatives : [],
+    history: Array.isArray(snapshot.history_52w) ? snapshot.history_52w : [],
+    estimate_basis: snapshot.estimate_basis ?? null,
+    display_disclaimer: snapshot.display_disclaimer ?? null,
+    snapshot_present: true,
+  }
 }
 
 type FetchImpl = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>

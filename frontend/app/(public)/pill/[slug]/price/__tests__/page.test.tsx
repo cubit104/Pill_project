@@ -10,8 +10,9 @@ test('price page source references full PriceCard component', () => {
   const source = readFileSync(pagePath, 'utf8')
   assert.match(source, /<PriceCard/)
   assert.match(source, /initialData=\{initialPriceData\}/)
+  assert.match(source, /fetchPriceSnapshot/)
   assert.match(source, /type="application\/ld\+json"/)
-  assert.match(source, /'@type': 'Product'/)
+  assert.match(source, /'@type': 'WebPage'/)
 })
 
 test('price page snapshot-like render includes back link and wrapper', async () => {
@@ -332,6 +333,109 @@ test('price page still renders gracefully when one downstream fetch fails', asyn
     assert.match(html, /"@type":"AggregateOffer"/)
     assert.match(html, /"lowPrice":20\.25/)
     assert.match(html, /"highPrice":40\.5/)
+  } finally {
+    global.fetch = originalFetch
+  }
+})
+
+test('price page prefers snapshot response before fallback waterfall', async () => {
+  const originalFetch = global.fetch
+  const calls: string[] = []
+  global.fetch = async (input) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.endsWith('/api/pill/wegovy-9-mg')) {
+      return new Response(
+        JSON.stringify({
+          drug_name: 'Wegovy',
+          strength: '9 mg',
+          slug: 'wegovy-9-mg',
+          ndc: '00169440913',
+          rxcui: '999999',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    if (url.endsWith('/api/snapshot/wegovy-9-mg')) {
+      return new Response(
+        JSON.stringify({
+          slug: 'wegovy-9-mg',
+          resolved_ndc11: '00169442531',
+          match_type: 'equivalent',
+          resolved_via: 'sibling',
+          price_per_unit: 33.16,
+          unit: 'EA',
+          effective_date: '2026-05-14',
+          total_acquisition_cost: 994.8,
+          fair_retail_low: 1492.21,
+          fair_retail_high: 2984.42,
+          history_52w: [{ effective_date: '2026-05-01', price_per_unit: 33.16, unit: 'EA' }],
+          alternatives: [],
+          estimate_basis: 'Sibling family match with the same strength',
+          display_disclaimer: 'Pricing resolved from a sibling NDC in the same labeler/product family.',
+          schema_offers_valid: true,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    throw new Error(`Unexpected URL ${url}`)
+  }
+
+  try {
+    const mod = await import('../page')
+    const element = await mod.default({ params: Promise.resolve({ slug: 'wegovy-9-mg' }) })
+    const html = renderToStaticMarkup(element)
+
+    assert.match(html, /"@type":"Product"/)
+    assert.match(html, /"@type":"AggregateOffer"/)
+    assert.match(html, /1492\.21/)
+    assert.match(html, /Pricing resolved from a sibling NDC/)
+    assert.equal(calls.filter((url) => url.includes('/api/prices/')).length, 0)
+  } finally {
+    global.fetch = originalFetch
+  }
+})
+
+test('price page JSON-LD falls back to WebPage when snapshot has no valid offers', async () => {
+  const originalFetch = global.fetch
+  global.fetch = async (input) => {
+    const url = String(input)
+    if (url.endsWith('/api/pill/no-price')) {
+      return new Response(
+        JSON.stringify({
+          drug_name: 'NoPrice',
+          strength: '10 mg',
+          slug: 'no-price',
+          ndc: '00000000000',
+          rxcui: '12345',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    if (url.endsWith('/api/snapshot/no-price')) {
+      return new Response(
+        JSON.stringify({
+          slug: 'no-price',
+          match_type: 'none',
+          resolved_via: null,
+          history_52w: [],
+          alternatives: [],
+          schema_offers_valid: false,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    throw new Error(`Unexpected URL ${url}`)
+  }
+
+  try {
+    const mod = await import('../page')
+    const element = await mod.default({ params: Promise.resolve({ slug: 'no-price' }) })
+    const html = renderToStaticMarkup(element)
+
+    assert.match(html, /"@type":"WebPage"/)
+    assert.ok(!html.includes('"@type":"Product"'))
+    assert.ok(!html.includes('"offers"'))
   } finally {
     global.fetch = originalFetch
   }

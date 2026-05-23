@@ -7,6 +7,7 @@ import { createClient } from '../lib/supabase'
 
 const baseNavItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/snapshots', label: 'Pricing Snapshots', icon: BarChart2 },
   { href: '/admin/pills', label: 'Pills', icon: Pill },
   { href: '/admin/pills/missing-images', label: 'Missing Images Queue', icon: ImageOff },
   { href: '/admin/duplicates', label: 'Duplicates', icon: Layers },

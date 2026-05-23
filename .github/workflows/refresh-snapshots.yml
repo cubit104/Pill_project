@@ -1,0 +1,32 @@
+name: Refresh pill price snapshots
+
+on:
+  workflow_run:
+    workflows: ["Refresh NADAC pricing"]
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  refresh-snapshots:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      NADAC_API_BASE_URL: https://data.medicaid.gov/api/1
+      NADAC_CATALOG_URL: https://data.medicaid.gov/api/1/metastore/schemas/dataset/items
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Refresh snapshots
+        run: python scripts/refresh_pill_price_snapshots.py --force --all
