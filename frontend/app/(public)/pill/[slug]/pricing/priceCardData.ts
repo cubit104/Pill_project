@@ -114,11 +114,13 @@ export function resolveDownstreamNdc(priceData: PriceResponse, fallbackNdc?: str
 }
 
 export function isPriceSnapshot(value: PriceCardInitialData | PriceSnapshot | undefined): value is PriceSnapshot {
-  return !!value && !('price' in value)
+  return !!value && typeof value === 'object' && 'slug' in value && 'match_type' in value
 }
 
 export function snapshotToPriceCardInitialData(snapshot: PriceSnapshot): PriceCardInitialData {
+  const resolvedNdc = normalizeNdcDigits(snapshot.resolved_ndc11 ?? undefined)
   const hasPrice =
+    resolvedNdc !== null &&
     snapshot.price_per_unit != null &&
     snapshot.unit != null &&
     snapshot.effective_date != null &&
@@ -126,9 +128,9 @@ export function snapshotToPriceCardInitialData(snapshot: PriceSnapshot): PriceCa
     snapshot.fair_retail_low != null &&
     snapshot.fair_retail_high != null
 
-  const price = hasPrice
+  const price = hasPrice && resolvedNdc
     ? {
-        ndc: snapshot.resolved_ndc11 || snapshot.slug,
+        ndc: resolvedNdc,
         price_per_unit: Number(snapshot.price_per_unit),
         unit: String(snapshot.unit),
         effective_date: String(snapshot.effective_date),

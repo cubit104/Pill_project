@@ -26,6 +26,7 @@ def _parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Refresh pre-resolved pill price snapshots.")
     parser.add_argument("--dry-run", action="store_true", default=False, help="Resolve rows without writing to the database.")
     parser.add_argument("--limit", type=int, default=100, metavar="N", help="Maximum number of pills to process (default: 100).")
+    parser.add_argument("--all", action="store_true", default=False, help="Process all matching pills (ignores --limit).")
     parser.add_argument("--offset", type=int, default=0, metavar="N", help="Skip first N pills (default: 0).")
     parser.add_argument("--slug", type=str, default=None, help="Resolve a single pill by slug.")
     parser.add_argument("--only-missing", action="store_true", default=False, help="Only resolve pills that do not yet have a snapshot row.")
@@ -38,7 +39,7 @@ def _ensure_db() -> None:
         raise RuntimeError("Database connection not available")
 
 
-def _select_pills(*, slug: str | None, limit: int, offset: int, only_missing: bool, force: bool) -> list[dict[str, Any]]:
+def _select_pills(*, slug: str | None, limit: int | None, offset: int, only_missing: bool, force: bool) -> list[dict[str, Any]]:
     _ensure_db()
 
     where_clauses = [
@@ -46,10 +47,11 @@ def _select_pills(*, slug: str | None, limit: int, offset: int, only_missing: bo
         "p.published = true",
         "COALESCE(TRIM(p.slug), '') <> ''",
     ]
-    params: dict[str, Any] = {
-        "limit": max(1, int(limit)),
-        "offset": max(0, int(offset)),
-    }
+    params: dict[str, Any] = {"offset": max(0, int(offset))}
+    limit_clause = ""
+    if limit is not None:
+        params["limit"] = max(1, int(limit))
+        limit_clause = "\n        LIMIT :limit"
 
     if slug:
         where_clauses.append("p.slug = :slug")
@@ -74,7 +76,7 @@ def _select_pills(*, slug: str | None, limit: int, offset: int, only_missing: bo
           ON s.slug = p.slug
         WHERE {' AND '.join(where_clauses)}
         ORDER BY p.slug
-        LIMIT :limit
+        {limit_clause}
         OFFSET :offset
         """
     )
@@ -214,15 +216,17 @@ async def _run(args) -> dict[str, Any]:
 
 def main(argv=None):
     args = _parse_args(argv)
+    limit = None if args.all else args.limit
     logger.info(
-        "Starting pill price snapshot refresh: dry_run=%s limit=%d offset=%d slug=%s only_missing=%s force=%s",
+        "Starting pill price snapshot refresh: dry_run=%s limit=%s offset=%d slug=%s only_missing=%s force=%s",
         args.dry_run,
-        args.limit,
+        "all" if limit is None else limit,
         args.offset,
         args.slug,
         args.only_missing,
         args.force,
     )
+    args.limit = limit
     summary = asyncio.run(_run(args))
     print(json.dumps(summary))
     logger.info("Done: %s", summary)

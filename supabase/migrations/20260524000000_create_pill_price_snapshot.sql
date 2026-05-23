@@ -63,7 +63,7 @@ ALTER TABLE public.pill_price_snapshot ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS pill_price_snapshot_public_read ON public.pill_price_snapshot;
 CREATE POLICY pill_price_snapshot_public_read
-  ON public.pill_price_snapshot FOR SELECT USING (true);
+  ON public.pill_price_snapshot FOR SELECT USING (auth.role() = 'authenticated');
 
 CREATE OR REPLACE VIEW public.v_snapshots_needing_attention AS
 SELECT slug, pill_id, match_type, resolved_via, is_estimate, resolver_notes, resolved_at

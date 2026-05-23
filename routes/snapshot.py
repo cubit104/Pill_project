@@ -61,8 +61,6 @@ def get_price_snapshot(slug: str, response: Response):
                       display_disclaimer,
                       schema_offers_valid,
                       resolved_at,
-                      resolver_version,
-                      resolver_notes,
                       created_at,
                       updated_at
                     FROM public.pill_price_snapshot
