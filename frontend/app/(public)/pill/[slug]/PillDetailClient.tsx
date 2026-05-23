@@ -32,7 +32,7 @@ function DetailRow({ label, value, stripe }: { label: string; value?: string; st
   if (!value) return null
   return (
     <div className={`py-2 px-3 flex flex-row items-start gap-2 rounded ${stripe ? 'bg-teal-50' : ''}`}>
-      <dt className="text-sm font-medium text-slate-500 w-36 shrink-0">{label}</dt>
+      <dt className="text-sm font-semibold text-slate-600 w-36 shrink-0">{label}</dt>
       <dd className="text-sm text-slate-800 flex-1">{value}</dd>
     </div>
   )
@@ -164,8 +164,8 @@ export default function PillDetailClient({
   ]
   const filteredSpecsRows = specsRows.filter(row => Boolean(row.value))
   const specsStripeClass = (i: number) => {
-    const mobileStripe = i % 2 === 1 ? 'bg-teal-50' : ''
-    const desktopStripe = Math.floor(i / 2) % 2 === 1 ? 'sm:bg-teal-50' : 'sm:bg-transparent'
+    const mobileStripe = i % 2 === 0 ? 'bg-teal-50' : ''
+    const desktopStripe = Math.floor(i / 2) % 2 === 0 ? 'sm:bg-teal-50' : 'sm:bg-transparent'
     return `py-2 px-3 flex flex-row items-start gap-2 rounded ${mobileStripe} ${desktopStripe}`.trim()
   }
 
@@ -429,7 +429,7 @@ export default function PillDetailClient({
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
             {filteredSpecsRows.map((row, index) => (
               <div key={row.label} className={specsStripeClass(index)}>
-                <dt className="text-sm font-medium text-slate-500 w-36 shrink-0">{row.label}</dt>
+                <dt className="text-sm font-semibold text-slate-600 w-36 shrink-0">{row.label}</dt>
                 <dd className="text-sm text-slate-800 flex-1">{row.value}</dd>
               </div>
             ))}
@@ -439,7 +439,7 @@ export default function PillDetailClient({
                   key="Pharmacologic Class"
                   className={`col-span-full ${specsStripeClass(filteredSpecsRows.length)}`}
                 >
-                  <dt className="text-sm font-medium text-slate-500 w-36 shrink-0">Pharmacologic Class</dt>
+                  <dt className="text-sm font-semibold text-slate-600 w-36 shrink-0">Pharmacologic Class</dt>
                   <dd className="text-sm text-slate-800 flex-1">
                     <Link
                       href={`/class/${encodeURIComponent(classSlugify(pill.pharma_class))}`}
@@ -463,7 +463,7 @@ export default function PillDetailClient({
                 { label: 'Active Ingredients', value: pill.ingredients },
                 { label: 'Inactive Ingredients', value: pill.inactive_ingredients },
               ].filter(row => Boolean(row.value)).map((row, idx) => (
-                <DetailRow key={row.label} label={row.label} value={row.value} stripe={idx % 2 === 1} />
+                <DetailRow key={row.label} label={row.label} value={row.value} stripe={idx % 2 === 0} />
               ))}
             </dl>
           </div>
@@ -479,7 +479,7 @@ export default function PillDetailClient({
               { label: 'Brand Names', value: pill.brand_names },
               { label: 'NDC Code', value: pill.ndc },
             ].filter(row => Boolean(row.value)).map((row, idx) => (
-              <DetailRow key={row.label} label={row.label} value={row.value} stripe={idx % 2 === 1} />
+              <DetailRow key={row.label} label={row.label} value={row.value} stripe={idx % 2 === 0} />
             ))}
           </dl>
           <div className="border-t border-slate-100 mt-3 pt-3">

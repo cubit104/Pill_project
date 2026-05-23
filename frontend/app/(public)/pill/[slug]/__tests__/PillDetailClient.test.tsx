@@ -65,11 +65,13 @@ test('detail page source computes spec striping in JSX and uses emerald borders 
 
   assert.match(source, /const filteredSpecsRows = specsRows\.filter\(row => Boolean\(row\.value\)\)/)
   assert.match(source, /const specsStripeClass = \(i: number\) => \{/)
-  assert.match(source, /const mobileStripe = i % 2 === 1 \? 'bg-teal-50' : ''/)
-  assert.match(source, /const desktopStripe = Math\.floor\(i \/ 2\) % 2 === 1 \? 'sm:bg-teal-50' : 'sm:bg-transparent'/)
+  assert.match(source, /const mobileStripe = i % 2 === 0 \? 'bg-teal-50' : ''/)
+  assert.match(source, /const desktopStripe = Math\.floor\(i \/ 2\) % 2 === 0 \? 'sm:bg-teal-50' : 'sm:bg-transparent'/)
   assert.match(source, /<dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">/)
   assert.match(source, /filteredSpecsRows\.map\(\(row, index\) => \(\s*<div key=\{row\.label\} className=\{specsStripeClass\(index\)\}>/)
   assert.match(source, /className=\{`col-span-full \$\{specsStripeClass\(filteredSpecsRows\.length\)\}`\}/)
+  assert.match(source, /stripe=\{idx % 2 === 0\}/)
+  assert.equal((source.match(/text-sm font-semibold text-slate-600 w-36 shrink-0/g) || []).length, 3)
   assert.doesNotMatch(source, /const PILL_SPECS_STRIPE_CLASSES/)
 
   assert.ok((source.match(/bg-white border border-emerald-200 rounded-xl/g) || []).length >= 8)
