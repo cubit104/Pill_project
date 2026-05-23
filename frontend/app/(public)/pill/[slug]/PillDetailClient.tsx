@@ -291,6 +291,7 @@ export default function PillDetailClient({
                       width={400}
                       height={400}
                       loading="eager"
+                      fetchPriority="high"
                     />
                   </button>
                   {images.length > 1 && (
