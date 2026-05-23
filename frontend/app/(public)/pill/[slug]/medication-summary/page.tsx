@@ -274,13 +274,13 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
         <div className="space-y-4">
           {questions.map((item) => (
             <section key={item.question} className="rounded-xl border border-slate-200 bg-white p-5">
-              <h2 className="text-base font-semibold text-slate-900 mb-2">{item.question}</h2>
-              <p className="text-sm leading-7 text-slate-700">{item.answer}</p>
+              <h2 className="mb-3 text-base font-semibold text-slate-900">{item.question}</h2>
+              <p className="text-sm leading-8 text-slate-800">{item.answer}</p>
             </section>
           ))}
         </div>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-700 space-y-2">
+        <section className="rounded-xl border border-slate-200 bg-white p-5 text-sm leading-8 text-slate-800 space-y-2">
           <p>
             <Link href={`/pill/${encodedSlug}/professional-information`} className="text-emerald-700 hover:underline">
               View full Professional Information
@@ -303,7 +303,7 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
 
         <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>
-          <p className="text-xs text-amber-700 leading-relaxed">
+          <p className="text-xs text-amber-700 leading-8">
             This summary is for educational purposes only and is not medical advice. Always consult your doctor,
             pharmacist, or other licensed healthcare professional before starting, stopping, or changing any medicine.{' '}
             <Link href="/medical-disclaimer" className="underline hover:text-amber-900">Read full medical disclaimer</Link>.

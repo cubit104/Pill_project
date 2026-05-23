@@ -8,7 +8,7 @@ interface TocEntry {
   text: string
   level: 2 | 3
 }
-const TOC_LINK_BASE_CLASSES = 'block break-words py-1 text-xs leading-5'
+const TOC_LINK_BASE_CLASSES = 'block break-words py-1 text-sm leading-6'
 
 function extractHeadings(html: string): TocEntry[] {
   if (typeof window === 'undefined' || !html) return []
@@ -99,7 +99,7 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
 
   return (
     <nav aria-label="On this page" className="w-full max-w-[16rem]">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">
+      <p className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-4">
         On this page
       </p>
       <ul className="space-y-1.5">
