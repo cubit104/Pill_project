@@ -2,6 +2,7 @@ import {
   fetchPriceCardDownstream,
   resolveDownstreamNdc,
   type PriceCardInitialData,
+  type PriceSnapshot,
   type PriceResponse,
 } from '../pricing/priceCardData'
 
@@ -19,6 +20,19 @@ async function fetchPriceJson(
     })
     if (!response.ok) return null
     return await response.json() as PriceResponse
+  } catch {
+    return null
+  }
+}
+
+export async function fetchPriceSnapshot(slug: string): Promise<PriceSnapshot | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/snapshot/${encodeURIComponent(slug)}`, {
+      next: { revalidate: 300 },
+    })
+    if (response.status === 404) return null
+    if (!response.ok) return null
+    return await response.json() as PriceSnapshot
   } catch {
     return null
   }

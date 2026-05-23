@@ -7,8 +7,11 @@ import PriceHistorySparkline, { type PriceHistoryPoint } from './PriceHistorySpa
 import StrengthSelector, { type StrengthOption } from './StrengthSelector'
 import {
   fetchPriceCardDownstream,
+  isPriceSnapshot,
   resolveDownstreamNdc,
+  snapshotToPriceCardInitialData,
   type PriceCardInitialData,
+  type PriceSnapshot,
   type PriceResponse,
 } from './priceCardData'
 
@@ -41,37 +44,43 @@ export default function PriceCard({
   rxcui?: string
   medicineName?: string
   historyNdc?: string | null
-  initialData?: PriceCardInitialData
+  initialData?: PriceCardInitialData | PriceSnapshot
 }) {
   // Use relative paths so requests go through the Next.js rewrite proxy
   // (`/api/:path* → ${API_BASE_URL}/api/:path*`) — no CORS issues from the browser.
+  const normalizedInitialData = useMemo(
+    () => (isPriceSnapshot(initialData) ? snapshotToPriceCardInitialData(initialData) : initialData),
+    [initialData]
+  )
   const apiBase = ''
   const hasIdentifier = !!(ndc || rxcui || medicineName)
-  const [priceState, setPriceState] = useState<PriceResponse | null>(initialData?.price || null)
-  const [alternativesState, setAlternativesState] = useState<AlternativePrice[]>(initialData?.alternatives || [])
-  const [historyState, setHistoryState] = useState<PriceHistoryPoint[]>(initialData?.history || [])
-  const [genericVsBrandRatioState, setGenericVsBrandRatioState] = useState<number | null | undefined>(initialData?.generic_vs_brand_ratio)
-  const [strengthsState, setStrengthsState] = useState<StrengthOption[]>(initialData?.strengths || [])
-  const [ingredientState, setIngredientState] = useState<string | null>(initialData?.ingredient ?? null)
-  const [loading, setLoading] = useState<boolean>(hasIdentifier && !initialData?.price)
+  const [priceState, setPriceState] = useState<PriceResponse | null>(normalizedInitialData?.price || null)
+  const [alternativesState, setAlternativesState] = useState<AlternativePrice[]>(normalizedInitialData?.alternatives || [])
+  const [historyState, setHistoryState] = useState<PriceHistoryPoint[]>(normalizedInitialData?.history || [])
+  const [genericVsBrandRatioState, setGenericVsBrandRatioState] = useState<number | null | undefined>(normalizedInitialData?.generic_vs_brand_ratio)
+  const [strengthsState, setStrengthsState] = useState<StrengthOption[]>(normalizedInitialData?.strengths || [])
+  const [ingredientState, setIngredientState] = useState<string | null>(normalizedInitialData?.ingredient ?? null)
+  const [loading, setLoading] = useState<boolean>(hasIdentifier && !normalizedInitialData?.price && !normalizedInitialData?.snapshot_present)
   const [fetchError, setFetchError] = useState<boolean>(false)
   const [retryCount, setRetryCount] = useState<number>(0)
   // Server-provided data must win on every render so SSR payloads remain authoritative
   // during client transitions, while local state only fills gaps after client fetches.
-  const price = preferServerData(initialData?.price, priceState)
-  const alternatives = preferServerData(initialData?.alternatives, alternativesState)
-  const history = preferServerData(initialData?.history, historyState)
-  const genericVsBrandRatio = preferServerData(initialData?.generic_vs_brand_ratio, genericVsBrandRatioState)
-  const strengths = preferServerData(initialData?.strengths, strengthsState)
-  const ingredient = preferServerData(initialData?.ingredient, ingredientState)
+  const price = preferServerData(normalizedInitialData?.price, priceState)
+  const alternatives = preferServerData(normalizedInitialData?.alternatives, alternativesState)
+  const history = preferServerData(normalizedInitialData?.history, historyState)
+  const genericVsBrandRatio = preferServerData(normalizedInitialData?.generic_vs_brand_ratio, genericVsBrandRatioState)
+  const strengths = preferServerData(normalizedInitialData?.strengths, strengthsState)
+  const ingredient = preferServerData(normalizedInitialData?.ingredient, ingredientState)
   const hasCompleteInitialData = !!(
-    initialData?.price &&
-    Array.isArray(initialData.alternatives) &&
-    Array.isArray(initialData.history)
+    normalizedInitialData?.snapshot_present || (
+      normalizedInitialData?.price &&
+      Array.isArray(normalizedInitialData.alternatives) &&
+      Array.isArray(normalizedInitialData.history)
+    )
   )
 
   useEffect(() => {
-    if ((!ndc && !rxcui && !medicineName) || initialData?.price) {
+    if ((!ndc && !rxcui && !medicineName) || normalizedInitialData?.price || normalizedInitialData?.snapshot_present) {
       setLoading(false)
       return
     }
@@ -146,10 +155,10 @@ export default function PriceCard({
     return () => {
       cancelled = true
     }
-  }, [ndc, rxcui, medicineName, initialData?.price, retryCount])
+  }, [ndc, rxcui, medicineName, normalizedInitialData?.price, normalizedInitialData?.snapshot_present, retryCount])
 
   useEffect(() => {
-    const priceData = initialData?.price ?? priceState
+    const priceData = normalizedInitialData?.price ?? priceState
     if (!priceData) {
       setAlternativesState([])
       setHistoryState([])
@@ -158,7 +167,7 @@ export default function PriceCard({
       setIngredientState(null)
       return
     }
-    if (hasCompleteInitialData) return
+    if (hasCompleteInitialData || normalizedInitialData?.snapshot_present) return
 
     const downstreamNdc = resolveDownstreamNdc(priceData, ndc)
     setAlternativesState([])
@@ -202,9 +211,10 @@ export default function PriceCard({
     }
   }, [
     hasCompleteInitialData,
-    initialData?.price,
-    initialData?.alternatives,
-    initialData?.history,
+    normalizedInitialData?.price,
+    normalizedInitialData?.alternatives,
+    normalizedInitialData?.history,
+    normalizedInitialData?.snapshot_present,
     ndc,
     historyNdc,
     priceState,
@@ -305,6 +315,16 @@ export default function PriceCard({
           <p className="mt-2 text-xs text-slate-500" role="note">
             ⓘ Pricing shown is an estimate based on the active ingredient. The exact strength, dose form, and packaging may differ.
             {price.resolved_ingredient && <span> Estimated from: {price.resolved_ingredient}</span>}
+          </p>
+        )}
+        {normalizedInitialData?.display_disclaimer && (
+          <p className="mt-2 text-xs text-slate-500" role="note">
+            ⓘ {normalizedInitialData.display_disclaimer}
+          </p>
+        )}
+        {normalizedInitialData?.estimate_basis && (
+          <p className="mt-1 text-xs text-slate-500" role="note">
+            Basis: {normalizedInitialData.estimate_basis}
           </p>
         )}
         <div className="mt-4">

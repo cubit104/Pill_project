@@ -562,3 +562,44 @@ test('PriceCard does not refetch downstream when initialData has all three field
     global.fetch = originalFetch
   }
 })
+
+test('PriceCard accepts raw snapshot initialData without extra fetches', async () => {
+  const originalFetch = global.fetch
+  const calls: string[] = []
+  global.fetch = async (input: RequestInfo | URL) => {
+    calls.push(String(input))
+    throw new Error('should not fetch')
+  }
+
+  try {
+    const html = renderToStaticMarkup(
+      <PriceCard
+        ndc="00169-4409-13"
+        initialData={{
+          slug: 'Wegovy-9-mg',
+          resolved_ndc11: '00169442531',
+          match_type: 'equivalent',
+          resolved_via: 'sibling',
+          price_per_unit: 33.16,
+          unit: 'EA',
+          effective_date: '2026-05-14',
+          total_acquisition_cost: 994.8,
+          fair_retail_low: 1492.21,
+          fair_retail_high: 2984.42,
+          history_52w: [{ effective_date: '2026-05-01', price_per_unit: 33.16, unit: 'EA' }],
+          alternatives: [],
+          estimate_basis: 'Sibling family match with the same strength',
+          display_disclaimer: 'Pricing resolved from a sibling NDC in the same labeler/product family.',
+          schema_offers_valid: true,
+        }}
+      />
+    )
+
+    assert.match(html, /Pricing resolved from a sibling NDC/)
+    assert.match(html, /Basis: Sibling family match with the same strength/)
+    assert.match(html, /Price History/)
+    assert.equal(calls.length, 0)
+  } finally {
+    global.fetch = originalFetch
+  }
+})
