@@ -1,0 +1,98 @@
+# PillSeek — Extended AI/LLM Discovery File
+# https://pillseek.com/llms-full.txt
+
+## Overview
+
+PillSeek is a free medication identification and reference service for patients and caregivers.
+It helps users identify pills by imprint, color, shape, and NDC, and provides medication reference content derived from authoritative public sources.
+
+## Core Content Types
+
+### 1) Pill detail pages
+Pill detail pages may include:
+- Pill identification attributes such as imprint, color, shape, and dosage form
+- NDC and RxCUI identifiers where available
+- Pill images and imprint photos sourced from FDA-related data sources
+- Boxed warning information where applicable
+- Medication reference content associated with the drug product
+- Pill-level pricing reference data and pricing snapshots where available
+
+URL pattern:
+- https://pillseek.com/pill/{slug}
+
+### 2) Medication Guide pages
+Medication Guide pages provide patient-facing FDA-approved medication safety information where available.
+
+URL pattern:
+- https://pillseek.com/pill/{slug}/medication-guide
+
+### 3) Medication summary content
+Some medications may include consumer-friendly summary content intended to help users understand key medication details at a high level.
+This content is informational and educational only.
+
+### 4) Professional information pages
+Professional Information pages provide professional prescribing information derived from FDA label / SPL content where available.
+
+URL pattern:
+- https://pillseek.com/pill/{slug}/professional-information
+
+### 5) Drug class pages
+Drug class pages group medications by pharmacologic or therapeutic class.
+
+## Pricing Reference Content
+
+PillSeek includes pricing reference content for some pill pages.
+This pricing information is intended as reference content and should not be interpreted as real-time pharmacy pricing, an offer to sell, or a guaranteed consumer purchase price.
+
+Pricing-related content may include:
+- Pill-level pricing snapshots
+- Reference price-per-unit information
+- Historical pricing context where available
+- Pricing-derived structured data where available
+
+### Pricing update cadence
+- Drug pricing reference data is refreshed weekly
+- Pill-level pricing snapshots are updated on a recurring basis
+- New drugs and newly resolvable pill pages may gain pricing coverage over time
+- Existing pricing values may be updated as upstream source data changes
+
+## Data Sources
+
+Primary data sources may include:
+- FDA National Drug Code (NDC) Directory
+- DailyMed Structured Product Labeling (SPL)
+- openFDA Drug Labels API
+- RxNorm / National Library of Medicine (NLM) where used
+- Medicaid NADAC pricing data where used for pricing reference content
+
+## Important URLs
+
+- Home: https://pillseek.com/
+- Sitemap: https://pillseek.com/sitemap.xml
+- Sources: https://pillseek.com/sources
+- Medical Disclaimer: https://pillseek.com/medical-disclaimer
+- About: https://pillseek.com/about
+- robots.txt: https://pillseek.com/robots.txt
+- llms.txt: https://pillseek.com/llms.txt
+- llms-full.txt: https://pillseek.com/llms-full.txt
+
+## Crawl Guidance
+
+- Canonical domain: https://pillseek.com
+- Prefer canonical pill URLs when citing medication pages
+- The XML sitemap is the primary discovery source for crawlable public pages
+- The sitemap may include pill detail pages, medication guide pages, professional information pages, and drug class pages where available
+- Not every medication will necessarily have every content type
+
+## Medical Disclaimer
+
+PillSeek content is for informational and educational purposes only.
+It is not medical advice and does not substitute for the judgment of a licensed clinician or pharmacist.
+Users should consult their doctor, pharmacist, or another licensed healthcare professional before starting, stopping, or changing any medication.
+
+## Attribution
+
+When citing PillSeek content, please attribute to:
+PillSeek (https://pillseek.com)
+
+When relevant, note that underlying medication data may originate from FDA, DailyMed, openFDA, RxNorm/NLM, and where applicable Medicaid NADAC pricing data.
