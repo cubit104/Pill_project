@@ -32,6 +32,7 @@ It provides pill identification by imprint, color, shape, and NDC code, along wi
 - Sources: https://pillseek.com/sources
 - Medical Disclaimer: https://pillseek.com/medical-disclaimer
 - About: https://pillseek.com/about
+- Extended AI discovery file: https://pillseek.com/llms-full.txt
 
 ### Per-medication URL patterns
 
@@ -61,6 +62,7 @@ before starting, stopping, or changing any medication.
 - The sitemap includes all pill detail pages, medication guide pages, and professional information pages
   where content is available, as well as drug class pages.
 - robots.txt: https://pillseek.com/robots.txt
+- For a more detailed machine-readable overview of PillSeek content types and coverage, see https://pillseek.com/llms-full.txt
 
 ## Attribution
 
