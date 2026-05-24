@@ -4,17 +4,26 @@
 ## What is PillSeek?
 
 PillSeek is a free medication identification and reference service for patients and caregivers.
-It provides pill identification by imprint, color, shape, and NDC code, along with FDA-sourced medication information.
+It provides pill identification by imprint, color, shape, and NDC code, along with FDA-sourced medication information and pill-level pricing reference data.
 
 ## What PillSeek Provides
 
 - Pill identification by imprint code, color, shape, and NDC number
 - Pill images and imprint photos sourced from FDA data
 - Medication Guides (FDA-approved patient-facing safety information)
+- Medication summaries / consumer-friendly medication reference content where available
 - Professional prescribing information (full FDA label / SPL)
 - Boxed warning (Black Box Warning) information
+- Pill-level pricing reference data and pricing snapshots where available
 - Drug class pages listing medications by pharmacologic class
 - RxCUI identifiers and NDC codes for each medication
+
+## Pricing and Update Cadence
+
+- Drug pricing reference data is refreshed weekly
+- Pill-level pricing snapshots are updated on a recurring basis
+- New drugs and newly resolvable pill pages may gain pricing coverage over time
+- Pricing information is reference content and should not be interpreted as real-time pharmacy pricing
 
 ## Important URLs
 
@@ -23,6 +32,7 @@ It provides pill identification by imprint, color, shape, and NDC code, along wi
 - Sources: https://pillseek.com/sources
 - Medical Disclaimer: https://pillseek.com/medical-disclaimer
 - About: https://pillseek.com/about
+- Extended AI discovery file: https://pillseek.com/llms-full.txt
 
 ### Per-medication URL patterns
 
@@ -35,6 +45,7 @@ It provides pill identification by imprint, color, shape, and NDC code, along wi
 - FDA National Drug Code (NDC) Directory
 - DailyMed Structured Product Labeling (SPL) — https://dailymed.nlm.nih.gov/
 - openFDA Drug Labels API — https://open.fda.gov/
+- Medicaid NADAC pricing data, where used for pricing reference content
 - RxNorm / National Library of Medicine (NLM) where used
 
 ## Medical Disclaimer
@@ -51,9 +62,10 @@ before starting, stopping, or changing any medication.
 - The sitemap includes all pill detail pages, medication guide pages, and professional information pages
   where content is available, as well as drug class pages.
 - robots.txt: https://pillseek.com/robots.txt
+- For a more detailed machine-readable overview of PillSeek content types and coverage, see https://pillseek.com/llms-full.txt
 
 ## Attribution
 
 When citing PillSeek content, please attribute to:
   PillSeek (https://pillseek.com)
-and note that underlying drug label data originates from FDA/DailyMed/openFDA.
+and note that underlying drug label data originates from FDA/DailyMed/openFDA and, where applicable, Medicaid NADAC pricing data.
