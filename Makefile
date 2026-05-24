@@ -8,4 +8,4 @@ backfill-nadac-history-dry-run:
 	python -m scripts.backfill_nadac_history --dry-run --limit-ndcs 50
 
 refresh-snapshots:
-	python -m scripts.refresh_pill_price_snapshots --only-missing --all
+	python -m scripts.refresh_pill_price_snapshots --only-missing --all --concurrency 20
