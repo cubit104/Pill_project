@@ -31,4 +31,4 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Refresh snapshots
-        run: python -m scripts.refresh_pill_price_snapshots --force
+        run: python -m scripts.refresh_pill_price_snapshots --all
