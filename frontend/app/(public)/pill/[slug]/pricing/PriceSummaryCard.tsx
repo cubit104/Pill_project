@@ -45,11 +45,19 @@ export default function PriceSummaryCard({
   medicineName?: string
   initialData?: PriceResponse
 }) {
+  const hasIdentifier = Boolean(ndc || rxcui || medicineName)
   const [price, setPrice] = useState<PriceResponse | null>(initialData || null)
+  const [loading, setLoading] = useState<boolean>(hasIdentifier && !initialData)
 
   useEffect(() => {
-    if ((!ndc && !rxcui && !medicineName) || initialData) return
+    if (!hasIdentifier || initialData) {
+      setLoading(false)
+      return
+    }
+
     let cancelled = false
+    setLoading(true)
+    setPrice(null)
 
     const tryFetch = async (url: string): Promise<PriceResponse | null> => {
       try {
@@ -69,6 +77,7 @@ export default function PriceSummaryCard({
       if (cancelled) return
       if (byNdc) {
         setPrice(byNdc)
+        setLoading(false)
         return
       }
 
@@ -76,12 +85,14 @@ export default function PriceSummaryCard({
       if (cancelled) return
       if (byRxcui) {
         setPrice(byRxcui)
+        setLoading(false)
         return
       }
 
       const byName = medicineName ? await tryFetch(`/api/prices/by-name/${encodeURIComponent(medicineName)}`) : null
       if (cancelled) return
       setPrice(byName)
+      setLoading(false)
     }
 
     load()
@@ -89,7 +100,7 @@ export default function PriceSummaryCard({
     return () => {
       cancelled = true
     }
-  }, [ndc, rxcui, medicineName, initialData])
+  }, [hasIdentifier, ndc, rxcui, medicineName, initialData])
   const hasPriceData = hasCompactPriceData(price)
 
   return (
@@ -97,7 +108,19 @@ export default function PriceSummaryCard({
       <h3 className="text-sm font-semibold text-slate-800">
         💰 {medicineName ? `${medicineName} Retail Price` : 'Price'}
       </h3>
-      {hasPriceData ? (
+      {loading ? (
+        <div className="mt-3 space-y-3" aria-live="polite" aria-busy="true" data-testid="price-summary-loading">
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <span className="inline-block h-4 w-4 rounded-full border-2 border-slate-300 border-t-emerald-600 animate-spin" aria-hidden="true" />
+            <span>Checking price…</span>
+          </div>
+          <div className="space-y-2 animate-pulse">
+            <div className="h-4 w-24 bg-slate-200 rounded" />
+            <div className="h-8 w-36 bg-slate-200 rounded" />
+            <div className="h-4 w-28 bg-slate-200 rounded" />
+          </div>
+        </div>
+      ) : hasPriceData ? (
         <>
           <div className="mt-3 space-y-1.5">
             <div className="flex justify-between items-baseline">
@@ -122,7 +145,7 @@ export default function PriceSummaryCard({
         </>
       ) : (
         <p className="mt-2 text-sm text-slate-700">
-          Price data unavailable for this NDC.
+          Price data not available for this pill yet.
         </p>
       )}
       <div className="mt-4 pt-3 border-t border-slate-100">
