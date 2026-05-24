@@ -79,7 +79,7 @@ This moves the slow NDC resolution path out of SSR and into an offline refresh s
 ### Refresh cadence
 
 - `refresh-nadac.yml` runs first to sync the latest NADAC data.
-- `refresh-snapshots.yml` then runs automatically on successful completion of that workflow.
+- `refresh-snapshots.yml` then runs automatically on successful completion of that workflow using `--force --all --concurrency 20` so existing prices are refreshed weekly.
 - Editors can also trigger the snapshot workflow manually with `workflow_dispatch`.
 
 ### Local backfill / refresh
@@ -95,7 +95,7 @@ Useful one-off commands:
 ```bash
 python -m scripts.refresh_pill_price_snapshots --dry-run --limit 10
 python -m scripts.refresh_pill_price_snapshots --slug Wegovy-9-mg
-python -m scripts.refresh_pill_price_snapshots --force --all
+python -m scripts.refresh_pill_price_snapshots --force --all --concurrency 20
 ```
 
 Each processed pill prints a JSON line with the slug, match type, resolver tier, and resolved unit price.

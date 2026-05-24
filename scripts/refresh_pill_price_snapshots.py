@@ -31,6 +31,13 @@ def _parse_args(argv=None):
     parser.add_argument("--slug", type=str, default=None, help="Resolve a single pill by slug.")
     parser.add_argument("--only-missing", action="store_true", default=False, help="Only resolve pills that do not yet have a snapshot row.")
     parser.add_argument("--force", action="store_true", default=False, help="Re-resolve all selected pills, even when a snapshot already exists.")
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=20,
+        metavar="N",
+        help="Number of pills to process concurrently (default: 20).",
+    )
     return parser.parse_args(argv)
 
 
@@ -188,17 +195,17 @@ async def _run(args) -> dict[str, Any]:
         force=args.force,
     )
     summary = {"processed": 0, "updated": 0, "errors": 0, "dry_run": args.dry_run}
+    concurrency = max(1, int(getattr(args, "concurrency", 20)))
 
-    for pill in rows:
-        summary["processed"] += 1
+    async def process_one(pill: dict[str, Any]) -> str:
         try:
             snapshot = await resolve_pill_to_snapshot(pill)
             print(json.dumps(_snapshot_log_row(snapshot)))
-            if not args.dry_run:
-                _upsert_snapshot(snapshot)
-                summary["updated"] += 1
+            if args.dry_run:
+                return "dry_run"
+            await asyncio.to_thread(_upsert_snapshot, snapshot)
+            return "updated"
         except Exception as exc:
-            summary["errors"] += 1
             print(
                 json.dumps(
                     {
@@ -210,7 +217,15 @@ async def _run(args) -> dict[str, Any]:
                     }
                 )
             )
+            return "error"
 
+    results: list[str] = []
+    for start in range(0, len(rows), concurrency):
+        chunk = rows[start : start + concurrency]
+        results.extend(await asyncio.gather(*(process_one(pill) for pill in chunk)))
+    summary["processed"] = len(results)
+    summary["updated"] = results.count("updated")
+    summary["errors"] = results.count("error")
     return summary
 
 
