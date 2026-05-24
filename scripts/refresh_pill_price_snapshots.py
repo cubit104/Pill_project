@@ -196,31 +196,33 @@ async def _run(args) -> dict[str, Any]:
     )
     summary = {"processed": 0, "updated": 0, "errors": 0, "dry_run": args.dry_run}
     concurrency = max(1, int(getattr(args, "concurrency", 20)))
-    semaphore = asyncio.Semaphore(concurrency)
 
     async def process_one(pill: dict[str, Any]) -> str:
-        async with semaphore:
-            try:
-                snapshot = await resolve_pill_to_snapshot(pill)
-                print(json.dumps(_snapshot_log_row(snapshot)))
-                if not args.dry_run:
-                    _upsert_snapshot(snapshot)
-                return "updated"
-            except Exception as exc:
-                print(
-                    json.dumps(
-                        {
-                            "slug": pill.get("slug"),
-                            "match_type": "none",
-                            "resolved_via": None,
-                            "price_per_unit": None,
-                            "error": f"{type(exc).__name__}: {exc}",
-                        }
-                    )
+        try:
+            snapshot = await resolve_pill_to_snapshot(pill)
+            print(json.dumps(_snapshot_log_row(snapshot)))
+            if args.dry_run:
+                return "dry_run"
+            await asyncio.to_thread(_upsert_snapshot, snapshot)
+            return "updated"
+        except Exception as exc:
+            print(
+                json.dumps(
+                    {
+                        "slug": pill.get("slug"),
+                        "match_type": "none",
+                        "resolved_via": None,
+                        "price_per_unit": None,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
                 )
-                return "error"
+            )
+            return "error"
 
-    results = await asyncio.gather(*[process_one(pill) for pill in rows])
+    results: list[str] = []
+    for start in range(0, len(rows), concurrency):
+        chunk = rows[start : start + concurrency]
+        results.extend(await asyncio.gather(*(process_one(pill) for pill in chunk)))
     summary["processed"] = len(results)
     summary["updated"] = results.count("updated")
     summary["errors"] = results.count("error")
