@@ -49,7 +49,7 @@ export default function Header() {
   return (
     <>
       <header
-        className={`bg-white border-b border-slate-200 shadow-sm fixed sm:sticky top-0 left-0 w-full z-40 transition-transform duration-300 sm:transition-none ${
+        className={`bg-white border-b border-slate-200 shadow-sm fixed sm:sticky top-0 left-0 w-full z-40 transition-transform duration-300 sm:transition-none pt-[env(safe-area-inset-top)] sm:pt-0 ${
           hidden ? '-translate-y-full sm:translate-y-0' : 'translate-y-0'
         }`}
       >
@@ -92,7 +92,7 @@ export default function Header() {
           </nav>
         )}
       </header>
-      <div className={`${hidden ? 'h-0' : 'h-12'} sm:hidden transition-[height] duration-300`} aria-hidden="true" />
+      <div className="h-[calc(3rem+env(safe-area-inset-top))] sm:hidden" aria-hidden="true" />
     </>
   )
 }
