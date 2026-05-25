@@ -7,7 +7,7 @@ export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
 
   return (
-    <header className="bg-white border-b border-slate-200 shadow-sm relative sm:sticky top-0 z-40">
+    <header className="bg-white border-b border-slate-200 shadow-sm relative sm:sticky top-0 z-40 pt-[env(safe-area-inset-top)] sm:pt-0">
       <div className="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
         <Link
           href="/"

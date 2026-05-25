@@ -12,7 +12,7 @@ test('header uses tighter container height while keeping brand sizing classes', 
 })
 
 test('header uses relative mobile positioning with sticky behavior on sm+', () => {
-  assert.match(source, /bg-white border-b border-slate-200 shadow-sm relative sm:sticky top-0 z-40/)
+  assert.match(source, /bg-white border-b border-slate-200 shadow-sm relative sm:sticky top-0 z-40 pt-\[env\(safe-area-inset-top\)\] sm:pt-0/)
   assert.doesNotMatch(source, /const \[hidden, setHidden\] = useState\(false\)/)
   assert.doesNotMatch(source, /const lastScrollY = useRef\(0\)/)
   assert.doesNotMatch(source, /const isMobile = useRef\(false\)/)
