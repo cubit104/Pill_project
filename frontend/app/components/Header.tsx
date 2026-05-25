@@ -48,7 +48,7 @@ export default function Header() {
 
   return (
     <header
-      className={`bg-white border-b border-slate-200 shadow-sm sticky top-0 z-40 transition-transform duration-300 sm:transition-none ${
+      className={`bg-white border-b border-slate-200 shadow-sm fixed sm:sticky top-0 left-0 w-full z-40 transition-transform duration-300 sm:transition-none ${
         hidden ? '-translate-y-full sm:translate-y-0' : 'translate-y-0'
       }`}
     >
