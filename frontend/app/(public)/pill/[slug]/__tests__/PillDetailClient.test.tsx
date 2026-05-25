@@ -100,3 +100,11 @@ test('detail page source keeps thumbnail selection separate from zoom state', ()
   assert.match(source, /className=\{`shrink-0 rounded-lg overflow-hidden border-2 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-sky-500 \$\{/)
   assert.match(source, /selectedImage === img \? 'border-emerald-400 ring-2 ring-emerald-300' : 'border-slate-100'/)
 })
+
+test('detail page source renders social share buttons as icon-only circles visible on mobile', () => {
+  const source = readFileSync(sourcePath, 'utf8')
+
+  assert.match(source, /className="bg-white border border-emerald-200 rounded-xl shadow-sm px-5 py-3 mb-6 flex items-center gap-3"/)
+  assert.equal((source.match(/className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-600/g) || []).length, 3)
+  assert.doesNotMatch(source, /aria-label="Share this page"[^>]*overflow-x-auto/)
+})

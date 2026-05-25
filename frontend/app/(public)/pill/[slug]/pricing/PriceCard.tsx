@@ -31,6 +31,26 @@ function preferServerData<T>(serverValue: T | undefined, clientValue: T): T {
   return serverValue ?? clientValue
 }
 
+function InfoNote({
+  children,
+  className = 'mt-2',
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <p
+      className={`${className} text-xs text-slate-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 flex gap-2 items-start`}
+      role="note"
+    >
+      <svg className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+      </svg>
+      <span>{children}</span>
+    </p>
+  )
+}
+
 export { fetchPriceCardDownstream, resolveDownstreamNdc, type PriceCardInitialData }
 
 export default function PriceCard({
@@ -304,28 +324,26 @@ export default function PriceCard({
             <span> · 90-day: <span className="font-semibold text-slate-900">${ninetyDay.toFixed(2)}</span></span>
           )}
         </p>
-        <p className="text-xs text-slate-500 mt-1">Source: {price.source} · Effective: {price.effective_date}</p>
+        <p className="text-xs text-slate-500 mt-1">
+          Source: {price.source} · Effective: <span className="font-semibold text-amber-700">{price.effective_date}</span>
+        </p>
         {price.match_type === 'equivalent' && (
-          <p className="mt-2 text-xs text-slate-500" role="note">
-            ⓘ Pricing shown is for a therapeutically equivalent product (same active ingredient, strength, and dose form).
+          <InfoNote>
+            Pricing shown is for a therapeutically equivalent product (same active ingredient, strength, and dose form).
             {price.matched_ndc && <span> Equivalent NDC: {formatNdcForDisplay(price.matched_ndc)}</span>}
-          </p>
+          </InfoNote>
         )}
         {price.match_type === 'approximate' && (
-          <p className="mt-2 text-xs text-slate-500" role="note">
-            ⓘ Pricing shown is an estimate based on the active ingredient. The exact strength, dose form, and packaging may differ.
+          <InfoNote>
+            Pricing shown is an estimate based on the active ingredient. The exact strength, dose form, and packaging may differ.
             {price.resolved_ingredient && <span> Estimated from: {price.resolved_ingredient}</span>}
-          </p>
+          </InfoNote>
         )}
         {normalizedInitialData?.display_disclaimer && (
-          <p className="mt-2 text-xs text-slate-500" role="note">
-            ⓘ {normalizedInitialData.display_disclaimer}
-          </p>
+          <InfoNote>{normalizedInitialData.display_disclaimer}</InfoNote>
         )}
         {normalizedInitialData?.estimate_basis && (
-          <p className="mt-1 text-xs text-slate-500" role="note">
-            Basis: {normalizedInitialData.estimate_basis}
-          </p>
+          <InfoNote>Basis: {normalizedInitialData.estimate_basis}</InfoNote>
         )}
         <div className="mt-4">
           <p className="text-sm font-medium text-slate-700">Estimated fair retail range</p>
