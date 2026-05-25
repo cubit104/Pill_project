@@ -206,6 +206,8 @@ export default function PillDetailClient({
           <img
             src={zoomImage}
             alt={buildImageAlt(pill)}
+            width={1200}
+            height={1200}
             className="max-w-full max-h-full object-contain rounded-xl"
             onClick={(e) => e.stopPropagation()}
           />
