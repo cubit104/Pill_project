@@ -101,10 +101,10 @@ test('detail page source keeps thumbnail selection separate from zoom state', ()
   assert.match(source, /selectedImage === img \? 'border-emerald-400 ring-2 ring-emerald-300' : 'border-slate-100'/)
 })
 
-test('detail page source keeps social share buttons on one mobile row with icon-first labels', () => {
+test('detail page source renders social share buttons as icon-only circles visible on mobile', () => {
   const source = readFileSync(sourcePath, 'utf8')
 
-  assert.match(source, /className="bg-white border border-emerald-200 rounded-xl shadow-sm px-5 py-3 mb-6 flex items-center gap-2 flex-nowrap overflow-x-auto"/)
-  assert.equal((source.match(/className="sr-only sm:not-sr-only"/g) || []).length, 3)
-  assert.equal((source.match(/className="shrink-0 flex items-center gap-1.5 text-xs font-medium px-2 py-1 sm:px-3 sm:py-1.5 rounded-full border transition-colors/g) || []).length, 3)
+  assert.match(source, /className="bg-white border border-emerald-200 rounded-xl shadow-sm px-5 py-3 mb-6 flex items-center gap-3"/)
+  assert.equal((source.match(/className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-600/g) || []).length, 3)
+  assert.doesNotMatch(source, /aria-label="Share this page"[^>]*overflow-x-auto/)
 })
