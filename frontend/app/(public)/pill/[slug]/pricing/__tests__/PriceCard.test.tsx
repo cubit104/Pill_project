@@ -70,6 +70,7 @@ test('PriceCard renders hero price with text-4xl and unit label', () => {
   assert.match(html, /text-4xl/)
   assert.match(html, /\$0\.45/)
   assert.match(html, /\/ tablet/)
+  assert.match(html, /Source: NADAC \(CMS\) · Effective: <span class="font-semibold text-amber-700">2026-05-15<\/span>/)
 })
 
 test('PriceCard renders equivalent fallback note when match_type is equivalent', () => {
@@ -92,6 +93,8 @@ test('PriceCard renders equivalent fallback note when match_type is equivalent',
 
   assert.match(html, /Pricing shown is for a therapeutically equivalent product/)
   assert.match(html, /Equivalent NDC: 00378-0181-01/)
+  assert.match(html, /bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 flex gap-2 items-start/)
+  assert.match(html, /class="w-3\.5 h-3\.5 text-blue-500 mt-0\.5 shrink-0"/)
 })
 
 test('PriceCard renders approximate fallback note when match_type is approximate', () => {
