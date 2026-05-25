@@ -12,7 +12,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
     <PostHogProvider>
       <GoogleAnalytics />
       <Header />
-      <div className="h-12 sm:hidden" aria-hidden="true" />
       <main className="flex-1">{children}</main>
       <Footer />
       <Analytics />

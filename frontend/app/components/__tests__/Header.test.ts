@@ -20,4 +20,5 @@ test('header applies mobile-only hide on scroll behavior with smooth transform',
   assert.match(source, /fixed sm:sticky top-0 left-0 w-full z-40/)
   assert.match(source, /transition-transform duration-300 sm:transition-none/)
   assert.match(source, /hidden \? '-translate-y-full sm:translate-y-0' : 'translate-y-0'/)
+  assert.match(source, /<div className=\{`\$\{hidden \? 'h-0' : 'h-12'\} sm:hidden transition-\[height\] duration-300`\} aria-hidden="true" \/>/)
 })
