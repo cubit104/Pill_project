@@ -14,6 +14,13 @@ test('detail page source keeps What it’s used for as a full-width section outs
   assert.doesNotMatch(source, /data-testid="medical-price-grid"/)
 })
 
+test('detail page source resets expanded brand names when the pill changes', () => {
+  const source = readFileSync(sourcePath, 'utf8')
+
+  assert.match(source, /const brandNamesKey = brandNamesAll\.join\('\|'\)/)
+  assert.match(source, /useEffect\(\(\) => \{\s*setShowAllBrands\(false\)\s*\}, \[resolvedSlug, brandNamesKey\]\)/)
+})
+
 test('detail page source renders guide, summary, and fallback medication sections without embedded price cards', () => {
   const source = readFileSync(sourcePath, 'utf8')
 

@@ -31,6 +31,9 @@ export interface PillDetail extends PillResult {
   images?: string[]
   dosage_form?: string
   brand_names?: string
+  generic_name?: string | null
+  brand_names_all?: string[]
+  is_brand_row?: boolean
   status_rx_otc?: string
   route?: string
   brand_or_generic?: 'brand' | 'generic'
@@ -102,4 +105,6 @@ export interface SearchResponse {
   page: number
   per_page: number
   total_pages: number
+  fallback_used?: boolean
+  fallback_term?: string | null
 }

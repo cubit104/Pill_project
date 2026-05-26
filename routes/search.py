@@ -1,8 +1,10 @@
-import re
 import logging
-from typing import List, Optional
+import os
+import re
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Query, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import text
 
 import database
@@ -17,13 +19,20 @@ from utils import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+USE_DRUG_SYNONYMS = os.getenv("USE_DRUG_SYNONYMS", "false").lower() in ("true", "1", "yes")
 
 
-@router.get("/suggestions")
+class SuggestionResponseItem(BaseModel):
+    label: str
+    kind: str
+    generic: Optional[str] = None
+
+
+@router.get("/suggestions", response_model=List[Union[str, SuggestionResponseItem]])
 def get_suggestions(
     q: str = Query(..., description="Search query"),
     search_type: str = Query(..., alias="type", description="Search type (imprint, drug, or ndc)"),
-) -> List[str]:
+) -> List[Union[str, SuggestionResponseItem]]:
     """Get search suggestions based on query and type"""
     logger.info(f"[suggestions] q={q!r}, type={search_type!r}")
 
@@ -102,25 +111,84 @@ def get_suggestions(
         logger.info("→ branch: drug")
         lower_q = norm_q.lower()
         with database.db_engine.connect() as conn:
-            sql = text("""
-                SELECT DISTINCT medicine_name
+            if not USE_DRUG_SYNONYMS:
+                sql = text("""
+                    SELECT DISTINCT medicine_name
+                        FROM pillfinder
+                        WHERE deleted_at IS NULL
+                        AND published = true
+                        AND LOWER(medicine_name) LIKE :like_q
+                        ORDER BY medicine_name
+                        LIMIT :lim
+                """)
+                rows = conn.execute(sql, {"like_q": f"{lower_q}%", "lim": MAX_SUGGESTIONS})
+                out = []
+                seen = set()
+                for r in rows:
+                    name = r[0]
+                    nl = normalize_name(name)
+                    if nl and nl not in seen:
+                        seen.add(nl)
+                        out.append(name)
+                return out
+
+            pill_rows = conn.execute(
+                text("""
+                    SELECT DISTINCT medicine_name
                     FROM pillfinder
                     WHERE deleted_at IS NULL
-                    AND published = true
-                    AND LOWER(medicine_name) LIKE :like_q
+                      AND published = true
+                      AND LOWER(medicine_name) LIKE :prefix
                     ORDER BY medicine_name
                     LIMIT :lim
-            """)
-            rows = conn.execute(sql, {"like_q": f"{lower_q}%", "lim": MAX_SUGGESTIONS})
+                """),
+                {"prefix": f"{lower_q}%", "lim": MAX_SUGGESTIONS},
+            ).fetchall()
             out = []
             seen = set()
-            for r in rows:
-                name = r[0]
-                nl = normalize_name(name)
-                if nl and nl not in seen:
-                    seen.add(nl)
-                    out.append(name)
-            return out
+
+            def _add(label: Optional[str], kind: str, generic: Optional[str] = None):
+                if not label:
+                    return
+                key = normalize_name(label)
+                if not key or key in seen:
+                    return
+                seen.add(key)
+                item = {"label": label, "kind": kind}
+                if generic:
+                    item["generic"] = generic
+                out.append(item)
+
+            for r in pill_rows:
+                _add(r[0], "pill")
+
+            if len(out) < 2:
+                generic_rows = conn.execute(
+                    text("""
+                        SELECT DISTINCT generic_name AS label, generic_name AS generic
+                        FROM drug_synonyms
+                        WHERE LOWER(generic_name) LIKE :prefix
+                        ORDER BY generic_name
+                        LIMIT :lim
+                    """),
+                    {"prefix": f"{lower_q}%", "lim": MAX_SUGGESTIONS},
+                ).fetchall()
+                brand_rows = conn.execute(
+                    text("""
+                        SELECT DISTINCT bn AS label, generic_name AS generic
+                        FROM drug_synonyms, unnest(brand_names) bn
+                        WHERE LOWER(bn) LIKE :prefix
+                        ORDER BY bn
+                        LIMIT :lim
+                    """),
+                    {"prefix": f"{lower_q}%", "lim": MAX_SUGGESTIONS},
+                ).fetchall()
+                for r in brand_rows:
+                    _add(r[0], "brand", r[1])
+                for r in generic_rows:
+                    _add(r[0], "generic", r[1])
+
+            return out[:MAX_SUGGESTIONS]
 
     logger.info("→ branch: default (no suggestions)")
     return []
@@ -140,114 +208,175 @@ def api_search(
         raise HTTPException(500, "Database connection not available")
 
     try:
-        base_sql = """
-            SELECT
-                medicine_name,
-                splimprint,
-                splcolor_text,
-                splshape_text,
-                ndc11,
-                rxcui,
-                image_filename,
-                slug,
-                spl_strength
-            FROM pillfinder
-            WHERE deleted_at IS NULL
-              AND published = true
-        """
-
-        params: dict = {}
-        where_conditions: List[str] = []
-
-        if q:
-            query = q.strip()
-            if search_type == "imprint":
-                norm = normalize_imprint(query)
-                where_conditions.append(
-                    "UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) LIKE UPPER(:imprint_like)"
-                )
-                params["imprint_like"] = f"%{norm}%"
-            elif search_type == "drug":
-                where_conditions.append(
-                    "(LOWER(medicine_name) LIKE LOWER(:drug_name) OR REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE LOWER(:drug_name) OR LOWER(tags) LIKE LOWER(:tags_like))"
-                )
-                params["drug_name"] = f"{query.lower()}%"
-                params["tags_like"] = f"%{query.lower()}%"
-            elif search_type == "ndc":
-                clean_ndc = re.sub(r'[^0-9]', '', query)
-                where_conditions.append("""
-                    (
-                        ndc11 = :ndc OR ndc9 = :ndc OR
-                        REPLACE(ndc11, '-', '') LIKE :like_ndc OR
-                        REPLACE(ndc9, '-', '') LIKE :like_ndc
-                    )
-                """)
-                params["ndc"] = query
-                params["like_ndc"] = f"%{clean_ndc}%"
+        filter_conditions: List[str] = []
+        filter_params: dict = {}
 
         if color:
-            where_conditions.append("LOWER(TRIM(splcolor_text)) = LOWER(:color)")
-            params["color"] = color.strip().lower()
+            filter_conditions.append("LOWER(TRIM(splcolor_text)) = LOWER(:color)")
+            filter_params["color"] = color.strip().lower()
 
         if shape:
-            where_conditions.append("LOWER(TRIM(splshape_text)) = LOWER(:shape)")
-            params["shape"] = shape.strip().lower()
+            filter_conditions.append("LOWER(TRIM(splshape_text)) = LOWER(:shape)")
+            filter_params["shape"] = shape.strip().lower()
 
-        for condition in where_conditions:
-            base_sql += f" AND {condition}"
+        def run_search_query(conn, search_conditions: List[str], search_params: dict) -> tuple[int, list]:
+            all_conditions = [*search_conditions, *filter_conditions]
+            params = {**search_params, **filter_params}
+            base_sql = """
+                SELECT
+                    medicine_name,
+                    splimprint,
+                    splcolor_text,
+                    splshape_text,
+                    ndc11,
+                    rxcui,
+                    image_filename,
+                    slug,
+                    spl_strength
+                FROM pillfinder
+                WHERE deleted_at IS NULL
+                  AND published = true
+            """
+            for condition in all_conditions:
+                base_sql += f" AND {condition}"
 
-        with database.db_engine.connect() as conn:
             count_sql = f"""
                 SELECT COUNT(*) FROM (
                     SELECT DISTINCT medicine_name, splimprint
                     FROM pillfinder
                     WHERE deleted_at IS NULL
                       AND published = true
-                    {"".join(f' AND {cond}' for cond in where_conditions)}
+                    {"".join(f' AND {cond}' for cond in all_conditions)}
                 ) AS count_query
             """
             count_result = conn.execute(text(count_sql), params)
             total = count_result.scalar() or 0
 
             offset = (page - 1) * per_page
-            paginated_sql = f"{base_sql}\nLIMIT :limit OFFSET :offset"
+            paginated_sql = (
+                f"{base_sql}\n"
+                "ORDER BY medicine_name, splimprint, ndc11, rxcui, image_filename, slug, spl_strength\n"
+                "LIMIT :limit OFFSET :offset"
+            )
             paginated_params = {**params, "limit": per_page, "offset": offset}
             result = conn.execute(text(paginated_sql), paginated_params)
             rows = result.fetchall()
+            return total, rows
 
-        grouped: dict = {}
-        for row in rows:
-            medicine_name = row[0] if row[0] else ""
-            splimprint = row[1] if row[1] else ""
+        search_conditions: List[str] = []
+        search_params: dict = {}
+        fallback_used = False
+        fallback_term: Optional[str] = None
+        total = 0
+        rows = []
 
-            norm_name = normalize_name(medicine_name)
-            norm_imprint = normalize_imprint(splimprint)
-            key = (norm_name, norm_imprint)
-
-            if key not in grouped:
-                grouped[key] = {
-                    "medicine_name": medicine_name,
-                    "splimprint": splimprint,
-                    "splcolor_text": row[2] if row[2] else "",
-                    "splshape_text": row[3] if row[3] else "",
-                    "ndc11": row[4] if row[4] else "",
-                    "rxcui": row[5] if row[5] else "",
-                    "image_filenames": [],
-                    "image_filenames_seen": set(),
-                    "slug": row[7] if len(row) > 7 and row[7] else None,
-                    "spl_strength": row[8] if len(row) > 8 and row[8] else None,
-                }
-
-            if row[6]:
-                filenames = split_image_filenames(row[6])
-                for fname in filenames:
-                    if fname and fname not in grouped[key]["image_filenames_seen"]:
-                        grouped[key]["image_filenames"].append(fname)
-                        grouped[key]["image_filenames_seen"].add(fname)
-
-        # Second pass: fetch ALL image_filenames for each (medicine_name, splimprint) group
-        # to capture images from rows that were not included in the paginated results.
         with database.db_engine.connect() as conn:
+            if q:
+                query = q.strip()
+                if search_type == "imprint":
+                    norm = normalize_imprint(query)
+                    search_conditions.append(
+                        "UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) LIKE UPPER(:imprint_like)"
+                    )
+                    search_params["imprint_like"] = f"%{norm}%"
+                elif search_type == "drug":
+                    lower_query = query.lower()
+                    direct_conditions = [
+                        "(LOWER(medicine_name) LIKE LOWER(:drug_name) OR REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE LOWER(:drug_name) OR LOWER(tags) LIKE LOWER(:tags_like))"
+                    ]
+                    direct_params = {
+                        "drug_name": f"{lower_query}%",
+                        "tags_like": f"%{lower_query}%",
+                    }
+                    total, rows = run_search_query(conn, direct_conditions, direct_params)
+
+                    if USE_DRUG_SYNONYMS and total == 0:
+                        fallback_used = True
+                        fallback_conditions = [
+                            """rxcui IN (
+                                SELECT r.product_rxcui
+                                FROM rxcui_to_ingredient r
+                                JOIN drug_synonyms s ON s.ingredient_rxcui = r.ingredient_rxcui
+                                WHERE LOWER(s.generic_name) LIKE :syn_q
+                                   OR EXISTS (
+                                        SELECT 1 FROM unnest(s.brand_names) bn
+                                        WHERE LOWER(bn) LIKE :syn_q
+                                   )
+                            )"""
+                        ]
+                        fallback_params = {"syn_q": f"%{lower_query}%"}
+                        total, rows = run_search_query(conn, fallback_conditions, fallback_params)
+                        fallback_term_result = conn.execute(
+                            text("""
+                                SELECT s.generic_name
+                                FROM drug_synonyms s
+                                WHERE LOWER(s.generic_name) LIKE :syn_q
+                                   OR EXISTS (
+                                        SELECT 1 FROM unnest(s.brand_names) bn
+                                        WHERE LOWER(bn) LIKE :syn_q
+                                   )
+                                ORDER BY
+                                    CASE
+                                        WHEN LOWER(s.generic_name) = :exact_q THEN 0
+                                        WHEN EXISTS (
+                                            SELECT 1 FROM unnest(s.brand_names) bn2
+                                            WHERE LOWER(bn2) = :exact_q
+                                        ) THEN 1
+                                        ELSE 2
+                                    END,
+                                    s.generic_name
+                                LIMIT 1
+                            """),
+                            {"syn_q": f"%{lower_query}%", "exact_q": lower_query},
+                        )
+                        fallback_term = fallback_term_result.scalar()
+                elif search_type == "ndc":
+                    clean_ndc = re.sub(r'[^0-9]', '', query)
+                    search_conditions.append("""
+                        (
+                            ndc11 = :ndc OR ndc9 = :ndc OR
+                            REPLACE(ndc11, '-', '') LIKE :like_ndc OR
+                            REPLACE(ndc9, '-', '') LIKE :like_ndc
+                        )
+                    """)
+                    search_params["ndc"] = query
+                    search_params["like_ndc"] = f"%{clean_ndc}%"
+
+            if not (q and search_type == "drug"):
+                total, rows = run_search_query(conn, search_conditions, search_params)
+
+            grouped: dict = {}
+            for row in rows:
+                medicine_name = row[0] if row[0] else ""
+                splimprint = row[1] if row[1] else ""
+
+                norm_name = normalize_name(medicine_name)
+                norm_imprint = normalize_imprint(splimprint)
+                key = (norm_name, norm_imprint)
+
+                if key not in grouped:
+                    grouped[key] = {
+                        "medicine_name": medicine_name,
+                        "splimprint": splimprint,
+                        "splcolor_text": row[2] if row[2] else "",
+                        "splshape_text": row[3] if row[3] else "",
+                        "ndc11": row[4] if row[4] else "",
+                        "rxcui": row[5] if row[5] else "",
+                        "image_filenames": [],
+                        "image_filenames_seen": set(),
+                        "slug": row[7] if len(row) > 7 and row[7] else None,
+                        "spl_strength": row[8] if len(row) > 8 and row[8] else None,
+                    }
+
+                if row[6]:
+                    filenames = split_image_filenames(row[6])
+                    for fname in filenames:
+                        if fname and fname not in grouped[key]["image_filenames_seen"]:
+                            grouped[key]["image_filenames"].append(fname)
+                            grouped[key]["image_filenames_seen"].add(fname)
+
+            # Second pass: fetch ALL image_filenames for each (medicine_name, splimprint) group
+            # to capture images from rows that were not included in the paginated results.
             for key, data in grouped.items():
                 image_q = text("""
                     SELECT image_filename FROM pillfinder
@@ -275,26 +404,26 @@ def api_search(
                 if not data["image_filenames"]:
                     data["image_filenames"] = first_pass_images
 
-        records = []
-        for data in grouped.values():
-            merged_images = ",".join(data["image_filenames"])
-            image_data = process_image_filenames(merged_images)
-            image_urls = image_data.get("image_urls", [])
-            item = {
-                "drug_name": data["medicine_name"],
-                "imprint": data["splimprint"],
-                "color": data["splcolor_text"] or None,
-                "shape": data["splshape_text"] or None,
-                "ndc": data["ndc11"] or None,
-                "rxcui": data["rxcui"] or None,
-                "slug": data.get("slug"),
-                "strength": data.get("spl_strength"),
-                "image_url": image_urls[0] if image_urls else None,
-                "images": image_urls,
-                "has_multiple_images": len(image_urls) > 1,
-                "carousel_images": [{"id": i, "url": url} for i, url in enumerate(image_urls)],
-            }
-            records.append(item)
+            records = []
+            for data in grouped.values():
+                merged_images = ",".join(data["image_filenames"])
+                image_data = process_image_filenames(merged_images)
+                image_urls = image_data.get("image_urls", [])
+                item = {
+                    "drug_name": data["medicine_name"],
+                    "imprint": data["splimprint"],
+                    "color": data["splcolor_text"] or None,
+                    "shape": data["splshape_text"] or None,
+                    "ndc": data["ndc11"] or None,
+                    "rxcui": data["rxcui"] or None,
+                    "slug": data.get("slug"),
+                    "strength": data.get("spl_strength"),
+                    "image_url": image_urls[0] if image_urls else None,
+                    "images": image_urls,
+                    "has_multiple_images": len(image_urls) > 1,
+                    "carousel_images": [{"id": i, "url": url} for i, url in enumerate(image_urls)],
+                }
+                records.append(item)
 
         return {
             "results": records,
@@ -302,6 +431,8 @@ def api_search(
             "page": page,
             "per_page": per_page,
             "total_pages": (total + per_page - 1) // per_page,
+            "fallback_used": fallback_used,
+            "fallback_term": fallback_term,
         }
 
     except Exception as e:

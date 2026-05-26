@@ -317,3 +317,108 @@ WHERE p.id = l.pill_id
   AND l.outcome = 'written'
   AND l.created_at > '<YYYY-MM-DD HH:MM:SS>';
 ```
+
+---
+
+## Drug Synonyms Backfill
+
+Populates the `drug_synonyms` and `rxcui_to_ingredient` tables by resolving
+each distinct `pillfinder.rxcui` (a product-level rxcui) to its active
+ingredient via the **free RxNorm API** (no API key required) and collecting all
+marketed brand names for that ingredient.
+
+> **`pillfinder` is never modified by this script** — it is read-only here.
+> All writes go to `drug_synonyms`, `rxcui_to_ingredient`, and the audit log
+> `drug_synonyms_backfill_log`.
+
+### Prerequisites
+
+The migration `supabase/migrations/20260526000000_drug_synonyms.sql` must be
+applied to the database before running this script.  It creates the three
+tables referenced above.  (This migration has already been applied to the live
+DB as of the PR 1 merge.)
+
+### CLI usage examples (Render Web Shell)
+
+```bash
+# Preview 20 rows — fetch from RxNorm but write nothing
+python scripts/backfill_drug_synonyms.py --dry-run --limit 20
+
+# Live full backfill (all distinct rxcuis, ~few thousand rows)
+python scripts/backfill_drug_synonyms.py --limit 100000 --sleep-ms 250
+
+# Weekly refresh — re-fetch and overwrite existing rows to pick up new brand entries
+python scripts/backfill_drug_synonyms.py --limit 100000 --refresh-existing --sleep-ms 250
+
+# Test a single rxcui
+python scripts/backfill_drug_synonyms.py --only-product-rxcui 1049502 --dry-run
+```
+
+### Flag reference
+
+| Flag | Default | Description |
+|---|---|---|
+| `--dry-run` | off | Fetch from RxNorm but write nothing to any table. |
+| `--limit N` | 50 | Process at most N distinct product rxcuis. |
+| `--offset N` | 0 | Skip the first N rows (for resuming in batches). |
+| `--sleep-ms N` | 250 | Milliseconds to sleep between RxNorm API calls. |
+| `--refresh-existing` | off | Re-fetch and overwrite rows that already exist. |
+| `--only-product-rxcui R` | — | Process a single product rxcui only (for testing). |
+
+### Sample dry-run output
+
+```
+2026-05-26 10:00:01 INFO backfill_drug_synonyms DRY-RUN mode — no changes will be written to the database.
+2026-05-26 10:00:01 INFO backfill_drug_synonyms Starting drug_synonyms backfill: dry_run=True limit=20 ...
+2026-05-26 10:00:02 INFO backfill_drug_synonyms ✓ product_rxcui=1049502 → ingredient=41493 generic='atorvastatin' brands=3 (dry-run)
+2026-05-26 10:00:03 INFO backfill_drug_synonyms ✓ product_rxcui=308460 → ingredient=5640 generic='ibuprofen' brands=12 (dry-run)
+2026-05-26 10:00:03 INFO backfill_drug_synonyms ↪ product_rxcui=999999 — no IN/MIN ingredient found (no_match)
+{"processed": 20, "inserted_mapping": 19, "inserted_synonym": 10, "updated_synonym": 0, "unchanged": 0, "skipped_exists": 0, "no_match": 1, "errors": 0, "dry_run": true}
+```
+
+### What it does (step by step)
+
+1. **Selects distinct product rxcuis** from `pillfinder` where `deleted_at IS NULL`
+   and `rxcui` is non-empty.
+2. **Skips existing mappings** unless `--refresh-existing` is set — no redundant
+   API calls for products already in `rxcui_to_ingredient`.
+3. **Resolves the ingredient** via `/REST/rxcui/{product_rxcui}/related.json?tty=IN+MIN`.
+   Picks the first concept with tty `IN` (single ingredient) or `MIN` (combination).
+   Also fetches `/properties.json` for the product's own tty (SCD, SBD, GPCK, …).
+4. **Collects brand names** via `/REST/rxcui/{ingredient_rxcui}/related.json?tty=BN`.
+   Deduplicates case-insensitively; title-cases names that are entirely upper-case.
+5. **Gets a clean generic name** from `/REST/rxcui/{ingredient_rxcui}/properties.json`.
+6. **Upserts** one row into `drug_synonyms` (keyed on `ingredient_rxcui`) and one
+   row into `rxcui_to_ingredient` (keyed on `product_rxcui`).
+7. **Logs every row** to `drug_synonyms_backfill_log`
+   (`outcome` ∈ `inserted` / `updated` / `unchanged` / `no_match` / `error` / `skipped_exists`).
+   No rows are written in `--dry-run` mode.
+
+Results are **cached within a single run**: many `pillfinder` rows share the same
+ingredient, so the script calls the ingredient/brand-name APIs only once per
+unique ingredient rxcui.
+
+### Idempotent / safe to re-run
+
+Running the script multiple times is safe.  By default, product rxcuis that
+already have a row in `rxcui_to_ingredient` are skipped (logged as
+`skipped_exists`).  Use `--refresh-existing` to re-fetch and overwrite, e.g.
+to pick up new brand names added to RxNorm.
+
+### Reading the audit log
+
+```sql
+-- Most recent run outcomes
+SELECT outcome, COUNT(*) AS n
+FROM drug_synonyms_backfill_log
+WHERE created_at > NOW() - INTERVAL '1 hour'
+GROUP BY outcome
+ORDER BY n DESC;
+
+-- Details for any errors
+SELECT product_rxcui, ingredient_rxcui, outcome, notes, created_at
+FROM drug_synonyms_backfill_log
+WHERE outcome = 'error'
+ORDER BY created_at DESC
+LIMIT 50;
+```
