@@ -144,27 +144,6 @@ def get_suggestions(
                 """),
                 {"prefix": f"{lower_q}%", "lim": MAX_SUGGESTIONS},
             ).fetchall()
-            generic_rows = conn.execute(
-                text("""
-                    SELECT DISTINCT generic_name AS label, generic_name AS generic
-                    FROM drug_synonyms
-                    WHERE LOWER(generic_name) LIKE :prefix
-                    ORDER BY generic_name
-                    LIMIT :lim
-                """),
-                {"prefix": f"{lower_q}%", "lim": MAX_SUGGESTIONS},
-            ).fetchall()
-            brand_rows = conn.execute(
-                text("""
-                    SELECT DISTINCT bn AS label, generic_name AS generic
-                    FROM drug_synonyms, unnest(brand_names) bn
-                    WHERE LOWER(bn) LIKE :prefix
-                    ORDER BY bn
-                    LIMIT :lim
-                """),
-                {"prefix": f"{lower_q}%", "lim": MAX_SUGGESTIONS},
-            ).fetchall()
-
             out = []
             seen = set()
 
@@ -182,10 +161,32 @@ def get_suggestions(
 
             for r in pill_rows:
                 _add(r[0], "pill")
-            for r in brand_rows:
-                _add(r[0], "brand", r[1])
-            for r in generic_rows:
-                _add(r[0], "generic", r[1])
+
+            if len(out) < 2:
+                generic_rows = conn.execute(
+                    text("""
+                        SELECT DISTINCT generic_name AS label, generic_name AS generic
+                        FROM drug_synonyms
+                        WHERE LOWER(generic_name) LIKE :prefix
+                        ORDER BY generic_name
+                        LIMIT :lim
+                    """),
+                    {"prefix": f"{lower_q}%", "lim": MAX_SUGGESTIONS},
+                ).fetchall()
+                brand_rows = conn.execute(
+                    text("""
+                        SELECT DISTINCT bn AS label, generic_name AS generic
+                        FROM drug_synonyms, unnest(brand_names) bn
+                        WHERE LOWER(bn) LIKE :prefix
+                        ORDER BY bn
+                        LIMIT :lim
+                    """),
+                    {"prefix": f"{lower_q}%", "lim": MAX_SUGGESTIONS},
+                ).fetchall()
+                for r in brand_rows:
+                    _add(r[0], "brand", r[1])
+                for r in generic_rows:
+                    _add(r[0], "generic", r[1])
 
             return out[:MAX_SUGGESTIONS]
 
@@ -207,100 +208,137 @@ def api_search(
         raise HTTPException(500, "Database connection not available")
 
     try:
-        base_sql = """
-            SELECT
-                medicine_name,
-                splimprint,
-                splcolor_text,
-                splshape_text,
-                ndc11,
-                rxcui,
-                image_filename,
-                slug,
-                spl_strength
-            FROM pillfinder
-            WHERE deleted_at IS NULL
-              AND published = true
-        """
+        filter_conditions: List[str] = []
+        filter_params: dict = {}
 
-        params: dict = {}
-        where_conditions: List[str] = []
+        if color:
+            filter_conditions.append("LOWER(TRIM(splcolor_text)) = LOWER(:color)")
+            filter_params["color"] = color.strip().lower()
+
+        if shape:
+            filter_conditions.append("LOWER(TRIM(splshape_text)) = LOWER(:shape)")
+            filter_params["shape"] = shape.strip().lower()
+
+        def run_search_query(search_conditions: List[str], search_params: dict) -> tuple[int, list]:
+            all_conditions = [*search_conditions, *filter_conditions]
+            params = {**search_params, **filter_params}
+            base_sql = """
+                SELECT
+                    medicine_name,
+                    splimprint,
+                    splcolor_text,
+                    splshape_text,
+                    ndc11,
+                    rxcui,
+                    image_filename,
+                    slug,
+                    spl_strength
+                FROM pillfinder
+                WHERE deleted_at IS NULL
+                  AND published = true
+            """
+            for condition in all_conditions:
+                base_sql += f" AND {condition}"
+
+            with database.db_engine.connect() as conn:
+                count_sql = f"""
+                    SELECT COUNT(*) FROM (
+                        SELECT DISTINCT medicine_name, splimprint
+                        FROM pillfinder
+                        WHERE deleted_at IS NULL
+                          AND published = true
+                        {"".join(f' AND {cond}' for cond in all_conditions)}
+                    ) AS count_query
+                """
+                count_result = conn.execute(text(count_sql), params)
+                total = count_result.scalar() or 0
+
+                offset = (page - 1) * per_page
+                paginated_sql = f"{base_sql}\nLIMIT :limit OFFSET :offset"
+                paginated_params = {**params, "limit": per_page, "offset": offset}
+                result = conn.execute(text(paginated_sql), paginated_params)
+                rows = result.fetchall()
+            return total, rows
+
+        search_conditions: List[str] = []
+        search_params: dict = {}
+        fallback_used = False
+        fallback_term: Optional[str] = None
 
         if q:
             query = q.strip()
             if search_type == "imprint":
                 norm = normalize_imprint(query)
-                where_conditions.append(
+                search_conditions.append(
                     "UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) LIKE UPPER(:imprint_like)"
                 )
-                params["imprint_like"] = f"%{norm}%"
+                search_params["imprint_like"] = f"%{norm}%"
             elif search_type == "drug":
-                if USE_DRUG_SYNONYMS:
-                    where_conditions.append(
-                        """(
-                            LOWER(medicine_name) LIKE LOWER(:drug_name)
-                            OR REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE LOWER(:drug_name)
-                            OR LOWER(tags) LIKE LOWER(:tags_like)
-                            OR rxcui IN (
-                                SELECT r.product_rxcui
-                                FROM rxcui_to_ingredient r
-                                JOIN drug_synonyms s ON s.ingredient_rxcui = r.ingredient_rxcui
-                                WHERE LOWER(s.generic_name) LIKE :syn_name_q
+                lower_query = query.lower()
+                direct_conditions = [
+                    "(LOWER(medicine_name) LIKE LOWER(:drug_name) OR REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE LOWER(:drug_name) OR LOWER(tags) LIKE LOWER(:tags_like))"
+                ]
+                direct_params = {
+                    "drug_name": f"{lower_query}%",
+                    "tags_like": f"%{lower_query}%",
+                }
+                total, rows = run_search_query(direct_conditions, direct_params)
+
+                if USE_DRUG_SYNONYMS and total == 0:
+                    fallback_used = True
+                    fallback_conditions = [
+                        """rxcui IN (
+                            SELECT r.product_rxcui
+                            FROM rxcui_to_ingredient r
+                            JOIN drug_synonyms s ON s.ingredient_rxcui = r.ingredient_rxcui
+                            WHERE LOWER(s.generic_name) LIKE :syn_q
+                               OR EXISTS (
+                                    SELECT 1 FROM unnest(s.brand_names) bn
+                                    WHERE LOWER(bn) LIKE :syn_q
+                               )
+                        )"""
+                    ]
+                    fallback_params = {"syn_q": f"%{lower_query}%"}
+                    total, rows = run_search_query(fallback_conditions, fallback_params)
+                    with database.db_engine.connect() as conn:
+                        fallback_term_result = conn.execute(
+                            text("""
+                                SELECT s.generic_name
+                                FROM drug_synonyms s
+                                WHERE LOWER(s.generic_name) LIKE :syn_q
                                    OR EXISTS (
                                         SELECT 1 FROM unnest(s.brand_names) bn
-                                        WHERE LOWER(bn) LIKE :syn_name_q
+                                        WHERE LOWER(bn) LIKE :syn_q
                                    )
-                            )
-                        )"""
-                    )
-                    params["syn_name_q"] = f"%{query.lower()}%"
-                else:
-                    where_conditions.append(
-                        "(LOWER(medicine_name) LIKE LOWER(:drug_name) OR REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE LOWER(:drug_name) OR LOWER(tags) LIKE LOWER(:tags_like))"
-                    )
-                params["drug_name"] = f"{query.lower()}%"
-                params["tags_like"] = f"%{query.lower()}%"
+                                ORDER BY
+                                    CASE
+                                        WHEN LOWER(s.generic_name) = :exact_q THEN 0
+                                        WHEN EXISTS (
+                                            SELECT 1 FROM unnest(s.brand_names) bn2
+                                            WHERE LOWER(bn2) = :exact_q
+                                        ) THEN 1
+                                        ELSE 2
+                                    END,
+                                    s.generic_name
+                                LIMIT 1
+                            """),
+                            {"syn_q": f"%{lower_query}%", "exact_q": lower_query},
+                        )
+                        fallback_term = fallback_term_result.scalar()
             elif search_type == "ndc":
                 clean_ndc = re.sub(r'[^0-9]', '', query)
-                where_conditions.append("""
+                search_conditions.append("""
                     (
                         ndc11 = :ndc OR ndc9 = :ndc OR
                         REPLACE(ndc11, '-', '') LIKE :like_ndc OR
                         REPLACE(ndc9, '-', '') LIKE :like_ndc
                     )
                 """)
-                params["ndc"] = query
-                params["like_ndc"] = f"%{clean_ndc}%"
+                search_params["ndc"] = query
+                search_params["like_ndc"] = f"%{clean_ndc}%"
 
-        if color:
-            where_conditions.append("LOWER(TRIM(splcolor_text)) = LOWER(:color)")
-            params["color"] = color.strip().lower()
-
-        if shape:
-            where_conditions.append("LOWER(TRIM(splshape_text)) = LOWER(:shape)")
-            params["shape"] = shape.strip().lower()
-
-        for condition in where_conditions:
-            base_sql += f" AND {condition}"
-
-        with database.db_engine.connect() as conn:
-            count_sql = f"""
-                SELECT COUNT(*) FROM (
-                    SELECT DISTINCT medicine_name, splimprint
-                    FROM pillfinder
-                    WHERE deleted_at IS NULL
-                      AND published = true
-                    {"".join(f' AND {cond}' for cond in where_conditions)}
-                ) AS count_query
-            """
-            count_result = conn.execute(text(count_sql), params)
-            total = count_result.scalar() or 0
-
-            offset = (page - 1) * per_page
-            paginated_sql = f"{base_sql}\nLIMIT :limit OFFSET :offset"
-            paginated_params = {**params, "limit": per_page, "offset": offset}
-            result = conn.execute(text(paginated_sql), paginated_params)
-            rows = result.fetchall()
+        if not (q and search_type == "drug"):
+            total, rows = run_search_query(search_conditions, search_params)
 
         grouped: dict = {}
         for row in rows:
@@ -389,6 +427,8 @@ def api_search(
             "page": page,
             "per_page": per_page,
             "total_pages": (total + per_page - 1) // per_page,
+            "fallback_used": fallback_used,
+            "fallback_term": fallback_term,
         }
 
     except Exception as e:
