@@ -64,11 +64,14 @@ CREATE INDEX IF NOT EXISTS idx_drug_synonyms_generic_trgm
 -- NOTE: an additional trigram index over array_to_string(brand_names, ' ')
 -- was considered but rejected because array_to_string is STABLE, not
 -- IMMUTABLE, and Postgres requires IMMUTABLE expressions in index
--- expressions. The GIN(brand_names) index above already supports fast
--- brand lookups via:
---     WHERE :name = ANY(brand_names)
+-- expressions. The GIN(brand_names) index above is intended for
+-- index-supported array operators such as:
+--     WHERE brand_names @> ARRAY[:name]
 -- or:
---     WHERE EXISTS (SELECT 1 FROM unnest(brand_names) bn WHERE LOWER(bn) LIKE :q)
+--     WHERE brand_names && ARRAY[:name1, :name2]
+-- Avoid implying that `:name = ANY(brand_names)`, `unnest(brand_names)`,
+-- or `LIKE` predicates over unnested elements will be accelerated by this
+-- index.
 
 
 -- ---------------------------------------------------------------------
