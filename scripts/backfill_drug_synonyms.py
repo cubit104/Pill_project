@@ -543,7 +543,7 @@ def _process_product_rxcui(
             product_rxcui,
             existing_ingredient,
         )
-        counters["unchanged"] += 1
+        counters["skipped_exists"] = counters.get("skipped_exists", 0) + 1
         try:
             with db_engine.begin() as conn:
                 _write_log(
