@@ -429,6 +429,46 @@ def test_sitemap_includes_medication_summary_only_when_no_official_medguide(clie
     assert b"/pill/official-slug/medication-summary" not in response.content
 
 
+def test_sitemap_prices_returns_200_and_price_urls(client):
+    import database as db_module
+    slug_rows = MagicMock()
+    slug_rows.__iter__ = MagicMock(return_value=iter([("some-slug",)]))
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = slug_rows
+
+    response = client.get("/sitemap-prices.xml")
+
+    assert response.status_code == 200
+    assert b"/pill/some-slug/price" in response.content
+    assert b"<changefreq>weekly</changefreq>" in response.content
+    assert b"<priority>0.7</priority>" in response.content
+
+
+def test_sitemap_prices_content_type(client):
+    import database as db_module
+    slug_rows = MagicMock()
+    slug_rows.__iter__ = MagicMock(return_value=iter([]))
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = slug_rows
+
+    response = client.get("/sitemap-prices.xml")
+    assert "xml" in response.headers.get("content-type", "")
+
+
+def test_sitemap_prices_escapes_slug_xml(client):
+    import database as db_module
+    slug_rows = MagicMock()
+    slug_rows.__iter__ = MagicMock(return_value=iter([("name&value",)]))
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = slug_rows
+
+    response = client.get("/sitemap-prices.xml")
+    assert b"/pill/name&amp;value/price" in response.content
+
+
 # ---------------------------------------------------------------------------
 # Slugs endpoint
 # ---------------------------------------------------------------------------

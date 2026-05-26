@@ -188,3 +188,42 @@ def sitemap():
     except Exception as e:
         logger.error(f"Error generating sitemap: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/sitemap-prices.xml")
+def sitemap_prices():
+    """Generate XML sitemap with all price page URLs."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            slugs = _fetch_all_slugs(conn)
+
+        base_url = os.getenv("SITE_URL", "https://pillseek.com").rstrip("/")
+        price_url_template = (
+            "  <url>"
+            "<loc>{base}/pill/{slug}/price</loc>"
+            "<changefreq>weekly</changefreq>"
+            "<priority>0.7</priority>"
+            "</url>"
+        )
+        urls = [
+            price_url_template.format(base=base_url, slug=xml_escape(slug))
+            for slug in slugs
+        ]
+        xml_content = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            + "\n".join(urls)
+            + "\n</urlset>"
+        )
+        return Response(content=xml_content, media_type="application/xml")
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in sitemap-prices: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error generating sitemap-prices: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
