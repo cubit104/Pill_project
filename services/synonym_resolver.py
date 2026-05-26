@@ -17,10 +17,20 @@ def _fetch_json(
     params: Optional[Dict] = None,
     timeout: int = 15,
     client: Optional[httpx.Client] = None,
+    deadline: Optional[float] = None,
 ) -> Optional[Dict]:
     _close = client is None
     if _close:
         client = httpx.Client(timeout=timeout)
+
+    def _retry_delay() -> Optional[float]:
+        if deadline is None:
+            return 1.0
+        remaining = _remaining_seconds(deadline)
+        if remaining <= 0.25:
+            return None
+        return min(1.0, remaining)
+
     try:
         for attempt in range(2):
             try:
@@ -28,13 +38,20 @@ def _fetch_json(
                 if resp.status_code == 200:
                     return resp.json()
                 if resp.status_code >= 500 and attempt == 0:
-                    time.sleep(1)
+                    delay = _retry_delay()
+                    if delay is None:
+                        return None
+                    time.sleep(delay)
                     continue
                 logger.debug("HTTP %s from %s", resp.status_code, url)
                 return None
             except Exception as exc:
                 if attempt == 0:
-                    time.sleep(1)
+                    delay = _retry_delay()
+                    if delay is None:
+                        logger.warning("HTTP error fetching %s: %s", url, exc)
+                        return None
+                    time.sleep(delay)
                     continue
                 logger.warning("HTTP error fetching %s: %s", url, exc)
                 return None
@@ -92,6 +109,7 @@ def ensure_synonym_mapping(conn, product_rxcui: str) -> None:
                 f"{_RELATED_URL.format(rxcui=product_rxcui)}?tty=IN+MIN",
                 client=client,
                 timeout=related_timeout,
+                deadline=deadline,
             )
             ingredient_rxcui = None
             ingredient_name = ""
@@ -116,6 +134,7 @@ def ensure_synonym_mapping(conn, product_rxcui: str) -> None:
                 _PROPERTIES_URL.format(rxcui=product_rxcui),
                 client=client,
                 timeout=max(0.5, min(15.0, _remaining_seconds(deadline))),
+                deadline=deadline,
             ) or {}
             product_tty = ((product_props.get("properties") or {}).get("tty") or "").strip() or None
 
@@ -131,6 +150,7 @@ def ensure_synonym_mapping(conn, product_rxcui: str) -> None:
                     _PROPERTIES_URL.format(rxcui=ingredient_rxcui),
                     client=client,
                     timeout=max(0.5, min(15.0, _remaining_seconds(deadline))),
+                    deadline=deadline,
                 ) or {}
                 generic_name = (
                     ((ing_props.get("properties") or {}).get("name") or ingredient_name or "").strip()
@@ -143,6 +163,7 @@ def ensure_synonym_mapping(conn, product_rxcui: str) -> None:
                     f"{_RELATED_URL.format(rxcui=ingredient_rxcui)}?tty=BN",
                     client=client,
                     timeout=max(0.5, min(15.0, _remaining_seconds(deadline))),
+                    deadline=deadline,
                 ) or {}
                 raw_brands: list[str] = []
                 for group in (brand_related.get("relatedGroup", {}).get("conceptGroup") or []):

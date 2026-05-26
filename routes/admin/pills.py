@@ -1565,7 +1565,8 @@ def update_pill(
                         user_agent=request.headers.get("user-agent"),
                     )
 
-        _best_effort_ensure_synonym_mapping(updates.get("rxcui"))
+        synonym_rxcui = updates.get("rxcui") if "rxcui" in updates else before.get("rxcui")
+        _best_effort_ensure_synonym_mapping(synonym_rxcui)
         return {"updated": True, "warnings": warnings}
     except HTTPException:
         raise

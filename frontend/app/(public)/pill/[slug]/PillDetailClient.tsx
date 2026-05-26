@@ -170,8 +170,13 @@ export default function PillDetailClient({
   }
 
   const brandNamesAll = Array.isArray(pill.brand_names_all) ? pill.brand_names_all : []
+  const brandNamesKey = brandNamesAll.join('|')
   const brandPreview = brandNamesAll.slice(0, 5).join(', ')
   const brandRemaining = Math.max(0, brandNamesAll.length - 5)
+
+  useEffect(() => {
+    setShowAllBrands(false)
+  }, [resolvedSlug, brandNamesKey])
 
   const specsRows: Array<{ label: string; value?: ReactNode }> = [
     { label: 'Imprint', value: pill.imprint },

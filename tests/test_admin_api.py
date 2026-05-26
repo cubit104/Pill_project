@@ -553,6 +553,52 @@ def test_pill_create_rxcui_resolver_failure_does_not_block_save(client):
     assert resp.json().get("created") is True
 
 
+def test_pill_update_without_rxcui_uses_existing_rxcui_for_synonym_resolver(client):
+    from datetime import datetime, timezone
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+    db_ts = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    current_row = MagicMock()
+    current_row.__getitem__ = MagicMock(side_effect=lambda idx: db_ts if idx == 0 else None)
+
+    before_row = MagicMock()
+    before_row._fields = ["id", "rxcui", "medicine_name"]
+    before_row.__iter__ = MagicMock(return_value=iter(["pill-id", "12345", "Plavix"]))
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        if "from profiles" in sql_str:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "select updated_at from pillfinder" in sql_str:
+            result.fetchone.return_value = current_row
+        elif "select * from pillfinder where id = :id limit 1" in sql_str:
+            result.fetchone.return_value = before_row
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+         patch("routes.admin.pills.ensure_synonym_mapping") as resolver_mock:
+        resp = client.put(
+            "/api/admin/pills/pill-id",
+            json={"medicine_name": "Updated Plavix", "updated_at": db_ts.isoformat()},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    resolver_mock.assert_called_once()
+    assert resolver_mock.call_args.args[1] == "12345"
+
+
 def test_pill_update_accepts_image_alt_text_and_tags(client):
     """PUT /api/admin/pills/{id} should accept image_alt_text and tags fields."""
     from datetime import datetime, timezone

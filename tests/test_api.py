@@ -291,6 +291,17 @@ def test_suggestions_returns_list(client):
     assert isinstance(response.json(), list)
 
 
+def test_suggestions_openapi_schema_is_explicit(client):
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    schema = (
+        response.json()["paths"]["/suggestions"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    )
+    items = schema["items"]["anyOf"]
+    assert {"type": "string"} in items
+    assert any(option.get("$ref", "").endswith("/SuggestionResponseItem") for option in items)
+
+
 def test_search_drug_flag_off_keeps_existing_query(client):
     import database as db_module
     executed_sql = []

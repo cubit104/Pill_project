@@ -1,6 +1,8 @@
+import time
 from unittest.mock import MagicMock
 
 from services.synonym_resolver import (
+    _fetch_json,
     ensure_synonym_mapping,
     filter_self_from_brands,
     get_synonyms_for_rxcui,
@@ -30,7 +32,7 @@ def test_filter_self_from_brands_case_insensitive_phrase():
 def test_ensure_synonym_mapping_happy_path(monkeypatch):
     calls = []
 
-    def fake_fetch(url, params=None, timeout=15, client=None):
+    def fake_fetch(url, params=None, timeout=15, client=None, deadline=None):
         calls.append(url)
         if "related.json?tty=IN+MIN" in url:
             return {
@@ -90,7 +92,7 @@ def test_ensure_synonym_mapping_happy_path(monkeypatch):
 
 
 def test_ensure_synonym_mapping_no_match(monkeypatch):
-    def fake_fetch(url, params=None, timeout=15, client=None):
+    def fake_fetch(url, params=None, timeout=15, client=None, deadline=None):
         if "related.json?tty=IN+MIN" in url:
             return {"relatedGroup": {"conceptGroup": []}}
         return None
@@ -112,6 +114,27 @@ def test_ensure_synonym_mapping_no_match(monkeypatch):
 
     assert not any("INSERT INTO drug_synonyms" in s for s in executed)
     assert not any("INSERT INTO rxcui_to_ingredient" in s for s in executed)
+
+
+def test_fetch_json_skips_retry_when_deadline_is_nearly_exhausted(monkeypatch):
+    class FakeResponse:
+        status_code = 500
+
+    class FakeClient:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, url, params=None, timeout=None):
+            self.calls += 1
+            return FakeResponse()
+
+    sleep_calls = []
+    monkeypatch.setattr("services.synonym_resolver.time.sleep", lambda seconds: sleep_calls.append(seconds))
+
+    client = FakeClient()
+    assert _fetch_json("https://example.test/fail", client=client, deadline=time.monotonic() + 0.1) is None
+    assert client.calls == 1
+    assert sleep_calls == []
 
 
 def test_get_synonyms_for_rxcui_sorts_brands():

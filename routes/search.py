@@ -1,9 +1,10 @@
-import re
 import logging
 import os
-from typing import List, Optional
+import re
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Query, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import text
 
 import database
@@ -21,11 +22,17 @@ router = APIRouter()
 USE_DRUG_SYNONYMS = os.getenv("USE_DRUG_SYNONYMS", "false").lower() in ("true", "1", "yes")
 
 
-@router.get("/suggestions")
+class SuggestionResponseItem(BaseModel):
+    label: str
+    kind: str
+    generic: Optional[str] = None
+
+
+@router.get("/suggestions", response_model=List[Union[str, SuggestionResponseItem]])
 def get_suggestions(
     q: str = Query(..., description="Search query"),
     search_type: str = Query(..., alias="type", description="Search type (imprint, drug, or ndc)"),
-) -> List:
+) -> List[Union[str, SuggestionResponseItem]]:
     """Get search suggestions based on query and type"""
     logger.info(f"[suggestions] q={q!r}, type={search_type!r}")
 
