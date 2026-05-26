@@ -254,7 +254,11 @@ def api_search(
                 total = count_result.scalar() or 0
 
                 offset = (page - 1) * per_page
-                paginated_sql = f"{base_sql}\nLIMIT :limit OFFSET :offset"
+                paginated_sql = (
+                    f"{base_sql}\n"
+                    "ORDER BY medicine_name, splimprint, ndc11, rxcui, image_filename, slug, spl_strength\n"
+                    "LIMIT :limit OFFSET :offset"
+                )
                 paginated_params = {**params, "limit": per_page, "offset": offset}
                 result = conn.execute(text(paginated_sql), paginated_params)
                 rows = result.fetchall()
