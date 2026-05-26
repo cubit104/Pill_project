@@ -306,6 +306,25 @@ def test_highlights_header_meta_omitted_when_no_date():
     assert 'class="pro-highlights-meta"' not in rendered.highlights_html
 
 
+def test_highlights_subsections_render_wrappers_and_classed_titles():
+    xml = _wrap_document(
+        _section(
+            "42229-5",
+            "Highlights of Prescribing Information",
+            '<component><section><title>Dosage and Administration</title><text><paragraph>Use as directed.</paragraph></text></section></component>',
+        ),
+        _section("34067-9", "Indications and Usage", "<text><paragraph>Main section.</paragraph></text>"),
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-highlights-subsection"))
+
+    assert rendered is not None
+    assert rendered.highlights_html is not None
+    assert 'class="pro-highlights-section"' in rendered.highlights_html
+    assert 'class="pro-highlights-section-title"' in rendered.highlights_html
+    assert ">Dosage and Administration</h3>" in rendered.highlights_html
+
+
 def test_linkify_numbered_section_ref():
     html_str = "[see Warnings and Precautions (5.4)]"
     output = spl_professional._linkify_section_refs(html_str)
