@@ -29,7 +29,7 @@ export const PRO_HIGHLIGHTS_PROSE_CLASSES = [
   // Section reference links
   '[&_a.pro-section-ref]:text-sky-700 [&_a.pro-section-ref:hover]:underline',
   '[&_a]:text-sky-700 [&_a:hover]:underline',
-  // Strong/em
+  // Strong text
   '[&_strong]:font-semibold [&_strong]:text-slate-900',
 ].join(' ')
 export const PRO_BOXED_WARNING_PROSE_CLASSES = [
