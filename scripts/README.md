@@ -373,7 +373,7 @@ python scripts/backfill_drug_synonyms.py --only-product-rxcui 1049502 --dry-run
 2026-05-26 10:00:02 INFO backfill_drug_synonyms ✓ product_rxcui=1049502 → ingredient=41493 generic='atorvastatin' brands=3 (dry-run)
 2026-05-26 10:00:03 INFO backfill_drug_synonyms ✓ product_rxcui=308460 → ingredient=5640 generic='ibuprofen' brands=12 (dry-run)
 2026-05-26 10:00:03 INFO backfill_drug_synonyms ↪ product_rxcui=999999 — no IN/MIN ingredient found (no_match)
-{"processed": 20, "inserted_mapping": 19, "inserted_synonym": 10, "updated_synonym": 0, "unchanged": 0, "no_match": 1, "errors": 0, "dry_run": true}
+{"processed": 20, "inserted_mapping": 19, "inserted_synonym": 10, "updated_synonym": 0, "unchanged": 0, "skipped_exists": 0, "no_match": 1, "errors": 0, "dry_run": true}
 ```
 
 ### What it does (step by step)
@@ -391,7 +391,8 @@ python scripts/backfill_drug_synonyms.py --only-product-rxcui 1049502 --dry-run
 6. **Upserts** one row into `drug_synonyms` (keyed on `ingredient_rxcui`) and one
    row into `rxcui_to_ingredient` (keyed on `product_rxcui`).
 7. **Logs every row** to `drug_synonyms_backfill_log`
-   (`outcome` ∈ `inserted` / `updated` / `unchanged` / `no_match` / `error` / `dry_run` / `skipped_exists`).
+   (`outcome` ∈ `inserted` / `updated` / `unchanged` / `no_match` / `error` / `skipped_exists`).
+   No rows are written in `--dry-run` mode.
 
 Results are **cached within a single run**: many `pillfinder` rows share the same
 ingredient, so the script calls the ingredient/brand-name APIs only once per

@@ -305,8 +305,8 @@ def fetch_brand_names(
 
     Returns an empty list if none are found.
     """
-    url = _RELATED_URL.format(rxcui=ingredient_rxcui)
-    data = _fetch_json(url, params={"tty": "BN"}, client=client)
+    url = f"{_RELATED_URL.format(rxcui=ingredient_rxcui)}?tty=BN"
+    data = _fetch_json(url, client=client)
     if not data:
         return []
 
@@ -432,6 +432,7 @@ def main(argv=None):
             "inserted_synonym": 0,
             "updated_synonym": 0,
             "unchanged": 0,
+            "skipped_exists": 0,
             "no_match": 0,
             "errors": 0,
             "dry_run": args.dry_run,
@@ -446,6 +447,7 @@ def main(argv=None):
         "inserted_synonym": 0,
         "updated_synonym": 0,
         "unchanged": 0,
+        "skipped_exists": 0,
         "no_match": 0,
         "errors": 0,
     }
@@ -481,19 +483,20 @@ def main(argv=None):
                     exc,
                 )
                 counters["errors"] += 1
-                try:
-                    with db_engine.begin() as conn:
-                        _write_log(
-                            conn,
-                            ingredient_rxcui=None,
-                            product_rxcui=product_rxcui,
-                            generic_name=None,
-                            brand_count=None,
-                            outcome="error",
-                            notes=f"Unexpected error: {exc}",
-                        )
-                except Exception:
-                    pass
+                if not args.dry_run:
+                    try:
+                        with db_engine.begin() as conn:
+                            _write_log(
+                                conn,
+                                ingredient_rxcui=None,
+                                product_rxcui=product_rxcui,
+                                generic_name=None,
+                                brand_count=None,
+                                outcome="error",
+                                notes=f"Unexpected error: {exc}",
+                            )
+                    except Exception:
+                        pass
 
     # --- Summary ---
     summary = {
@@ -502,6 +505,7 @@ def main(argv=None):
         "inserted_synonym": counters["inserted_synonym"],
         "updated_synonym": counters["updated_synonym"],
         "unchanged": counters["unchanged"],
+        "skipped_exists": counters["skipped_exists"],
         "no_match": counters["no_match"],
         "errors": counters["errors"],
         "dry_run": args.dry_run,
@@ -524,163 +528,140 @@ def _process_product_rxcui(
     """Handle a single product rxcui — resolve ingredient, fetch synonyms, write DB."""
     from sqlalchemy import text
 
-    # --- Check if mapping already exists ---
-    existing_ingredient: Optional[str] = None
     try:
-        with db_engine.connect() as conn:
+        with db_engine.begin() as conn:
+            # --- Check if mapping already exists ---
             existing_row = conn.execute(
                 text(_SELECT_EXISTING_MAPPING_SQL),
                 {"p": product_rxcui},
             ).fetchone()
-            if existing_row:
-                existing_ingredient = existing_row[0]
-    except Exception as exc:
-        raise RuntimeError(f"DB lookup failed for product_rxcui={product_rxcui}: {exc}") from exc
+            existing_ingredient: Optional[str] = existing_row[0] if existing_row else None
 
-    if existing_ingredient and not args.refresh_existing:
-        logger.info(
-            "↪ product_rxcui=%s already mapped to ingredient=%s (skipped)",
-            product_rxcui,
-            existing_ingredient,
-        )
-        counters["skipped_exists"] = counters.get("skipped_exists", 0) + 1
-        try:
-            with db_engine.begin() as conn:
-                _write_log(
-                    conn,
-                    ingredient_rxcui=existing_ingredient,
-                    product_rxcui=product_rxcui,
-                    generic_name=None,
-                    brand_count=None,
-                    outcome="skipped_exists",
-                    notes="mapping already present; use --refresh-existing to overwrite",
+            if existing_ingredient and not args.refresh_existing:
+                logger.info(
+                    "↪ product_rxcui=%s already mapped to ingredient=%s (skipped)",
+                    product_rxcui,
+                    existing_ingredient,
                 )
-        except Exception as exc:
-            logger.warning("Failed to write audit log for product_rxcui=%s: %s", product_rxcui, exc)
-        return
+                counters["skipped_exists"] += 1
+                if not args.dry_run:
+                    _write_log(
+                        conn,
+                        ingredient_rxcui=existing_ingredient,
+                        product_rxcui=product_rxcui,
+                        generic_name=None,
+                        brand_count=None,
+                        outcome="skipped_exists",
+                        notes="mapping already present; use --refresh-existing to overwrite",
+                    )
+                return
 
-    # --- Resolve ingredient (with cache) ---
-    if product_rxcui in ingredient_cache:
-        ingredient_info = ingredient_cache[product_rxcui]
-    else:
-        try:
-            ingredient_info = fetch_ingredient(product_rxcui, client=http_client)
-            time.sleep(sleep_s)
-        except Exception as exc:
-            logger.error("fetch_ingredient failed for product_rxcui=%s: %s", product_rxcui, exc)
-            counters["errors"] += 1
-            try:
-                with db_engine.begin() as conn:
+            # --- Resolve ingredient (with cache) ---
+            if product_rxcui in ingredient_cache:
+                ingredient_info = ingredient_cache[product_rxcui]
+            else:
+                try:
+                    ingredient_info = fetch_ingredient(product_rxcui, client=http_client)
+                    time.sleep(sleep_s)
+                except Exception as exc:
+                    logger.error(
+                        "fetch_ingredient failed for product_rxcui=%s: %s", product_rxcui, exc
+                    )
+                    counters["errors"] += 1
+                    if not args.dry_run:
+                        _write_log(
+                            conn,
+                            ingredient_rxcui=None,
+                            product_rxcui=product_rxcui,
+                            generic_name=None,
+                            brand_count=None,
+                            outcome="error",
+                            notes=f"fetch_ingredient: {exc}",
+                        )
+                    return
+
+                ingredient_cache[product_rxcui] = ingredient_info  # type: ignore[assignment]
+
+            if ingredient_info is None:
+                logger.info(
+                    "↪ product_rxcui=%s — no IN/MIN ingredient found (no_match)", product_rxcui
+                )
+                counters["no_match"] += 1
+                if not args.dry_run:
                     _write_log(
                         conn,
                         ingredient_rxcui=None,
                         product_rxcui=product_rxcui,
                         generic_name=None,
                         brand_count=None,
-                        outcome="error",
-                        notes=f"fetch_ingredient: {exc}",
+                        outcome="no_match",
+                        notes="RxNorm returned no IN/MIN concept for this rxcui",
                     )
-            except Exception:
-                pass
-            return
+                return
 
-        ingredient_cache[product_rxcui] = ingredient_info  # type: ignore[assignment]
+            ingredient_rxcui, _raw_name, product_tty = ingredient_info
 
-    if ingredient_info is None:
-        logger.info("↪ product_rxcui=%s — no IN/MIN ingredient found (no_match)", product_rxcui)
-        counters["no_match"] += 1
-        try:
-            with db_engine.begin() as conn:
-                _write_log(
-                    conn,
-                    ingredient_rxcui=None,
-                    product_rxcui=product_rxcui,
-                    generic_name=None,
-                    brand_count=None,
-                    outcome="no_match",
-                    notes="RxNorm returned no IN/MIN concept for this rxcui",
-                )
-        except Exception as exc:
-            logger.warning("Failed to write audit log for product_rxcui=%s: %s", product_rxcui, exc)
-        return
-
-    ingredient_rxcui, _raw_name, product_tty = ingredient_info
-
-    # --- Resolve synonyms (with cache) ---
-    if ingredient_rxcui in synonyms_cache:
-        generic_name, brand_names = synonyms_cache[ingredient_rxcui]
-    else:
-        try:
-            # Fetch clean generic name from ingredient properties
-            ing_props = fetch_properties(ingredient_rxcui, client=http_client)
-            time.sleep(sleep_s)
-            raw_gn = (ing_props or {}).get("name", "") or _raw_name or ""
-            # Lower-case if entirely upper-case
-            if raw_gn == raw_gn.upper() and any(c.isalpha() for c in raw_gn):
-                generic_name = raw_gn.lower()
+            # --- Resolve synonyms (with cache) ---
+            if ingredient_rxcui in synonyms_cache:
+                generic_name, brand_names = synonyms_cache[ingredient_rxcui]
             else:
-                generic_name = raw_gn
+                try:
+                    # Fetch clean generic name from ingredient properties
+                    ing_props = fetch_properties(ingredient_rxcui, client=http_client)
+                    time.sleep(sleep_s)
+                    raw_gn = (ing_props or {}).get("name", "") or _raw_name or ""
+                    # Lower-case if entirely upper-case
+                    if raw_gn == raw_gn.upper() and any(c.isalpha() for c in raw_gn):
+                        generic_name = raw_gn.lower()
+                    else:
+                        generic_name = raw_gn
 
-            brand_names = fetch_brand_names(ingredient_rxcui, client=http_client)
-            time.sleep(sleep_s)
-        except Exception as exc:
-            logger.error(
-                "fetch synonyms failed for ingredient_rxcui=%s: %s", ingredient_rxcui, exc
-            )
-            counters["errors"] += 1
-            try:
-                with db_engine.begin() as conn:
-                    _write_log(
-                        conn,
-                        ingredient_rxcui=ingredient_rxcui,
-                        product_rxcui=product_rxcui,
-                        generic_name=None,
-                        brand_count=None,
-                        outcome="error",
-                        notes=f"fetch_synonyms: {exc}",
+                    brand_names = fetch_brand_names(ingredient_rxcui, client=http_client)
+                    time.sleep(sleep_s)
+                except Exception as exc:
+                    logger.error(
+                        "fetch synonyms failed for ingredient_rxcui=%s: %s",
+                        ingredient_rxcui,
+                        exc,
                     )
-            except Exception:
-                pass
-            return
+                    counters["errors"] += 1
+                    if not args.dry_run:
+                        _write_log(
+                            conn,
+                            ingredient_rxcui=ingredient_rxcui,
+                            product_rxcui=product_rxcui,
+                            generic_name=None,
+                            brand_count=None,
+                            outcome="error",
+                            notes=f"fetch_synonyms: {exc}",
+                        )
+                    return
 
-        synonyms_cache[ingredient_rxcui] = (generic_name, brand_names)
+                synonyms_cache[ingredient_rxcui] = (generic_name, brand_names)
 
-    notes_str = f"product_tty={product_tty}" if product_tty else None
+            notes_str = f"product_tty={product_tty}" if product_tty else None
 
-    if args.dry_run:
-        logger.info(
-            "✓ product_rxcui=%s → ingredient=%s generic=%r brands=%d (dry-run)",
-            product_rxcui,
-            ingredient_rxcui,
-            generic_name,
-            len(brand_names),
-        )
-        counters["inserted_mapping"] += 1  # would-be insert
-        try:
-            with db_engine.begin() as conn:
-                _write_log(
-                    conn,
-                    ingredient_rxcui=ingredient_rxcui,
-                    product_rxcui=product_rxcui,
-                    generic_name=generic_name,
-                    brand_count=len(brand_names),
-                    outcome="dry_run",
-                    notes=notes_str,
+            if args.dry_run:
+                logger.info(
+                    "✓ product_rxcui=%s → ingredient=%s generic=%r brands=%d (dry-run)",
+                    product_rxcui,
+                    ingredient_rxcui,
+                    generic_name,
+                    len(brand_names),
                 )
-        except Exception as exc:
-            logger.warning("Failed to write audit log for product_rxcui=%s: %s", product_rxcui, exc)
-        return
+                counters["inserted_mapping"] += 1  # would-be insert
+                return
 
-    # --- Live writes ---
-    synonym_upsert_sql = (
-        _UPSERT_DRUG_SYNONYMS_REFRESH_SQL if args.refresh_existing else _UPSERT_DRUG_SYNONYMS_SQL
-    )
-    mapping_upsert_sql = (
-        _UPSERT_MAPPING_REFRESH_SQL if args.refresh_existing else _UPSERT_MAPPING_SQL
-    )
+            # --- Live writes ---
+            synonym_upsert_sql = (
+                _UPSERT_DRUG_SYNONYMS_REFRESH_SQL
+                if args.refresh_existing
+                else _UPSERT_DRUG_SYNONYMS_SQL
+            )
+            mapping_upsert_sql = (
+                _UPSERT_MAPPING_REFRESH_SQL if args.refresh_existing else _UPSERT_MAPPING_SQL
+            )
 
-    try:
-        with db_engine.begin() as conn:
             # 1. Upsert drug_synonyms
             result_syn = conn.execute(
                 text(synonym_upsert_sql),
@@ -751,22 +732,22 @@ def _process_product_rxcui(
             )
 
     except Exception as exc:
-        logger.error("DB write failed for product_rxcui=%s: %s", product_rxcui, exc)
+        logger.error("DB operation failed for product_rxcui=%s: %s", product_rxcui, exc)
         counters["errors"] += 1
-        try:
-            with db_engine.begin() as conn:
-                _write_log(
-                    conn,
-                    ingredient_rxcui=ingredient_rxcui,
-                    product_rxcui=product_rxcui,
-                    generic_name=generic_name,
-                    brand_count=len(brand_names),
-                    outcome="error",
-                    notes=f"DB write failed: {exc}",
-                )
-        except Exception:
-            pass
-
+        if not args.dry_run:
+            try:
+                with db_engine.begin() as conn:
+                    _write_log(
+                        conn,
+                        ingredient_rxcui=None,
+                        product_rxcui=product_rxcui,
+                        generic_name=None,
+                        brand_count=None,
+                        outcome="error",
+                        notes=f"DB operation failed: {exc}",
+                    )
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     main(sys.argv[1:])
