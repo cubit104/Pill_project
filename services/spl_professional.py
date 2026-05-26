@@ -779,7 +779,12 @@ def _render_title(title_el: etree._Element, ctx: _RenderContext) -> str:
     return "".join(parts)
 
 
-def _render_highlights(section: etree._Element, ctx: _RenderContext, revision_date: Optional[str]) -> Optional[str]:
+def _render_highlights(
+    section: etree._Element,
+    xml_tree: etree._Element,
+    ctx: _RenderContext,
+    revision_date: Optional[str],
+) -> Optional[str]:
     body_parts: list[str] = []
     for child in _iter_section_children(section):
         child_tag = _local(child.tag)
@@ -788,49 +793,36 @@ def _render_highlights(section: etree._Element, ctx: _RenderContext, revision_da
         if child_tag == "text":
             body_parts.append(_render_text(child, ctx))
             continue
-        if child_tag == "component":
-            for grandchild in _iter_section_children(child):
-                if _local(grandchild.tag) == "section":
-                    title_el = grandchild.find(f"{_NS}title")
-                    sub_title = _normalize_text("".join(title_el.itertext())) if title_el is not None else ""
-                    anchor = ctx.section_anchors.get(_section_path(grandchild), "")
-                    id_attr = f' id="{html.escape(anchor)}"' if anchor else ""
-
-                    sub_parts: list[str] = []
-                    if sub_title:
-                        sub_parts.append(
-                            f'<h3 class="pro-highlights-section-title"{id_attr}>{html.escape(sub_title)}</h3>'
-                        )
-                    for sec_child in _iter_section_children(grandchild):
-                        sec_child_tag = _local(sec_child.tag)
-                        if sec_child_tag in {"code", "title"}:
-                            continue
-                        if sec_child_tag == "text":
-                            sub_parts.append(_render_text(sec_child, ctx))
-                        elif sec_child_tag == "component":
-                            for gc in _iter_section_children(sec_child):
-                                if _local(gc.tag) == "section":
-                                    sub_parts.append(_render_section(gc, slug="highlights", heading="", ctx=ctx, depth=2))
-                                else:
-                                    gc_html = _render_node(gc, ctx)
-                                    if gc_html.strip():
-                                        sub_parts.append(gc_html)
-                        else:
-                            child_html = _render_node(sec_child, ctx)
-                            if child_html.strip():
-                                sub_parts.append(child_html)
-
-                    sub_html = "".join(sub_parts)
-                    if sub_html.strip():
-                        body_parts.append(f'<div class="pro-highlights-section">{sub_html}</div>')
-                else:
-                    html_fragment = _render_node(grandchild, ctx)
-                    if html_fragment.strip():
-                        body_parts.append(html_fragment)
-            continue
         child_html = _render_node(child, ctx)
         if child_html.strip():
             body_parts.append(child_html)
+
+    for code, slug, _short_label, heading in PRO_SECTIONS:
+        if slug in {"highlights", "boxed-warning"}:
+            continue
+        main_section = _find_section_by_code(xml_tree, code)
+        if main_section is None:
+            continue
+        excerpt = main_section.find(f"{_NS}excerpt")
+        if excerpt is None:
+            continue
+        section_excerpt_parts: list[str] = []
+        for highlight in excerpt.findall(f"{_NS}highlight"):
+            text_el = highlight.find(f"{_NS}text")
+            if text_el is None:
+                continue
+            excerpt_html = _render_text(text_el, ctx)
+            if _is_meaningful_html(excerpt_html):
+                section_excerpt_parts.append(excerpt_html)
+        if not section_excerpt_parts:
+            continue
+        section_excerpt_html = "".join(section_excerpt_parts)
+        body_parts.append(
+            '<div class="pro-highlights-section">'
+            f'<h3 class="pro-highlights-section-title">{html.escape(heading)}</h3>'
+            f"{section_excerpt_html}"
+            "</div>"
+        )
 
     inner = "".join(body_parts)
     if not _is_meaningful_html(inner):
@@ -895,7 +887,7 @@ async def fetch_professional_rendered(spl_set_id: str) -> Optional[ProfessionalR
 
         for section, slug, short_label, heading in selected_sections:
             if slug == "highlights":
-                highlights_html = _render_highlights(section, ctx, revision_date)
+                highlights_html = _render_highlights(section, xml_tree, ctx, revision_date)
                 continue
             rendered = _render_section(section, slug=slug, heading=heading, ctx=ctx)
             if slug == "boxed-warning":
