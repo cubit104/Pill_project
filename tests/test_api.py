@@ -466,7 +466,7 @@ def test_sitemap_prices_escapes_slug_xml(client):
     conn_mock.execute.return_value = slug_rows
 
     response = client.get("/sitemap-prices.xml")
-    assert b"/pill/name&amp;value/price" in response.content
+    assert b"/pill/name%26value/price" in response.content
 
 
 # ---------------------------------------------------------------------------
