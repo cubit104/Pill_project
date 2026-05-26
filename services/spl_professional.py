@@ -791,7 +791,38 @@ def _render_highlights(section: etree._Element, ctx: _RenderContext, revision_da
         if child_tag == "component":
             for grandchild in _iter_section_children(child):
                 if _local(grandchild.tag) == "section":
-                    body_parts.append(_render_section(grandchild, slug="highlights", heading="Highlights of Prescribing Information", ctx=ctx, depth=1))
+                    title_el = grandchild.find(f"{_NS}title")
+                    sub_title = _normalize_text("".join(title_el.itertext())) if title_el is not None else ""
+                    anchor = ctx.section_anchors.get(_section_path(grandchild), "")
+                    id_attr = f' id="{html.escape(anchor)}"' if anchor else ""
+
+                    sub_parts: list[str] = []
+                    if sub_title:
+                        sub_parts.append(
+                            f'<h3 class="pro-highlights-section-title"{id_attr}>{html.escape(sub_title)}</h3>'
+                        )
+                    for sec_child in _iter_section_children(grandchild):
+                        sec_child_tag = _local(sec_child.tag)
+                        if sec_child_tag in {"code", "title"}:
+                            continue
+                        if sec_child_tag == "text":
+                            sub_parts.append(_render_text(sec_child, ctx))
+                        elif sec_child_tag == "component":
+                            for gc in _iter_section_children(sec_child):
+                                if _local(gc.tag) == "section":
+                                    sub_parts.append(_render_section(gc, slug="highlights", heading="", ctx=ctx, depth=2))
+                                else:
+                                    gc_html = _render_node(gc, ctx)
+                                    if gc_html.strip():
+                                        sub_parts.append(gc_html)
+                        else:
+                            child_html = _render_node(sec_child, ctx)
+                            if child_html.strip():
+                                sub_parts.append(child_html)
+
+                    sub_html = "".join(sub_parts)
+                    if sub_html.strip():
+                        body_parts.append(f'<div class="pro-highlights-section">{sub_html}</div>')
                 else:
                     html_fragment = _render_node(grandchild, ctx)
                     if html_fragment.strip():

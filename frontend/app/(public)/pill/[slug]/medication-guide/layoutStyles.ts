@@ -5,9 +5,33 @@ export const SHARED_CONTENT_ASIDE_CLASSES =
 export const SHARED_CONTENT_CARD_CLASSES =
   'min-w-0 w-full bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6'
 export const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
-  'rounded-xl border border-sky-200 border-l-4 border-l-sky-600 bg-sky-50/60 p-5'
-export const PRO_HIGHLIGHTS_PROSE_CLASSES =
-  '[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mb-3 [&_h2]:mt-3 [&_p]:text-sm [&_p]:text-slate-800 [&_p]:leading-8 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_li]:text-sm [&_li]:text-slate-800 [&_li]:leading-8 [&_a]:text-emerald-600 [&_a:hover]:underline [&_strong]:font-semibold [&_strong]:text-slate-900'
+  'rounded-xl border border-amber-200 border-l-4 border-l-amber-500 bg-amber-50/40 p-5'
+export const PRO_HIGHLIGHTS_PROSE_CLASSES = [
+  // Highlights wrapper structure
+  '[&_.pro-highlights-header]:flex [&_.pro-highlights-header]:flex-wrap [&_.pro-highlights-header]:items-baseline [&_.pro-highlights-header]:gap-x-2 [&_.pro-highlights-header]:mb-3',
+  '[&_.pro-highlights-title]:text-sm [&_.pro-highlights-title]:font-bold [&_.pro-highlights-title]:text-slate-900 [&_.pro-highlights-title]:uppercase [&_.pro-highlights-title]:tracking-wide',
+  '[&_.pro-highlights-meta]:text-xs [&_.pro-highlights-meta]:text-slate-500 [&_.pro-highlights-meta]:italic',
+  '[&_.pro-highlights-body]:text-sm [&_.pro-highlights-body]:text-slate-800',
+  // Sub-section blocks — dashed border dividers like DailyMed
+  '[&_.pro-highlights-section]:border-t [&_.pro-highlights-section]:border-dashed [&_.pro-highlights-section]:border-slate-300 [&_.pro-highlights-section]:pt-3 [&_.pro-highlights-section]:mt-3',
+  // Sub-section headings
+  '[&_.pro-highlights-section-title]:text-xs [&_.pro-highlights-section-title]:font-bold [&_.pro-highlights-section-title]:uppercase [&_.pro-highlights-section-title]:tracking-widest [&_.pro-highlights-section-title]:text-slate-700 [&_.pro-highlights-section-title]:mb-2 [&_.pro-highlights-section-title]:mt-0 [&_.pro-highlights-section-title]:text-center',
+  // Plain h3 fallback
+  '[&_h3]:text-xs [&_h3]:font-bold [&_h3]:uppercase [&_h3]:tracking-widest [&_h3]:text-slate-700 [&_h3]:mb-2 [&_h3]:mt-3 [&_h3]:text-center',
+  // h2
+  '[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mb-2 [&_h2]:mt-3',
+  // Body text
+  '[&_p]:text-sm [&_p]:text-slate-800 [&_p]:leading-7 [&_p]:my-1',
+  // Bullet lists
+  '[&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ul]:space-y-1',
+  '[&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 [&_ol]:space-y-1',
+  '[&_li]:text-sm [&_li]:leading-7 [&_li]:text-slate-800',
+  // Section reference links
+  '[&_a.pro-section-ref]:text-sky-700 [&_a.pro-section-ref:hover]:underline',
+  '[&_a]:text-sky-700 [&_a:hover]:underline',
+  // Strong/em
+  '[&_strong]:font-semibold [&_strong]:text-slate-900',
+].join(' ')
 export const PRO_BOXED_WARNING_PROSE_CLASSES = [
   '[&_.pro-boxed-warning-callout]:my-8 [&_.pro-boxed-warning-callout]:rounded-xl [&_.pro-boxed-warning-callout]:border [&_.pro-boxed-warning-callout]:border-rose-300 [&_.pro-boxed-warning-callout]:border-l-4 [&_.pro-boxed-warning-callout]:border-l-rose-600 [&_.pro-boxed-warning-callout]:bg-rose-50 [&_.pro-boxed-warning-callout]:p-5',
   '[&_.pro-boxed-warning-callout_h2]:mt-0 [&_.pro-boxed-warning-callout_h2]:mb-3 [&_.pro-boxed-warning-callout_h2]:text-base [&_.pro-boxed-warning-callout_h2]:font-semibold [&_.pro-boxed-warning-callout_h2]:text-rose-900',
