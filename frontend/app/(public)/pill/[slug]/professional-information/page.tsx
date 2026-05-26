@@ -274,11 +274,10 @@ export default async function ProfessionalInformationPage({
         </ol>
       </nav>
 
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Professional Information — {drugName}</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Full FDA prescribing details for healthcare professionals.
-        </p>
+      <div className="space-y-1">
+        <p className="text-xs font-semibold uppercase tracking-widest text-sky-700">Professional Prescribing Information</p>
+        <h1 className="text-2xl font-bold text-slate-900">{drugName}</h1>
+        <p className="text-sm text-slate-500">Full FDA prescribing details for healthcare professionals</p>
       </div>
 
       <MedicationGuideTabs
@@ -292,9 +291,9 @@ export default async function ProfessionalInformationPage({
         professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
       />
 
-      <div className="space-y-6">
-        <MedguideMetaBar guide={guideData} />
+      <MedguideMetaBar guide={guideData} />
 
+      <div className="space-y-6">
         {hasProfessionalToc && (
           <details className="no-print lg:hidden bg-white border border-slate-200 rounded-xl shadow-sm p-4 [&[open]>summary]:mb-3">
             <summary className="cursor-pointer text-sm font-semibold text-slate-800 list-none [&::-webkit-details-marker]:hidden">

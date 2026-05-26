@@ -31,3 +31,26 @@ test('medication prose uses leading-8 instead of leading-relaxed', () => {
   assert.equal(professionalPage.includes('leading-relaxed'), false)
   assert.equal(layoutStyles.includes('leading-relaxed'), false)
 })
+
+test('professional highlights headings use stronger title styling', () => {
+  const layoutStyles = read('../layoutStyles.ts')
+
+  assert.ok(layoutStyles.includes('[&_.pro-highlights-title]:text-base'))
+  assert.ok(layoutStyles.includes('[&_.pro-highlights-section-title]:text-slate-900'))
+  assert.ok(layoutStyles.includes('[&_h3]:text-xs [&_h3]:font-bold [&_h3]:uppercase [&_h3]:tracking-widest [&_h3]:text-slate-900'))
+})
+
+test('professional pages use compact header and place metadata after tabs', () => {
+  const medguidePage = read('../page.tsx')
+  const professionalPage = read('../../professional-information/page.tsx')
+
+  assert.ok(professionalPage.includes('Professional Prescribing Information'))
+  assert.ok(professionalPage.includes('<h1 className="text-2xl font-bold text-slate-900">{drugName}</h1>'))
+  assert.equal(professionalPage.includes('Professional Information — {drugName}'), false)
+  assert.ok(professionalPage.indexOf('<MedicationGuideTabs') < professionalPage.indexOf('<MedguideMetaBar guide={guideData} />'))
+
+  assert.ok(medguidePage.includes('Professional Prescribing Information'))
+  assert.ok(medguidePage.includes('<h1 className="text-2xl font-bold text-slate-900">{drugName}</h1>'))
+  assert.equal(medguidePage.includes('Professional Information — {drugName}'), false)
+  assert.ok(medguidePage.indexOf('<MedicationGuideTabs') < medguidePage.indexOf('<MedguideMetaBar guide={professionalData} />'))
+})
