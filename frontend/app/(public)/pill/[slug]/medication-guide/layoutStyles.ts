@@ -9,15 +9,15 @@ export const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
 export const PRO_HIGHLIGHTS_PROSE_CLASSES = [
   // Highlights wrapper structure
   '[&_.pro-highlights-header]:flex [&_.pro-highlights-header]:flex-wrap [&_.pro-highlights-header]:items-baseline [&_.pro-highlights-header]:gap-x-2 [&_.pro-highlights-header]:mb-3',
-  '[&_.pro-highlights-title]:text-sm [&_.pro-highlights-title]:font-bold [&_.pro-highlights-title]:text-slate-900 [&_.pro-highlights-title]:uppercase [&_.pro-highlights-title]:tracking-wide',
+  '[&_.pro-highlights-title]:text-base [&_.pro-highlights-title]:font-bold [&_.pro-highlights-title]:text-slate-900 [&_.pro-highlights-title]:uppercase [&_.pro-highlights-title]:tracking-wide',
   '[&_.pro-highlights-meta]:text-xs [&_.pro-highlights-meta]:text-slate-500 [&_.pro-highlights-meta]:italic',
   '[&_.pro-highlights-body]:text-sm [&_.pro-highlights-body]:text-slate-800',
   // Sub-section blocks — dashed border dividers like DailyMed
   '[&_.pro-highlights-section]:border-t [&_.pro-highlights-section]:border-dashed [&_.pro-highlights-section]:border-slate-300 [&_.pro-highlights-section]:pt-3 [&_.pro-highlights-section]:mt-3',
   // Sub-section headings
-  '[&_.pro-highlights-section-title]:text-xs [&_.pro-highlights-section-title]:font-bold [&_.pro-highlights-section-title]:uppercase [&_.pro-highlights-section-title]:tracking-widest [&_.pro-highlights-section-title]:text-slate-700 [&_.pro-highlights-section-title]:mb-2 [&_.pro-highlights-section-title]:mt-0 [&_.pro-highlights-section-title]:text-center',
+  '[&_.pro-highlights-section-title]:text-xs [&_.pro-highlights-section-title]:font-bold [&_.pro-highlights-section-title]:uppercase [&_.pro-highlights-section-title]:tracking-widest [&_.pro-highlights-section-title]:text-slate-900 [&_.pro-highlights-section-title]:mb-2 [&_.pro-highlights-section-title]:mt-0 [&_.pro-highlights-section-title]:text-center',
   // Plain h3 fallback
-  '[&_h3]:text-xs [&_h3]:font-bold [&_h3]:uppercase [&_h3]:tracking-widest [&_h3]:text-slate-700 [&_h3]:mb-2 [&_h3]:mt-3 [&_h3]:text-center',
+  '[&_h3]:text-xs [&_h3]:font-bold [&_h3]:uppercase [&_h3]:tracking-widest [&_h3]:text-slate-900 [&_h3]:mb-2 [&_h3]:mt-3 [&_h3]:text-center',
   // h2
   '[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mb-2 [&_h2]:mt-3',
   // Body text
