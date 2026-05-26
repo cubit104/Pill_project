@@ -446,7 +446,7 @@ def test_search_drug_flag_on_uses_synonym_fallback_only_when_direct_has_no_resul
 
     db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
     with patch("routes.search.USE_DRUG_SYNONYMS", True):
-        response = client.get("/api/search?q=zocor&type=drug")
+        response = client.get("/api/search?q=plavix&type=drug")
     assert response.status_code == 200
     payload = response.json()
     assert [r["drug_name"] for r in payload["results"]] == ["Clopidogrel"]
