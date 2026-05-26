@@ -257,8 +257,8 @@ def fetch_ingredient(
     Returns None if no IN/MIN concept is found.
     """
     # 1. Resolve ingredient via IN/MIN related call
-    related_url = _RELATED_URL.format(rxcui=product_rxcui)
-    data = _fetch_json(related_url, params={"tty": "IN MIN"}, client=client)
+    related_url = f"{_RELATED_URL.format(rxcui=product_rxcui)}?tty=IN+MIN"
+    data = _fetch_json(related_url, client=client)
 
     ingredient_rxcui: Optional[str] = None
     ingredient_name: Optional[str] = None
