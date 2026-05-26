@@ -11,6 +11,7 @@ interface SearchBarProps {
 }
 
 type SearchType = 'drug' | 'imprint' | 'ndc'
+type SuggestionItem = string | { label: string; kind?: string; generic?: string }
 
 const SUGGESTION_CLOSE_DELAY_MS = 150
 
@@ -27,7 +28,7 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
   const [query, setQuery] = useState(initialValues?.q || '')
   const [color, setColor] = useState(initialValues?.color || '')
   const [shape, setShape] = useState(initialValues?.shape || '')
-  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestions, setSuggestions] = useState<SuggestionItem[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
 
@@ -41,7 +42,7 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
     try {
       const res = await fetch(`/suggestions?q=${encodeURIComponent(q)}&type=${type}`)
       if (res.ok) {
-        const data: string[] = await res.json()
+        const data: SuggestionItem[] = await res.json()
         setSuggestions(data.slice(0, 8))
       }
     } catch { setSuggestions([]) }
@@ -65,7 +66,8 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {
-        const picked = suggestions[highlightedIndex]
+        const pickedItem = suggestions[highlightedIndex]
+        const picked = typeof pickedItem === 'string' ? pickedItem : pickedItem.label
         setQuery(picked)
         setShowSuggestions(false)
         setHighlightedIndex(-1)
@@ -129,25 +131,27 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
             role="listbox"
             className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto"
           >
-            {suggestions.map((suggestion, index) => (
+            {suggestions.map((suggestion, index) => {
+              const label = typeof suggestion === 'string' ? suggestion : suggestion.label
+              return (
               <li
-                key={suggestion}
+                key={`${label}-${index}`}
                 role="option"
                 aria-selected={index === highlightedIndex}
                 onMouseDown={(e) => {
                   e.preventDefault()
-                  setQuery(suggestion)
+                  setQuery(label)
                   setShowSuggestions(false)
                   setHighlightedIndex(-1)
-                  onSearch({ q: suggestion, type: activeTab, color: color || undefined, shape: shape || undefined })
+                  onSearch({ q: label, type: activeTab, color: color || undefined, shape: shape || undefined })
                 }}
                 className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
                   index === highlightedIndex ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                {suggestion}
+                {label}
               </li>
-            ))}
+            )})}
           </ul>
         )}
       </div>

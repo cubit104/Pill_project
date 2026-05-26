@@ -291,6 +291,173 @@ def test_suggestions_returns_list(client):
     assert isinstance(response.json(), list)
 
 
+def test_suggestions_openapi_schema_is_explicit(client):
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    schema = (
+        response.json()["paths"]["/suggestions"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    )
+    items = schema["items"]["anyOf"]
+    assert {"type": "string"} in items
+    assert any(option.get("$ref", "").endswith("/SuggestionResponseItem") for option in items)
+
+
+def test_search_drug_flag_off_keeps_existing_query(client):
+    import database as db_module
+    executed_sql = []
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql)
+        executed_sql.append(sql_str)
+        result = MagicMock()
+        if "COUNT(*)" in sql_str:
+            result.scalar.return_value = 0
+        elif "SELECT\n                medicine_name" in sql_str:
+            result.fetchall.return_value = []
+        else:
+            result.__iter__ = MagicMock(return_value=iter([]))
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch("routes.search.USE_DRUG_SYNONYMS", False):
+        response = client.get("/api/search?q=plavix&type=drug")
+    assert response.status_code == 200
+    combined = " ".join(executed_sql).lower()
+    assert "drug_synonyms" not in combined
+    assert "rxcui_to_ingredient" not in combined
+
+
+def test_search_drug_flag_on_adds_synonym_subquery(client):
+    import database as db_module
+    executed_sql = []
+    plavix_row = (
+        "Plavix",
+        "1171",
+        "Pink",
+        "Round",
+        "00000-0000-00",
+        "123",
+        "plavix.jpg",
+        "plavix-1171",
+        "75 mg",
+    )
+    clopi_row = (
+        "Clopidogrel",
+        "1171",
+        "Pink",
+        "Round",
+        "00000-0000-01",
+        "456",
+        "clopi.jpg",
+        "clopidogrel-1171",
+        "75 mg",
+    )
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql)
+        executed_sql.append(sql_str)
+        result = MagicMock()
+        if "COUNT(*)" in sql_str:
+            result.scalar.return_value = 2
+        elif "LIMIT :limit OFFSET :offset" in sql_str:
+            result.fetchall.return_value = [plavix_row, clopi_row]
+        elif "SELECT image_filename FROM pillfinder" in sql_str:
+            result.__iter__ = MagicMock(return_value=iter([(plavix_row[6],), (clopi_row[6],)]))
+        else:
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch("routes.search.USE_DRUG_SYNONYMS", True):
+        response = client.get("/api/search?q=plavix&type=drug")
+    assert response.status_code == 200
+    names = sorted([r["drug_name"] for r in response.json()["results"]])
+    assert names == ["Clopidogrel", "Plavix"]
+    combined = " ".join(executed_sql).lower()
+    assert "drug_synonyms" in combined
+    assert "rxcui_to_ingredient" in combined
+
+
+def test_search_drug_flag_on_with_imprint_filter_returns_single_row(client):
+    import database as db_module
+    row = (
+        "Plavix",
+        "1171",
+        "Pink",
+        "Round",
+        "00000-0000-00",
+        "123",
+        "plavix.jpg",
+        "plavix-1171",
+        "75 mg",
+    )
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql)
+        result = MagicMock()
+        if "COUNT(*)" in sql_str:
+            result.scalar.return_value = 1
+        elif "LIMIT :limit OFFSET :offset" in sql_str:
+            result.fetchall.return_value = [row]
+        elif "SELECT image_filename FROM pillfinder" in sql_str:
+            result.__iter__ = MagicMock(return_value=iter([(row[6],)]))
+        else:
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch("routes.search.USE_DRUG_SYNONYMS", True):
+        response = client.get("/api/search?q=plavix&type=drug&imprint=1171")
+    assert response.status_code == 200
+    assert len(response.json()["results"]) == 1
+
+
+def test_search_imprint_only_does_not_use_synonyms_with_flag_on(client):
+    import database as db_module
+    executed_sql = []
+    row = (
+        "Clopidogrel",
+        "TEVA 5728",
+        "Pink",
+        "Round",
+        "00000-0000-01",
+        "456",
+        "clopi.jpg",
+        "clopidogrel-teva-5728",
+        "75 mg",
+    )
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql)
+        executed_sql.append(sql_str)
+        result = MagicMock()
+        if "COUNT(*)" in sql_str:
+            result.scalar.return_value = 1
+        elif "LIMIT :limit OFFSET :offset" in sql_str:
+            result.fetchall.return_value = [row]
+        elif "SELECT image_filename FROM pillfinder" in sql_str:
+            result.__iter__ = MagicMock(return_value=iter([(row[6],)]))
+        else:
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch("routes.search.USE_DRUG_SYNONYMS", True):
+        response = client.get("/api/search?q=TEVA%205728&type=imprint")
+    assert response.status_code == 200
+    assert len(response.json()["results"]) == 1
+    combined = " ".join(executed_sql).lower()
+    assert "drug_synonyms" not in combined
+
+
 # ---------------------------------------------------------------------------
 # Slug-based pill lookup endpoint
 # ---------------------------------------------------------------------------
@@ -356,6 +523,97 @@ def test_api_pill_slug_meta_description_returned_when_set(client):
     data = response.json()
     assert "meta_description" in data
     assert data["meta_description"] == description
+
+
+def test_api_pill_slug_includes_synonym_fields_and_filters_self_brand(client):
+    import database as db_module
+
+    pill_row = (
+        "Bayer",
+        "ASPIRIN 500",
+        "White",
+        "Round",
+        "0069-0020-01",
+        "215831",
+        "aspirin500.jpg",
+        "aspirin-500mg-0069-0020-01",
+        None,
+    )
+    pill_columns = [
+        "medicine_name",
+        "splimprint",
+        "splcolor_text",
+        "splshape_text",
+        "ndc11",
+        "rxcui",
+        "image_filename",
+        "slug",
+        "meta_description",
+    ]
+    synonym_row = ("1191", "Aspirin", ["Ecotrin", "bayer", "Bufferin"], "SBD")
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql)
+        result = MagicMock()
+        if "from pillfinder where deleted_at is null and published = true and slug = :slug" in sql_str.lower():
+            result.fetchone.return_value = pill_row
+            result.keys.return_value = pill_columns
+        elif "from pill_ndcs" in sql_str.lower():
+            result.fetchall.return_value = []
+        elif "from public.medication_guide" in sql_str.lower():
+            result.fetchone.return_value = None
+        elif "from rxcui_to_ingredient" in sql_str.lower():
+            result.fetchone.return_value = synonym_row
+        elif "from drug_indications" in sql_str.lower():
+            result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch("routes.details._resolve_history_identifier", return_value={"history_ndc": None, "history_source": None}):
+        response = client.get("/api/pill/aspirin-500mg-0069-0020-01")
+    assert response.status_code == 200
+    data = response.json()
+    assert "generic_name" in data
+    assert "brand_names_all" in data
+    assert data["generic_name"] == "Aspirin"
+    assert data["brand_names_all"] == ["Bufferin", "Ecotrin"]
+
+
+def test_api_pill_slug_always_includes_synonym_keys_when_unmapped(client):
+    import database as db_module
+
+    pill_row = ("Aspirin", "ASPIRIN 500", "White", "Round", "0069-0020-01", None, "aspirin500.jpg", "aspirin-500mg-0069-0020-01", None)
+    pill_columns = ["medicine_name", "splimprint", "splcolor_text", "splshape_text", "ndc11", "rxcui", "image_filename", "slug", "meta_description"]
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql).lower()
+        result = MagicMock()
+        if "from pillfinder where deleted_at is null and published = true and slug = :slug" in sql_str:
+            result.fetchone.return_value = pill_row
+            result.keys.return_value = pill_columns
+        elif "from pill_ndcs" in sql_str:
+            result.fetchall.return_value = []
+        elif "from public.medication_guide" in sql_str:
+            result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch("routes.details._resolve_history_identifier", return_value={"history_ndc": None, "history_source": None}):
+        response = client.get("/api/pill/aspirin-500mg-0069-0020-01")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["generic_name"] is None
+    assert data["brand_names_all"] == []
 
 
 # ---------------------------------------------------------------------------
