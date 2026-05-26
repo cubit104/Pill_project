@@ -209,8 +209,13 @@ def sitemap_prices():
             "<priority>0.7</priority>"
             "</url>"
         )
+        import urllib.parse
+
         urls = [
-            price_url_template.format(base=base_url, slug=xml_escape(slug))
+            price_url_template.format(
+                base=base_url,
+                slug=xml_escape(urllib.parse.quote(slug, safe="")),
+            )
             for slug in slugs
         ]
         xml_content = (
