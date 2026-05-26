@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
@@ -134,6 +135,7 @@ export default function PillDetailClient({
 }) {
   const router = useRouter()
   const [zoomImage, setZoomImage] = useState<string | null>(null)
+  const [showAllBrands, setShowAllBrands] = useState(false)
   const resolvedSlug = slug ?? pill?.slug
   usePillView(resolvedSlug)
 
@@ -167,7 +169,11 @@ export default function PillDetailClient({
     '5': 'Schedule V – Lowest abuse potential',
   }
 
-  const specsRows = [
+  const brandNamesAll = Array.isArray(pill.brand_names_all) ? pill.brand_names_all : []
+  const brandPreview = brandNamesAll.slice(0, 5).join(', ')
+  const brandRemaining = Math.max(0, brandNamesAll.length - 5)
+
+  const specsRows: Array<{ label: string; value?: ReactNode }> = [
     { label: 'Imprint', value: pill.imprint },
     { label: 'Strength', value: pill.strength },
     { label: 'Color', value: pill.color },
@@ -178,6 +184,47 @@ export default function PillDetailClient({
     { label: 'RxCUI', value: pill.rxcui },
     { label: 'DEA Schedule', value: pill.dea_schedule ? (deaLabels[pill.dea_schedule] || `Schedule ${pill.dea_schedule}`) : undefined },
   ]
+  if (pill.generic_name) {
+    specsRows.push({ label: 'Generic Name', value: pill.generic_name })
+  }
+  if (brandNamesAll.length > 0) {
+    specsRows.push({
+      label: 'Brand Names',
+      value: (
+        <>
+          {!showAllBrands ? (
+            <>
+              <span className="brand-preview">{brandPreview}</span>
+              {brandRemaining > 0 && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    className="brand-expand text-emerald-700 hover:underline"
+                    onClick={() => setShowAllBrands(true)}
+                  >
+                    +{brandRemaining} more
+                  </button>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <span className="brand-full">{brandNamesAll.join(', ')}</span>
+              {' '}
+              <button
+                type="button"
+                className="brand-expand text-emerald-700 hover:underline"
+                onClick={() => setShowAllBrands(false)}
+              >
+                − show less
+              </button>
+            </>
+          )}
+        </>
+      ),
+    })
+  }
   const filteredSpecsRows = specsRows.filter(row => Boolean(row.value))
   const specsStripeClass = (i: number) => {
     const mobileStripe = i % 2 === 0 ? 'bg-teal-50' : ''

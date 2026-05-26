@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
+from services.synonym_resolver import get_synonyms_for_rxcui, filter_self_from_brands
 from ndc_normalize import normalize_ndc_to_11
 from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames, slugify_class
 
@@ -589,7 +590,19 @@ def get_pill_by_slug(slug: str):
                 "additional_ndcs": additional_ndcs,
                 "meta_description": pill_info.get("meta_description") or None,
                 "indication": None,
+                "generic_name": None,
+                "brand_names_all": [],
+                "is_brand_row": False,
             }
+
+            synonyms = get_synonyms_for_rxcui(conn, mapped["rxcui"]) if mapped.get("rxcui") else {}
+            if synonyms:
+                mapped["generic_name"] = synonyms.get("generic_name")
+                mapped["brand_names_all"] = filter_self_from_brands(
+                    synonyms.get("brand_names") or [],
+                    pill_info.get("medicine_name") or "",
+                )
+                mapped["is_brand_row"] = (synonyms.get("product_tty") in ("SBD", "BPCK"))
 
             history_resolution = _resolve_history_identifier(
                 conn,

@@ -16,6 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import bleach
 
 import database
+from services.synonym_resolver import ensure_synonym_mapping
 from routes.admin.auth import get_admin_user, log_audit, require_superuser, CRITICAL_FIELDS
 from routes.admin.field_schema import validate_pill, compute_completeness, compute_seo_score
 from utils import get_image_url, generate_slug
@@ -36,6 +37,17 @@ EDITABLE_FIELDS = [
     "rxcui_1", "status_rx_otc", "imprint_status", "slug", "meta_title", "meta_description",
     "image_filename", "has_image", "image_alt_text", "tags",
 ]
+
+
+def _best_effort_ensure_synonym_mapping(rxcui: Optional[str]) -> None:
+    value = (rxcui or "").strip()
+    if not value:
+        return
+    try:
+        with database.db_engine.connect() as conn:
+            ensure_synonym_mapping(conn, value)
+    except Exception as e:
+        logger.warning("Synonym mapping deferred for rxcui=%s: %s", value, e)
 
 
 def _normalize_color(val: str) -> str:
@@ -1011,6 +1023,7 @@ def bulk_create_pills(
                 "id": str(new_id),
                 "drug_name": drug_name,
             })
+            _best_effort_ensure_synonym_mapping(data.get("rxcui"))
         except SQLAlchemyError as e:
             failed += 1
             logger.error(f"bulk_create row {i} DB error: {e}", exc_info=True)
@@ -1328,6 +1341,7 @@ def create_pill(
                 user_agent=request.headers.get("user-agent"),
             )
 
+        _best_effort_ensure_synonym_mapping(data.get("rxcui"))
         return {"id": str(new_id), "created": True}
     except SQLAlchemyError as e:
         logger.error(f"create_pill DB error: {e}", exc_info=True)
@@ -1551,6 +1565,7 @@ def update_pill(
                         user_agent=request.headers.get("user-agent"),
                     )
 
+        _best_effort_ensure_synonym_mapping(updates.get("rxcui"))
         return {"updated": True, "warnings": warnings}
     except HTTPException:
         raise

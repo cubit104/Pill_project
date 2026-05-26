@@ -1,5 +1,6 @@
 import re
 import logging
+import os
 from typing import List, Optional
 
 from fastapi import APIRouter, Query, HTTPException
@@ -17,13 +18,14 @@ from utils import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+USE_DRUG_SYNONYMS = os.getenv("USE_DRUG_SYNONYMS", "false").lower() in ("true", "1", "yes")
 
 
 @router.get("/suggestions")
 def get_suggestions(
     q: str = Query(..., description="Search query"),
     search_type: str = Query(..., alias="type", description="Search type (imprint, drug, or ndc)"),
-) -> List[str]:
+) -> List:
     """Get search suggestions based on query and type"""
     logger.info(f"[suggestions] q={q!r}, type={search_type!r}")
 
@@ -102,25 +104,83 @@ def get_suggestions(
         logger.info("→ branch: drug")
         lower_q = norm_q.lower()
         with database.db_engine.connect() as conn:
-            sql = text("""
-                SELECT DISTINCT medicine_name
+            if not USE_DRUG_SYNONYMS:
+                sql = text("""
+                    SELECT DISTINCT medicine_name
+                        FROM pillfinder
+                        WHERE deleted_at IS NULL
+                        AND published = true
+                        AND LOWER(medicine_name) LIKE :like_q
+                        ORDER BY medicine_name
+                        LIMIT :lim
+                """)
+                rows = conn.execute(sql, {"like_q": f"{lower_q}%", "lim": MAX_SUGGESTIONS})
+                out = []
+                seen = set()
+                for r in rows:
+                    name = r[0]
+                    nl = normalize_name(name)
+                    if nl and nl not in seen:
+                        seen.add(nl)
+                        out.append(name)
+                return out
+
+            pill_rows = conn.execute(
+                text("""
+                    SELECT DISTINCT medicine_name
                     FROM pillfinder
                     WHERE deleted_at IS NULL
-                    AND published = true
-                    AND LOWER(medicine_name) LIKE :like_q
+                      AND published = true
+                      AND LOWER(medicine_name) LIKE :prefix
                     ORDER BY medicine_name
                     LIMIT :lim
-            """)
-            rows = conn.execute(sql, {"like_q": f"{lower_q}%", "lim": MAX_SUGGESTIONS})
+                """),
+                {"prefix": f"{lower_q}%", "lim": MAX_SUGGESTIONS},
+            ).fetchall()
+            generic_rows = conn.execute(
+                text("""
+                    SELECT DISTINCT generic_name AS label, generic_name AS generic
+                    FROM drug_synonyms
+                    WHERE LOWER(generic_name) LIKE :prefix
+                    ORDER BY generic_name
+                    LIMIT :lim
+                """),
+                {"prefix": f"{lower_q}%", "lim": MAX_SUGGESTIONS},
+            ).fetchall()
+            brand_rows = conn.execute(
+                text("""
+                    SELECT DISTINCT bn AS label, generic_name AS generic
+                    FROM drug_synonyms, unnest(brand_names) bn
+                    WHERE LOWER(bn) LIKE :prefix
+                    ORDER BY bn
+                    LIMIT :lim
+                """),
+                {"prefix": f"{lower_q}%", "lim": MAX_SUGGESTIONS},
+            ).fetchall()
+
             out = []
             seen = set()
-            for r in rows:
-                name = r[0]
-                nl = normalize_name(name)
-                if nl and nl not in seen:
-                    seen.add(nl)
-                    out.append(name)
-            return out
+
+            def _add(label: Optional[str], kind: str, generic: Optional[str] = None):
+                if not label:
+                    return
+                key = normalize_name(label)
+                if not key or key in seen:
+                    return
+                seen.add(key)
+                item = {"label": label, "kind": kind}
+                if generic:
+                    item["generic"] = generic
+                out.append(item)
+
+            for r in pill_rows:
+                _add(r[0], "pill")
+            for r in brand_rows:
+                _add(r[0], "brand", r[1])
+            for r in generic_rows:
+                _add(r[0], "generic", r[1])
+
+            return out[:MAX_SUGGESTIONS]
 
     logger.info("→ branch: default (no suggestions)")
     return []
@@ -168,9 +228,29 @@ def api_search(
                 )
                 params["imprint_like"] = f"%{norm}%"
             elif search_type == "drug":
-                where_conditions.append(
-                    "(LOWER(medicine_name) LIKE LOWER(:drug_name) OR REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE LOWER(:drug_name) OR LOWER(tags) LIKE LOWER(:tags_like))"
-                )
+                if USE_DRUG_SYNONYMS:
+                    where_conditions.append(
+                        """(
+                            LOWER(medicine_name) LIKE LOWER(:drug_name)
+                            OR REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE LOWER(:drug_name)
+                            OR LOWER(tags) LIKE LOWER(:tags_like)
+                            OR rxcui IN (
+                                SELECT r.product_rxcui
+                                FROM rxcui_to_ingredient r
+                                JOIN drug_synonyms s ON s.ingredient_rxcui = r.ingredient_rxcui
+                                WHERE LOWER(s.generic_name) LIKE :syn_name_q
+                                   OR EXISTS (
+                                        SELECT 1 FROM unnest(s.brand_names) bn
+                                        WHERE LOWER(bn) LIKE :syn_name_q
+                                   )
+                            )
+                        )"""
+                    )
+                    params["syn_name_q"] = f"%{query.lower()}%"
+                else:
+                    where_conditions.append(
+                        "(LOWER(medicine_name) LIKE LOWER(:drug_name) OR REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE LOWER(:drug_name) OR LOWER(tags) LIKE LOWER(:tags_like))"
+                    )
                 params["drug_name"] = f"{query.lower()}%"
                 params["tags_like"] = f"%{query.lower()}%"
             elif search_type == "ndc":

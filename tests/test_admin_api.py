@@ -483,6 +483,76 @@ def test_pill_create_draft_sets_published_false(client):
     assert insert_params["published"] is False
 
 
+def test_pill_create_with_rxcui_calls_synonym_resolver(client):
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        if "from profiles" in sql_str:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "idempotency_key" in sql_str and "select" in sql_str:
+            result.fetchone.return_value = None
+        elif "insert into pillfinder" in sql_str:
+            result.scalar.return_value = "new-pill-uuid"
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+         patch("routes.admin.pills.ensure_synonym_mapping") as resolver_mock:
+        resp = client.post(
+            "/api/admin/pills",
+            json={"medicine_name": "Plavix", "rxcui": "12345"},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 201, resp.text
+    resolver_mock.assert_called_once()
+
+
+def test_pill_create_rxcui_resolver_failure_does_not_block_save(client):
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        if "from profiles" in sql_str:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "idempotency_key" in sql_str and "select" in sql_str:
+            result.fetchone.return_value = None
+        elif "insert into pillfinder" in sql_str:
+            result.scalar.return_value = "new-pill-uuid"
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), \
+         patch("routes.admin.pills.ensure_synonym_mapping", side_effect=RuntimeError("rxnorm down")):
+        resp = client.post(
+            "/api/admin/pills",
+            json={"medicine_name": "Plavix", "rxcui": "12345"},
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json().get("created") is True
+
+
 def test_pill_update_accepts_image_alt_text_and_tags(client):
     """PUT /api/admin/pills/{id} should accept image_alt_text and tags fields."""
     from datetime import datetime, timezone
