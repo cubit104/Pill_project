@@ -18,17 +18,27 @@ function toTitleCase(str: string): string {
     .join(' ')
 }
 
-async function searchDrug(term: string): Promise<PillResult[]> {
+type DrugSearchResult = {
+  results: PillResult[]
+  fallbackUsed: boolean
+  fallbackTerm: string | null
+}
+
+async function searchDrug(term: string): Promise<DrugSearchResult> {
   try {
     const params = new URLSearchParams({ q: term, type: 'drug', per_page: '48' })
     const res = await fetch(`${API_BASE}/api/search?${params}`, {
       next: { revalidate: 3600 },
     })
-    if (!res.ok) return []
+    if (!res.ok) return { results: [], fallbackUsed: false, fallbackTerm: null }
     const data: SearchResponse = await res.json()
-    return data.results
+    return {
+      results: data.results,
+      fallbackUsed: Boolean(data.fallback_used),
+      fallbackTerm: data.fallback_term ?? null,
+    }
   } catch {
-    return []
+    return { results: [], fallbackUsed: false, fallbackTerm: null }
   }
 }
 
@@ -37,11 +47,11 @@ async function searchDrug(term: string): Promise<PillResult[]> {
  * If no results, fall back to replacing hyphens with spaces (handles slug-style URLs like
  * "mircette-28-dp-331" → "mircette 28 dp 331").
  */
-async function fetchPillsByDrug(name: string): Promise<PillResult[]> {
-  const results = await searchDrug(name)
-  if (results.length > 0) return results
+async function fetchPillsByDrug(name: string): Promise<DrugSearchResult> {
+  const firstPass = await searchDrug(name)
+  if (firstPass.results.length > 0) return firstPass
   const deSlugged = name.replace(/-/g, ' ')
-  if (deSlugged === name) return results
+  if (deSlugged === name) return firstPass
   return searchDrug(deSlugged)
 }
 
@@ -77,7 +87,8 @@ export default async function DrugHubPage(
     redirect(`/drug/${canonicalSlug}`)
   }
   const displayName = toTitleCase(canonicalSlug.replace(/-/g, ' '))
-  const pills = await fetchPillsByDrug(decoded)
+  const searchResult = await fetchPillsByDrug(decoded)
+  const pills = searchResult.results
 
   if (!displayName) notFound()
 
@@ -144,6 +155,11 @@ export default async function DrugHubPage(
           </div>
         ) : (
           <>
+            {searchResult.fallbackUsed && searchResult.fallbackTerm && (
+              <div className="bg-sky-50 border border-sky-200 text-sky-800 rounded-lg px-4 py-3 text-sm mb-4">
+                ℹ️ No results found for &ldquo;{decoded}&rdquo;. Showing results for {searchResult.fallbackTerm} (generic equivalent).
+              </div>
+            )}
             <p className="text-slate-500 text-sm mb-4">
               Found {pills.length} {displayName} pill{pills.length !== 1 ? 's' : ''}
             </p>

@@ -105,4 +105,6 @@ export interface SearchResponse {
   page: number
   per_page: number
   total_pages: number
+  fallback_used?: boolean
+  fallback_term?: string | null
 }

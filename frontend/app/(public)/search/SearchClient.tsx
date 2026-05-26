@@ -36,6 +36,8 @@ function SearchPageInner() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [filters, setFilters] = useState<FiltersResponse>({ colors: [], shapes: [] })
+  const [fallbackUsed, setFallbackUsed] = useState(false)
+  const [fallbackTerm, setFallbackTerm] = useState<string | null>(null)
 
   // Fetch filters once
   useEffect(() => {
@@ -75,9 +77,13 @@ function SearchPageInner() {
         setResults(data.results)
         setTotal(data.total)
         setTotalPages(data.total_pages)
+        setFallbackUsed(Boolean(data.fallback_used))
+        setFallbackTerm(data.fallback_term ?? null)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Search failed. Please try again.')
         setResults([])
+        setFallbackUsed(false)
+        setFallbackTerm(null)
       } finally {
         setLoading(false)
       }
@@ -187,6 +193,11 @@ function SearchPageInner() {
       {/* Results Grid */}
       {!loading && results.length > 0 && (
         <>
+          {type === 'drug' && fallbackUsed && fallbackTerm && q && (
+            <div className="bg-sky-50 border border-sky-200 text-sky-800 rounded-lg px-4 py-3 text-sm mb-4">
+              ℹ️ No results found for &ldquo;{q}&rdquo;. Showing results for {fallbackTerm} (generic equivalent).
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {results.map((pill, idx) => (
               <PillCard key={pill.ndc || pill.imprint || idx} pill={pill} />

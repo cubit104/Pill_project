@@ -291,6 +291,37 @@ def test_suggestions_returns_list(client):
     assert isinstance(response.json(), list)
 
 
+def test_suggestions_drug_flag_on_supplements_with_synonyms_when_direct_is_less_than_two(client):
+    import database as db_module
+    executed_sql = []
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql)
+        executed_sql.append(sql_str)
+        result = MagicMock()
+        if "FROM pillfinder" in sql_str and "SELECT DISTINCT medicine_name" in sql_str:
+            result.fetchall.return_value = [("Plavix",)]
+        elif "FROM drug_synonyms, unnest(brand_names) bn" in sql_str:
+            result.fetchall.return_value = [("Plavix", "clopidogrel")]
+        elif "FROM drug_synonyms" in sql_str:
+            result.fetchall.return_value = [("clopidogrel", "clopidogrel")]
+        else:
+            result.fetchall.return_value = []
+            result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch("routes.search.USE_DRUG_SYNONYMS", True):
+        response = client.get("/suggestions?q=pl&type=drug")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["label"] == "Plavix"
+    assert payload[0]["kind"] == "pill"
+    assert any(item.get("kind") == "generic" for item in payload)
+    combined = " ".join(executed_sql).lower()
+    assert "drug_synonyms" in combined
+
+
 def test_suggestions_openapi_schema_is_explicit(client):
     response = client.get("/openapi.json")
     assert response.status_code == 200
@@ -329,7 +360,7 @@ def test_search_drug_flag_off_keeps_existing_query(client):
     assert "rxcui_to_ingredient" not in combined
 
 
-def test_search_drug_flag_on_adds_synonym_subquery(client):
+def test_search_drug_flag_on_prefers_direct_results_without_synonym_fallback(client):
     import database as db_module
     executed_sql = []
     plavix_row = (
@@ -343,6 +374,40 @@ def test_search_drug_flag_on_adds_synonym_subquery(client):
         "plavix-1171",
         "75 mg",
     )
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql)
+        executed_sql.append(sql_str)
+        result = MagicMock()
+        if "COUNT(*)" in sql_str:
+            result.scalar.return_value = 1
+        elif "LIMIT :limit OFFSET :offset" in sql_str:
+            result.fetchall.return_value = [plavix_row]
+        elif "SELECT image_filename FROM pillfinder" in sql_str:
+            result.__iter__ = MagicMock(return_value=iter([(plavix_row[6],)]))
+        else:
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch("routes.search.USE_DRUG_SYNONYMS", True):
+        response = client.get("/api/search?q=plavix&type=drug")
+    assert response.status_code == 200
+    payload = response.json()
+    names = [r["drug_name"] for r in payload["results"]]
+    assert names == ["Plavix"]
+    assert payload["fallback_used"] is False
+    assert payload["fallback_term"] is None
+    combined = " ".join(executed_sql).lower()
+    assert "drug_synonyms" not in combined
+    assert "rxcui_to_ingredient" not in combined
+
+
+def test_search_drug_flag_on_uses_synonym_fallback_only_when_direct_has_no_results(client):
+    import database as db_module
+    executed_sql = []
     clopi_row = (
         "Clopidogrel",
         "1171",
@@ -357,14 +422,22 @@ def test_search_drug_flag_on_adds_synonym_subquery(client):
 
     def side_effect(sql, params=None, *args, **kwargs):
         sql_str = str(sql)
+        sql_lower = sql_str.lower()
         executed_sql.append(sql_str)
         result = MagicMock()
-        if "COUNT(*)" in sql_str:
-            result.scalar.return_value = 2
-        elif "LIMIT :limit OFFSET :offset" in sql_str:
-            result.fetchall.return_value = [plavix_row, clopi_row]
-        elif "SELECT image_filename FROM pillfinder" in sql_str:
-            result.__iter__ = MagicMock(return_value=iter([(plavix_row[6],), (clopi_row[6],)]))
+
+        if "count(*)" in sql_lower and "rxcui_to_ingredient" not in sql_lower:
+            result.scalar.return_value = 0
+        elif "count(*)" in sql_lower and "rxcui_to_ingredient" in sql_lower:
+            result.scalar.return_value = 1
+        elif "limit :limit offset :offset" in sql_lower and "rxcui_to_ingredient" not in sql_lower:
+            result.fetchall.return_value = []
+        elif "limit :limit offset :offset" in sql_lower and "rxcui_to_ingredient" in sql_lower:
+            result.fetchall.return_value = [clopi_row]
+        elif "select s.generic_name" in sql_lower:
+            result.scalar.return_value = "clopidogrel"
+        elif "select image_filename from pillfinder" in sql_lower:
+            result.__iter__ = MagicMock(return_value=iter([(clopi_row[6],)]))
         else:
             result.fetchall.return_value = []
             result.scalar.return_value = 0
@@ -375,8 +448,10 @@ def test_search_drug_flag_on_adds_synonym_subquery(client):
     with patch("routes.search.USE_DRUG_SYNONYMS", True):
         response = client.get("/api/search?q=plavix&type=drug")
     assert response.status_code == 200
-    names = sorted([r["drug_name"] for r in response.json()["results"]])
-    assert names == ["Clopidogrel", "Plavix"]
+    payload = response.json()
+    assert [r["drug_name"] for r in payload["results"]] == ["Clopidogrel"]
+    assert payload["fallback_used"] is True
+    assert payload["fallback_term"] == "clopidogrel"
     combined = " ".join(executed_sql).lower()
     assert "drug_synonyms" in combined
     assert "rxcui_to_ingredient" in combined
