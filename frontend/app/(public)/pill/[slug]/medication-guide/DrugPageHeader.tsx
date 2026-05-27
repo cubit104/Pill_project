@@ -25,7 +25,7 @@ function toTitleCase(value: string): string {
     .replace(/\b[a-z]/g, (char) => char.toUpperCase())
 }
 
-function stripDoseFromName(name: string): string {
+function stripTrailingDose(name: string): string {
   return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
 }
 
@@ -44,7 +44,7 @@ function resolveHeaderDrugName({
   genericName?: string | null
   isBrandPrimary: boolean
 }): string {
-  const trimmedDrugName = stripDoseFromName(drugName.trim())
+  const trimmedDrugName = stripTrailingDose(drugName.trim())
   const trimmedGenericName = genericName?.trim()
 
   if (!isBrandPrimary && trimmedGenericName && hasNamePrefix(trimmedDrugName, trimmedGenericName)) {
