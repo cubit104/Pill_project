@@ -54,3 +54,18 @@ test('DrugPageHeader trims generic-primary H1 names to the medication only', () 
   assert.doesNotMatch(html, /Apo Cl 75/)
   assert.match(html, /Brand names:<\/span>\s*<span class="text-slate-800">Plavix<\/span>/)
 })
+
+test('DrugPageHeader shows brand names when generic matches H1 even if flagged brand-primary', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Losartan Potassium"
+      genericName="Losartan Potassium"
+      brandName="Cozaar"
+      isBrandPrimary
+    />
+  )
+
+  assert.match(html, /Brand names:<\/span>\s*<span class="text-slate-800">Cozaar<\/span>/)
+  assert.doesNotMatch(html, /Generic:<\/span>\s*<span class="text-slate-800">Losartan Potassium<\/span>/)
+})
