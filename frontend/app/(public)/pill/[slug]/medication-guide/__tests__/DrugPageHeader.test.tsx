@@ -55,6 +55,22 @@ test('DrugPageHeader trims generic-primary H1 names to the medication only', () 
   assert.match(html, /Brand names:<\/span>\s*<span class="text-slate-800">Plavix<\/span>/)
 })
 
+test('DrugPageHeader trims generic-primary H1 names with manufacturer-only suffixes', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Clopidogrel Bisulfate Apo"
+      genericName="clopidogrel bisulfate"
+      brandName="Plavix"
+      isBrandPrimary={false}
+    />
+  )
+
+  assert.match(html, />Clopidogrel Bisulfate<\/h1>/)
+  assert.doesNotMatch(html, /Apo/)
+  assert.match(html, /Brand names:<\/span>\s*<span class="text-slate-800">Plavix<\/span>/)
+})
+
 test('DrugPageHeader shows brand names when generic matches H1 even if flagged brand-primary', () => {
   const html = renderToStaticMarkup(
     <DrugPageHeader
