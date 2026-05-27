@@ -19,9 +19,9 @@ test('DrugPageHeader renders generic relationship and metadata chips for brand-p
   )
 
   assert.match(html, />Plavix<\/h1>/)
-  assert.match(html, /Generic:<\/span> clopidogrel bisulfate/)
-  assert.match(html, /Platelet aggregation inhibitors/)
-  assert.match(html, /Tablet, film coated/)
+  assert.match(html, /Generic:<\/span> Clopidogrel Bisulfate/)
+  assert.match(html, /Platelet Aggregation Inhibitors/)
+  assert.match(html, /Tablet, Film Coated/)
   assert.doesNotMatch(html, /Brand names:/)
 })
 
