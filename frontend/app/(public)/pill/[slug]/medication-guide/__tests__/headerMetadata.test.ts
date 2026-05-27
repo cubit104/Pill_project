@@ -48,3 +48,21 @@ test('resolveHeaderMetadata falls back to guide values when pill values are miss
   assert.equal(meta.dosageForm, 'Tablet, Film Coated')
   assert.equal(meta.isBrandPrimary, true)
 })
+
+test('resolveHeaderMetadata treats prefixed generic-with-suffix names as generic-primary', () => {
+  const meta = resolveHeaderMetadata({
+    drugName: 'Ticagrelor 90 T 00186 0777 60',
+    pill: {
+      generic_name: 'Ticagrelor',
+      brand_names_all: ['Brilinta'],
+    },
+    guide: {
+      generic_name: 'Ticagrelor',
+      brand_name: 'Brilinta',
+    },
+  })
+
+  assert.equal(meta.genericName, 'Ticagrelor')
+  assert.equal(meta.brandName, 'Brilinta')
+  assert.equal(meta.isBrandPrimary, false)
+})
