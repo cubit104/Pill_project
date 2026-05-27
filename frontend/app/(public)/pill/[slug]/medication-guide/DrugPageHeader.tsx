@@ -39,12 +39,15 @@ export default function DrugPageHeader({
   const classDisplay = drugClass?.trim() ? toTitleCase(drugClass.trim()) : null
   const formDisplay = dosageForm?.trim() ? toTitleCase(dosageForm.trim()) : null
 
-  const genericIsDuplicate = isBrandPrimary && generic?.toLowerCase() === drugName.toLowerCase()
-  const brandsIsDuplicate = !isBrandPrimary && brands?.toLowerCase() === drugName.toLowerCase()
-  const hasMetaLines = (!genericIsDuplicate && (isBrandPrimary ? generic : null)) ||
-    (!brandsIsDuplicate && (!isBrandPrimary ? brands : null)) ||
-    classDisplay ||
-    formDisplay
+  const genericIsDuplicate = generic?.toLowerCase() === drugName.toLowerCase()
+  const brandsIsDuplicate = brands?.toLowerCase() === drugName.toLowerCase()
+
+  // H1 is a brand name → show Generic: line (if not same as H1)
+  const showGeneric = isBrandPrimary && !!generic && !genericIsDuplicate
+  // H1 is a generic name (or generic == H1) → show Brand names: line (if not same as H1)
+  const showBrands = !isBrandPrimary && !!brands && !brandsIsDuplicate
+
+  const hasMetaLines = showGeneric || showBrands || !!classDisplay || !!formDisplay
 
   return (
     <header className="space-y-2">
@@ -53,7 +56,7 @@ export default function DrugPageHeader({
         {pageLabel}
       </p>
 
-      {/* H1 — drug name only, no dose */}
+      {/* H1 — drug name, no dose */}
       <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
         {drugName}
       </h1>
@@ -61,21 +64,23 @@ export default function DrugPageHeader({
       {/* Meta lines: generic/brand, class, dosage form */}
       {hasMetaLines && (
         <div className="border-t border-emerald-100 pt-3 space-y-1.5">
-          {/* Line 1: Generic or Brand names */}
-          {isBrandPrimary && generic && generic.toLowerCase() !== drugName.toLowerCase() && (
+          {/* Generic (shown when H1 is a brand name, e.g. Plavix → Generic: Clopidogrel) */}
+          {showGeneric && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Generic:</span>{' '}
               <span className="text-slate-800">{generic}</span>
             </p>
           )}
-          {!isBrandPrimary && brands && brands.toLowerCase() !== drugName.toLowerCase() && (
+
+          {/* Brand names (shown when H1 is a generic name, e.g. Losartan Potassium → Brand names: Cozaar) */}
+          {showBrands && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Brand names:</span>{' '}
               <span className="text-slate-800">{brands}</span>
             </p>
           )}
 
-          {/* Line 2: Drug class */}
+          {/* Drug class */}
           {classDisplay && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Drug class:</span>{' '}
@@ -83,7 +88,7 @@ export default function DrugPageHeader({
             </p>
           )}
 
-          {/* Line 3: Dosage form */}
+          {/* Dosage form */}
           {formDisplay && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Dosage form:</span>{' '}
