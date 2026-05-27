@@ -71,11 +71,12 @@ export default function DrugPageHeader({
 
   const genericIsDuplicate = generic?.toLowerCase() === headerDrugName.toLowerCase()
   const brandsIsDuplicate = brands?.toLowerCase() === headerDrugName.toLowerCase()
+  const shouldShowBrands = !isBrandPrimary || genericIsDuplicate
 
   // H1 is a brand name → show Generic: line (if not same as H1)
   const showGeneric = isBrandPrimary && !!generic && !genericIsDuplicate
   // H1 is a generic name (or generic == H1) → show Brand names: line (if not same as H1)
-  const showBrands = (!isBrandPrimary || genericIsDuplicate) && !!brands && !brandsIsDuplicate
+  const showBrands = shouldShowBrands && !!brands && !brandsIsDuplicate
 
   const hasMetaLines = showGeneric || showBrands || !!classDisplay || !!formDisplay
 
