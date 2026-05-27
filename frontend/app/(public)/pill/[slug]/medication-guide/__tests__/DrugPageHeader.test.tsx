@@ -38,3 +38,19 @@ test('DrugPageHeader renders brand relationship for generic-primary drugs', () =
   assert.match(html, /Brand names:<\/span>\s*<span class="text-slate-800">Plavix, Iscover<\/span>/)
   assert.doesNotMatch(html, /Generic:/)
 })
+
+test('DrugPageHeader trims generic-primary H1 names to the medication only', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Professional Information"
+      drugName="Clopidogrel Bisulfate Apo Cl 75"
+      genericName="clopidogrel bisulfate"
+      brandName="Plavix"
+      isBrandPrimary={false}
+    />
+  )
+
+  assert.match(html, />Clopidogrel Bisulfate<\/h1>/)
+  assert.doesNotMatch(html, /Apo Cl 75/)
+  assert.match(html, /Brand names:<\/span>\s*<span class="text-slate-800">Plavix<\/span>/)
+})
