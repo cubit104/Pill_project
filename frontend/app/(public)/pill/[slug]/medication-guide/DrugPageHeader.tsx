@@ -45,7 +45,7 @@ export default function DrugPageHeader({
   // H1 is a brand name → show Generic: line (if not same as H1)
   const showGeneric = isBrandPrimary && !!generic && !genericIsDuplicate
   // H1 is a generic name (or generic == H1) → show Brand names: line (if not same as H1)
-  const showBrands = !isBrandPrimary && !!brands && !brandsIsDuplicate
+  const showBrands = (!isBrandPrimary || genericIsDuplicate) && !!brands && !brandsIsDuplicate
 
   const hasMetaLines = showGeneric || showBrands || !!classDisplay || !!formDisplay
 

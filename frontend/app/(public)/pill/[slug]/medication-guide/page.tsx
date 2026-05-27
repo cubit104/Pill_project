@@ -8,6 +8,7 @@ import MedicationGuideTabs from './MedicationGuideTabs'
 import DrugPageHeader from './DrugPageHeader'
 import ProfessionalToc from './ProfessionalToc'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
+import { resolveHeaderMetadata } from './headerMetadata'
 import {
   PRO_BOXED_WARNING_PROSE_CLASSES,
   PRO_HIGHLIGHTS_CONTAINER_CLASSES,
@@ -40,7 +41,13 @@ type PillInfo = {
   ndc11?: string
   ndc9?: string
   medicine_name?: string
-  brand_names?: string
+  brand_names?: string | null
+  generic_name?: string | null
+  brand_names_all?: string[] | null
+  pharma_class?: string | null
+  dosage_form?: string | null
+  is_brand_row?: boolean
+  brand_or_generic?: 'brand' | 'generic'
 }
 
 type ConditionListItem = {
@@ -217,7 +224,7 @@ function makeLinkRegex(terms: string[]): RegExp | null {
   return new RegExp(`(?<![A-Za-z0-9])(${terms.map(escapeRegex).join('|')})(?![A-Za-z0-9])`, 'gi')
 }
 
-function splitBrandNames(value: string | undefined): string[] {
+function splitBrandNames(value: string | null | undefined): string[] {
   if (!value) return []
   return value
     .split(/[;,/]/)
@@ -620,7 +627,7 @@ export default async function MedicationGuidePage({
 
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
   const headerDrugName = stripDoseFromName(drugName)
-  const isBrandPrimary = Boolean(guideData?.brand_name || guideData?.proprietary_name)
+  const headerMeta = resolveHeaderMetadata({ drugName: headerDrugName, pill, guide: guideData })
   const drugSlugForUnavailable = slugifyDrugName(drugName)
   const encodedSlug = encodeURIComponent(slug)
 
@@ -639,9 +646,11 @@ export default async function MedicationGuidePage({
     const hasProfessionalContent = Boolean(
       professionalData?.professional_html?.trim() || professionalData?.professional_highlights_html?.trim()
     )
-    const isProfessionalBrandPrimary = Boolean(
-      professionalData?.brand_name || professionalData?.proprietary_name
-    )
+    const professionalHeaderMeta = resolveHeaderMetadata({
+      drugName: headerDrugName,
+      pill,
+      guide: professionalData,
+    })
 
     const proRxcui = professionalData?.rxcui ?? pill.rxcui
     const proNdc = professionalData?.ndc ?? pill.ndc11 ?? pill.ndc9
@@ -695,11 +704,11 @@ export default async function MedicationGuidePage({
         <DrugPageHeader
           pageLabel="Full FDA Prescribing Details"
           drugName={headerDrugName}
-          genericName={professionalData?.generic_name}
-          brandName={pill.brand_names ?? professionalData?.brand_name ?? professionalData?.proprietary_name}
-          drugClass={professionalData?.drug_class}
-          dosageForm={professionalData?.dosage_form}
-          isBrandPrimary={isProfessionalBrandPrimary}
+          genericName={professionalHeaderMeta.genericName}
+          brandName={professionalHeaderMeta.brandName}
+          drugClass={professionalHeaderMeta.drugClass}
+          dosageForm={professionalHeaderMeta.dosageForm}
+          isBrandPrimary={professionalHeaderMeta.isBrandPrimary}
         />
 
         <MedicationGuideTabs
@@ -893,11 +902,11 @@ export default async function MedicationGuidePage({
       <DrugPageHeader
         pageLabel="Patient-Friendly FDA Guidance"
         drugName={headerDrugName}
-        genericName={guideData?.generic_name}
-        brandName={pill.brand_names ?? guideData?.brand_name ?? guideData?.proprietary_name}
-        drugClass={guideData?.drug_class}
-        dosageForm={guideData?.dosage_form}
-        isBrandPrimary={isBrandPrimary}
+        genericName={headerMeta.genericName}
+        brandName={headerMeta.brandName}
+        drugClass={headerMeta.drugClass}
+        dosageForm={headerMeta.dosageForm}
+        isBrandPrimary={headerMeta.isBrandPrimary}
       />
 
       <MedicationGuideTabs
