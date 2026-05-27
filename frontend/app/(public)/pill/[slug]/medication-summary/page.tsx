@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
+import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, faqSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
@@ -13,7 +14,6 @@ const SAFETY_NOTICE =
   'This patient-friendly summary is based on FDA/DailyMed prescribing information. It is not a substitute for medical advice. Not every medication has a separate FDA Medication Guide.'
 const BOXED_WARNING_NOTICE =
   'This label includes a boxed warning. Review the full prescribing information and talk to a healthcare professional.'
-const SUMMARY_NOTICE_FALLBACK = 'Patient-friendly summary based on FDA/DailyMed prescribing information.'
 
 type PageParams = Promise<{ slug: string }>
 
@@ -34,6 +34,8 @@ type GuideResponse = {
   generic_name?: string
   brand_name?: string
   proprietary_name?: string
+  drug_class?: string | null
+  dosage_form?: string | null
   display_name?: string
   name?: string
   has_medguide?: boolean
@@ -61,6 +63,10 @@ function formatDrugName(value: string, keepAllCaps: boolean): string {
   return trimmed
     .toLowerCase()
     .replace(/\b[a-z]/g, (char) => char.toUpperCase())
+}
+
+function stripDoseFromName(name: string): string {
+  return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
 }
 
 function resolveDrugName({
@@ -199,6 +205,8 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
   if (questions.length === 0) notFound()
 
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
+  const headerDrugName = stripDoseFromName(drugName)
+  const isBrandPrimary = Boolean(guideData?.brand_name || guideData?.proprietary_name)
   const encodedSlug = encodeURIComponent(slug)
   const drugSlug = slugifyDrugName(drugName)
 
@@ -247,12 +255,15 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
           </ol>
         </nav>
 
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">{drugName} Medication Summary</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            {guideData?.medication_summary_json?.notice ?? SUMMARY_NOTICE_FALLBACK}
-          </p>
-        </div>
+        <DrugPageHeader
+          pageLabel="Medication Summary"
+          drugName={headerDrugName}
+          genericName={guideData?.generic_name}
+          brandName={guideData?.brand_name ?? guideData?.proprietary_name ?? pill.brand_names}
+          drugClass={guideData?.drug_class}
+          dosageForm={guideData?.dosage_form}
+          isBrandPrimary={isBrandPrimary}
+        />
 
         <MedicationGuideTabs
           activeTab="consumer"
