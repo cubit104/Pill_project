@@ -189,7 +189,6 @@ function resolveDrugName({
     guide?.display_name,
     guide?.name,
     pill?.medicine_name,
-    pill?.brand_names,
     decodeURIComponent(slug).replace(/-/g, ' ')
   )
   return formatDrugName(fallback || 'Medication', false)
@@ -697,7 +696,7 @@ export default async function MedicationGuidePage({
           pageLabel="Full FDA Prescribing Details"
           drugName={headerDrugName}
           genericName={professionalData?.generic_name}
-          brandName={professionalData?.brand_name ?? professionalData?.proprietary_name ?? pill.brand_names}
+          brandName={pill.brand_names ?? professionalData?.brand_name ?? professionalData?.proprietary_name}
           drugClass={professionalData?.drug_class}
           dosageForm={professionalData?.dosage_form}
           isBrandPrimary={isProfessionalBrandPrimary}
@@ -895,7 +894,7 @@ export default async function MedicationGuidePage({
         pageLabel="Patient-Friendly FDA Guidance"
         drugName={headerDrugName}
         genericName={guideData?.generic_name}
-        brandName={guideData?.brand_name ?? guideData?.proprietary_name ?? pill.brand_names}
+        brandName={pill.brand_names ?? guideData?.brand_name ?? guideData?.proprietary_name}
         drugClass={guideData?.drug_class}
         dosageForm={guideData?.dosage_form}
         isBrandPrimary={isBrandPrimary}
