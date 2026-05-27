@@ -85,3 +85,17 @@ test('DrugPageHeader shows brand names when generic matches H1 even if flagged b
   assert.match(html, /Brand names:<\/span>\s*<span class="text-slate-800">Cozaar<\/span>/)
   assert.doesNotMatch(html, /Generic:<\/span>\s*<span class="text-slate-800">Losartan Potassium<\/span>/)
 })
+
+test('DrugPageHeader strips numeric/imprint suffixes from H1 when no clean generic is provided', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Ticagrelor 90 T 00186 0777 60"
+      brandName="Brilinta"
+      isBrandPrimary={false}
+    />
+  )
+
+  assert.match(html, />Ticagrelor<\/h1>/)
+  assert.doesNotMatch(html, /90 T 00186 0777 60/)
+})

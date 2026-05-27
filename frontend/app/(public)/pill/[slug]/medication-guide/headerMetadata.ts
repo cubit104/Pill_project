@@ -43,6 +43,13 @@ function normalizeName(value: string | null | undefined): string {
   return (value || '').trim().toLowerCase()
 }
 
+function hasNamePrefix(value: string, prefix: string): boolean {
+  if (!value || !prefix) return false
+  if (!value.startsWith(prefix)) return false
+  const nextChar = value.slice(prefix.length, prefix.length + 1)
+  return !nextChar || /[\s,;:/()\-]/.test(nextChar)
+}
+
 function splitBrandNames(value: string | null | undefined): string[] {
   if (!value) return []
   return value
@@ -87,7 +94,11 @@ export function resolveHeaderMetadata({
 
   const normalizedDrugName = normalizeName(drugName)
   const normalizedGeneric = normalizeName(genericName)
-  const isDrugNameGeneric = Boolean(normalizedDrugName && normalizedDrugName === normalizedGeneric)
+  const isDrugNameGeneric = Boolean(
+    normalizedDrugName &&
+    normalizedGeneric &&
+    (normalizedDrugName === normalizedGeneric || hasNamePrefix(normalizedDrugName, normalizedGeneric))
+  )
   const isDrugNameBrand = brandNames.some((name) => normalizeName(name) === normalizedDrugName)
 
   let isBrandPrimary = false

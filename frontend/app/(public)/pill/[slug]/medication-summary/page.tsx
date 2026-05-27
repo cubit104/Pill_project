@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
+import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, faqSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
@@ -23,7 +24,13 @@ type PillInfo = {
   ndc11?: string
   ndc9?: string
   medicine_name?: string
-  brand_names?: string
+  brand_names?: string | null
+  generic_name?: string | null
+  brand_names_all?: string[] | null
+  pharma_class?: string | null
+  dosage_form?: string | null
+  is_brand_row?: boolean
+  brand_or_generic?: 'brand' | 'generic'
 }
 
 type SummaryQA = { question: string; answer: string }
@@ -205,7 +212,7 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
 
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
   const headerDrugName = stripDoseFromName(drugName)
-  const isBrandPrimary = Boolean(guideData?.brand_name || guideData?.proprietary_name)
+  const headerMeta = resolveHeaderMetadata({ drugName: headerDrugName, pill, guide: guideData })
   const encodedSlug = encodeURIComponent(slug)
   const drugSlug = slugifyDrugName(drugName)
 
@@ -257,11 +264,11 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
         <DrugPageHeader
           pageLabel="Medication Summary"
           drugName={headerDrugName}
-          genericName={guideData?.generic_name}
-          brandName={pill.brand_names ?? guideData?.brand_name ?? guideData?.proprietary_name}
-          drugClass={guideData?.drug_class}
-          dosageForm={guideData?.dosage_form}
-          isBrandPrimary={isBrandPrimary}
+          genericName={headerMeta.genericName}
+          brandName={headerMeta.brandName}
+          drugClass={headerMeta.drugClass}
+          dosageForm={headerMeta.dosageForm}
+          isBrandPrimary={headerMeta.isBrandPrimary}
         />
 
         <MedicationGuideTabs

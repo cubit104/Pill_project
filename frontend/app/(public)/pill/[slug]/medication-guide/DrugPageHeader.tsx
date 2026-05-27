@@ -29,6 +29,28 @@ function stripTrailingDoseUnits(name: string): string {
   return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
 }
 
+function stripImprintLikeSuffix(name: string): string {
+  const normalized = name.trim().replace(/\s+/g, ' ')
+  const tokens = normalized.split(' ')
+  if (tokens.length <= 1) return normalized
+
+  for (let i = 1; i < tokens.length; i += 1) {
+    if (!/^\d+(?:\.\d+)?$/.test(tokens[i])) continue
+
+    const suffix = tokens.slice(i + 1)
+    const hasImprintTail =
+      suffix.length > 0 &&
+      suffix.every((part) => /^[A-Za-z0-9-]+$/.test(part)) &&
+      suffix.some((part) => /\d/.test(part))
+
+    if (hasImprintTail || i === tokens.length - 1) {
+      return tokens.slice(0, i).join(' ').trim() || normalized
+    }
+  }
+
+  return normalized
+}
+
 function hasNamePrefix(value: string, prefix: string): boolean {
   if (!value.toLowerCase().startsWith(prefix.toLowerCase())) return false
   const nextChar = value.slice(prefix.length, prefix.length + 1)
@@ -44,7 +66,7 @@ function resolveHeaderDrugName({
   genericName?: string | null
   isBrandPrimary: boolean
 }): string {
-  const trimmedDrugName = stripTrailingDoseUnits(drugName.trim())
+  const trimmedDrugName = stripImprintLikeSuffix(stripTrailingDoseUnits(drugName.trim()))
   const trimmedGenericName = genericName?.trim()
 
   if (!isBrandPrimary && trimmedGenericName && hasNamePrefix(trimmedDrugName, trimmedGenericName)) {
