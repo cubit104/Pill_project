@@ -6,6 +6,7 @@ import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import ProfessionalToc from '../medication-guide/ProfessionalToc'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from '../medication-guide/professionalTocConfig'
+import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
 import {
   PRO_BOXED_WARNING_PROSE_CLASSES,
   PRO_HIGHLIGHTS_CONTAINER_CLASSES,
@@ -29,7 +30,13 @@ type PillInfo = {
   ndc11?: string
   ndc9?: string
   medicine_name?: string
-  brand_names?: string
+  brand_names?: string | null
+  generic_name?: string | null
+  brand_names_all?: string[] | null
+  pharma_class?: string | null
+  dosage_form?: string | null
+  is_brand_row?: boolean
+  brand_or_generic?: 'brand' | 'generic'
 }
 
 type GuideResponse = {
@@ -218,7 +225,7 @@ export default async function ProfessionalInformationPage({
   const guideData = await fetchGuide(pill)
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
   const headerDrugName = stripDoseFromName(drugName)
-  const isBrandPrimary = Boolean(guideData?.brand_name || guideData?.proprietary_name)
+  const headerMeta = resolveHeaderMetadata({ drugName: headerDrugName, pill, guide: guideData })
 
   const professionalTocSections = (guideData?.professional_sections ?? [])
     .map(([slugValue, labelValue]) => ({ slug: slugValue, label: labelValue }))
@@ -285,11 +292,11 @@ export default async function ProfessionalInformationPage({
       <DrugPageHeader
         pageLabel="Full FDA Prescribing Details"
         drugName={headerDrugName}
-        genericName={guideData?.generic_name}
-        brandName={pill.brand_names ?? guideData?.brand_name ?? guideData?.proprietary_name}
-        drugClass={guideData?.drug_class}
-        dosageForm={guideData?.dosage_form}
-        isBrandPrimary={isBrandPrimary}
+        genericName={headerMeta.genericName}
+        brandName={headerMeta.brandName}
+        drugClass={headerMeta.drugClass}
+        dosageForm={headerMeta.dosageForm}
+        isBrandPrimary={headerMeta.isBrandPrimary}
       />
 
       <MedicationGuideTabs
