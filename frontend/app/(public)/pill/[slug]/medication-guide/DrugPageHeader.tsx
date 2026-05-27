@@ -39,7 +39,12 @@ export default function DrugPageHeader({
   const classDisplay = drugClass?.trim() ? toTitleCase(drugClass.trim()) : null
   const formDisplay = dosageForm?.trim() ? toTitleCase(dosageForm.trim()) : null
 
-  const hasMetaLines = (isBrandPrimary ? generic : brands) || classDisplay || formDisplay
+  const genericIsDuplicate = isBrandPrimary && generic?.toLowerCase() === drugName.toLowerCase()
+  const brandsIsDuplicate = !isBrandPrimary && brands?.toLowerCase() === drugName.toLowerCase()
+  const hasMetaLines = (!genericIsDuplicate && (isBrandPrimary ? generic : null)) ||
+    (!brandsIsDuplicate && (!isBrandPrimary ? brands : null)) ||
+    classDisplay ||
+    formDisplay
 
   return (
     <header className="space-y-2">
@@ -57,13 +62,13 @@ export default function DrugPageHeader({
       {hasMetaLines && (
         <div className="border-t border-emerald-100 pt-3 space-y-1.5">
           {/* Line 1: Generic or Brand names */}
-          {isBrandPrimary && generic && (
+          {isBrandPrimary && generic && generic.toLowerCase() !== drugName.toLowerCase() && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Generic:</span>{' '}
               <span className="text-slate-800">{generic}</span>
             </p>
           )}
-          {!isBrandPrimary && brands && (
+          {!isBrandPrimary && brands && brands.toLowerCase() !== drugName.toLowerCase() && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Brand names:</span>{' '}
               <span className="text-slate-800">{brands}</span>
