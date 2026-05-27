@@ -5,8 +5,10 @@ import type { ReactNode } from 'react'
 import MedguideToc from './MedguideToc'
 import MedguideMetaBar from './MedguideMetaBar'
 import MedicationGuideTabs from './MedicationGuideTabs'
+import DrugPageHeader from './DrugPageHeader'
 import ProfessionalToc from './ProfessionalToc'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
+import { resolveHeaderMetadata } from './headerMetadata'
 import {
   PRO_BOXED_WARNING_PROSE_CLASSES,
   PRO_HIGHLIGHTS_CONTAINER_CLASSES,
@@ -39,7 +41,13 @@ type PillInfo = {
   ndc11?: string
   ndc9?: string
   medicine_name?: string
-  brand_names?: string
+  brand_names?: string | null
+  generic_name?: string | null
+  brand_names_all?: string[] | null
+  pharma_class?: string | null
+  dosage_form?: string | null
+  is_brand_row?: boolean
+  brand_or_generic?: 'brand' | 'generic'
 }
 
 type ConditionListItem = {
@@ -70,6 +78,8 @@ type GuideResponse = {
   generic_name?: string
   brand_name?: string
   proprietary_name?: string
+  drug_class?: string | null
+  dosage_form?: string | null
   display_name?: string
   name?: string
   has_boxed_warning?: boolean
@@ -166,6 +176,10 @@ function formatDrugName(value: string, keepAllCaps: boolean): string {
     .replace(/\b[a-z]/g, (char) => char.toUpperCase())
 }
 
+function stripDoseFromName(name: string): string {
+  return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
+}
+
 function resolveDrugName({
   guide,
   pill,
@@ -182,7 +196,6 @@ function resolveDrugName({
     guide?.display_name,
     guide?.name,
     pill?.medicine_name,
-    pill?.brand_names,
     decodeURIComponent(slug).replace(/-/g, ' ')
   )
   return formatDrugName(fallback || 'Medication', false)
@@ -211,7 +224,7 @@ function makeLinkRegex(terms: string[]): RegExp | null {
   return new RegExp(`(?<![A-Za-z0-9])(${terms.map(escapeRegex).join('|')})(?![A-Za-z0-9])`, 'gi')
 }
 
-function splitBrandNames(value: string | undefined): string[] {
+function splitBrandNames(value: string | null | undefined): string[] {
   if (!value) return []
   return value
     .split(/[;,/]/)
@@ -613,6 +626,8 @@ export default async function MedicationGuidePage({
   const hasMedicationGuideContent = hasMedguide || hasMedguideHtml
 
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
+  const headerDrugName = stripDoseFromName(drugName)
+  const headerMeta = resolveHeaderMetadata({ drugName: headerDrugName, pill, guide: guideData })
   const drugSlugForUnavailable = slugifyDrugName(drugName)
   const encodedSlug = encodeURIComponent(slug)
 
@@ -631,6 +646,11 @@ export default async function MedicationGuidePage({
     const hasProfessionalContent = Boolean(
       professionalData?.professional_html?.trim() || professionalData?.professional_highlights_html?.trim()
     )
+    const professionalHeaderMeta = resolveHeaderMetadata({
+      drugName: headerDrugName,
+      pill,
+      guide: professionalData,
+    })
 
     const proRxcui = professionalData?.rxcui ?? pill.rxcui
     const proNdc = professionalData?.ndc ?? pill.ndc11 ?? pill.ndc9
@@ -681,12 +701,15 @@ export default async function MedicationGuidePage({
           </ol>
         </nav>
 
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Professional Information — {drugName}</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Full FDA prescribing details for healthcare professionals.
-          </p>
-        </div>
+        <DrugPageHeader
+          pageLabel="Full FDA Prescribing Details"
+          drugName={headerDrugName}
+          genericName={professionalHeaderMeta.genericName}
+          brandName={professionalHeaderMeta.brandName}
+          drugClass={professionalHeaderMeta.drugClass}
+          dosageForm={professionalHeaderMeta.dosageForm}
+          isBrandPrimary={professionalHeaderMeta.isBrandPrimary}
+        />
 
         <MedicationGuideTabs
           activeTab="pro"
@@ -694,13 +717,13 @@ export default async function MedicationGuidePage({
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
+        <MedguideMetaBar guide={professionalData} />
+
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
           Medication Guide is not available for this medication, so full prescribing information is shown.
         </div>
 
         <div className="space-y-6">
-          <MedguideMetaBar guide={professionalData} />
-
           {hasProfessionalToc && (
             <details className="no-print lg:hidden bg-white border border-slate-200 rounded-xl shadow-sm p-4 [&[open]>summary]:mb-3">
               <summary className="cursor-pointer text-sm font-semibold text-slate-800 list-none [&::-webkit-details-marker]:hidden">
@@ -876,12 +899,15 @@ export default async function MedicationGuidePage({
         </ol>
       </nav>
 
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Patient-friendly FDA guidance and safety information.
-        </p>
-      </div>
+      <DrugPageHeader
+        pageLabel="Patient-Friendly FDA Guidance"
+        drugName={headerDrugName}
+        genericName={headerMeta.genericName}
+        brandName={headerMeta.brandName}
+        drugClass={headerMeta.drugClass}
+        dosageForm={headerMeta.dosageForm}
+        isBrandPrimary={headerMeta.isBrandPrimary}
+      />
 
       <MedicationGuideTabs
         activeTab="consumer"

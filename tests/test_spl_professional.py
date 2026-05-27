@@ -63,6 +63,16 @@ def test_full_professional_renderer_extracts_highlights_and_all_sections():
         inner = '<text><paragraph>Body for section.</paragraph></text>'
         if slug == 'highlights':
             inner = '<text><paragraph>Quick summary.</paragraph></text>'
+        elif slug == 'boxed-warning':
+            inner = (
+                '<excerpt><highlight><text><paragraph>Boxed excerpt.</paragraph></text></highlight></excerpt>'
+                '<text><paragraph>Body for section.</paragraph></text>'
+            )
+        else:
+            inner = (
+                '<excerpt><highlight><text><paragraph>Excerpt for section.</paragraph></text></highlight></excerpt>'
+                '<text><paragraph>Body for section.</paragraph></text>'
+            )
         sections.append(_section(code, heading, inner, section_id=f'{slug}-id'))
 
     xml = _wrap_document(*sections)
@@ -74,6 +84,8 @@ def test_full_professional_renderer_extracts_highlights_and_all_sections():
     assert rendered.highlights_html is not None
     assert 'Highlights of Prescribing Information' in rendered.highlights_html
     assert 'Revised:' in rendered.highlights_html
+    assert 'class="pro-highlights-section-title">Indications and Usage</h3>' in rendered.highlights_html
+    assert 'Boxed excerpt.' not in rendered.highlights_html
     assert len(rendered.sections) == len(spl_professional.PRO_SECTIONS) - 1
     assert rendered.article_html.count('<h2 id="') == len(spl_professional.PRO_SECTIONS) - 1
     assert 'id="highlights"' not in rendered.article_html
@@ -304,6 +316,64 @@ def test_highlights_header_meta_omitted_when_no_date():
     assert rendered.highlights_html is not None
     assert 'class="pro-highlights-title"' in rendered.highlights_html
     assert 'class="pro-highlights-meta"' not in rendered.highlights_html
+
+
+def test_highlights_subsections_render_wrappers_and_classed_titles():
+    xml = _wrap_document(
+        _section(
+            "42229-5",
+            "Highlights of Prescribing Information",
+            "<text><paragraph>Quick summary.</paragraph></text>",
+        ),
+        _section(
+            "34068-7",
+            "Dosage and Administration",
+            "<excerpt><highlight><text><paragraph>Use as directed.</paragraph></text></highlight></excerpt>"
+            "<text><paragraph>Main section.</paragraph></text>",
+        ),
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-highlights-subsection"))
+
+    assert rendered is not None
+    assert rendered.highlights_html is not None
+    assert 'class="pro-highlights-section"' in rendered.highlights_html
+    assert 'class="pro-highlights-section-title"' in rendered.highlights_html
+    assert ">Dosage and Administration</h3>" in rendered.highlights_html
+
+
+def test_highlights_collect_excerpts_from_main_sections_in_pro_order():
+    xml = _wrap_document(
+        _section("42229-5", "Highlights of Prescribing Information", "<text><paragraph>Initial summary.</paragraph></text>"),
+        _section(
+            "34068-7",
+            "Dosage and Administration",
+            "<excerpt><highlight><text><paragraph>Dosage excerpt.</paragraph></text></highlight></excerpt>",
+        ),
+        _section(
+            "34067-9",
+            "Indications and Usage",
+            "<excerpt><highlight><text><paragraph>Indications excerpt.</paragraph></text></highlight></excerpt>",
+        ),
+        _section(
+            "34066-1",
+            "Boxed Warning",
+            "<excerpt><highlight><text><paragraph>Do not include boxed warning excerpt.</paragraph></text></highlight></excerpt>",
+        ),
+    )
+    with patch.object(spl_professional.httpx, "AsyncClient", return_value=_FakeClient(content=xml)):
+        rendered = asyncio.run(spl_professional.fetch_professional_rendered("set-highlights-excerpts"))
+
+    assert rendered is not None
+    assert rendered.highlights_html is not None
+    assert "Initial summary." in rendered.highlights_html
+    assert ">Indications and Usage</h3>" in rendered.highlights_html
+    assert ">Dosage and Administration</h3>" in rendered.highlights_html
+    assert "Do not include boxed warning excerpt." not in rendered.highlights_html
+    assert rendered.highlights_html.index("Initial summary.") < rendered.highlights_html.index(">Indications and Usage</h3>")
+    assert rendered.highlights_html.index(">Indications and Usage</h3>") < rendered.highlights_html.index(
+        ">Dosage and Administration</h3>"
+    )
 
 
 def test_linkify_numbered_section_ref():

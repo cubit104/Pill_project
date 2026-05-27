@@ -4,7 +4,9 @@ import { notFound } from 'next/navigation'
 import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import ProfessionalToc from '../medication-guide/ProfessionalToc'
+import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from '../medication-guide/professionalTocConfig'
+import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
 import {
   PRO_BOXED_WARNING_PROSE_CLASSES,
   PRO_HIGHLIGHTS_CONTAINER_CLASSES,
@@ -28,7 +30,13 @@ type PillInfo = {
   ndc11?: string
   ndc9?: string
   medicine_name?: string
-  brand_names?: string
+  brand_names?: string | null
+  generic_name?: string | null
+  brand_names_all?: string[] | null
+  pharma_class?: string | null
+  dosage_form?: string | null
+  is_brand_row?: boolean
+  brand_or_generic?: 'brand' | 'generic'
 }
 
 type GuideResponse = {
@@ -37,6 +45,8 @@ type GuideResponse = {
   generic_name?: string
   brand_name?: string
   proprietary_name?: string
+  drug_class?: string | null
+  dosage_form?: string | null
   display_name?: string
   name?: string
   has_medguide?: boolean
@@ -84,6 +94,10 @@ function formatDrugName(value: string, keepAllCaps: boolean): string {
     .replace(/\b[a-z]/g, (char) => char.toUpperCase())
 }
 
+function stripDoseFromName(name: string): string {
+  return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
+}
+
 function resolveDrugName({
   guide,
   pill,
@@ -100,7 +114,6 @@ function resolveDrugName({
     guide?.display_name,
     guide?.name,
     pill?.medicine_name,
-    pill?.brand_names,
     decodeURIComponent(slug).replace(/-/g, ' ')
   )
   return formatDrugName(fallback || 'Medication', false)
@@ -211,6 +224,8 @@ export default async function ProfessionalInformationPage({
 
   const guideData = await fetchGuide(pill)
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
+  const headerDrugName = stripDoseFromName(drugName)
+  const headerMeta = resolveHeaderMetadata({ drugName: headerDrugName, pill, guide: guideData })
 
   const professionalTocSections = (guideData?.professional_sections ?? [])
     .map(([slugValue, labelValue]) => ({ slug: slugValue, label: labelValue }))
@@ -274,12 +289,15 @@ export default async function ProfessionalInformationPage({
         </ol>
       </nav>
 
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Professional Information — {drugName}</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Full FDA prescribing details for healthcare professionals.
-        </p>
-      </div>
+      <DrugPageHeader
+        pageLabel="Full FDA Prescribing Details"
+        drugName={headerDrugName}
+        genericName={headerMeta.genericName}
+        brandName={headerMeta.brandName}
+        drugClass={headerMeta.drugClass}
+        dosageForm={headerMeta.dosageForm}
+        isBrandPrimary={headerMeta.isBrandPrimary}
+      />
 
       <MedicationGuideTabs
         activeTab="pro"
@@ -292,9 +310,9 @@ export default async function ProfessionalInformationPage({
         professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
       />
 
-      <div className="space-y-6">
-        <MedguideMetaBar guide={guideData} />
+      <MedguideMetaBar guide={guideData} />
 
+      <div className="space-y-6">
         {hasProfessionalToc && (
           <details className="no-print lg:hidden bg-white border border-slate-200 rounded-xl shadow-sm p-4 [&[open]>summary]:mb-3">
             <summary className="cursor-pointer text-sm font-semibold text-slate-800 list-none [&::-webkit-details-marker]:hidden">

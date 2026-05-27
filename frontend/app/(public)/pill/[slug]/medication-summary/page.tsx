@@ -2,6 +2,8 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
+import DrugPageHeader from '../medication-guide/DrugPageHeader'
+import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, faqSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
@@ -13,7 +15,6 @@ const SAFETY_NOTICE =
   'This patient-friendly summary is based on FDA/DailyMed prescribing information. It is not a substitute for medical advice. Not every medication has a separate FDA Medication Guide.'
 const BOXED_WARNING_NOTICE =
   'This label includes a boxed warning. Review the full prescribing information and talk to a healthcare professional.'
-const SUMMARY_NOTICE_FALLBACK = 'Patient-friendly summary based on FDA/DailyMed prescribing information.'
 
 type PageParams = Promise<{ slug: string }>
 
@@ -23,7 +24,13 @@ type PillInfo = {
   ndc11?: string
   ndc9?: string
   medicine_name?: string
-  brand_names?: string
+  brand_names?: string | null
+  generic_name?: string | null
+  brand_names_all?: string[] | null
+  pharma_class?: string | null
+  dosage_form?: string | null
+  is_brand_row?: boolean
+  brand_or_generic?: 'brand' | 'generic'
 }
 
 type SummaryQA = { question: string; answer: string }
@@ -34,6 +41,8 @@ type GuideResponse = {
   generic_name?: string
   brand_name?: string
   proprietary_name?: string
+  drug_class?: string | null
+  dosage_form?: string | null
   display_name?: string
   name?: string
   has_medguide?: boolean
@@ -63,6 +72,10 @@ function formatDrugName(value: string, keepAllCaps: boolean): string {
     .replace(/\b[a-z]/g, (char) => char.toUpperCase())
 }
 
+function stripDoseFromName(name: string): string {
+  return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
+}
+
 function resolveDrugName({
   guide,
   pill,
@@ -79,7 +92,6 @@ function resolveDrugName({
     guide?.display_name,
     guide?.name,
     pill?.medicine_name,
-    pill?.brand_names,
     decodeURIComponent(slug).replace(/-/g, ' ')
   )
   return formatDrugName(fallback || 'Medication', false)
@@ -199,6 +211,8 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
   if (questions.length === 0) notFound()
 
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
+  const headerDrugName = stripDoseFromName(drugName)
+  const headerMeta = resolveHeaderMetadata({ drugName: headerDrugName, pill, guide: guideData })
   const encodedSlug = encodeURIComponent(slug)
   const drugSlug = slugifyDrugName(drugName)
 
@@ -247,12 +261,15 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
           </ol>
         </nav>
 
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">{drugName} Medication Summary</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            {guideData?.medication_summary_json?.notice ?? SUMMARY_NOTICE_FALLBACK}
-          </p>
-        </div>
+        <DrugPageHeader
+          pageLabel="Medication Summary"
+          drugName={headerDrugName}
+          genericName={headerMeta.genericName}
+          brandName={headerMeta.brandName}
+          drugClass={headerMeta.drugClass}
+          dosageForm={headerMeta.dosageForm}
+          isBrandPrimary={headerMeta.isBrandPrimary}
+        />
 
         <MedicationGuideTabs
           activeTab="consumer"
