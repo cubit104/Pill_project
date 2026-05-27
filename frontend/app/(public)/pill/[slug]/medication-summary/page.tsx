@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
+import { stripDoseFromName } from '../medication-guide/drugName'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, faqSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
@@ -63,10 +64,6 @@ function formatDrugName(value: string, keepAllCaps: boolean): string {
   return trimmed
     .toLowerCase()
     .replace(/\b[a-z]/g, (char) => char.toUpperCase())
-}
-
-function stripDoseFromName(name: string): string {
-  return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
 }
 
 function resolveDrugName({

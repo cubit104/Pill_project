@@ -6,6 +6,7 @@ import MedguideToc from './MedguideToc'
 import MedguideMetaBar from './MedguideMetaBar'
 import MedicationGuideTabs from './MedicationGuideTabs'
 import DrugPageHeader from './DrugPageHeader'
+import { stripDoseFromName } from './drugName'
 import ProfessionalToc from './ProfessionalToc'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
 import {
@@ -167,10 +168,6 @@ function formatDrugName(value: string, keepAllCaps: boolean): string {
   return trimmed
     .toLowerCase()
     .replace(/\b[a-z]/g, (char) => char.toUpperCase())
-}
-
-function stripDoseFromName(name: string): string {
-  return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
 }
 
 function resolveDrugName({
@@ -640,10 +637,6 @@ export default async function MedicationGuidePage({
     const hasProfessionalContent = Boolean(
       professionalData?.professional_html?.trim() || professionalData?.professional_highlights_html?.trim()
     )
-    const isProfessionalBrandPrimary = Boolean(
-      professionalData?.brand_name || professionalData?.proprietary_name
-    )
-
     const proRxcui = professionalData?.rxcui ?? pill.rxcui
     const proNdc = professionalData?.ndc ?? pill.ndc11 ?? pill.ndc9
     const proSplSetId = pill.spl_set_id
@@ -700,7 +693,7 @@ export default async function MedicationGuidePage({
           brandName={professionalData?.brand_name ?? professionalData?.proprietary_name ?? pill.brand_names}
           drugClass={professionalData?.drug_class}
           dosageForm={professionalData?.dosage_form}
-          isBrandPrimary={isProfessionalBrandPrimary}
+          isBrandPrimary={Boolean(professionalData?.brand_name || professionalData?.proprietary_name)}
         />
 
         <MedicationGuideTabs

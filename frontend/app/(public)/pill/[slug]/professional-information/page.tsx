@@ -5,6 +5,7 @@ import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import ProfessionalToc from '../medication-guide/ProfessionalToc'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
+import { stripDoseFromName } from '../medication-guide/drugName'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from '../medication-guide/professionalTocConfig'
 import {
   PRO_BOXED_WARNING_PROSE_CLASSES,
@@ -85,10 +86,6 @@ function formatDrugName(value: string, keepAllCaps: boolean): string {
   return trimmed
     .toLowerCase()
     .replace(/\b[a-z]/g, (char) => char.toUpperCase())
-}
-
-function stripDoseFromName(name: string): string {
-  return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
 }
 
 function resolveDrugName({
