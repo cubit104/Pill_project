@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import MedguideToc from './MedguideToc'
 import MedguideMetaBar from './MedguideMetaBar'
 import MedicationGuideTabs from './MedicationGuideTabs'
+import DrugPageHeader from './DrugPageHeader'
 import ProfessionalToc from './ProfessionalToc'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
 import {
@@ -70,6 +71,8 @@ type GuideResponse = {
   generic_name?: string
   brand_name?: string
   proprietary_name?: string
+  drug_class?: string | null
+  dosage_form?: string | null
   display_name?: string
   name?: string
   has_boxed_warning?: boolean
@@ -164,6 +167,10 @@ function formatDrugName(value: string, keepAllCaps: boolean): string {
   return trimmed
     .toLowerCase()
     .replace(/\b[a-z]/g, (char) => char.toUpperCase())
+}
+
+function stripDoseFromName(name: string): string {
+  return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
 }
 
 function resolveDrugName({
@@ -613,6 +620,8 @@ export default async function MedicationGuidePage({
   const hasMedicationGuideContent = hasMedguide || hasMedguideHtml
 
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
+  const headerDrugName = stripDoseFromName(drugName)
+  const isBrandPrimary = Boolean(guideData?.brand_name || guideData?.proprietary_name)
   const drugSlugForUnavailable = slugifyDrugName(drugName)
   const encodedSlug = encodeURIComponent(slug)
 
@@ -630,6 +639,9 @@ export default async function MedicationGuidePage({
     const hasProfessionalToc = professionalTocSections.length >= MIN_PROFESSIONAL_TOC_SECTIONS
     const hasProfessionalContent = Boolean(
       professionalData?.professional_html?.trim() || professionalData?.professional_highlights_html?.trim()
+    )
+    const isProfessionalBrandPrimary = Boolean(
+      professionalData?.brand_name || professionalData?.proprietary_name
     )
 
     const proRxcui = professionalData?.rxcui ?? pill.rxcui
@@ -681,11 +693,15 @@ export default async function MedicationGuidePage({
           </ol>
         </nav>
 
-        <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-widest text-sky-700">Professional Prescribing Information</p>
-          <h1 className="text-2xl font-bold text-slate-900">{drugName}</h1>
-          <p className="text-sm text-slate-500">Full FDA prescribing details for healthcare professionals</p>
-        </div>
+        <DrugPageHeader
+          pageLabel="Full FDA Prescribing Details"
+          drugName={headerDrugName}
+          genericName={professionalData?.generic_name}
+          brandName={professionalData?.brand_name ?? professionalData?.proprietary_name ?? pill.brand_names}
+          drugClass={professionalData?.drug_class}
+          dosageForm={professionalData?.dosage_form}
+          isBrandPrimary={isProfessionalBrandPrimary}
+        />
 
         <MedicationGuideTabs
           activeTab="pro"
@@ -875,12 +891,15 @@ export default async function MedicationGuidePage({
         </ol>
       </nav>
 
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Medication Guide — {drugName}</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Patient-friendly FDA guidance and safety information.
-        </p>
-      </div>
+      <DrugPageHeader
+        pageLabel="Patient-Friendly FDA Guidance"
+        drugName={headerDrugName}
+        genericName={guideData?.generic_name}
+        brandName={guideData?.brand_name ?? guideData?.proprietary_name ?? pill.brand_names}
+        drugClass={guideData?.drug_class}
+        dosageForm={guideData?.dosage_form}
+        isBrandPrimary={isBrandPrimary}
+      />
 
       <MedicationGuideTabs
         activeTab="consumer"

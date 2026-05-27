@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import ProfessionalToc from '../medication-guide/ProfessionalToc'
+import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from '../medication-guide/professionalTocConfig'
 import {
   PRO_BOXED_WARNING_PROSE_CLASSES,
@@ -37,6 +38,8 @@ type GuideResponse = {
   generic_name?: string
   brand_name?: string
   proprietary_name?: string
+  drug_class?: string | null
+  dosage_form?: string | null
   display_name?: string
   name?: string
   has_medguide?: boolean
@@ -82,6 +85,10 @@ function formatDrugName(value: string, keepAllCaps: boolean): string {
   return trimmed
     .toLowerCase()
     .replace(/\b[a-z]/g, (char) => char.toUpperCase())
+}
+
+function stripDoseFromName(name: string): string {
+  return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
 }
 
 function resolveDrugName({
@@ -211,6 +218,8 @@ export default async function ProfessionalInformationPage({
 
   const guideData = await fetchGuide(pill)
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
+  const headerDrugName = stripDoseFromName(drugName)
+  const isBrandPrimary = Boolean(guideData?.brand_name || guideData?.proprietary_name)
 
   const professionalTocSections = (guideData?.professional_sections ?? [])
     .map(([slugValue, labelValue]) => ({ slug: slugValue, label: labelValue }))
@@ -274,11 +283,15 @@ export default async function ProfessionalInformationPage({
         </ol>
       </nav>
 
-      <div className="space-y-1">
-        <p className="text-xs font-semibold uppercase tracking-widest text-sky-700">Professional Prescribing Information</p>
-        <h1 className="text-2xl font-bold text-slate-900">{drugName}</h1>
-        <p className="text-sm text-slate-500">Full FDA prescribing details for healthcare professionals</p>
-      </div>
+      <DrugPageHeader
+        pageLabel="Full FDA Prescribing Details"
+        drugName={headerDrugName}
+        genericName={guideData?.generic_name}
+        brandName={guideData?.brand_name ?? guideData?.proprietary_name ?? pill.brand_names}
+        drugClass={guideData?.drug_class}
+        dosageForm={guideData?.dosage_form}
+        isBrandPrimary={isBrandPrimary}
+      />
 
       <MedicationGuideTabs
         activeTab="pro"
