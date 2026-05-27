@@ -25,6 +25,35 @@ function toTitleCase(value: string): string {
     .replace(/\b[a-z]/g, (char) => char.toUpperCase())
 }
 
+function stripTrailingDoseUnits(name: string): string {
+  return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
+}
+
+function hasNamePrefix(value: string, prefix: string): boolean {
+  if (!value.toLowerCase().startsWith(prefix.toLowerCase())) return false
+  const nextChar = value.slice(prefix.length, prefix.length + 1)
+  return !nextChar || /[\s,;:/()\-]/.test(nextChar)
+}
+
+function resolveHeaderDrugName({
+  drugName,
+  genericName,
+  isBrandPrimary,
+}: {
+  drugName: string
+  genericName?: string | null
+  isBrandPrimary: boolean
+}): string {
+  const trimmedDrugName = stripTrailingDoseUnits(drugName.trim())
+  const trimmedGenericName = genericName?.trim()
+
+  if (!isBrandPrimary && trimmedGenericName && hasNamePrefix(trimmedDrugName, trimmedGenericName)) {
+    return toTitleCase(trimmedGenericName)
+  }
+
+  return trimmedDrugName
+}
+
 export default function DrugPageHeader({
   drugName,
   genericName,
@@ -34,18 +63,20 @@ export default function DrugPageHeader({
   isBrandPrimary,
   pageLabel,
 }: DrugPageHeaderProps) {
+  const headerDrugName = resolveHeaderDrugName({ drugName, genericName, isBrandPrimary })
   const generic = genericName?.trim() ? toTitleCase(genericName.trim()) : null
   const brands = normalizeNames(brandName) || null
   const classDisplay = drugClass?.trim() ? toTitleCase(drugClass.trim()) : null
   const formDisplay = dosageForm?.trim() ? toTitleCase(dosageForm.trim()) : null
 
-  const genericIsDuplicate = generic?.toLowerCase() === drugName.toLowerCase()
-  const brandsIsDuplicate = brands?.toLowerCase() === drugName.toLowerCase()
+  const genericIsDuplicate = generic?.toLowerCase() === headerDrugName.toLowerCase()
+  const brandsIsDuplicate = brands?.toLowerCase() === headerDrugName.toLowerCase()
+  const shouldShowBrands = !isBrandPrimary || genericIsDuplicate
 
   // H1 is a brand name → show Generic: line (if not same as H1)
   const showGeneric = isBrandPrimary && !!generic && !genericIsDuplicate
   // H1 is a generic name (or generic == H1) → show Brand names: line (if not same as H1)
-  const showBrands = (!isBrandPrimary || genericIsDuplicate) && !!brands && !brandsIsDuplicate
+  const showBrands = shouldShowBrands && !!brands && !brandsIsDuplicate
 
   const hasMetaLines = showGeneric || showBrands || !!classDisplay || !!formDisplay
 
@@ -58,7 +89,7 @@ export default function DrugPageHeader({
 
       {/* H1 — drug name, no dose */}
       <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
-        {drugName}
+        {headerDrugName}
       </h1>
 
       {/* Meta lines: generic/brand, class, dosage form */}
