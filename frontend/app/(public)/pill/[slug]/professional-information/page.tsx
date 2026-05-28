@@ -260,7 +260,7 @@ export default async function ProfessionalInformationPage({
       {/* Sticky mobile TOC bar — slides in once user scrolls past sentinel, hides on scroll back up */}
       {hasProfessionalToc && (
         <MobileTocBar sentinelId="pro-toc-sentinel">
-          <ProfessionalToc sections={professionalTocSections} />
+          <ProfessionalToc sections={professionalTocSections} layout="mobile-grid" />
         </MobileTocBar>
       )}
 
