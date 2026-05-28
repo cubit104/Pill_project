@@ -113,12 +113,10 @@ export default function MobileTocBar({ sentinelId, children }: MobileTocBarProps
         </svg>
       </button>
 
-      {/* Dropdown TOC panel — 3-column grid for compact display on mobile */}
+      {/* Dropdown TOC panel — links render in multi-column grid (handled by child TOC component) */}
       {open && (
         <div className="bg-white border-b border-slate-200 shadow-md px-4 py-3 max-h-[50vh] overflow-y-auto">
-          <div className="grid grid-cols-3 gap-x-3 gap-y-0.5">
-            {children}
-          </div>
+          {children}
         </div>
       )}
     </div>

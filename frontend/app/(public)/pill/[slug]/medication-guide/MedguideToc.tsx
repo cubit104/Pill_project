@@ -9,6 +9,7 @@ interface TocEntry {
   level: 2 | 3
 }
 const TOC_LINK_BASE_CLASSES = 'block break-words py-1 text-sm leading-5 text-emerald-700 transition-colors'
+const TOC_LINK_BASE_CLASSES_MOBILE = 'block truncate py-1 text-sm leading-5 text-emerald-700 transition-colors'
 
 function extractHeadings(html: string): TocEntry[] {
   if (typeof window === 'undefined' || !html) return []
@@ -29,7 +30,15 @@ function extractHeadings(html: string): TocEntry[] {
   }
 }
 
-export default function MedguideToc({ html, drugName }: { html: string; drugName: string }) {
+export default function MedguideToc({
+  html,
+  drugName,
+  layout = 'sidebar',
+}: {
+  html: string
+  drugName: string
+  layout?: 'sidebar' | 'mobile-grid'
+}) {
   const [entries, setEntries] = useState<TocEntry[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)
@@ -91,6 +100,32 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
       history.replaceState(null, '', `#${id}`)
       setActiveId(id)
     }
+  }
+
+  if (layout === 'mobile-grid') {
+    return (
+      <nav aria-label="On this page">
+        <ul className="grid grid-cols-2 gap-x-3 gap-y-1">
+          {entries.map(({ id, text }) => (
+            <li key={id}>
+              <a
+                href={`#${id}`}
+                onClick={(e) => handleClick(e, id)}
+                className={
+                  activeId === id
+                    ? `${TOC_LINK_BASE_CLASSES_MOBILE} font-semibold`
+                    : `${TOC_LINK_BASE_CLASSES_MOBILE} hover:text-emerald-900`
+                }
+                title={text}
+                aria-label={text}
+              >
+                {shortenTocLabel(text, drugName)}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    )
   }
 
   return (
