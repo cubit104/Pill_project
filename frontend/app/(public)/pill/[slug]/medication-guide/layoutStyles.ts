@@ -31,10 +31,10 @@ export const PRO_HIGHLIGHTS_PROSE_CLASSES = [
   '[&_.pro-highlights-body]:max-w-[70ch] [&_.pro-highlights-body]:text-base [&_.pro-highlights-body]:leading-relaxed [&_.pro-highlights-body]:text-slate-800',
   // Sub-section blocks — dashed border dividers like DailyMed
   '[&_.pro-highlights-section]:border-t [&_.pro-highlights-section]:border-dashed [&_.pro-highlights-section]:border-slate-300 [&_.pro-highlights-section]:pt-3 [&_.pro-highlights-section]:mt-3',
-  // Sub-section headings
-  '[&_.pro-highlights-section-title]:text-base [&_.pro-highlights-section-title]:font-semibold [&_.pro-highlights-section-title]:text-slate-800 [&_.pro-highlights-section-title]:mb-1 [&_.pro-highlights-section-title]:mt-4 [&_.pro-highlights-section-title]:text-left',
-  // Plain h3 fallback
-  '[&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mb-1 [&_h3]:mt-4 [&_h3]:text-left',
+  // Sub-section headings — centered like original DailyMed/FDA style
+  '[&_.pro-highlights-section-title]:text-xs [&_.pro-highlights-section-title]:font-bold [&_.pro-highlights-section-title]:uppercase [&_.pro-highlights-section-title]:tracking-widest [&_.pro-highlights-section-title]:text-slate-900 [&_.pro-highlights-section-title]:mb-2 [&_.pro-highlights-section-title]:mt-0 [&_.pro-highlights-section-title]:text-center',
+  // Plain h3 fallback — also centered
+  '[&_h3]:text-xs [&_h3]:font-bold [&_h3]:uppercase [&_h3]:tracking-widest [&_h3]:text-slate-900 [&_h3]:mb-2 [&_h3]:mt-3 [&_h3]:text-center',
   // h2
   '[&_h2]:text-lg [&_h2]:font-bold [&_h2]:text-slate-900 [&_h2]:mb-2 [&_h2]:mt-6',
   // Body text
@@ -50,7 +50,7 @@ export const PRO_HIGHLIGHTS_PROSE_CLASSES = [
   '[&_strong]:font-semibold [&_strong]:text-slate-900',
 ].join(' ')
 export const PRO_BOXED_WARNING_PROSE_CLASSES = [
-  '[&_.pro-boxed-warning-callout]:my-8 [&_.pro-boxed-warning-callout]:rounded-xl [&_.pro-boxed-warning-callout]:border [&_.pro-boxed-warning-callout]:border-rose-300 [&_.pro-boxed-warning-callout]:border-l-4 [&_.pro-boxed-warning-callout]:border-l-rose-600 [&_.pro-boxed-warning-callout]:bg-rose-50 [&_.pro-boxed-warning-callout]:p-5',
+  '[&_.pro-boxed-warning-callout]:my-8 [&_.pro-boxed-warning-callout]:rounded-xl [&_.pro-boxed-warning-callout]:border [&_.pro-boxed-warning-callout]:border-rose-300 [&_.pro-boxed-warning-callout]:bg-rose-50 [&_.pro-boxed-warning-callout]:p-5',
   '[&_.pro-boxed-warning-callout_h2]:mt-0 [&_.pro-boxed-warning-callout_h2]:mb-3 [&_.pro-boxed-warning-callout_h2]:text-base [&_.pro-boxed-warning-callout_h2]:font-semibold [&_.pro-boxed-warning-callout_h2]:text-rose-900',
   '[&_.pro-boxed-warning-callout_h3]:mt-5 [&_.pro-boxed-warning-callout_h3]:mb-3 [&_.pro-boxed-warning-callout_h3]:text-sm [&_.pro-boxed-warning-callout_h3]:font-semibold [&_.pro-boxed-warning-callout_h3]:text-rose-900',
   '[&_.pro-boxed-warning-callout_p]:my-3 [&_.pro-boxed-warning-callout_p]:text-rose-950 [&_.pro-boxed-warning-callout_p]:leading-8',
