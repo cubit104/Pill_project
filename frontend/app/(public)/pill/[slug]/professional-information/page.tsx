@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import ProfessionalToc from '../medication-guide/ProfessionalToc'
+import MobileTocBar from '../medication-guide/MobileTocBar'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from '../medication-guide/professionalTocConfig'
 import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
@@ -255,61 +256,62 @@ export default async function ProfessionalInformationPage({
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(proBreadcrumbs) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(proPageJsonLd) }} />
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-      <nav aria-label="Breadcrumb">
-        <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
-          <li>
-            <Link href="/" className="hover:text-sky-700 transition-colors">
-              Home
-            </Link>
-          </li>
-          {drugSlug && (
-            <>
-              <li aria-hidden="true" className="select-none">›</li>
-              <li>
-                <Link href={`/drug/${drugSlug}`} className="hover:text-sky-700 transition-colors">
-                  {drugName}
-                </Link>
-              </li>
-            </>
-          )}
-          <li aria-hidden="true" className="select-none">›</li>
-          <li className="text-slate-700 font-medium">Professional Information</li>
-        </ol>
-      </nav>
 
-      <DrugPageHeader
-        pageLabel="Full FDA Prescribing Details"
-        drugName={headerDrugName}
-        genericName={headerMeta.genericName}
-        brandName={headerMeta.brandName}
-        drugClass={headerMeta.drugClass}
-        dosageForm={headerMeta.dosageForm}
-        isBrandPrimary={headerMeta.isBrandPrimary}
-      />
+      {/* Sticky mobile TOC bar — slides in once user scrolls past sentinel, hides on scroll back up */}
+      {hasProfessionalToc && (
+        <MobileTocBar sentinelId="pro-toc-sentinel">
+          <ProfessionalToc sections={professionalTocSections} />
+        </MobileTocBar>
+      )}
 
-      <MedicationGuideTabs
-        activeTab="pro"
-        medicationGuideHref={
-          hasMedguide ? `/pill/${encodeURIComponent(slug)}/medication-guide` : null
-        }
-        summaryHref={
-          hasMedicationSummaryFallback ? `/pill/${encodeURIComponent(slug)}/medication-summary` : null
-        }
-        professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
-      />
+      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+        <nav aria-label="Breadcrumb">
+          <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
+            <li>
+              <Link href="/" className="hover:text-sky-700 transition-colors">
+                Home
+              </Link>
+            </li>
+            {drugSlug && (
+              <>
+                <li aria-hidden="true" className="select-none">›</li>
+                <li>
+                  <Link href={`/drug/${drugSlug}`} className="hover:text-sky-700 transition-colors">
+                    {drugName}
+                  </Link>
+                </li>
+              </>
+            )}
+            <li aria-hidden="true" className="select-none">›</li>
+            <li className="text-slate-700 font-medium">Professional Information</li>
+          </ol>
+        </nav>
 
-      <MedguideMetaBar guide={guideData} />
+        <DrugPageHeader
+          pageLabel="Full FDA Prescribing Details"
+          drugName={headerDrugName}
+          genericName={headerMeta.genericName}
+          brandName={headerMeta.brandName}
+          drugClass={headerMeta.drugClass}
+          dosageForm={headerMeta.dosageForm}
+          isBrandPrimary={headerMeta.isBrandPrimary}
+        />
 
-      <div className="space-y-6">
-        {hasProfessionalToc && (
-          <details className="no-print lg:hidden bg-white border border-slate-200 rounded-xl shadow-sm p-4 [&[open]>summary]:mb-3">
-            <summary className="cursor-pointer text-sm font-semibold text-slate-800 list-none [&::-webkit-details-marker]:hidden">
-              On this page
-            </summary>
-            <ProfessionalToc sections={professionalTocSections} />
-          </details>
-        )}
+        <MedicationGuideTabs
+          activeTab="pro"
+          medicationGuideHref={
+            hasMedguide ? `/pill/${encodeURIComponent(slug)}/medication-guide` : null
+          }
+          summaryHref={
+            hasMedicationSummaryFallback ? `/pill/${encodeURIComponent(slug)}/medication-summary` : null
+          }
+          professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
+        />
+
+        <MedguideMetaBar guide={guideData} />
+
+        {/* Sentinel: when this scrolls out of view, the mobile sticky TOC bar appears */}
+        <div id="pro-toc-sentinel" />
 
         <div className={hasProfessionalToc ? SHARED_CONTENT_GRID_CLASSES : 'space-y-6'}>
           {hasProfessionalToc && (
@@ -340,47 +342,46 @@ export default async function ProfessionalInformationPage({
             )}
           </div>
         </div>
-      </div>
 
-      {!hasProfessionalContent && (
-        <p className="text-xs text-slate-500">
-          Professional information is currently unavailable; this page remains available for navigation and source links.
-        </p>
-      )}
+        {!hasProfessionalContent && (
+          <p className="text-xs text-slate-500">
+            Professional information is currently unavailable; this page remains available for navigation and source links.
+          </p>
+        )}
 
-      {(proRxcui || proNdc || guideData?.fetched_at || guideData?.source_url) && (
-        <section className="border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1">
-          <h2 className="font-semibold text-slate-600 mb-2">Sources</h2>
-          {proRxcui && <p><span className="font-medium">RxCUI:</span> {proRxcui}</p>}
-          {proNdc && <p><span className="font-medium">NDC:</span> {proNdc}</p>}
-          {guideData?.fetched_at && (
-            <p><span className="font-medium">Last fetched:</span>{' '}
-              {new Date(guideData.fetched_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}
-            </p>
-          )}
-          {guideData?.source_url && (
-            <p>
-              <span className="font-medium">Source:</span>{' '}
-              <a href={guideData.source_url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">
-                DailyMed ↗
-              </a>
-            </p>
-          )}
+        {(proRxcui || proNdc || guideData?.fetched_at || guideData?.source_url) && (
+          <section className="border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1">
+            <h2 className="font-semibold text-slate-600 mb-2">Sources</h2>
+            {proRxcui && <p><span className="font-medium">RxCUI:</span> {proRxcui}</p>}
+            {proNdc && <p><span className="font-medium">NDC:</span> {proNdc}</p>}
+            {guideData?.fetched_at && (
+              <p><span className="font-medium">Last fetched:</span>{' '}
+                {new Date(guideData.fetched_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}
+              </p>
+            )}
+            {guideData?.source_url && (
+              <p>
+                <span className="font-medium">Source:</span>{' '}
+                <a href={guideData.source_url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">
+                  DailyMed ↗
+                </a>
+              </p>
+            )}
+          </section>
+        )}
+
+        <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>
+          <p className="text-xs text-amber-700 leading-8">
+            This information is for educational purposes only and is not medical advice. Always consult your doctor,
+            pharmacist, or other licensed healthcare professional before starting, stopping, or changing any medicine.{' '}
+            <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
+              Read full medical disclaimer
+            </Link>
+            .
+          </p>
         </section>
-      )}
-
-      <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
-        <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>
-        <p className="text-xs text-amber-700 leading-8">
-          This information is for educational purposes only and is not medical advice. Always consult your doctor,
-          pharmacist, or other licensed healthcare professional before starting, stopping, or changing any medicine.{' '}
-          <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
-            Read full medical disclaimer
-          </Link>
-          .
-        </p>
-      </section>
-    </div>
+      </div>
     </>
   )
 }

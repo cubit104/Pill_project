@@ -24,26 +24,28 @@ test('TOC headings and links use readable navigation classes', () => {
   assert.ok(professionalToc.includes('max-h-[24rem] overflow-y-auto'))
 })
 
-test('medication prose uses shared readable sizing and width classes', () => {
+test('medication prose uses shared readable sizing, width, and centering classes', () => {
   const medguidePage = read('../page.tsx')
   const summaryPage = read('../../medication-summary/page.tsx')
   const professionalPage = read('../../professional-information/page.tsx')
   const layoutStyles = read('../layoutStyles.ts')
 
-  assert.ok(layoutStyles.includes('max-w-[70ch] text-base leading-relaxed text-slate-800'))
+  assert.ok(layoutStyles.includes('max-w-[70ch] mx-auto text-base leading-relaxed text-slate-800'))
   assert.ok(layoutStyles.includes('[&_h2]:text-lg [&_h2]:font-bold [&_h2]:text-slate-900 [&_h2]:mt-6 [&_h2]:mb-2'))
   assert.ok(layoutStyles.includes('[&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mt-4 [&_h3]:mb-1'))
-  assert.ok(medguidePage.includes('className={SHARED_READING_PROSE_CLASSES}'))
-  assert.ok(summaryPage.includes('className={SHARED_READING_PROSE_CLASSES}'))
+  assert.ok(medguidePage.includes('SHARED_READING_PROSE_CLASSES'))
+  assert.ok(summaryPage.includes('SHARED_READING_PROSE_CLASSES'))
   assert.ok(professionalPage.includes('SHARED_READING_PROSE_CLASSES'))
 })
 
-test('professional highlights headings use stronger title styling', () => {
+test('professional highlights section headings use centered FDA-style title styling', () => {
   const layoutStyles = read('../layoutStyles.ts')
 
   assert.ok(layoutStyles.includes('[&_.pro-highlights-title]:text-base'))
-  assert.ok(layoutStyles.includes('[&_.pro-highlights-section-title]:text-base [&_.pro-highlights-section-title]:font-semibold [&_.pro-highlights-section-title]:text-slate-800'))
-  assert.ok(layoutStyles.includes('[&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-800'))
+  assert.ok(layoutStyles.includes('[&_.pro-highlights-section-title]:text-xs [&_.pro-highlights-section-title]:font-bold [&_.pro-highlights-section-title]:uppercase [&_.pro-highlights-section-title]:tracking-widest [&_.pro-highlights-section-title]:text-slate-900'))
+  assert.ok(layoutStyles.includes('[&_.pro-highlights-section-title]:text-center'))
+  assert.ok(layoutStyles.includes('[&_h3]:text-xs [&_h3]:font-bold [&_h3]:uppercase [&_h3]:tracking-widest [&_h3]:text-slate-900'))
+  assert.ok(layoutStyles.includes('[&_h3]:text-center'))
 })
 
 test('professional pages use compact header and place metadata after tabs', () => {
