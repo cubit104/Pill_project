@@ -14,6 +14,7 @@ import {
   SHARED_CONTENT_ASIDE_CLASSES,
   SHARED_CONTENT_CARD_CLASSES,
   SHARED_CONTENT_GRID_CLASSES,
+  SHARED_READING_PROSE_CLASSES,
 } from '../medication-guide/layoutStyles'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
@@ -60,19 +61,7 @@ type GuideResponse = {
 }
 
 const PRO_PROSE_CLASSES = [
-  '[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-900 [&_h1]:mb-4',
-  '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-10 [&_h2]:mb-4',
-  '[&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-900 [&_h3]:mt-8 [&_h3]:mb-3',
-  '[&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:mt-5 [&_h4]:mb-2',
-  '[&_p]:text-sm [&_p]:leading-8 [&_p]:text-slate-800 [&_p]:my-4',
-  '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4 [&_ul]:space-y-2',
-  '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4 [&_ol]:space-y-2',
-  '[&_li]:text-sm [&_li]:leading-8 [&_li]:text-slate-800 [&_li]:my-2',
-  '[&_a]:text-emerald-600 [&_a:hover]:underline',
-  '[&_strong]:font-semibold [&_strong]:text-slate-900',
-  '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto',
-  '[&_th]:bg-slate-50 [&_th]:border [&_th]:border-slate-200 [&_th]:p-2 [&_th]:font-semibold [&_th]:text-left',
-  '[&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_td]:align-top',
+  SHARED_READING_PROSE_CLASSES,
   PRO_BOXED_WARNING_PROSE_CLASSES,
 ].join(' ')
 

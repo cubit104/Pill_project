@@ -51,19 +51,19 @@ export default function ProfessionalToc({ sections }: { sections: Section[] }) {
   if (sections.length < MIN_PROFESSIONAL_TOC_SECTIONS) return null
 
   return (
-    <nav aria-label="On this page" className="w-full max-w-[16rem]">
+    <nav aria-label="On this page" className="w-full max-w-[16rem] max-h-[24rem] overflow-y-auto pr-1 lg:max-h-[calc(100vh-10rem)]">
       <div className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-4">On this page</div>
-      <ul className="space-y-1.5">
+      <ul className="space-y-1">
         {sections.map((section) => (
           <li key={section.slug}>
             <a
               href={`#${section.slug}`}
               title={section.label}
               className={
-                'block py-1 text-sm leading-6 transition-colors ' +
+                'block py-1 text-sm leading-5 text-emerald-700 transition-colors ' +
                 (activeId === section.slug
-                  ? 'text-emerald-800 font-semibold'
-                  : 'text-emerald-600 hover:text-emerald-800')
+                  ? 'font-semibold'
+                  : 'hover:text-emerald-900')
               }
               onClick={(event) => {
                 event.preventDefault()

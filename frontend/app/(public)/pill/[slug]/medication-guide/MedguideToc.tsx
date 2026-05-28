@@ -8,7 +8,7 @@ interface TocEntry {
   text: string
   level: 2 | 3
 }
-const TOC_LINK_BASE_CLASSES = 'block break-words py-1 text-sm leading-6'
+const TOC_LINK_BASE_CLASSES = 'block break-words py-1 text-sm leading-5 text-emerald-700 transition-colors'
 
 function extractHeadings(html: string): TocEntry[] {
   if (typeof window === 'undefined' || !html) return []
@@ -98,11 +98,11 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
   }
 
   return (
-    <nav aria-label="On this page" className="w-full max-w-[16rem]">
+    <nav aria-label="On this page" className="w-full max-w-[16rem] max-h-[24rem] overflow-y-auto pr-1 lg:max-h-[calc(100vh-10rem)]">
       <p className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-4">
         On this page
       </p>
-      <ul className="space-y-1.5">
+      <ul className="space-y-1">
         {entries.map(({ id, text, level }) => (
           <li key={id} className={level === 3 ? 'pl-4' : ''}>
             <a
@@ -110,8 +110,8 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
               onClick={(e) => handleClick(e, id)}
               className={
                 activeId === id
-                  ? `${TOC_LINK_BASE_CLASSES} font-semibold text-emerald-800`
-                  : `${TOC_LINK_BASE_CLASSES} font-medium text-emerald-600 hover:text-emerald-800`
+                  ? `${TOC_LINK_BASE_CLASSES} font-semibold`
+                  : `${TOC_LINK_BASE_CLASSES} hover:text-emerald-900`
               }
               title={text}
               aria-label={text}
