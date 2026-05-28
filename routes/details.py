@@ -87,7 +87,7 @@ def _aggregate_image_filenames(conn, raw_medicine_name: str, raw_splimprint: str
             WHERE deleted_at IS NULL
               AND published = true
               AND LOWER(TRIM(medicine_name)) = LOWER(TRIM(:medicine_name))
-              AND """ + _SORTED_IMPRINT_SQL + """ = UPPER(:splimprint)
+              AND COALESCE(""" + _SORTED_IMPRINT_SQL + """, '') = UPPER(:splimprint)
               AND image_filename IS NOT NULL
               AND image_filename != ''
         """)
