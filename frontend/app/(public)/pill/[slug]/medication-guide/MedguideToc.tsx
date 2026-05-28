@@ -50,15 +50,12 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
 
     const headingEls: Element[] = []
     entries.forEach(({ id }) => {
-      // CSS.escape is defensive — the backend _slugify already produces safe ids,
-      // but we guard here in case the HTML comes from an unexpected source.
       const el = contentEl.querySelector(`#${CSS.escape(id)}`)
       if (el) headingEls.push(el)
     })
 
     if (headingEls.length === 0) return
 
-    // Track which headings are currently intersecting
     const visibleSet = new Set<string>()
 
     const observer = new IntersectionObserver(
@@ -72,7 +69,6 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
             visibleSet.delete(id)
           }
         })
-        // Pick the first entry (in DOM order) that is currently visible
         const first = entries.find(({ id }) => visibleSet.has(id))
         if (first) setActiveId(first.id)
       },

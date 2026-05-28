@@ -5,7 +5,7 @@ export const SHARED_CONTENT_ASIDE_CLASSES =
 export const SHARED_CONTENT_CARD_CLASSES =
   'min-w-0 w-full bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6'
 export const SHARED_READING_PROSE_CLASSES = [
-  'max-w-[70ch] text-base leading-relaxed text-slate-800',
+  'max-w-[70ch] mx-auto text-base leading-relaxed text-slate-800',
   '[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-900 [&_h1]:mb-4',
   '[&_h2]:text-lg [&_h2]:font-bold [&_h2]:text-slate-900 [&_h2]:mt-6 [&_h2]:mb-2',
   '[&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mt-4 [&_h3]:mb-1',
@@ -23,12 +23,12 @@ export const SHARED_READING_PROSE_CLASSES = [
 export const PRO_HIGHLIGHTS_CONTAINER_CLASSES =
   'rounded-xl border border-amber-200 border-l-4 border-l-amber-500 bg-amber-50/40 p-5'
 export const PRO_HIGHLIGHTS_PROSE_CLASSES = [
-  'max-w-[70ch] text-base leading-relaxed text-slate-800',
+  'max-w-[70ch] mx-auto text-base leading-relaxed text-slate-800',
   // Highlights wrapper structure
   '[&_.pro-highlights-header]:flex [&_.pro-highlights-header]:flex-wrap [&_.pro-highlights-header]:items-baseline [&_.pro-highlights-header]:gap-x-2 [&_.pro-highlights-header]:mb-3',
   '[&_.pro-highlights-title]:text-base [&_.pro-highlights-title]:font-bold [&_.pro-highlights-title]:text-slate-900 [&_.pro-highlights-title]:uppercase [&_.pro-highlights-title]:tracking-wide',
   '[&_.pro-highlights-meta]:text-xs [&_.pro-highlights-meta]:text-slate-500 [&_.pro-highlights-meta]:italic',
-  '[&_.pro-highlights-body]:max-w-[70ch] [&_.pro-highlights-body]:text-base [&_.pro-highlights-body]:leading-relaxed [&_.pro-highlights-body]:text-slate-800',
+  '[&_.pro-highlights-body]:max-w-[70ch] [&_.pro-highlights-body]:mx-auto [&_.pro-highlights-body]:text-base [&_.pro-highlights-body]:leading-relaxed [&_.pro-highlights-body]:text-slate-800',
   // Sub-section blocks — dashed border dividers like DailyMed
   '[&_.pro-highlights-section]:border-t [&_.pro-highlights-section]:border-dashed [&_.pro-highlights-section]:border-slate-300 [&_.pro-highlights-section]:pt-3 [&_.pro-highlights-section]:mt-3',
   // Sub-section headings — centered like original DailyMed/FDA style
