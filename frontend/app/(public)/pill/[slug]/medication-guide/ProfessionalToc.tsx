@@ -6,7 +6,13 @@ import { MIN_PROFESSIONAL_TOC_SECTIONS } from './professionalTocConfig'
 type Section = { slug: string; label: string }
 const PRO_TOC_ROOT_MARGIN = '-100px 0px -60% 0px'
 
-export default function ProfessionalToc({ sections }: { sections: Section[] }) {
+export default function ProfessionalToc({
+  sections,
+  layout = 'sidebar',
+}: {
+  sections: Section[]
+  layout?: 'sidebar' | 'mobile-grid'
+}) {
   const [activeId, setActiveId] = useState<string | null>(sections[0]?.slug ?? null)
 
   useEffect(() => {
@@ -39,8 +45,6 @@ export default function ProfessionalToc({ sections }: { sections: Section[] }) {
           setActiveId(visible[0].target.id)
         }
       },
-      // Match the consumer TOC feel: activate slightly before the heading reaches the top,
-      // then keep it active until it has mostly scrolled past the viewport.
       { rootMargin: PRO_TOC_ROOT_MARGIN, threshold: 0 }
     )
 
@@ -50,20 +54,54 @@ export default function ProfessionalToc({ sections }: { sections: Section[] }) {
 
   if (sections.length < MIN_PROFESSIONAL_TOC_SECTIONS) return null
 
+  if (layout === 'mobile-grid') {
+    return (
+      <nav aria-label="On this page">
+        <ul className="grid grid-cols-2 gap-x-3 gap-y-1">
+          {sections.map((section) => (
+            <li key={section.slug}>
+              <a
+                href={`#${section.slug}`}
+                title={section.label}
+                className={
+                  'block truncate py-1 text-sm leading-5 text-emerald-700 transition-colors ' +
+                  (activeId === section.slug
+                    ? 'font-semibold'
+                    : 'hover:text-emerald-900')
+                }
+                onClick={(event) => {
+                  event.preventDefault()
+                  const element = document.getElementById(section.slug)
+                  if (element) {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    history.replaceState(null, '', `#${section.slug}`)
+                    setActiveId(section.slug)
+                  }
+                }}
+              >
+                {section.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    )
+  }
+
   return (
-    <nav aria-label="On this page" className="w-full max-w-[16rem]">
+    <nav aria-label="On this page" className="w-full max-w-[16rem] max-h-[24rem] overflow-y-auto pr-1 lg:max-h-[calc(100vh-10rem)]">
       <div className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-4">On this page</div>
-      <ul className="space-y-1.5">
+      <ul className="space-y-1">
         {sections.map((section) => (
           <li key={section.slug}>
             <a
               href={`#${section.slug}`}
               title={section.label}
               className={
-                'block py-1 text-sm leading-6 transition-colors ' +
+                'block py-1 text-sm leading-5 text-emerald-700 transition-colors ' +
                 (activeId === section.slug
-                  ? 'text-emerald-800 font-semibold'
-                  : 'text-emerald-600 hover:text-emerald-800')
+                  ? 'font-semibold'
+                  : 'hover:text-emerald-900')
               }
               onClick={(event) => {
                 event.preventDefault()
