@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 USE_DRUG_SYNONYMS = os.getenv("USE_DRUG_SYNONYMS", "false").lower() in ("true", "1", "yes")
+_NORMALIZED_IMPRINT_SQL = "UPPER(REGEXP_REPLACE(COALESCE(splimprint, ''), '[;,\\s]+', ' ', 'g'))"
+_SORTED_IMPRINT_SQL = (
+    "(SELECT string_agg(tok, ' ' ORDER BY tok) "
+    f"FROM regexp_split_to_table({_NORMALIZED_IMPRINT_SQL}, ' ') tok "
+    "WHERE tok <> '')"
+)
 
 
 class SuggestionResponseItem(BaseModel):
@@ -82,20 +88,32 @@ def get_suggestions(
         norm_imp = normalize_imprint(norm_q)
         if not norm_imp:
             return []
+        tokens = norm_imp.split()
         with database.db_engine.connect() as conn:
-            sql = text("""
-                SELECT DISTINCT splimprint
-                    FROM pillfinder
-                    WHERE deleted_at IS NULL
-                    AND published = true
-                    AND splimprint IS NOT NULL
-                    AND UPPER(
-                        REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')
-                    ) LIKE UPPER(:like_imp)
-                    ORDER BY splimprint
-                    LIMIT :lim
-            """)
-            rows = conn.execute(sql, {"like_imp": f"{norm_imp}%", "lim": MAX_SUGGESTIONS})
+            if len(tokens) == 1:
+                sql = text(f"""
+                    SELECT DISTINCT splimprint
+                        FROM pillfinder
+                        WHERE deleted_at IS NULL
+                        AND published = true
+                        AND splimprint IS NOT NULL
+                        AND {_NORMALIZED_IMPRINT_SQL} ~ ('(^| )' || UPPER(:token) || '( |$)')
+                        ORDER BY splimprint
+                        LIMIT :lim
+                """)
+                rows = conn.execute(sql, {"token": re.escape(tokens[0]), "lim": MAX_SUGGESTIONS})
+            else:
+                sql = text(f"""
+                    SELECT DISTINCT splimprint
+                        FROM pillfinder
+                        WHERE deleted_at IS NULL
+                        AND published = true
+                        AND splimprint IS NOT NULL
+                        AND {_SORTED_IMPRINT_SQL} = UPPER(:sorted_imp)
+                        ORDER BY splimprint
+                        LIMIT :lim
+                """)
+                rows = conn.execute(sql, {"sorted_imp": norm_imp, "lim": MAX_SUGGESTIONS})
             out = []
             seen = set()
             for r in rows:
@@ -275,10 +293,15 @@ def api_search(
                 query = q.strip()
                 if search_type == "imprint":
                     norm = normalize_imprint(query)
-                    search_conditions.append(
-                        "UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+', ' ', 'g')) LIKE UPPER(:imprint_like)"
-                    )
-                    search_params["imprint_like"] = f"%{norm}%"
+                    tokens = norm.split()
+                    if len(tokens) == 1:
+                        search_conditions.append(
+                            f"{_NORMALIZED_IMPRINT_SQL} ~ ('(^| )' || UPPER(:imprint_token) || '( |$)')"
+                        )
+                        search_params["imprint_token"] = re.escape(tokens[0])
+                    elif len(tokens) > 1:
+                        search_conditions.append(f"{_SORTED_IMPRINT_SQL} = UPPER(:sorted_imprint)")
+                        search_params["sorted_imprint"] = norm
                 elif search_type == "drug":
                     lower_query = query.lower()
                     direct_conditions = [

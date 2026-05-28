@@ -120,11 +120,12 @@ def split_image_filenames(filename: str) -> List[str]:
 
 @lru_cache(maxsize=1000)
 def normalize_imprint(value: str) -> str:
-    """Normalize imprint value by standardizing format"""
+    """Normalize imprint value — order-insensitive token sorting."""
     if pd.isna(value):
         return ""
-    cleaned = re.sub(r'[;,\s]+', ' ', str(value)).strip().upper()
-    return cleaned
+    tokens = re.split(r'[;,\s]+', str(value).strip().upper())
+    tokens = [token for token in tokens if token]
+    return " ".join(sorted(tokens))
 
 
 @lru_cache(maxsize=1000)
