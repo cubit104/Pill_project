@@ -130,7 +130,7 @@ export default function DrugPageHeader({
   const headerDrugName = resolveHeaderDrugName({ drugName, genericName, isBrandPrimary })
   const generic = genericName?.trim() ? toTitleCase(genericName.trim()) : null
   const brandList = splitBrandNames(brandName)
-  const classDisplay = drugClass?.trim() ?? null
+  const classDisplay = drugClass?.trim() ? toTitleCase(drugClass.trim()) : null
   const formDisplay = dosageForm?.trim() ? toTitleCase(dosageForm.trim()) : null
 
   const genericIsDuplicate = generic?.toLowerCase() === headerDrugName.toLowerCase()
