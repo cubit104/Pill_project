@@ -21,6 +21,12 @@ IMAGE_BASE = (os.getenv("IMAGE_BASE") or "").strip().rstrip("/")
 _IMAGE_BASE_WARNING_EMITTED = False
 _HISTORY_RESOLUTION_TTL_SECONDS = int(os.getenv("PILL_HISTORY_RESOLUTION_TTL_SECONDS", "3600"))
 _HISTORY_RESOLUTION_CACHE_MAX_ITEMS = int(os.getenv("PILL_HISTORY_RESOLUTION_CACHE_MAX_ITEMS", "1000"))
+_NORMALIZED_IMPRINT_SQL = "UPPER(REGEXP_REPLACE(COALESCE(splimprint, ''), '[;,\\s]+', ' ', 'g'))"
+_SORTED_IMPRINT_SQL = (
+    "(SELECT string_agg(tok, ' ' ORDER BY tok) "
+    f"FROM regexp_split_to_table({_NORMALIZED_IMPRINT_SQL}, ' ') tok "
+    "WHERE tok <> '')"
+)
 _history_resolution_cache: "OrderedDict[str, tuple[float, dict[str, Any]]]" = OrderedDict()
 _history_resolution_cache_lock = Lock()
 
@@ -81,14 +87,13 @@ def _aggregate_image_filenames(conn, raw_medicine_name: str, raw_splimprint: str
             WHERE deleted_at IS NULL
               AND published = true
               AND LOWER(TRIM(medicine_name)) = LOWER(TRIM(:medicine_name))
-              AND UPPER(REGEXP_REPLACE(COALESCE(splimprint, ''), '[;,\\s]+', ' ', 'g'))
-                = UPPER(REGEXP_REPLACE(COALESCE(:splimprint, ''), '[;,\\s]+', ' ', 'g'))
+              AND """ + _SORTED_IMPRINT_SQL + """ = UPPER(:splimprint)
               AND image_filename IS NOT NULL
               AND image_filename != ''
         """)
         img_rows = conn.execute(image_q, {
             "medicine_name": raw_medicine_name,
-            "splimprint": raw_splimprint,
+            "splimprint": normalize_imprint(raw_splimprint),
         })
         for r in img_rows:
             _add(r[0])
@@ -291,7 +296,7 @@ def get_pill_details(
                     SELECT * FROM pillfinder
                     WHERE deleted_at IS NULL
                       AND published = true
-                      AND UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
+                      AND """ + _SORTED_IMPRINT_SQL + """ = UPPER(:imprint)
                       AND LOWER(TRIM(medicine_name)) = LOWER(:drug_name)
                     LIMIT 1
                 """)
@@ -303,7 +308,7 @@ def get_pill_details(
                     SELECT * FROM pillfinder
                     WHERE deleted_at IS NULL
                       AND published = true
-                      AND UPPER(REGEXP_REPLACE(splimprint, '[;,\\s]+',' ','g')) = UPPER(:imprint)
+                      AND """ + _SORTED_IMPRINT_SQL + """ = UPPER(:imprint)
                     LIMIT 1
                 """)
                 result = conn.execute(query, {"imprint": norm_imp})
