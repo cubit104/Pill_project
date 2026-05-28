@@ -1,4 +1,6 @@
-import React from 'react'
+'use client'
+
+import React, { useState } from 'react'
 
 type DrugPageHeaderProps = {
   drugName: string
@@ -10,13 +12,14 @@ type DrugPageHeaderProps = {
   pageLabel: string
 }
 
-function normalizeNames(value: string | null | undefined): string {
-  if (!value) return ''
+const BRAND_PREVIEW_COUNT = 5
+
+function splitBrandNames(value: string | null | undefined): string[] {
+  if (!value) return []
   return value
     .split(/[;,/]/)
     .map((part) => part.trim())
     .filter(Boolean)
-    .join(', ')
 }
 
 function toTitleCase(value: string): string {
@@ -54,7 +57,7 @@ function stripImprintLikeSuffix(name: string): string {
 function hasNamePrefix(value: string, prefix: string): boolean {
   if (!value.toLowerCase().startsWith(prefix.toLowerCase())) return false
   const nextChar = value.slice(prefix.length, prefix.length + 1)
-  return !nextChar || /[\s,;:/()\-]/.test(nextChar)
+  return !nextChar || /[\s,;:/()-]/.test(nextChar)
 }
 
 function resolveHeaderDrugName({
@@ -76,6 +79,45 @@ function resolveHeaderDrugName({
   return trimmedDrugName
 }
 
+function BrandNamesList({ brands }: { brands: string[] }) {
+  const [showAll, setShowAll] = useState(false)
+  const preview = brands.slice(0, BRAND_PREVIEW_COUNT)
+  const remaining = brands.length - BRAND_PREVIEW_COUNT
+
+  return (
+    <span className="text-slate-800">
+      {showAll ? (
+        <>
+          {brands.join(', ')}{' '}
+          <button
+            type="button"
+            className="text-emerald-700 hover:underline text-xs"
+            onClick={() => setShowAll(false)}
+          >
+            − show less
+          </button>
+        </>
+      ) : (
+        <>
+          {preview.join(', ')}
+          {remaining > 0 && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="text-emerald-700 hover:underline text-xs"
+                onClick={() => setShowAll(true)}
+              >
+                +{remaining} more
+              </button>
+            </>
+          )}
+        </>
+      )}
+    </span>
+  )
+}
+
 export default function DrugPageHeader({
   drugName,
   genericName,
@@ -87,18 +129,17 @@ export default function DrugPageHeader({
 }: DrugPageHeaderProps) {
   const headerDrugName = resolveHeaderDrugName({ drugName, genericName, isBrandPrimary })
   const generic = genericName?.trim() ? toTitleCase(genericName.trim()) : null
-  const brands = normalizeNames(brandName) || null
-  const classDisplay = drugClass?.trim() ? toTitleCase(drugClass.trim()) : null
+  const brandList = splitBrandNames(brandName)
+  const classDisplay = drugClass?.trim() ?? null
   const formDisplay = dosageForm?.trim() ? toTitleCase(dosageForm.trim()) : null
 
   const genericIsDuplicate = generic?.toLowerCase() === headerDrugName.toLowerCase()
-  const brandsIsDuplicate = brands?.toLowerCase() === headerDrugName.toLowerCase()
+  const brandsIsDuplicate =
+    brandList.length === 1 && brandList[0].toLowerCase() === headerDrugName.toLowerCase()
   const shouldShowBrands = !isBrandPrimary || genericIsDuplicate
 
-  // H1 is a brand name → show Generic: line (if not same as H1)
   const showGeneric = isBrandPrimary && !!generic && !genericIsDuplicate
-  // H1 is a generic name (or generic == H1) → show Brand names: line (if not same as H1)
-  const showBrands = shouldShowBrands && !!brands && !brandsIsDuplicate
+  const showBrands = shouldShowBrands && brandList.length > 0 && !brandsIsDuplicate
 
   const hasMetaLines = showGeneric || showBrands || !!classDisplay || !!formDisplay
 
@@ -125,11 +166,11 @@ export default function DrugPageHeader({
             </p>
           )}
 
-          {/* Brand names (shown when H1 is a generic name, e.g. Losartan Potassium → Brand names: Cozaar) */}
+          {/* Brand names (shown when H1 is a generic name, truncated to 5 + N more) */}
           {showBrands && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Brand names:</span>{' '}
-              <span className="text-slate-800">{brands}</span>
+              <BrandNamesList brands={brandList} />
             </p>
           )}
 
