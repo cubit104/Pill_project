@@ -8,7 +8,8 @@ interface TocEntry {
   text: string
   level: 2 | 3
 }
-const TOC_LINK_BASE_CLASSES = 'block break-words py-1 text-sm leading-6'
+const TOC_LINK_BASE_CLASSES = 'block break-words py-1 text-sm leading-5 text-emerald-700 transition-colors'
+const TOC_LINK_BASE_CLASSES_MOBILE = 'block truncate py-1 text-sm leading-5 text-emerald-700 transition-colors'
 
 function extractHeadings(html: string): TocEntry[] {
   if (typeof window === 'undefined' || !html) return []
@@ -29,7 +30,15 @@ function extractHeadings(html: string): TocEntry[] {
   }
 }
 
-export default function MedguideToc({ html, drugName }: { html: string; drugName: string }) {
+export default function MedguideToc({
+  html,
+  drugName,
+  layout = 'sidebar',
+}: {
+  html: string
+  drugName: string
+  layout?: 'sidebar' | 'mobile-grid'
+}) {
   const [entries, setEntries] = useState<TocEntry[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)
@@ -50,15 +59,12 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
 
     const headingEls: Element[] = []
     entries.forEach(({ id }) => {
-      // CSS.escape is defensive — the backend _slugify already produces safe ids,
-      // but we guard here in case the HTML comes from an unexpected source.
       const el = contentEl.querySelector(`#${CSS.escape(id)}`)
       if (el) headingEls.push(el)
     })
 
     if (headingEls.length === 0) return
 
-    // Track which headings are currently intersecting
     const visibleSet = new Set<string>()
 
     const observer = new IntersectionObserver(
@@ -72,7 +78,6 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
             visibleSet.delete(id)
           }
         })
-        // Pick the first entry (in DOM order) that is currently visible
         const first = entries.find(({ id }) => visibleSet.has(id))
         if (first) setActiveId(first.id)
       },
@@ -97,12 +102,38 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
     }
   }
 
+  if (layout === 'mobile-grid') {
+    return (
+      <nav aria-label="On this page">
+        <ul className="grid grid-cols-2 gap-x-3 gap-y-1">
+          {entries.map(({ id, text }) => (
+            <li key={id}>
+              <a
+                href={`#${id}`}
+                onClick={(e) => handleClick(e, id)}
+                className={
+                  activeId === id
+                    ? `${TOC_LINK_BASE_CLASSES_MOBILE} font-semibold`
+                    : `${TOC_LINK_BASE_CLASSES_MOBILE} hover:text-emerald-900`
+                }
+                title={text}
+                aria-label={text}
+              >
+                {shortenTocLabel(text, drugName)}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    )
+  }
+
   return (
-    <nav aria-label="On this page" className="w-full max-w-[16rem]">
+    <nav aria-label="On this page" className="w-full max-w-[16rem] max-h-[24rem] overflow-y-auto pr-1 lg:max-h-[calc(100vh-10rem)]">
       <p className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-4">
         On this page
       </p>
-      <ul className="space-y-1.5">
+      <ul className="space-y-1">
         {entries.map(({ id, text, level }) => (
           <li key={id} className={level === 3 ? 'pl-4' : ''}>
             <a
@@ -110,8 +141,8 @@ export default function MedguideToc({ html, drugName }: { html: string; drugName
               onClick={(e) => handleClick(e, id)}
               className={
                 activeId === id
-                  ? `${TOC_LINK_BASE_CLASSES} font-semibold text-emerald-800`
-                  : `${TOC_LINK_BASE_CLASSES} font-medium text-emerald-600 hover:text-emerald-800`
+                  ? `${TOC_LINK_BASE_CLASSES} font-semibold`
+                  : `${TOC_LINK_BASE_CLASSES} hover:text-emerald-900`
               }
               title={text}
               aria-label={text}

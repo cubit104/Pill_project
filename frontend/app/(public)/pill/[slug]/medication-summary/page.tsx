@@ -4,6 +4,7 @@ import { notFound, redirect } from 'next/navigation'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
+import { SHARED_READING_PROSE_CLASSES } from '../medication-guide/layoutStyles'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, faqSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
@@ -291,31 +292,35 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
         <div className="space-y-4">
           {questions.map((item) => (
             <section key={item.question} className="rounded-xl border border-slate-200 bg-white p-5">
-              <h2 className="mb-3 text-base font-semibold text-slate-900">{item.question}</h2>
-              <p className="text-sm leading-8 text-slate-800">{item.answer}</p>
+              <div className={SHARED_READING_PROSE_CLASSES}>
+                <h2>{item.question}</h2>
+                <p>{item.answer}</p>
+              </div>
             </section>
           ))}
         </div>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 text-sm leading-8 text-slate-800 space-y-2">
-          <p>
-            <Link href={`/pill/${encodedSlug}/professional-information`} className="text-emerald-700 hover:underline">
-              View full Professional Information
-            </Link>
-          </p>
-          <p>
-            <Link href={`/pill/${encodedSlug}`} className="text-emerald-700 hover:underline">
-              Return to main pill page
-            </Link>
-          </p>
-          {guideData?.source_url && (
+        <section className="rounded-xl border border-slate-200 bg-white p-5">
+          <div className={SHARED_READING_PROSE_CLASSES}>
             <p>
-              Source:{' '}
-              <a href={guideData.source_url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">
-                DailyMed prescribing information ↗
-              </a>
+              <Link href={`/pill/${encodedSlug}/professional-information`} className="text-emerald-700 hover:underline">
+                View full Professional Information
+              </Link>
             </p>
-          )}
+            <p>
+              <Link href={`/pill/${encodedSlug}`} className="text-emerald-700 hover:underline">
+                Return to main pill page
+              </Link>
+            </p>
+            {guideData?.source_url && (
+              <p>
+                Source:{' '}
+                <a href={guideData.source_url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">
+                  DailyMed prescribing information ↗
+                </a>
+              </p>
+            )}
+          </div>
         </section>
 
         <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
