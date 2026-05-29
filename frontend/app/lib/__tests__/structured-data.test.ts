@@ -46,3 +46,10 @@ test('imageObjectSchema returns null when no images are provided', () => {
   const schema = imageObjectSchema(basePill, [])
   assert.equal(schema, null)
 })
+
+test('imageObjectSchema builds fallback caption when alt text is missing', () => {
+  const schema = imageObjectSchema(basePill, ['https://example.com/pill-1.jpg'])
+  assert.ok(schema && !Array.isArray(schema))
+  assert.equal(schema.caption, 'White Round Aspirin 81 mg pill imprinted A 123')
+  assert.equal(schema.name, 'White Round Aspirin 81 mg pill imprinted A 123')
+})

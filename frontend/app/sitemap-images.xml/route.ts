@@ -1,5 +1,6 @@
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com').replace(/\/$/, '')
+const REVALIDATE_SECONDS = 86400
 
 type SlugImagesEntry = {
   slug: string
@@ -36,7 +37,9 @@ function buildXml(entries: SlugImagesEntry[]): string {
 
 export async function GET() {
   try {
-    const slugRes = await fetch(`${API_BASE}/api/slugs/images`, { next: { revalidate: 86400 } })
+    const slugRes = await fetch(`${API_BASE}/api/slugs/images`, {
+      next: { revalidate: REVALIDATE_SECONDS },
+    })
     if (!slugRes.ok) {
       console.error(
         `[sitemap-images] Failed to fetch slug image data from backend: ${slugRes.status} ${slugRes.statusText}`

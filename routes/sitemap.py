@@ -2,7 +2,6 @@ import os
 import logging
 from xml.sax.saxutils import escape as xml_escape
 from typing import List
-import re
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
@@ -122,8 +121,6 @@ def _fetch_slugs_with_images(conn) -> List[SlugImages]:
         slug = row[0]
         image_filename = row[1]
         if not slug or not image_filename:
-            continue
-        if not any(part.strip() for part in re.split(r"[,;]+", str(image_filename))):
             continue
         image_urls = _build_image_urls(str(image_filename))
         if not image_urls:

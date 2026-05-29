@@ -857,7 +857,7 @@ def test_api_slugs_images_returns_slug_image_entries(client):
     mock_result = MagicMock()
     mock_result.__iter__ = MagicMock(
         return_value=iter([
-            ("aspirin-500mg-01", "aspirin-1.jpg,aspirin-2.jpg"),
+            ("aspirin-500mg-01", "aspirin-1.jpg;aspirin-2.jpg"),
             ("ibuprofen-200mg-02", " "),
             ("acetaminophen-500mg-03", "https://cdn.example.com/acetaminophen.jpg"),
         ])
@@ -873,13 +873,15 @@ def test_api_slugs_images_returns_slug_image_entries(client):
                 "https://images.example.com/aspirin-1.jpg",
                 "https://images.example.com/aspirin-2.jpg",
             ],
+            [],
             ["https://cdn.example.com/acetaminophen.jpg"],
         ],
     ):
         response = client.get("/api/slugs/images")
 
     assert response.status_code == 200
-    assert response.json() == [
+    payload = response.json()
+    assert payload == [
         {
             "slug": "aspirin-500mg-01",
             "images": [
@@ -892,6 +894,7 @@ def test_api_slugs_images_returns_slug_image_entries(client):
             "images": ["https://cdn.example.com/acetaminophen.jpg"],
         },
     ]
+    assert all(item["slug"] != "ibuprofen-200mg-02" for item in payload)
 
 
 def test_api_guide_page_slugs_returns_availability_payload(client):
