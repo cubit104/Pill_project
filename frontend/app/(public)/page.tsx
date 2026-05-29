@@ -1,10 +1,8 @@
 import type { Metadata } from 'next'
 import Image from 'next/image'
 import Link from 'next/link'
-import HomeFaq from '../components/HomeFaq'
+import dynamic from 'next/dynamic'
 import HomeSearch from '../components/HomeSearch'
-import PopularMedications from '../components/PopularMedications'
-import TrendingPills from '../components/TrendingPills'
 import { HOME_FAQS } from '../components/homeFaqItems'
 import {
   faqSchema,
@@ -12,6 +10,12 @@ import {
   safeJsonLd,
   websiteSchema,
 } from '../lib/structured-data'
+
+// Lazy-load below-the-fold components — still SSR'd for SEO, but JS is
+// split into a separate chunk so it doesn't block the initial paint.
+const HomeFaq = dynamic(() => import('../components/HomeFaq'), { ssr: true })
+const PopularMedications = dynamic(() => import('../components/PopularMedications'), { ssr: true })
+const TrendingPills = dynamic(() => import('../components/TrendingPills'), { ssr: true })
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
@@ -165,7 +169,7 @@ export default function HomePage() {
               <Link
                 key={card.title}
                 href={card.href}
-                className="block rounded-xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+                className="block rounded-xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
               >
                 {card.iconType === 'image' ? (
                   <Image
@@ -296,7 +300,7 @@ export default function HomePage() {
                   <rect x="4" y="14" width="16" height="12" rx="6" fill="#ef4444" stroke="#b91c1c" strokeWidth="1.5" />
                 </svg>
               </div>
-              <h3 className="font-semibold text-slate-900 mb-2 text-center">Pick Color & Shape</h3>
+              <h3 className="font-semibold text-slate-900 mb-2 text-center">Pick Color &amp; Shape</h3>
               <p className="text-slate-600 text-sm leading-relaxed text-center mb-3">
                 Too many matches? Narrow results with the pill&apos;s color and shape.
               </p>

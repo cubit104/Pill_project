@@ -55,10 +55,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      </head>
+      {/* Removed: preconnects to fonts.googleapis.com / fonts.gstatic.com
+          — no Google Font is loaded; font-sans uses the system font stack.
+          These only wasted DNS lookup time on the critical path. */}
       <body className="bg-slate-50 text-slate-900 antialiased min-h-screen flex flex-col font-sans">
         {children}
       </body>
