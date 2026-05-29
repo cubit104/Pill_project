@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import HomeFaq from '../components/HomeFaq'
@@ -296,7 +297,7 @@ export default function HomePage() {
                   <rect x="4" y="14" width="16" height="12" rx="6" fill="#ef4444" stroke="#b91c1c" strokeWidth="1.5" />
                 </svg>
               </div>
-              <h3 className="font-semibold text-slate-900 mb-2 text-center">Pick Color & Shape</h3>
+              <h3 className="font-semibold text-slate-900 mb-2 text-center">Pick Color &amp; Shape</h3>
               <p className="text-slate-600 text-sm leading-relaxed text-center mb-3">
                 Too many matches? Narrow results with the pill&apos;s color and shape.
               </p>
@@ -415,7 +416,9 @@ export default function HomePage() {
       </section>
 
       <PopularMedications />
-      <TrendingPills />
+      <Suspense fallback={null}>
+        <TrendingPills />
+      </Suspense>
       <HomeFaq />
 
       <section className="py-12 px-4">

@@ -28,12 +28,8 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       person_profiles: 'identified_only',
       capture_pageview: false, // handled manually via PostHogPageView
       capture_pageleave: true,
-      autocapture: true,
-      session_recording: {
-        maskAllInputs: true,
-        maskTextSelector: '[data-private]',
-      },
-      disable_session_recording: false,
+      autocapture: false,
+      disable_session_recording: true,
     })
   }, [])
   return (
