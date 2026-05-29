@@ -5,33 +5,53 @@ import { useEffect, useState } from 'react'
 type TrackerComponent = React.ComponentType
 
 export default function DeferredPublicTrackers() {
-  const [Analytics, setAnalytics] = useState<TrackerComponent | null>(null)
-  const [SpeedInsights, setSpeedInsights] = useState<TrackerComponent | null>(null)
-  const [PostHogTracker, setPostHogTracker] = useState<TrackerComponent | null>(null)
+  const [trackers, setTrackers] = useState<{
+    Analytics: TrackerComponent | null
+    SpeedInsights: TrackerComponent | null
+    PostHogTracker: TrackerComponent | null
+  }>({
+    Analytics: null,
+    SpeedInsights: null,
+    PostHogTracker: null,
+  })
 
   useEffect(() => {
     let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    let idleId: number | null = null
 
-    void import('@vercel/analytics/react').then((mod) => {
-      if (!cancelled) setAnalytics(() => mod.Analytics)
-    })
-    void import('@vercel/speed-insights/next').then((mod) => {
-      if (!cancelled) setSpeedInsights(() => mod.SpeedInsights)
-    })
-    void import('../lib/posthog').then((mod) => {
-      if (!cancelled) setPostHogTracker(() => mod.PostHogTracker)
-    })
+    const loadTrackers = async () => {
+      const [analyticsMod, speedInsightsMod, posthogMod] = await Promise.all([
+        import('@vercel/analytics/react'),
+        import('@vercel/speed-insights/next'),
+        import('../lib/posthog'),
+      ])
+      if (cancelled) return
+      setTrackers({
+        Analytics: analyticsMod.Analytics,
+        SpeedInsights: speedInsightsMod.SpeedInsights,
+        PostHogTracker: posthogMod.PostHogTracker,
+      })
+    }
+
+    if ('requestIdleCallback' in window) {
+      idleId = window.requestIdleCallback(() => void loadTrackers(), { timeout: 4000 })
+    } else {
+      timeoutId = setTimeout(() => void loadTrackers(), 0)
+    }
 
     return () => {
       cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+      if (idleId !== null && 'cancelIdleCallback' in window) window.cancelIdleCallback(idleId)
     }
   }, [])
 
   return (
     <>
-      {Analytics ? <Analytics /> : null}
-      {SpeedInsights ? <SpeedInsights /> : null}
-      {PostHogTracker ? <PostHogTracker /> : null}
+      {trackers.Analytics ? <trackers.Analytics /> : null}
+      {trackers.SpeedInsights ? <trackers.SpeedInsights /> : null}
+      {trackers.PostHogTracker ? <trackers.PostHogTracker /> : null}
     </>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 
 type PostHogClient = typeof import('posthog-js')['default']
@@ -14,19 +14,20 @@ export function PostHogTracker() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const clientRef = useRef<PostHogClient | null>(null)
+  const [isLoaded, setIsLoaded] = useState(false)
 
   useEffect(() => {
     if (!pathname) return
 
     const pagePath = buildPageUrl(pathname, searchParams)
     const client = clientRef.current
-    if (!client || !client.__loaded) return
+    if (!client || !client.__loaded || !isLoaded) return
 
     client.capture('$pageview', {
       $current_url: window.location.href,
       $pathname: pagePath,
     })
-  }, [pathname, searchParams])
+  }, [pathname, searchParams, isLoaded])
 
   useEffect(() => {
     const key = process.env.NEXT_PUBLIC_POSTHOG_KEY
@@ -53,17 +54,11 @@ export function PostHogTracker() {
       }
 
       clientRef.current = posthog
-
-      if (pathname) {
-        posthog.capture('$pageview', {
-          $current_url: window.location.href,
-          $pathname: buildPageUrl(pathname, searchParams),
-        })
-      }
+      setIsLoaded(true)
     }
 
     if ('requestIdleCallback' in window) {
-      idleId = window.requestIdleCallback(() => void loadPostHog(), { timeout: 1500 })
+      idleId = window.requestIdleCallback(() => void loadPostHog(), { timeout: 4000 })
     } else {
       timeoutId = setTimeout(() => void loadPostHog(), 0)
     }
@@ -71,9 +66,9 @@ export function PostHogTracker() {
     return () => {
       cancelled = true
       if (timeoutId) clearTimeout(timeoutId)
-      if (idleId && 'cancelIdleCallback' in window) window.cancelIdleCallback(idleId)
+      if (idleId !== null && 'cancelIdleCallback' in window) window.cancelIdleCallback(idleId)
     }
-  }, [pathname, searchParams])
+  }, [])
 
   return null
 }

@@ -9,6 +9,7 @@ html {
 
 .defer-render {
   content-visibility: auto;
+  /* Reserve enough vertical space for most deferred homepage sections to minimize layout shift. */
   contain-intrinsic-size: 1px 900px;
 }
 
