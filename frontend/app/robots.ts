@@ -24,6 +24,7 @@ export default function robots(): MetadataRoute.Robots {
     sitemap: [
       `${siteUrl}/sitemap.xml`,
       `${siteUrl}/sitemap-prices.xml`,
+      `${siteUrl}/sitemap-images.xml`,
     ],
   }
 }

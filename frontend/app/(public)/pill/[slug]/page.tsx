@@ -6,11 +6,13 @@ import {
   breadcrumbSchema,
   buildIdentificationSummary,
   faqSchema,
+  imageObjectSchema,
   medicalWebPageSchema,
   safeJsonLd,
 } from '../../../lib/structured-data'
 import { DEFAULT_REVIEWER } from '../../../lib/reviewers'
 import { slugifyDrugName } from '../../../lib/slug'
+import { resolveImageUrls } from '../../../lib/image-url'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -223,11 +225,7 @@ export async function generateMetadata(
   }
   const description = pill.meta_description || truncateAtWord(identificationSummary, 155)
 
-  const images = pill.images && pill.images.length > 0
-    ? pill.images
-    : pill.image_url
-    ? [pill.image_url]
-    : []
+  const images = resolveImageUrls(pill)
 
   // Canonical URL — no trailing slash, matches actual browser URL
   const canonicalUrl = `${SITE_URL}/pill/${encodeURIComponent(slug)}`
@@ -315,6 +313,7 @@ export default async function PillDetailPage(
     : undefined
 
   const identificationSummary = buildIdentificationSummary(pill)
+  const imageObjects = imageObjectSchema(pill, resolveImageUrls(pill))
 
   const medPage = medicalWebPageSchema(pill, slug, {
     dateModified: lastUpdatedIso,
@@ -338,6 +337,12 @@ export default async function PillDetailPage(
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: safeJsonLd(faqSchema(faqItems)) }}
+        />
+      )}
+      {imageObjects && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(imageObjects) }}
         />
       )}
       <PillDetailClient
