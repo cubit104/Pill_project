@@ -55,8 +55,6 @@ If hub pages grow to > 48 results, implement proper SEO pagination:
 ### Image Search SEO
 
 Pill images are a significant traffic source. Future improvements:
-- Add structured `ImageObject` schema with `name`, `caption`, `contentUrl`
-- Submit a dedicated image sitemap (`/sitemap-images.xml`)
 - Ensure all images are served from a CDN with proper cache headers
 - Consider adding watermarks or attribution to protect image assets
 
@@ -76,7 +74,6 @@ After implementing basic CWV improvements (done in this sprint), the following a
 ### Schema Markup — Advanced
 
 Future schema additions:
-- `ImageObject` schema on pill detail pages linking to each pill image
 - `HealthTopicContent` (Google Health carousel) if eligibility is met
 - `HowTo` schema for the "How to identify a pill" guide
 - `SiteLinksSearchBox` (already handled by `WebSite` + `SearchAction`)
@@ -112,9 +109,11 @@ To capture "pill with imprint X" voice queries and featured snippets:
 - ✅ Footer links to all trust pages
 - ✅ `robots.txt` updated (disallow `/api/`, `/admin/`, search query params)
 - ✅ `sitemap.xml` updated (all static pages + pill pages)
+- ✅ `sitemap-images.xml` added for crawler image discovery
 - ✅ Hub pages: `/color/[color]`, `/shape/[shape]`, `/drug/[name]`, `/imprint/[imprint]`
 - ✅ Internal linking: breadcrumbs on all non-home pages, related pills links on detail pages
 - ✅ Image `alt` text made descriptive on pill detail and card pages
+- ✅ `ImageObject` schema on pill detail pages linking to pill image URLs
 - ✅ `loading="lazy"` on below-fold images, `width`/`height` set to reduce CLS
 - ✅ `noindex,follow` on search result pages (`/search`)
 - ✅ `noindex,follow` on thin pill pages (missing imprint/NDC)
