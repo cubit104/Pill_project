@@ -36,7 +36,7 @@ test('home page links cards and lower sections to the intended components', () =
   assert.match(source, /card\.iconType === 'image' \? \(/)
   assert.match(source, /<TrendingPills \/>/)
   assert.match(source, /<HomeFaq \/>/)
-  assert.match(source, /<PopularMedications \/>\s*<TrendingPills \/>\s*<HomeFaq \/>/)
+  assert.match(source, /<PopularMedications \/>\s*<Suspense[^>]*>\s*<TrendingPills \/>\s*<\/Suspense>\s*<HomeFaq \/>/)
   assert.match(source, /Medical content reviewed by licensed pharmacists · Last updated: \{HOME_LAST_UPDATED\}/)
 })
 

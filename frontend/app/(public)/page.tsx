@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import HomeFaq from '../components/HomeFaq'
@@ -415,7 +416,9 @@ export default function HomePage() {
       </section>
 
       <PopularMedications />
-      <TrendingPills />
+      <Suspense fallback={null}>
+        <TrendingPills />
+      </Suspense>
       <HomeFaq />
 
       <section className="py-12 px-4">
