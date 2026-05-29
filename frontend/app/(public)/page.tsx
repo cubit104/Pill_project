@@ -1,8 +1,10 @@
 import type { Metadata } from 'next'
 import Image from 'next/image'
 import Link from 'next/link'
-import dynamic from 'next/dynamic'
+import HomeFaq from '../components/HomeFaq'
 import HomeSearch from '../components/HomeSearch'
+import PopularMedications from '../components/PopularMedications'
+import TrendingPills from '../components/TrendingPills'
 import { HOME_FAQS } from '../components/homeFaqItems'
 import {
   faqSchema,
@@ -10,12 +12,6 @@ import {
   safeJsonLd,
   websiteSchema,
 } from '../lib/structured-data'
-
-// Lazy-load below-the-fold components — still SSR'd for SEO, but JS is
-// split into a separate chunk so it doesn't block the initial paint.
-const HomeFaq = dynamic(() => import('../components/HomeFaq'), { ssr: true })
-const PopularMedications = dynamic(() => import('../components/PopularMedications'), { ssr: true })
-const TrendingPills = dynamic(() => import('../components/TrendingPills'), { ssr: true })
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
@@ -169,7 +165,7 @@ export default function HomePage() {
               <Link
                 key={card.title}
                 href={card.href}
-                className="block rounded-xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                className="block rounded-xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
               >
                 {card.iconType === 'image' ? (
                   <Image

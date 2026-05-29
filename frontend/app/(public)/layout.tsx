@@ -10,8 +10,6 @@ import GoogleAnalyticsRouteTracker from '../components/GoogleAnalyticsRouteTrack
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
     <PostHogProvider>
-      {/* Preload the hero logo so it doesn't delay LCP */}
-      <link rel="preload" href="/logo-mark.svg" as="image" type="image/svg+xml" />
       <GoogleAnalytics />
       <Header />
       <main className="flex-1">{children}</main>

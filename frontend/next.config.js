@@ -3,12 +3,6 @@ const nextConfig = {
   // No trailing slash — URLs are /pill/slug not /pill/slug/
   // Consistent with canonical tags, sitemap, and OG URLs
   trailingSlash: false,
-
-  // Inline critical CSS, defer the rest → eliminates the 408ms blocking CSS chain
-  experimental: {
-    optimizeCss: true,
-  },
-
   images: {
     remotePatterns: [
       {
