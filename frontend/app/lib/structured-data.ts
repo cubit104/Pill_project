@@ -293,3 +293,38 @@ export function hubPageSchema(opts: {
     },
   })
 }
+
+export function imageObjectSchema(
+  pill: PillDetail,
+  imageUrls: string[]
+) {
+  if (!Array.isArray(imageUrls) || imageUrls.length === 0) return null
+
+  const imageAltText = pill.image_alt_text?.trim()
+  const imageDescription = imageAltText || (() => {
+    const parts = [pill.color, pill.shape, pill.drug_name, pill.strength]
+      .map((part) => (typeof part === 'string' ? part.trim() : part))
+      .filter((part): part is string => Boolean(part))
+    if (pill.imprint?.trim()) {
+      parts.push(`pill imprinted ${pill.imprint.trim()}`)
+    } else {
+      parts.push('pill')
+    }
+    const combined = parts.join(' ').replace(/\s+/g, ' ').trim()
+    return combined || buildIdentificationSummary(pill)
+  })()
+
+  const schemas = imageUrls.map((imageUrl, index) =>
+    stripUndefined({
+      '@context': 'https://schema.org' as const,
+      '@type': 'ImageObject' as const,
+      contentUrl: imageUrl,
+      url: imageUrl,
+      caption: imageDescription,
+      name: imageDescription,
+      representativeOfPage: index === 0 ? true : undefined,
+    })
+  )
+
+  return schemas.length === 1 ? schemas[0] : schemas
+}

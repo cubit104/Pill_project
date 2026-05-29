@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
 import { safeJsonLd } from '../../../../lib/structured-data'
+import { resolveImageUrl } from '../../../../lib/image-url'
 import PriceCard from '../pricing/PriceCard'
 import type { PriceCardInitialData, PriceSnapshot } from '../pricing/priceCardData'
 import { fetchPill } from '../page'
@@ -13,18 +14,6 @@ import { fetchInitialPriceData, fetchPriceSnapshot } from './priceData'
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
-
-function resolveImageUrl(pill: {
-  image_url?: string | null
-  images?: Array<string | { url?: string | null } | null>
-}): string {
-  if (pill.image_url?.trim()) return pill.image_url.trim()
-  if (!Array.isArray(pill.images) || pill.images.length === 0) return ''
-  const first = pill.images[0]
-  if (typeof first === 'string') return first
-  if (first && typeof first === 'object' && 'url' in first) return first.url || ''
-  return ''
-}
 
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }

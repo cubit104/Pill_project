@@ -2,6 +2,7 @@ import os
 import logging
 from xml.sax.saxutils import escape as xml_escape
 from typing import List
+import re
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
@@ -10,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
+from routes.details import _build_image_urls
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,11 @@ class GuidePageSlug(BaseModel):
     has_medguide: bool
     has_professional: bool
     has_medication_summary: bool
+
+
+class SlugImages(BaseModel):
+    slug: str
+    images: List[str]
 
 
 def _fetch_guide_page_slugs(conn) -> List[GuidePageSlug]:
@@ -94,6 +101,37 @@ def _fetch_guide_page_slugs(conn) -> List[GuidePageSlug]:
     ]
 
 
+def _fetch_slugs_with_images(conn) -> List[SlugImages]:
+    result = conn.execute(
+        text(
+            """
+            SELECT slug, image_filename
+            FROM pillfinder
+            WHERE deleted_at IS NULL
+              AND published = true
+              AND slug IS NOT NULL
+              AND image_filename IS NOT NULL
+              AND image_filename != ''
+            ORDER BY slug
+            """
+        )
+    )
+
+    entries: List[SlugImages] = []
+    for row in result:
+        slug = row[0]
+        image_filename = row[1]
+        if not slug or not image_filename:
+            continue
+        if not any(part.strip() for part in re.split(r"[,;]+", str(image_filename))):
+            continue
+        image_urls = _build_image_urls(str(image_filename))
+        if not image_urls:
+            continue
+        entries.append(SlugImages(slug=slug, images=image_urls))
+    return entries
+
+
 @router.get("/api/slugs", response_model=List[str])
 def get_slugs():
     """Return a JSON array of all pill slugs (used by Next.js sitemap)"""
@@ -129,6 +167,25 @@ def get_guide_page_slugs():
         raise HTTPException(status_code=500, detail="Database error")
     except Exception as e:
         logger.error(f"Error in /api/slugs/guide-pages: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/api/slugs/images", response_model=List[SlugImages])
+def get_slugs_with_images():
+    """Return published slugs with resolved absolute image URLs."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = _fetch_slugs_with_images(conn)
+        return rows
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in /api/slugs/images: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in /api/slugs/images: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
