@@ -192,7 +192,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="bg-white border-y border-slate-200 py-10 px-4">
+      <section className="defer-render bg-white border-y border-slate-200 py-10 px-4">
         <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
           {[
             { value: '10,000+', label: 'FDA-approved medications' },
@@ -212,7 +212,7 @@ export default function HomePage() {
         </p>
       </section>
 
-      <section className="py-14 px-4">
+      <section className="defer-render py-14 px-4">
         <div className="max-w-5xl mx-auto">
           <h2 className="text-2xl sm:text-3xl font-bold text-center text-slate-900 mb-3">
             How It Works
@@ -337,7 +337,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="py-8 px-4">
+      <section className="defer-render py-8 px-4">
         <div className="max-w-4xl mx-auto space-y-3">
           <p className="text-center text-xs sm:text-sm text-slate-500">
             Medical content reviewed by licensed pharmacists · Last updated: {HOME_LAST_UPDATED}
@@ -357,7 +357,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="py-12 px-4 bg-white border-t border-slate-200">
+      <section className="defer-render py-12 px-4 bg-white border-t border-slate-200">
         <div className="max-w-4xl mx-auto">
           <h2 className="text-2xl font-bold text-center text-slate-900 mb-8">
             Browse Pills by Category
@@ -415,13 +415,19 @@ export default function HomePage() {
         </div>
       </section>
 
-      <PopularMedications />
+      <div className="defer-render">
+        <PopularMedications />
+      </div>
       <Suspense fallback={null}>
-        <TrendingPills />
+        <div className="defer-render">
+          <TrendingPills />
+        </div>
       </Suspense>
-      <HomeFaq />
+      <div className="defer-render">
+        <HomeFaq />
+      </div>
 
-      <section className="py-12 px-4">
+      <section className="defer-render py-12 px-4">
         <div className="max-w-4xl mx-auto">
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center">
             <h2 className="text-lg font-semibold text-emerald-900 mb-3">

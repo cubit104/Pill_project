@@ -235,6 +235,12 @@ npm run dev    # development server at http://localhost:3000
 npm run build  # production static export to frontend/out/
 ```
 
+### Mobile performance notes (homepage)
+
+- Public analytics/tracking clients are loaded as client-only dynamic imports so they don't block first paint.
+- PostHog bootstraps on idle time and captures pageviews after initialization, reducing initial route JavaScript cost.
+- Offscreen homepage sections use `content-visibility: auto` (`.defer-render`) so mobile browsers can prioritize above-the-fold render work.
+
 ## Vercel Deployment (Two-Project Setup)
 
 The frontend is split across two Vercel projects that build from the same repository:

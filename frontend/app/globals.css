@@ -7,6 +7,11 @@ html {
   scroll-padding-top: 6rem;
 }
 
+.defer-render {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 900px;
+}
+
 @media print {
   aside,
   nav[aria-label="On this page"],
