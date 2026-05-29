@@ -55,6 +55,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://www.googletagmanager.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://us-assets.i.posthog.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://us.i.posthog.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="//www.googletagmanager.com" />
+        <link rel="dns-prefetch" href="//us-assets.i.posthog.com" />
+        <link rel="dns-prefetch" href="//us.i.posthog.com" />
+      </head>
       <body className="bg-slate-50 text-slate-900 antialiased min-h-screen flex flex-col font-sans">
         {children}
       </body>
