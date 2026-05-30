@@ -151,7 +151,7 @@ export default function PillDetailClient({
   const [zoomImage, setZoomImage] = useState<string | null>(null)
   const [showAllBrands, setShowAllBrands] = useState(false)
   const resolvedSlug = slug ?? pill?.slug
-  const drugSlug = slugifyDrugName(pill.drug_name)
+  const drugSlug = pill.drug_name !== 'Unknown' ? slugifyDrugName(pill.drug_name) : ''
   const backHref = drugSlug ? `/drug/${drugSlug}` : '/'
   usePillView(resolvedSlug)
 
