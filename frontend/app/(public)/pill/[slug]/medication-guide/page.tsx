@@ -223,6 +223,7 @@ function SectionBlock({
   linkTargets: LinkTarget[]
   counter?: TermCounter
 }) {
+  if (!content) return null
   return (
     <section className="border-b border-slate-100 py-5 last:border-b-0">
       <h2 className="mb-4 text-base font-semibold text-slate-900">{label}</h2>
