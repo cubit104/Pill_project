@@ -30,11 +30,27 @@ function PillIconLarge() {
 }
 
 function DetailRow({ label, value, stripe }: { label: string; value?: string; stripe?: boolean }) {
+  const [expanded, setExpanded] = useState(false)
   if (!value) return null
+  const shouldTruncate = value.length > 60
+  const displayValue = shouldTruncate && !expanded ? `${value.slice(0, 60)}…` : value
   return (
     <div className={`py-2 px-3 flex flex-row items-start gap-2 rounded ${stripe ? 'bg-teal-50' : ''}`}>
       <dt className="text-sm font-semibold text-slate-600 w-36 shrink-0">{label}</dt>
-      <dd className="text-sm text-slate-800 flex-1">{value}</dd>
+      <dd className="text-sm text-slate-800 flex-1">
+        {displayValue}
+        {shouldTruncate && (
+          <button
+            type="button"
+            className="text-emerald-600 underline cursor-pointer text-sm ml-1"
+            aria-expanded={expanded}
+            aria-label={expanded ? 'Collapse text' : 'Expand full text'}
+            onClick={() => setExpanded((prev) => !prev)}
+          >
+            {expanded ? 'See less' : 'See more'}
+          </button>
+        )}
+      </dd>
     </div>
   )
 }
