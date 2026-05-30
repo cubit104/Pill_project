@@ -150,7 +150,6 @@ export async function generateMetadata({
   const pill = await fetchPill(slug)
   const dosage = await fetchDosage(slug)
   const drugName = resolveDrugName({ dosage, pill, slug })
-  const cleanSlug = slugifyDrugName(drugName) || encodeURIComponent(slug)
 
   return {
     title: `${drugName} Dosage & Administration – Recommended Doses | PillSeek`,
