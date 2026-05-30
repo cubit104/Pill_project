@@ -665,6 +665,139 @@ def get_pill_by_slug(slug: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.get("/api/pill/{slug}/dosage")
+def get_pill_dosage_by_slug(slug: str):
+    """Get dosage content for a pill slug using medication_guide priority matching."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            pill_result = conn.execute(
+                text(
+                    """
+                    SELECT
+                        medicine_name,
+                        rxcui,
+                        ndc11,
+                        ndc9,
+                        spl_set_id,
+                        dosage_form,
+                        dailymed_pharma_class_epc,
+                        pharmclass_fda_epc
+                    FROM pillfinder
+                    WHERE deleted_at IS NULL AND published = true AND slug = :slug
+                    LIMIT 1
+                    """
+                ),
+                {"slug": slug},
+            )
+            pill_row = pill_result.fetchone()
+            if not pill_row:
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            pill_columns = pill_result.keys()
+            pill_info = dict(zip(pill_columns, pill_row))
+
+            guide_params = {
+                "spl_set_id": str(pill_info.get("spl_set_id") or ""),
+                "rxcui": str(pill_info.get("rxcui") or ""),
+                "ndc11": str(pill_info.get("ndc11") or ""),
+                "ndc9": str(pill_info.get("ndc9") or ""),
+                "ndc11_clean": str(pill_info.get("ndc11") or "").replace("-", ""),
+                "ndc9_clean": str(pill_info.get("ndc9") or "").replace("-", ""),
+            }
+
+            guide_row = conn.execute(
+                text(
+                    """
+                    SELECT
+                        mg.generic_name,
+                        mg.brand_name,
+                        mg.rxcui,
+                        mg.ndc,
+                        mg.spl_set_id,
+                        mg.dosage,
+                        mg.has_boxed_warning,
+                        mg.boxed_warning_html,
+                        mg.source_url,
+                        mg.fetched_at
+                    FROM public.medication_guide mg
+                    WHERE (
+                            :spl_set_id <> ''
+                            AND mg.spl_set_id = :spl_set_id
+                        ) OR (
+                            :rxcui <> ''
+                            AND mg.rxcui = :rxcui
+                        ) OR (
+                            :ndc11 <> ''
+                            AND (
+                                mg.ndc = :ndc11
+                                OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc11_clean
+                            )
+                        ) OR (
+                            :ndc9 <> ''
+                            AND (
+                                mg.ndc = :ndc9
+                                OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc9_clean
+                            )
+                        )
+                    ORDER BY
+                        CASE
+                            WHEN :spl_set_id <> '' AND mg.spl_set_id = :spl_set_id THEN 0
+                            WHEN :rxcui <> '' AND mg.rxcui = :rxcui THEN 1
+                            WHEN :ndc11 <> '' AND (
+                                mg.ndc = :ndc11
+                                OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc11_clean
+                            ) THEN 2
+                            WHEN :ndc9 <> '' AND (
+                                mg.ndc = :ndc9
+                                OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc9_clean
+                            ) THEN 3
+                            ELSE 4
+                        END,
+                        mg.updated_at DESC NULLS LAST
+                    LIMIT 1
+                    """
+                ),
+                guide_params,
+            ).fetchone()
+
+            guide_data = dict(guide_row._mapping) if guide_row else {}
+            dosage_value = guide_data.get("dosage")
+            dosage = dosage_value.strip() if isinstance(dosage_value, str) else dosage_value
+            if isinstance(dosage, str) and not dosage:
+                dosage = None
+
+            return {
+                "drug_name": pill_info.get("medicine_name"),
+                "generic_name": guide_data.get("generic_name"),
+                "brand_name": guide_data.get("brand_name"),
+                "rxcui": guide_data.get("rxcui") or pill_info.get("rxcui"),
+                "ndc": guide_data.get("ndc") or pill_info.get("ndc11") or pill_info.get("ndc9"),
+                "spl_set_id": guide_data.get("spl_set_id") or pill_info.get("spl_set_id"),
+                "dosage": dosage,
+                "has_boxed_warning": bool(guide_data.get("has_boxed_warning")),
+                "boxed_warning_html": guide_data.get("boxed_warning_html"),
+                "drug_class": (
+                    pill_info.get("dailymed_pharma_class_epc")
+                    or pill_info.get("pharmclass_fda_epc")
+                ),
+                "dosage_form": pill_info.get("dosage_form"),
+                "source_url": guide_data.get("source_url"),
+                "fetched_at": _to_iso(guide_data.get("fetched_at")),
+            }
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_pill_dosage_by_slug: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in get_pill_dosage_by_slug: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 def _row_to_drug_dict(r: Any) -> Dict[str, Any]:
     """Convert a DB row (medicine_name, spl_strength, slug, splcolor_text, splshape_text, image_filename)
     to a drug dict suitable for API responses."""

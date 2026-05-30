@@ -1331,3 +1331,143 @@ def test_api_pill_slug_has_medguide_false_when_summary_column_missing_and_no_gui
     data = response.json()
     assert data["has_medguide"] is False
     assert data["has_medication_summary"] is False
+
+
+# ---------------------------------------------------------------------------
+# /api/pill/{slug}/dosage endpoint
+# ---------------------------------------------------------------------------
+
+def _make_pill_dosage_engine(*, dosage_value, has_guide: bool = True):
+    from datetime import datetime, timezone
+
+    pill_row = (
+        "Plavix",
+        "174742",
+        "63653-1171-01",
+        "636531171",
+        "setid-123",
+        "tablet",
+        "Platelet Aggregation Inhibitor [EPC]",
+        None,
+    )
+    pill_columns = [
+        "medicine_name",
+        "rxcui",
+        "ndc11",
+        "ndc9",
+        "spl_set_id",
+        "dosage_form",
+        "dailymed_pharma_class_epc",
+        "pharmclass_fda_epc",
+    ]
+
+    guide_row = (
+        "clopidogrel",
+        "Plavix",
+        "174742",
+        "63653-1171-01",
+        "setid-123",
+        dosage_value,
+        True,
+        "<p>Boxed warning</p>",
+        "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=setid-123",
+        datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc),
+    )
+    guide_columns = [
+        "generic_name",
+        "brand_name",
+        "rxcui",
+        "ndc",
+        "spl_set_id",
+        "dosage",
+        "has_boxed_warning",
+        "boxed_warning_html",
+        "source_url",
+        "fetched_at",
+    ]
+
+    def _execute(sql, params=None):
+        sql_str = str(sql).lower()
+
+        if "from pillfinder" in sql_str:
+            result = MagicMock()
+            result.fetchone.return_value = pill_row
+            result.keys.return_value = pill_columns
+            return result
+
+        if "from public.medication_guide" in sql_str:
+            result = MagicMock()
+            if has_guide:
+                result.fetchone.return_value = MagicMock(_mapping=dict(zip(guide_columns, guide_row)))
+            else:
+                result.fetchone.return_value = None
+            return result
+
+        result = MagicMock()
+        result.fetchone.return_value = None
+        return result
+
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_conn.execute.side_effect = _execute
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    return mock_engine
+
+
+def test_api_pill_dosage_returns_404_for_missing_slug(client):
+    import database as db_module
+
+    missing_result = MagicMock()
+    missing_result.fetchone.return_value = None
+
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.return_value = missing_result
+
+    response = client.get("/api/pill/nonexistent-slug/dosage")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Pill not found"
+
+
+def test_api_pill_dosage_returns_payload_when_guide_exists(client):
+    import database as db_module
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(dosage_value="<p>Take once daily.</p>", has_guide=True)
+        response = client.get("/api/pill/plavix-75-1171/dosage")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["drug_name"] == "Plavix"
+    assert payload["generic_name"] == "clopidogrel"
+    assert payload["brand_name"] == "Plavix"
+    assert payload["rxcui"] == "174742"
+    assert payload["ndc"] == "63653-1171-01"
+    assert payload["spl_set_id"] == "setid-123"
+    assert payload["dosage"] == "<p>Take once daily.</p>"
+    assert payload["has_boxed_warning"] is True
+    assert payload["boxed_warning_html"] == "<p>Boxed warning</p>"
+    assert payload["drug_class"] == "Platelet Aggregation Inhibitor [EPC]"
+    assert payload["dosage_form"] == "tablet"
+    assert payload["source_url"].startswith("https://dailymed.nlm.nih.gov/")
+    assert payload["fetched_at"] == "2026-05-20T12:00:00Z"
+
+
+def test_api_pill_dosage_returns_null_for_blank_dosage(client):
+    import database as db_module
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(dosage_value="   ", has_guide=True)
+        response = client.get("/api/pill/plavix-75-1171/dosage")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["dosage"] is None
