@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
-import { notFound, permanentRedirect } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
@@ -130,7 +130,10 @@ export async function generateMetadata({
   const pill = await fetchPill(slug)
   const dosage = await fetchDosage(slug)
   const drugName = resolveDrugName({ dosage, pill, slug })
-  const cleanSlug = slugifyDrugName(drugName) || encodeURIComponent(slug)
+  const cleanSlug =
+    slugifyDrugName(pill?.medicine_name || '') ||
+    slugifyDrugName(drugName) ||
+    encodeURIComponent(slug)
 
   return {
     title: `${drugName} Dosage & Administration – Recommended Doses | PillSeek`,
@@ -151,12 +154,6 @@ export default async function DosagePage({
   const dosageData = await fetchDosage(slug)
   const drugName = resolveDrugName({ dosage: dosageData, pill, slug })
 
-  // Redirect long pillfinder slug → clean drug-name slug (308 Permanent Redirect).
-  const cleanDrugSlug = slugifyDrugName(drugName) || null
-  if (cleanDrugSlug && slug !== cleanDrugSlug) {
-    permanentRedirect(`/pill/${cleanDrugSlug}/dosage`)
-  }
-
   const headerDrugName = stripDoseFromName(drugName)
   const headerMeta = resolveHeaderMetadata({
     drugName: headerDrugName,
@@ -173,19 +170,18 @@ export default async function DosagePage({
   })
 
   const encodedSlug = encodeURIComponent(slug)
-  // permanentRedirect() throws and exits this function, so code below only
-  // runs when slug is already the clean drug-name slug (redirect not needed)
-  // or when no clean slug could be computed (slug stays as-is). In both cases
-  // encodeURIComponent(slug) is the correct slug for all pill sub-page hrefs.
-  const canonicalDrugSlug = slugifyDrugName(drugName) || encodedSlug
+  const cleanDrugSlug =
+    slugifyDrugName(pill?.medicine_name || '') ||
+    slugifyDrugName(drugName) ||
+    encodedSlug
   const rxcui = dosageData?.rxcui ?? pill.rxcui
   const ndc = dosageData?.ndc ?? pill.ndc11 ?? pill.ndc9
   const splSetId = dosageData?.spl_set_id ?? pill.spl_set_id
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    ...(canonicalDrugSlug ? [{ name: drugName, url: `/drug/${canonicalDrugSlug}` }] : []),
-    { name: 'Dosage', url: `/pill/${encodedSlug}/dosage` },
+    ...(cleanDrugSlug ? [{ name: drugName, url: `/drug/${cleanDrugSlug}` }] : []),
+    { name: 'Dosage', url: `/pill/${cleanDrugSlug}/dosage` },
   ])
   const pageJsonLd = guidePageSchema({
     drugName,
@@ -216,11 +212,11 @@ export default async function DosagePage({
                 Home
               </Link>
             </li>
-            {canonicalDrugSlug && (
+            {cleanDrugSlug && (
               <>
                 <li aria-hidden="true" className="select-none">›</li>
                 <li>
-                  <Link href={`/drug/${canonicalDrugSlug}`} className="hover:text-sky-700 transition-colors">
+                  <Link href={`/drug/${cleanDrugSlug}`} className="hover:text-sky-700 transition-colors">
                     {drugName}
                   </Link>
                 </li>
@@ -243,10 +239,10 @@ export default async function DosagePage({
 
         <MedicationGuideTabs
           activeTab="dosage"
-          medicationGuideHref={pill?.has_medguide ? `/pill/${encodedSlug}/medication-guide` : null}
-          summaryHref={!pill?.has_medguide && pill?.has_medication_summary ? `/pill/${encodedSlug}/medication-summary` : null}
-          dosageHref={`/pill/${encodedSlug}/dosage`}
-          professionalHref={`/pill/${encodedSlug}/professional-information`}
+          medicationGuideHref={pill?.has_medguide ? `/pill/${cleanDrugSlug}/medication-guide` : null}
+          summaryHref={!pill?.has_medguide && pill?.has_medication_summary ? `/pill/${cleanDrugSlug}/medication-summary` : null}
+          dosageHref={`/pill/${cleanDrugSlug}/dosage`}
+          professionalHref={`/pill/${cleanDrugSlug}/professional-information`}
         />
 
         <MedguideMetaBar guide={dosageData} />
