@@ -11,8 +11,9 @@ import {
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
-const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 type PageParams = Promise<{ slug: string }>
+
+const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const PILL_REVALIDATE_SECONDS = 3600
 const DOSAGE_REVALIDATE_SECONDS = 86400
 
