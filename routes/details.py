@@ -413,7 +413,7 @@ def get_pill_by_slug(slug: str):
                         """
                         SELECT * FROM pillfinder
                         WHERE deleted_at IS NULL AND published = true
-                          AND trim(lower(regexp_replace(medicine_name, '[^a-z0-9]+', '-', 'g')), '-') = :slug
+                          AND trim(lower(regexp_replace(medicine_name, '[^a-zA-Z0-9]+', '-', 'g')), '-') = :slug
                         ORDER BY updated_at DESC NULLS LAST
                         LIMIT 1
                         """
@@ -735,7 +735,7 @@ def get_pill_dosage_by_slug(slug: str):
                             pharmclass_fda_epc
                         FROM pillfinder
                         WHERE deleted_at IS NULL AND published = true
-                          AND trim(lower(regexp_replace(medicine_name, '[^a-z0-9]+', '-', 'g')), '-') = :slug
+                          AND trim(lower(regexp_replace(medicine_name, '[^a-zA-Z0-9]+', '-', 'g')), '-') = :slug
                         ORDER BY updated_at DESC NULLS LAST
                         LIMIT 1
                         """
