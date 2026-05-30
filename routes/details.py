@@ -18,6 +18,13 @@ from utils import normalize_imprint, normalize_name, normalize_fields, process_i
 
 logger = logging.getLogger(__name__)
 IMAGE_BASE = (os.getenv("IMAGE_BASE") or "").strip().rstrip("/")
+
+# SQL expression to normalize medicine_name to a drug-name slug.
+# Mirrors slugifyDrugName() in frontend/app/lib/slug.ts:
+# preserve case with [^a-zA-Z0-9]+, then lower(), then trim dashes.
+_MEDICINE_SLUG_EXPR = (
+    "trim(lower(regexp_replace(medicine_name, '[^a-zA-Z0-9]+', '-', 'g')), '-')"
+)
 _IMAGE_BASE_WARNING_EMITTED = False
 _HISTORY_RESOLUTION_TTL_SECONDS = int(os.getenv("PILL_HISTORY_RESOLUTION_TTL_SECONDS", "3600"))
 _HISTORY_RESOLUTION_CACHE_MAX_ITEMS = int(os.getenv("PILL_HISTORY_RESOLUTION_CACHE_MAX_ITEMS", "1000"))
@@ -404,7 +411,23 @@ def get_pill_by_slug(slug: str):
             result = conn.execute(query, {"slug": slug})
             row = result.fetchone()
             if not row:
-                raise HTTPException(status_code=404, detail="Pill not found")
+                # Fallback: match by normalized drug-name slug against medicine_name
+                # using the shared _MEDICINE_SLUG_EXPR constant defined at module level.
+                result = conn.execute(
+                    text(
+                        f"""
+                        SELECT * FROM pillfinder
+                        WHERE deleted_at IS NULL AND published = true
+                          AND {_MEDICINE_SLUG_EXPR} = :slug
+                        ORDER BY updated_at DESC NULLS LAST
+                        LIMIT 1
+                        """
+                    ),
+                    {"slug": slug},
+                )
+                row = result.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Pill not found")
 
             columns = result.keys()
             pill_info = dict(zip(columns, row))
@@ -699,7 +722,32 @@ def get_pill_dosage_by_slug(slug: str):
             )
             pill_row = pill_result.fetchone()
             if not pill_row:
-                raise HTTPException(status_code=404, detail="Pill not found")
+                # Fallback: match by normalized drug-name slug against medicine_name
+                # using the shared _MEDICINE_SLUG_EXPR constant defined at module level.
+                pill_result = conn.execute(
+                    text(
+                        f"""
+                        SELECT
+                            medicine_name,
+                            rxcui,
+                            ndc11,
+                            ndc9,
+                            spl_set_id,
+                            dosage_form,
+                            dailymed_pharma_class_epc,
+                            pharmclass_fda_epc
+                        FROM pillfinder
+                        WHERE deleted_at IS NULL AND published = true
+                          AND {_MEDICINE_SLUG_EXPR} = :slug
+                        ORDER BY updated_at DESC NULLS LAST
+                        LIMIT 1
+                        """
+                    ),
+                    {"slug": slug},
+                )
+                pill_row = pill_result.fetchone()
+                if not pill_row:
+                    raise HTTPException(status_code=404, detail="Pill not found")
 
             pill_columns = pill_result.keys()
             pill_info = dict(zip(pill_columns, pill_row))

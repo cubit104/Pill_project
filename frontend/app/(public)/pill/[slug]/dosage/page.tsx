@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
-import { notFound } from 'next/navigation'
+import { notFound, permanentRedirect } from 'next/navigation'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
@@ -12,6 +12,7 @@ import {
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 import { sanitizeRenderedHtml } from '../medication-guide/sanitizeRenderedHtml'
+import { cleanDosageHtml } from './cleanDosageHtml'
 
 type PageParams = Promise<{ slug: string }>
 
@@ -95,27 +96,6 @@ function resolveDrugName({
   return formatDrugName(fallback || 'Medication', false)
 }
 
-/**
- * Clean dosage HTML for patient-facing display:
- * 1. Remove the top-level <h2 id="dosage"> title (redundant with page header)
- * 2. Strip all <a> tags but keep their inner text
- * 3. Remove section number cross-references: (2.1), (5.1, 5.2), etc.
- * 4. Remove [see ...] bracketed cross-references (including italic <em> wrappers)
- */
-function cleanDosageHtml(html: string): string {
-  let clean = html
-
-  clean = clean.replace(/<section[^>]*>/gi, '').replace(/<\/section>/gi, '')
-  clean = clean.replace(/<h2[^>]*id="dosage"[^>]*>[\s\S]*?<\/h2>/gi, '')
-  clean = clean.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1')
-  clean = clean.replace(/\s*\(\d+\.\d+(?:[,\s]+\d+\.\d+)*\)/g, '')
-  clean = clean.replace(/<em[^>]*>\s*\[see[\s\S]*?\]\s*<\/em>/gi, '')
-  clean = clean.replace(/\[see[\s\S]*?\]/gi, '')
-  clean = clean.replace(/<em[^>]*>\s*<\/em>/gi, '')
-  clean = clean.replace(/\s{2,}/g, ' ').trim()
-
-  return clean
-}
 
 async function fetchPill(slug: string): Promise<PillInfo | null> {
   try {
@@ -150,11 +130,12 @@ export async function generateMetadata({
   const pill = await fetchPill(slug)
   const dosage = await fetchDosage(slug)
   const drugName = resolveDrugName({ dosage, pill, slug })
+  const cleanSlug = slugifyDrugName(drugName) || encodeURIComponent(slug)
 
   return {
     title: `${drugName} Dosage & Administration – Recommended Doses | PillSeek`,
     description: `View recommended dosage and administration for ${drugName}, including adult doses, dosing adjustments, and FDA-approved prescribing instructions.`,
-    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/dosage` },
+    alternates: { canonical: `/pill/${cleanSlug}/dosage` },
   }
 }
 
@@ -169,6 +150,13 @@ export default async function DosagePage({
 
   const dosageData = await fetchDosage(slug)
   const drugName = resolveDrugName({ dosage: dosageData, pill, slug })
+
+  // Redirect long pillfinder slug → clean drug-name slug (308 Permanent Redirect).
+  const cleanDrugSlug = slugifyDrugName(drugName) || null
+  if (cleanDrugSlug && slug !== cleanDrugSlug) {
+    permanentRedirect(`/pill/${cleanDrugSlug}/dosage`)
+  }
+
   const headerDrugName = stripDoseFromName(drugName)
   const headerMeta = resolveHeaderMetadata({
     drugName: headerDrugName,
@@ -185,6 +173,10 @@ export default async function DosagePage({
   })
 
   const encodedSlug = encodeURIComponent(slug)
+  // permanentRedirect() throws and exits this function, so code below only
+  // runs when slug is already the clean drug-name slug (redirect not needed)
+  // or when no clean slug could be computed (slug stays as-is). In both cases
+  // encodeURIComponent(slug) is the correct slug for all pill sub-page hrefs.
   const canonicalDrugSlug = slugifyDrugName(drugName) || encodedSlug
   const rxcui = dosageData?.rxcui ?? pill.rxcui
   const ndc = dosageData?.ndc ?? pill.ndc11 ?? pill.ndc9
