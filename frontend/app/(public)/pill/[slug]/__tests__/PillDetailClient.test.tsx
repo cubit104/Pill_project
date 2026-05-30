@@ -92,6 +92,8 @@ test('detail rows truncate long values with See more/See less toggle', () => {
   assert.match(source, /const shouldTruncate = value\.length > 60/)
   assert.match(source, /const displayValue = shouldTruncate && !expanded \? `\$\{value\.slice\(0, 60\)\}…` : value/)
   assert.match(source, /className="text-emerald-600 underline cursor-pointer text-sm ml-1"/)
+  assert.match(source, /aria-expanded=\{expanded\}/)
+  assert.match(source, /aria-label=\{expanded \? 'Collapse text' : 'Expand full text'\}/)
   assert.match(source, /onClick=\{\(\) => setExpanded\(\(prev\) => !prev\)\}/)
   assert.match(source, /\{expanded \? 'See less' : 'See more'\}/)
 })

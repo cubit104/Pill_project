@@ -43,6 +43,8 @@ function DetailRow({ label, value, stripe }: { label: string; value?: string; st
           <button
             type="button"
             className="text-emerald-600 underline cursor-pointer text-sm ml-1"
+            aria-expanded={expanded}
+            aria-label={expanded ? 'Collapse text' : 'Expand full text'}
             onClick={() => setExpanded((prev) => !prev)}
           >
             {expanded ? 'See less' : 'See more'}
