@@ -16,19 +16,21 @@ export default function Footer() {
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-10">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-8 mb-8">
-          <div>
-            <Link href="/" className="flex items-center gap-2 mb-3" aria-label="PillSeek home">
-              <img src="/logo-mark.svg" alt="" width={32} height={32} className="h-8 w-8 object-contain" />
-              <span className="font-bold text-lg">
-                <span className="text-slate-900">Pill</span><span className="text-emerald-700">Seek</span>
-              </span>
-            </Link>
-            <p className="text-slate-700 text-xs leading-relaxed">
-              Free pill identification powered by FDA &amp; DailyMed data. For educational purposes only.
-            </p>
-          </div>
+        {/* Logo + tagline row */}
+        <div className="mb-8">
+          <Link href="/" className="flex items-center gap-2 mb-3" aria-label="PillSeek home">
+            <img src="/logo-mark.svg" alt="" width={32} height={32} className="h-8 w-8 object-contain" />
+            <span className="font-bold text-lg">
+              <span className="text-slate-900">Pill</span><span className="text-emerald-700">Seek</span>
+            </span>
+          </Link>
+          <p className="text-slate-700 text-xs leading-relaxed max-w-xs">
+            Free pill identification powered by FDA &amp; DailyMed data. For educational purposes only.
+          </p>
+        </div>
 
+        {/* Nav links — 2 columns on mobile, 4 on desktop */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-8">
           <nav aria-label="Browse categories">
             <h3 className="text-sm font-semibold text-emerald-900 mb-3">Browse Pills</h3>
             <ul className="space-y-2">
