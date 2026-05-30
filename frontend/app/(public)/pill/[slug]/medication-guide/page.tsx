@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import type { ReactNode } from 'react'
 import MedguideToc from './MedguideToc'
 import MedguideMetaBar from './MedguideMetaBar'
 import MedicationGuideTabs from './MedicationGuideTabs'
@@ -18,19 +17,19 @@ import {
   SHARED_CONTENT_GRID_CLASSES,
   SHARED_READING_PROSE_CLASSES,
 } from './layoutStyles'
-import { slugFromTag } from '../../../../lib/condition-utils'
+import {
+  type LinkTarget,
+  buildConditionLinks,
+  buildLinkTargets,
+  linkifyHtmlContent,
+  linkifyText,
+  normalizeTerms,
+  splitBrandNames,
+} from './linkifyUtils'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
-const LINK_CLASSES = 'text-emerald-600 hover:underline'
-const CONDITION_TITLE_PREFIX_RE = /^Medications for\s+/i
-// Keep plain-text heading detection conservative so normal sentence lines still linkify;
-// short title-like lines (up to 80 chars) are treated as headings and skipped.
-const MAX_PLAIN_TEXT_HEADING_LENGTH = 80
-const PLAIN_TEXT_HEADING_RE = new RegExp(
-  `^[A-Z][A-Za-z0-9\\s'(),./:;!?&\\-]{0,${MAX_PLAIN_TEXT_HEADING_LENGTH}}$`
-)
 
 type PageParams = Promise<{ slug: string }>
 const PILL_REVALIDATE_SECONDS = 3600
@@ -95,16 +94,6 @@ type GuideResponse = {
   fetched_at?: string | null
   disclaimer?: string | null
 }
-
-type LinkTarget = {
-  term: string
-  href: string
-}
-type ConditionLink = {
-  term: string
-  slug: string
-}
-const SAFE_INTERNAL_PATH_RE = /^\/(?:drug|condition)\/[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 const SECTION_ORDER: Array<{ key: keyof GuideSections; label: string }> = [
   { key: 'overview', label: 'Overview' },
@@ -174,190 +163,23 @@ function resolveDrugName({
   return formatDrugName(fallback || 'Medication', false)
 }
 
-function normalizeTerms(terms: string[]): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const raw of terms) {
-    const value = raw.trim()
-    if (!value) continue
-    const key = value.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(value)
-  }
-  return out.sort((a, b) => b.length - a.length)
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function makeLinkRegex(terms: string[]): RegExp | null {
-  if (terms.length === 0) return null
-  return new RegExp(`(?<![A-Za-z0-9])(${terms.map(escapeRegex).join('|')})(?![A-Za-z0-9])`, 'gi')
-}
-
-function splitBrandNames(value: string | null | undefined): string[] {
-  if (!value) return []
-  return value
-    .split(/[;,/]/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-}
-
-function buildLinkTargets({
-  drugNames,
-  conditionLinks,
-}: {
-  drugNames: string[]
-  conditionLinks: ConditionLink[]
-}): LinkTarget[] {
-  const targets: LinkTarget[] = []
-
-  for (const name of normalizeTerms(drugNames)) {
-    const slug = slugifyDrugName(name)
-    if (!slug) continue
-    targets.push({ term: name, href: `/drug/${slug}` })
-  }
-
-  for (const { term, slug } of conditionLinks) {
-    if (!slug) continue
-    targets.push({ term, href: `/condition/${slug}` })
-  }
-
-  const deduped = new Map<string, LinkTarget>()
-  for (const target of targets) {
-    const key = target.term.toLowerCase()
-    if (!deduped.has(key)) deduped.set(key, target)
-  }
-  return Array.from(deduped.values()).sort((a, b) => b.term.length - a.term.length)
-}
-
-function getSafeHref(href: string): string | null {
-  try {
-    const resolved = new URL(href, 'https://pillseek.com')
-    if (resolved.origin !== 'https://pillseek.com') return null
-    if (!SAFE_INTERNAL_PATH_RE.test(resolved.pathname)) return null
-    return resolved.pathname
-  } catch {
-    return null
-  }
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-}
-
-function linkifyText(
-  text: string,
-  drugName: string,
-  conditionTags: string[],
-  additionalDrugNames: string[] = []
-): ReactNode {
-  if (!text) return text
-
-  const targets = buildLinkTargets({
-    drugNames: [drugName, ...additionalDrugNames],
-    conditionLinks: normalizeTerms(conditionTags).map((tag) => ({
-      term: tag,
-      slug: slugFromTag(tag),
-    })),
-  })
-  const regex = makeLinkRegex(targets.map((target) => target.term))
-  if (!regex) return text
-
-  const targetByTerm = new Map(targets.map((target) => [target.term.toLowerCase(), target]))
-  const linkifyLine = (line: string, lineIndex: number): ReactNode => {
-    const trimmed = line.trim()
-    const startsWithCapital = /^[A-Z]/.test(trimmed)
-    // Plain-text sections can contain inline subheadings; keep those unlinked while
-    // still linkifying sentence-like body lines.
-    const isHeadingLine =
-      trimmed.length > 0 &&
-      startsWithCapital &&
-      !/[.!?]$/.test(trimmed) &&
-      (trimmed.endsWith(':') || PLAIN_TEXT_HEADING_RE.test(trimmed))
-
-    if (isHeadingLine) return line
-
-    const parts: ReactNode[] = []
-    let cursor = 0
-    let linkKeyIndex = 0
-
-    for (const match of line.matchAll(regex)) {
-      if (match.index === undefined) continue
-      const index = match.index
-      if (index > cursor) parts.push(line.slice(cursor, index))
-
-      const matchedText = match[0]
-      const target = targetByTerm.get(matchedText.toLowerCase())
-      const safeHref = target ? getSafeHref(target.href) : null
-      if (target && safeHref) {
-        parts.push(
-          <Link key={`link-${lineIndex}-${linkKeyIndex}-${safeHref}`} href={safeHref} className={LINK_CLASSES}>
-            {matchedText}
-          </Link>
-        )
-        linkKeyIndex += 1
-      } else {
-        parts.push(matchedText)
-      }
-      cursor = index + matchedText.length
-    }
-
-    if (cursor < line.length) parts.push(line.slice(cursor))
-    return <>{parts}</>
-  }
-
-  const parts: ReactNode[] = []
-  const lines = text.split('\n')
-  lines.forEach((line, index) => {
-    parts.push(linkifyLine(line, index))
-    if (index < lines.length - 1) parts.push('\n')
-  })
-  return <>{parts}</>
-}
-
-function linkifyHtmlContent(content: string, targets: LinkTarget[]): string {
-  if (!content || targets.length === 0) return content
-
-  const regex = makeLinkRegex(targets.map((target) => target.term))
-  if (!regex) return content
-
-  const targetByTerm = new Map(targets.map((target) => [target.term.toLowerCase(), target]))
-  // Preserve existing anchors and heading blocks so heading text never receives injected links.
-  const protectedChunks = content.split(/(<a\b[^>]*>[\s\S]*?<\/a>|<h[1-4]\b[^>]*>[\s\S]*?<\/h[1-4]>)/gi)
-
-  return protectedChunks
-    .map((chunk) => {
-      if (/^<a\b/i.test(chunk) || /^<h[1-4]\b/i.test(chunk)) return chunk
-      const tokens = chunk.split(/(<[^>]+>)/g)
-      return tokens.map((token) => {
-        if (token.startsWith('<')) return token
-        return token.replace(regex, (match) => {
-          const target = targetByTerm.get(match.toLowerCase())
-          const safeHref = target ? getSafeHref(target.href) : null
-          if (!target || !safeHref) return match
-          return `<a href="${escapeHtml(safeHref)}" class="${LINK_CLASSES}">${escapeHtml(match)}</a>`
-        })
-      }).join('')
-    })
-    .join('')
-}
-
 function isHtmlContent(content: string): boolean {
   return /^<[a-z][a-z0-9-]*\b[^>]*>/i.test(content.trimStart())
 }
 
-function GuideHtml({ content, linkTargets }: { content: string; linkTargets: LinkTarget[] }) {
+function GuideHtml({
+  content,
+  linkTargets,
+  counter,
+}: {
+  content: string
+  linkTargets: LinkTarget[]
+  counter?: { count: number }
+}) {
   return (
     <div
       className={SHARED_READING_PROSE_CLASSES}
-      dangerouslySetInnerHTML={{ __html: linkifyHtmlContent(content, linkTargets) }}
+      dangerouslySetInnerHTML={{ __html: linkifyHtmlContent(content, linkTargets, counter) }}
     />
   )
 }
@@ -367,15 +189,17 @@ function GuideText({
   drugName,
   conditionTags,
   drugNames,
+  counter,
 }: {
   content: string
   drugName: string
   conditionTags: string[]
   drugNames: string[]
+  counter?: { count: number }
 }) {
   return (
     <p className="my-4 whitespace-pre-line text-sm leading-8 text-slate-800">
-      {linkifyText(content, drugName, conditionTags, drugNames)}
+      {linkifyText(content, drugName, conditionTags, drugNames, counter)}
     </p>
   )
 }
@@ -387,6 +211,7 @@ function SectionBlock({
   conditionTags,
   drugNames,
   linkTargets,
+  counter,
 }: {
   label: string
   content?: string | null
@@ -394,19 +219,21 @@ function SectionBlock({
   conditionTags: string[]
   drugNames: string[]
   linkTargets: LinkTarget[]
+  counter?: { count: number }
 }) {
   if (!content) return null
   return (
     <section className="border-b border-slate-100 py-5 last:border-b-0">
       <h2 className="mb-4 text-base font-semibold text-slate-900">{label}</h2>
       {isHtmlContent(content) ? (
-        <GuideHtml content={content} linkTargets={linkTargets} />
+        <GuideHtml content={content} linkTargets={linkTargets} counter={counter} />
       ) : (
         <GuideText
           content={content}
           drugName={drugName}
           conditionTags={conditionTags}
           drugNames={drugNames}
+          counter={counter}
         />
       )}
     </section>
@@ -420,6 +247,7 @@ function SectionFallback({
   conditionTags,
   drugNames,
   linkTargets,
+  counter,
 }: {
   guide: GuideResponse | null
   hasRenderableSections: boolean
@@ -427,6 +255,7 @@ function SectionFallback({
   conditionTags: string[]
   drugNames: string[]
   linkTargets: LinkTarget[]
+  counter?: { count: number }
 }) {
   return (
     <div>
@@ -439,6 +268,7 @@ function SectionFallback({
           conditionTags={conditionTags}
           drugNames={drugNames}
           linkTargets={linkTargets}
+          counter={counter}
         />
       ))}
       {(!guide || !hasRenderableSections) && (
@@ -446,19 +276,6 @@ function SectionFallback({
       )}
     </div>
   )
-}
-
-function buildConditionLinks(conditions: ConditionListItem[]): ConditionLink[] {
-  const links: ConditionLink[] = []
-  for (const condition of conditions) {
-    const term = condition.title.replace(CONDITION_TITLE_PREFIX_RE, '').trim()
-    if (!term) continue
-    links.push({
-      term,
-      slug: condition.slug || slugFromTag(term),
-    })
-  }
-  return links
 }
 
 type GuideFetchOptions = {
@@ -629,6 +446,23 @@ export default async function MedicationGuidePage({
     const proNdc = professionalData?.ndc ?? pill.ndc11 ?? pill.ndc9
     const proSplSetId = pill.spl_set_id
     const proFetchedAt = professionalData?.fetched_at
+    const proConditions = await fetchAllConditions()
+    const proDrugNames = normalizeTerms([
+      drugName,
+      professionalData?.brand_name ?? '',
+      professionalData?.generic_name ?? '',
+      professionalData?.proprietary_name ?? '',
+      professionalData?.display_name ?? '',
+      professionalData?.name ?? '',
+      pill.medicine_name ?? '',
+      ...splitBrandNames(pill.brand_names),
+    ])
+    const proConditionLinks = buildConditionLinks(proConditions)
+    const proLinkTargets = buildLinkTargets({ drugNames: proDrugNames, conditionLinks: proConditionLinks })
+    const proSharedCounter = { count: 0 }
+    const linkedProfessionalHtml = professionalData?.professional_html
+      ? linkifyHtmlContent(professionalData.professional_html, proLinkTargets, proSharedCounter)
+      : null
 
     const proPageJsonLd = guidePageSchema({
       drugName,
@@ -728,7 +562,7 @@ export default async function MedicationGuidePage({
                 <article
                   id="pro-content"
                   className={PRO_PROSE_CLASSES}
-                  dangerouslySetInnerHTML={{ __html: professionalData.professional_html }}
+                  dangerouslySetInnerHTML={{ __html: linkedProfessionalHtml ?? '' }}
                 />
               ) : (
                 <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
@@ -812,12 +646,13 @@ export default async function MedicationGuidePage({
   const conditionTags = conditionLinks.map((condition) => condition.term)
 
   const linkTargets = buildLinkTargets({ drugNames, conditionLinks })
+  const sharedLinkCounter = { count: 0 }
+  const linkedBoxedWarningHtml = guideData?.boxed_warning_html
+    ? linkifyHtmlContent(guideData.boxed_warning_html, linkTargets, sharedLinkCounter)
+    : null
 
   const linkedMedguideHtml = guideData?.medguide_html
-    ? linkifyHtmlContent(guideData.medguide_html, linkTargets)
-    : null
-  const linkedBoxedWarningHtml = guideData?.boxed_warning_html
-    ? linkifyHtmlContent(guideData.boxed_warning_html, linkTargets)
+    ? linkifyHtmlContent(guideData.medguide_html, linkTargets, sharedLinkCounter)
     : null
   const hasConsumerToc =
     (linkedMedguideHtml?.match(/<h[23]\b[^>]*id=/gi)?.length ?? 0) >= MIN_PROFESSIONAL_TOC_SECTIONS
@@ -960,6 +795,7 @@ export default async function MedicationGuidePage({
                 conditionTags={conditionTags}
                 drugNames={drugNames}
                 linkTargets={linkTargets}
+                counter={sharedLinkCounter}
               />
             )}
           </div>

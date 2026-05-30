@@ -4,6 +4,12 @@ import { notFound, redirect } from 'next/navigation'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
+import {
+  buildConditionLinks,
+  linkifyText,
+  normalizeTerms,
+  splitBrandNames,
+} from '../medication-guide/linkifyUtils'
 import { SHARED_READING_PROSE_CLASSES } from '../medication-guide/layoutStyles'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, faqSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
@@ -35,6 +41,11 @@ type PillInfo = {
 }
 
 type SummaryQA = { question: string; answer: string }
+type ConditionListItem = {
+  slug: string
+  title: string
+  tag: string
+}
 
 type GuideResponse = {
   rxcui?: string
@@ -126,6 +137,17 @@ async function fetchGuide(pill: PillInfo): Promise<GuideResponse | null> {
       if (res.ok) return (await res.json()) as GuideResponse
     }
 
+    async function fetchAllConditions(): Promise<ConditionListItem[]> {
+      try {
+        const res = await fetch(`${API_BASE}/api/conditions`, { next: { revalidate: 86400 } })
+        if (!res.ok) return []
+        const data = await res.json()
+        return data.conditions ?? []
+      } catch {
+        return []
+      }
+    }
+
     if (pill.ndc11) {
       const res = await fetch(
         `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(pill.ndc11)}/guide?${params.toString()}`,
@@ -212,10 +234,24 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
   if (questions.length === 0) notFound()
 
   const drugName = resolveDrugName({ guide: guideData, pill, slug })
+  const conditions = await fetchAllConditions()
+  const conditionLinks = buildConditionLinks(conditions)
+  const conditionTags = conditionLinks.map((condition) => condition.term)
+  const drugNames = normalizeTerms([
+    drugName,
+    guideData?.brand_name ?? '',
+    guideData?.generic_name ?? '',
+    guideData?.proprietary_name ?? '',
+    guideData?.display_name ?? '',
+    guideData?.name ?? '',
+    pill.medicine_name ?? '',
+    ...splitBrandNames(pill.brand_names),
+  ])
   const headerDrugName = stripDoseFromName(drugName)
   const headerMeta = resolveHeaderMetadata({ drugName: headerDrugName, pill, guide: guideData })
   const encodedSlug = encodeURIComponent(slug)
   const drugSlug = slugifyDrugName(drugName)
+  const summaryLinkCounter = { count: 0 }
 
   const pageJsonLd = guidePageSchema({
     drugName,
@@ -294,7 +330,7 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
             <section key={item.question} className="rounded-xl border border-slate-200 bg-white p-5">
               <div className={SHARED_READING_PROSE_CLASSES}>
                 <h2>{item.question}</h2>
-                <p>{item.answer}</p>
+                <p>{linkifyText(item.answer, drugName, conditionTags, drugNames, summaryLinkCounter)}</p>
               </div>
             </section>
           ))}
