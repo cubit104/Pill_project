@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
 import type { Reviewer } from '../../../lib/reviewers'
@@ -30,11 +29,27 @@ function PillIconLarge() {
 }
 
 function DetailRow({ label, value, stripe }: { label: string; value?: string; stripe?: boolean }) {
+  const [expanded, setExpanded] = useState(false)
   if (!value) return null
+  const shouldTruncate = value.length > 60
+  const displayValue = shouldTruncate && !expanded ? `${value.slice(0, 60)}…` : value
   return (
     <div className={`py-2 px-3 flex flex-row items-start gap-2 rounded ${stripe ? 'bg-teal-50' : ''}`}>
       <dt className="text-sm font-semibold text-slate-600 w-36 shrink-0">{label}</dt>
-      <dd className="text-sm text-slate-800 flex-1">{value}</dd>
+      <dd className="text-sm text-slate-800 flex-1">
+        {displayValue}
+        {shouldTruncate && (
+          <button
+            type="button"
+            className="text-emerald-600 underline cursor-pointer text-sm ml-1"
+            aria-expanded={expanded}
+            aria-label={expanded ? 'Collapse text' : 'Expand full text'}
+            onClick={() => setExpanded((prev) => !prev)}
+          >
+            {expanded ? 'See less' : 'See more'}
+          </button>
+        )}
+      </dd>
     </div>
   )
 }
@@ -133,10 +148,11 @@ export default function PillDetailClient({
   faqItems?: Array<{ question: string; answer: string }>
   identificationSummary?: string
 }) {
-  const router = useRouter()
   const [zoomImage, setZoomImage] = useState<string | null>(null)
   const [showAllBrands, setShowAllBrands] = useState(false)
   const resolvedSlug = slug ?? pill?.slug
+  const drugSlug = pill.drug_name !== 'Unknown' ? slugifyDrugName(pill.drug_name) : ''
+  const backHref = drugSlug ? `/drug/${drugSlug}` : '/'
   usePillView(resolvedSlug)
 
   const images = pill.images && pill.images.length > 0
@@ -273,22 +289,19 @@ export default function PillDetailClient({
                 Home
               </Link>
             </li>
-            {pill.drug_name && pill.drug_name !== 'Unknown' && (() => {
-              const drugSlug = slugifyDrugName(pill.drug_name)
-              return drugSlug ? (
-                <>
-                  <li aria-hidden="true" className="select-none">›</li>
-                  <li>
-                    <Link
-                      href={`/drug/${drugSlug}`}
-                      className="hover:text-sky-700 transition-colors"
-                    >
-                      {pill.drug_name}
-                    </Link>
-                  </li>
-                </>
-              ) : null
-            })()}
+            {pill.drug_name && pill.drug_name !== 'Unknown' && drugSlug && (
+              <>
+                <li aria-hidden="true" className="select-none">›</li>
+                <li>
+                  <Link
+                    href={`/drug/${drugSlug}`}
+                    className="hover:text-sky-700 transition-colors"
+                  >
+                    {pill.drug_name}
+                  </Link>
+                </li>
+              </>
+            )}
             <li aria-hidden="true" className="select-none">›</li>
             <li aria-current="page" className="text-slate-700 font-medium truncate max-w-xs">
               {pill.drug_name}
@@ -299,13 +312,13 @@ export default function PillDetailClient({
         </nav>
 
         {/* Back Button */}
-        <button
-          onClick={() => router.back()}
+        <Link
+          href={backHref}
           className="flex items-center gap-1 text-sky-600 hover:text-sky-800 text-sm font-medium mb-6 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 rounded"
           aria-label="Go back"
         >
           ← Back
-        </button>
+        </Link>
 
         {/* Reviewed by / Last verified — matches JSON-LD dateModified / lastReviewed */}
         {reviewer && (

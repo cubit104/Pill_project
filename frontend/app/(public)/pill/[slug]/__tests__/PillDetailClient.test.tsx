@@ -85,6 +85,19 @@ test('detail page source computes spec striping in JSX and uses emerald borders 
   assert.ok((source.match(/border border-emerald-200 rounded-lg/g) || []).length >= 3)
 })
 
+test('detail rows truncate long values with See more/See less toggle', () => {
+  const source = readFileSync(sourcePath, 'utf8')
+
+  assert.match(source, /const \[expanded, setExpanded\] = useState\(false\)/)
+  assert.match(source, /const shouldTruncate = value\.length > 60/)
+  assert.match(source, /const displayValue = shouldTruncate && !expanded \? `\$\{value\.slice\(0, 60\)\}…` : value/)
+  assert.match(source, /className="text-emerald-600 underline cursor-pointer text-sm ml-1"/)
+  assert.match(source, /aria-expanded=\{expanded\}/)
+  assert.match(source, /aria-label=\{expanded \? 'Collapse text' : 'Expand full text'\}/)
+  assert.match(source, /onClick=\{\(\) => setExpanded\(\(prev\) => !prev\)\}/)
+  assert.match(source, /\{expanded \? 'See less' : 'See more'\}/)
+})
+
 test('detail page source keeps thumbnail selection separate from zoom state', () => {
   const source = readFileSync(sourcePath, 'utf8')
 
@@ -106,6 +119,15 @@ test('detail page source keeps thumbnail selection separate from zoom state', ()
   assert.match(source, /onClick=\{\(\) => setSelectedImage\(img\)\}/)
   assert.match(source, /className=\{`shrink-0 rounded-lg overflow-hidden border-2 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-sky-500 \$\{/)
   assert.match(source, /selectedImage === img \? 'border-emerald-400 ring-2 ring-emerald-300' : 'border-slate-100'/)
+})
+
+test('detail page source uses static back link based on slugified drug name with home fallback', () => {
+  const source = readFileSync(sourcePath, 'utf8')
+
+  assert.match(source, /const drugSlug = slugifyDrugName\(pill\.drug_name\)/)
+  assert.match(source, /const backHref = drugSlug \? `\/drug\/\$\{drugSlug\}` : '\/'/)
+  assert.match(source, /<Link\s+href=\{backHref\}\s+className="flex items-center gap-1 text-sky-600 hover:text-sky-800 text-sm font-medium mb-6 transition-colors[\s\S]*focus:ring-2 focus:ring-sky-500 rounded"/)
+  assert.doesNotMatch(source, /router\.back\(\)/)
 })
 
 test('detail page source renders social share buttons as icon-only circles visible on mobile', () => {
