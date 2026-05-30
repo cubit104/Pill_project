@@ -694,6 +694,7 @@ def get_pill_by_slug(slug: str):
 
 
 def _fetch_dosage_guide_row(conn, *, spl_set_id: Optional[str], ndc: Optional[str], rxcui: Optional[str]):
+    """Load one medication_guide row for dosage fields using prioritized identifiers."""
     params = {
         "spl_set_id": str(spl_set_id or ""),
         "ndc": str(ndc or ""),
@@ -748,6 +749,7 @@ def _fetch_dosage_guide_row(conn, *, spl_set_id: Optional[str], ndc: Optional[st
 
 
 async def _resolve_dosage_guide_data(pill_info: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve dosage guide data via build_guide using setid → ndc11 → rxcui → ndc9."""
     attempts: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for key, value in (
