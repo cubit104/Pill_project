@@ -404,7 +404,24 @@ def get_pill_by_slug(slug: str):
             result = conn.execute(query, {"slug": slug})
             row = result.fetchone()
             if not row:
-                raise HTTPException(status_code=404, detail="Pill not found")
+                # Fallback: match by normalized drug-name slug against medicine_name.
+                # Mirrors slugifyDrugName() on the frontend: lower-case, replace
+                # non-alphanumeric runs with '-', trim leading/trailing dashes.
+                result = conn.execute(
+                    text(
+                        """
+                        SELECT * FROM pillfinder
+                        WHERE deleted_at IS NULL AND published = true
+                          AND lower(regexp_replace(medicine_name, '[^a-z0-9]+', '-', 'g')) = :slug
+                        ORDER BY updated_at DESC NULLS LAST
+                        LIMIT 1
+                        """
+                    ),
+                    {"slug": slug},
+                )
+                row = result.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Pill not found")
 
             columns = result.keys()
             pill_info = dict(zip(columns, row))
@@ -699,7 +716,33 @@ def get_pill_dosage_by_slug(slug: str):
             )
             pill_row = pill_result.fetchone()
             if not pill_row:
-                raise HTTPException(status_code=404, detail="Pill not found")
+                # Fallback: match by normalized drug-name slug against medicine_name.
+                # Mirrors slugifyDrugName() on the frontend: lower-case, replace
+                # non-alphanumeric runs with '-', trim leading/trailing dashes.
+                pill_result = conn.execute(
+                    text(
+                        """
+                        SELECT
+                            medicine_name,
+                            rxcui,
+                            ndc11,
+                            ndc9,
+                            spl_set_id,
+                            dosage_form,
+                            dailymed_pharma_class_epc,
+                            pharmclass_fda_epc
+                        FROM pillfinder
+                        WHERE deleted_at IS NULL AND published = true
+                          AND lower(regexp_replace(medicine_name, '[^a-z0-9]+', '-', 'g')) = :slug
+                        ORDER BY updated_at DESC NULLS LAST
+                        LIMIT 1
+                        """
+                    ),
+                    {"slug": slug},
+                )
+                pill_row = pill_result.fetchone()
+                if not pill_row:
+                    raise HTTPException(status_code=404, detail="Pill not found")
 
             pill_columns = pill_result.keys()
             pill_info = dict(zip(pill_columns, pill_row))
