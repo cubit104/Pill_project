@@ -151,7 +151,7 @@ export default async function DosagePage({
   const dosageData = await fetchDosage(slug)
   const drugName = resolveDrugName({ dosage: dosageData, pill, slug })
 
-  // Redirect long pillfinder slug → clean drug-name slug (permanent 308)
+  // Redirect long pillfinder slug → clean drug-name slug (308 Permanent Redirect).
   const cleanDrugSlug = slugifyDrugName(drugName) || null
   if (cleanDrugSlug && slug !== cleanDrugSlug) {
     permanentRedirect(`/pill/${cleanDrugSlug}/dosage`)
