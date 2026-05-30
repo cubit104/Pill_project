@@ -13,7 +13,9 @@ from typing import Any, Optional
 
 import httpx
 from sqlalchemy import text
-from sqlalchemy.exc import OperationalError, ProgrammingError, TimeoutError
+from sqlalchemy.exc import OperationalError as SAOperationalError
+from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import TimeoutError as SATimeoutError
 
 import database
 from ndc_normalize import normalize_ndc_to_11
@@ -83,8 +85,20 @@ class NADACPricingService:
         self._logged_datasets: set[str] = set()
         self._logged_schema_failures: set[str] = set()
         self._http_client: httpx.AsyncClient | None = None
-        self._db_pool_retry_delay_seconds = max(0.0, float(os.getenv("DB_POOL_RETRY_DELAY_SECONDS", "0.2")))
-        self._db_pool_max_retries = max(0, int(os.getenv("DB_POOL_MAX_RETRIES", "1")))
+        retry_delay_raw = os.getenv("DB_POOL_RETRY_DELAY_SECONDS", "0.2")
+        try:
+            retry_delay = float(retry_delay_raw)
+        except (TypeError, ValueError):
+            logger.warning("Invalid DB_POOL_RETRY_DELAY_SECONDS=%r; defaulting to 0.2", retry_delay_raw)
+            retry_delay = 0.2
+        retry_count_raw = os.getenv("DB_POOL_MAX_RETRIES", "1")
+        try:
+            retry_count = int(retry_count_raw)
+        except (TypeError, ValueError):
+            logger.warning("Invalid DB_POOL_MAX_RETRIES=%r; defaulting to 1", retry_count_raw)
+            retry_count = 1
+        self._db_pool_retry_delay_seconds = max(0.0, retry_delay)
+        self._db_pool_max_retries = max(0, retry_count)
 
     async def _ensure_client(self) -> httpx.AsyncClient:
         if self._http_client is None:
@@ -1075,9 +1089,9 @@ class NADACPricingService:
 
     @staticmethod
     def _is_pool_exhaustion_error(exc: Exception) -> bool:
-        if isinstance(exc, TimeoutError):
+        if isinstance(exc, SATimeoutError):
             return True
-        if isinstance(exc, OperationalError):
+        if isinstance(exc, SAOperationalError):
             message = str(exc).lower()
             return "queuepool limit of size" in message and "connection timed out" in message
         return False
@@ -1099,7 +1113,7 @@ class NADACPricingService:
                         exc_info=True,
                     )
                     raise PricingServiceError(
-                        "Pricing database is temporarily busy. Please retry shortly."
+                        f"Pricing database is temporarily busy during {operation}. Please retry in a few seconds."
                     ) from exc
                 sleep(self._db_pool_retry_delay_seconds)
 

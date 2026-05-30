@@ -735,7 +735,7 @@ def test_get_cached_prices_bulk_retries_on_pool_operational_timeout():
             "price_per_unit": 0.55,
             "unit": "EA",
             "effective_date": date(2026, 5, 14),
-            "source": "NADAC",
+            "source": "NADAC (CMS)",
             "raw_payload": {},
             "fetched_at": datetime.now(timezone.utc),
         }
