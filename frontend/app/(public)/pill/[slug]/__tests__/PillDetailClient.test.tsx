@@ -126,7 +126,7 @@ test('detail page source uses static back link based on slugified drug name with
 
   assert.match(source, /const drugSlug = slugifyDrugName\(pill\.drug_name\)/)
   assert.match(source, /const backHref = drugSlug \? `\/drug\/\$\{drugSlug\}` : '\/'/)
-  assert.match(source, /<Link\s+href=\{backHref\}\s+className="flex items-center gap-1 text-sky-600 hover:text-sky-800 text-sm font-medium mb-6 transition-colors"/)
+  assert.match(source, /<Link\s+href=\{backHref\}\s+className="flex items-center gap-1 text-sky-600 hover:text-sky-800 text-sm font-medium mb-6 transition-colors[\s\S]*focus:ring-2 focus:ring-sky-500 rounded"/)
   assert.doesNotMatch(source, /router\.back\(\)/)
 })
 

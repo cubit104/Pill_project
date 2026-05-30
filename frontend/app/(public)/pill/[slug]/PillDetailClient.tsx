@@ -314,7 +314,8 @@ export default function PillDetailClient({
         {/* Back Button */}
         <Link
           href={backHref}
-          className="flex items-center gap-1 text-sky-600 hover:text-sky-800 text-sm font-medium mb-6 transition-colors"
+          className="flex items-center gap-1 text-sky-600 hover:text-sky-800 text-sm font-medium mb-6 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 rounded"
+          aria-label="Go back"
         >
           ← Back
         </Link>
