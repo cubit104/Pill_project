@@ -1339,19 +1339,15 @@ def test_api_pill_slug_has_medguide_false_when_summary_column_missing_and_no_gui
 # /api/pill/{slug}/dosage endpoint
 # ---------------------------------------------------------------------------
 
-def _make_pill_dosage_engine(*, dosage_value, has_guide: bool = True):
+def _make_pill_dosage_engine(
+    *,
+    dosage_value,
+    has_guide: bool = True,
+    pill_overrides: dict | None = None,
+    guide_overrides: dict | None = None,
+):
     from datetime import datetime, timezone
 
-    pill_row = (
-        "Plavix",
-        "174742",
-        "63653-1171-01",
-        "636531171",
-        "setid-123",
-        "tablet",
-        "Platelet Aggregation Inhibitor [EPC]",
-        None,
-    )
     pill_columns = [
         "medicine_name",
         "rxcui",
@@ -1362,20 +1358,20 @@ def _make_pill_dosage_engine(*, dosage_value, has_guide: bool = True):
         "dailymed_pharma_class_epc",
         "pharmclass_fda_epc",
     ]
+    pill_values = {
+        "medicine_name": "Plavix",
+        "rxcui": "174742",
+        "ndc11": "63653-1171-01",
+        "ndc9": "636531171",
+        "spl_set_id": "setid-123",
+        "dosage_form": "tablet",
+        "dailymed_pharma_class_epc": "Platelet Aggregation Inhibitor [EPC]",
+        "pharmclass_fda_epc": None,
+    }
+    if pill_overrides:
+        pill_values.update(pill_overrides)
+    pill_row = tuple(pill_values[column] for column in pill_columns)
 
-    guide_row = (
-        "clopidogrel",
-        "Plavix",
-        "174742",
-        "63653-1171-01",
-        "setid-123",
-        dosage_value,
-        "<p>75 mg tablets</p>",
-        True,
-        "<p>Boxed warning</p>",
-        "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=setid-123",
-        datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc),
-    )
     guide_columns = [
         "generic_name",
         "brand_name",
@@ -1389,6 +1385,22 @@ def _make_pill_dosage_engine(*, dosage_value, has_guide: bool = True):
         "source_url",
         "fetched_at",
     ]
+    guide_values = {
+        "generic_name": "clopidogrel",
+        "brand_name": "Plavix",
+        "rxcui": "174742",
+        "ndc": "63653-1171-01",
+        "spl_set_id": "setid-123",
+        "dosage_administration": dosage_value,
+        "dosage": "<p>75 mg tablets</p>",
+        "has_boxed_warning": True,
+        "boxed_warning_html": "<p>Boxed warning</p>",
+        "source_url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=setid-123",
+        "fetched_at": datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc),
+    }
+    if guide_overrides:
+        guide_values.update(guide_overrides)
+    guide_row = tuple(guide_values[column] for column in guide_columns)
 
     def _execute(sql, params=None):
         sql_str = str(sql).lower()
@@ -1402,7 +1414,30 @@ def _make_pill_dosage_engine(*, dosage_value, has_guide: bool = True):
         if "from public.medication_guide" in sql_str:
             result = MagicMock()
             if has_guide:
+                params = params or {}
+                guide_spl_set_id = str(guide_values.get("spl_set_id") or "")
+                guide_rxcui = str(guide_values.get("rxcui") or "")
+                guide_ndc = str(guide_values.get("ndc") or "")
+                guide_ndc_clean = guide_ndc.replace("-", "")
+                lookup_spl = str(params.get("spl_set_id") or "")
+                lookup_rxcui = str(params.get("rxcui") or "")
+                lookup_ndc = str(params.get("ndc") or "")
+                lookup_ndc_clean = str(params.get("ndc_clean") or "")
+                matches = (
+                    (lookup_spl and lookup_spl == guide_spl_set_id)
+                    or (lookup_rxcui and lookup_rxcui == guide_rxcui)
+                    or (
+                        lookup_ndc
+                        and (
+                            lookup_ndc == guide_ndc
+                            or lookup_ndc.replace("-", "") == guide_ndc_clean
+                            or (lookup_ndc_clean and lookup_ndc_clean == guide_ndc_clean)
+                        )
+                    )
+                )
                 result.fetchone.return_value = MagicMock(_mapping=dict(zip(guide_columns, guide_row)))
+                if not matches:
+                    result.fetchone.return_value = None
             else:
                 result.fetchone.return_value = None
             return result
@@ -1438,10 +1473,14 @@ def test_api_pill_dosage_returns_404_for_missing_slug(client):
 def test_api_pill_dosage_returns_payload_when_guide_exists(client):
     import database as db_module
 
+    async def _fake_build_guide(**kwargs):
+        return {"spl_set_id": "setid-123", "rxcui": "174742", "ndc": "63653-1171-01"}
+
     original = db_module.db_engine
     try:
         db_module.db_engine = _make_pill_dosage_engine(dosage_value="<p>Take once daily.</p>", has_guide=True)
-        response = client.get("/api/pill/plavix-75-1171/dosage")
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix-75-1171/dosage")
     finally:
         db_module.db_engine = original
 
@@ -1466,13 +1505,68 @@ def test_api_pill_dosage_returns_payload_when_guide_exists(client):
 def test_api_pill_dosage_returns_null_for_blank_dosage(client):
     import database as db_module
 
+    async def _fake_build_guide(**kwargs):
+        return {"spl_set_id": "setid-123", "rxcui": "174742", "ndc": "63653-1171-01"}
+
     original = db_module.db_engine
     try:
         db_module.db_engine = _make_pill_dosage_engine(dosage_value="   ", has_guide=True)
-        response = client.get("/api/pill/plavix-75-1171/dosage")
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix-75-1171/dosage")
     finally:
         db_module.db_engine = original
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["dosage_administration"] is None
+
+
+def test_api_pill_dosage_resolves_with_mismatched_identifiers(client):
+    import database as db_module
+    from services.medication_guide import GuideNotFoundError
+
+    calls = []
+
+    async def _fake_build_guide(**kwargs):
+        calls.append(kwargs)
+        if kwargs == {"ndc": "00024117190"}:
+            raise GuideNotFoundError("not found")
+        if kwargs == {"rxcui": "749198"}:
+            raise GuideNotFoundError("not found")
+        if kwargs == {"ndc": "0024-1171"}:
+            return {
+                "spl_set_id": "de8b0b67-eb25-4684-83b5-7ad785314227",
+                "rxcui": "213169",
+                "ndc": "0024-1171",
+            }
+        raise GuideNotFoundError("not found")
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(
+            dosage_value="<p>Take once daily.</p>",
+            has_guide=True,
+            pill_overrides={
+                "rxcui": "749198",
+                "ndc11": "00024117190",
+                "ndc9": "0024-1171",
+                "spl_set_id": None,
+            },
+            guide_overrides={
+                "rxcui": "213169",
+                "ndc": "0024-1171",
+                "spl_set_id": "de8b0b67-eb25-4684-83b5-7ad785314227",
+            },
+        )
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix/dosage")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["dosage_administration"] == "<p>Take once daily.</p>"
+    assert payload["dosage_forms_and_strengths"] == "<p>75 mg tablets</p>"
+    assert payload["rxcui"] == "213169"
+    assert payload["ndc"] == "0024-1171"
+    assert calls == [{"ndc": "00024117190"}, {"rxcui": "749198"}, {"ndc": "0024-1171"}]

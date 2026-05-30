@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
+from services.medication_guide import GuideNotFoundError, GuideValidationError, build_guide
 from services.synonym_resolver import get_synonyms_for_rxcui, filter_self_from_brands
 from ndc_normalize import normalize_ndc_to_11
 from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames, slugify_class
@@ -692,9 +693,119 @@ def get_pill_by_slug(slug: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+def _fetch_dosage_guide_row(conn, *, spl_set_id: Optional[str], ndc: Optional[str], rxcui: Optional[str]):
+    params = {
+        "spl_set_id": str(spl_set_id or ""),
+        "ndc": str(ndc or ""),
+        "ndc_clean": str(ndc or "").replace("-", ""),
+        "rxcui": str(rxcui or ""),
+    }
+    return conn.execute(
+        text(
+            """
+            SELECT
+                mg.generic_name,
+                mg.brand_name,
+                mg.rxcui,
+                mg.ndc,
+                mg.spl_set_id,
+                mg.dosage_administration,
+                mg.dosage,
+                mg.has_boxed_warning,
+                mg.boxed_warning_html,
+                mg.source_url,
+                mg.fetched_at
+            FROM public.medication_guide mg
+            WHERE (
+                    :spl_set_id <> ''
+                    AND mg.spl_set_id = :spl_set_id
+                ) OR (
+                    :ndc <> ''
+                    AND (
+                        mg.ndc = :ndc
+                        OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc_clean
+                    )
+                ) OR (
+                    :rxcui <> ''
+                    AND mg.rxcui = :rxcui
+                )
+            ORDER BY
+                CASE
+                    WHEN :spl_set_id <> '' AND mg.spl_set_id = :spl_set_id THEN 0
+                    WHEN :ndc <> '' AND (
+                        mg.ndc = :ndc
+                        OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc_clean
+                    ) THEN 1
+                    WHEN :rxcui <> '' AND mg.rxcui = :rxcui THEN 2
+                    ELSE 3
+                END,
+                mg.updated_at DESC NULLS LAST
+            LIMIT 1
+            """
+        ),
+        params,
+    ).fetchone()
+
+
+async def _resolve_dosage_guide_data(pill_info: Dict[str, Any]) -> Dict[str, Any]:
+    attempts: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for key, value in (
+        ("spl_set_id", pill_info.get("spl_set_id")),
+        ("ndc", pill_info.get("ndc11")),
+        ("rxcui", pill_info.get("rxcui")),
+        ("ndc", pill_info.get("ndc9")),
+    ):
+        normalized = str(value or "").strip()
+        if not normalized:
+            continue
+        attempt = (key, normalized)
+        if attempt in seen:
+            continue
+        seen.add(attempt)
+        attempts.append(attempt)
+
+    for key, value in attempts:
+        try:
+            if key == "spl_set_id":
+                payload = await build_guide(spl_set_id=value)
+            elif key == "ndc":
+                payload = await build_guide(ndc=value)
+            else:
+                payload = await build_guide(rxcui=value)
+        except (GuideNotFoundError, GuideValidationError):
+            continue
+        except Exception:
+            logger.warning("Dosage guide resolution failed for %s=%s", key, value, exc_info=True)
+            continue
+
+        spl_set_id = payload.get("spl_set_id") if isinstance(payload, dict) else None
+        ndc = payload.get("ndc") if isinstance(payload, dict) else None
+        rxcui = payload.get("rxcui") if isinstance(payload, dict) else None
+
+        if key == "spl_set_id":
+            spl_set_id = spl_set_id or value
+        elif key == "ndc":
+            ndc = ndc or value
+        elif key == "rxcui":
+            rxcui = rxcui or value
+
+        with database.db_engine.connect() as conn:
+            guide_row = _fetch_dosage_guide_row(
+                conn,
+                spl_set_id=spl_set_id,
+                ndc=ndc,
+                rxcui=rxcui,
+            )
+        if guide_row:
+            return dict(guide_row._mapping)
+
+    return {}
+
+
 @router.get("/api/pill/{slug}/dosage")
-def get_pill_dosage_by_slug(slug: str):
-    """Get dosage content for a pill slug using medication_guide priority matching."""
+async def get_pill_dosage_by_slug(slug: str):
+    """Get dosage content for a pill slug using medication_guide resolver parity."""
     if not database.db_engine:
         if not database.connect_to_database():
             raise HTTPException(status_code=500, detail="Database connection not available")
@@ -752,96 +863,31 @@ def get_pill_dosage_by_slug(slug: str):
             pill_columns = pill_result.keys()
             pill_info = dict(zip(pill_columns, pill_row))
 
-            guide_params = {
-                "spl_set_id": str(pill_info.get("spl_set_id") or ""),
-                "rxcui": str(pill_info.get("rxcui") or ""),
-                "ndc11": str(pill_info.get("ndc11") or ""),
-                "ndc9": str(pill_info.get("ndc9") or ""),
-                "ndc11_clean": str(pill_info.get("ndc11") or "").replace("-", ""),
-                "ndc9_clean": str(pill_info.get("ndc9") or "").replace("-", ""),
-            }
+        guide_data = await _resolve_dosage_guide_data(pill_info)
+        dosage_value = guide_data.get("dosage_administration")
+        dosage_administration = dosage_value.strip() if isinstance(dosage_value, str) else dosage_value
+        if isinstance(dosage_administration, str) and not dosage_administration:
+            dosage_administration = None
 
-            guide_row = conn.execute(
-                text(
-                    """
-                    SELECT
-                        mg.generic_name,
-                        mg.brand_name,
-                        mg.rxcui,
-                        mg.ndc,
-                        mg.spl_set_id,
-                        mg.dosage_administration,
-                        mg.dosage,
-                        mg.has_boxed_warning,
-                        mg.boxed_warning_html,
-                        mg.source_url,
-                        mg.fetched_at
-                    FROM public.medication_guide mg
-                    WHERE (
-                            :spl_set_id <> ''
-                            AND mg.spl_set_id = :spl_set_id
-                        ) OR (
-                            :rxcui <> ''
-                            AND mg.rxcui = :rxcui
-                        ) OR (
-                            :ndc11 <> ''
-                            AND (
-                                mg.ndc = :ndc11
-                                OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc11_clean
-                            )
-                        ) OR (
-                            :ndc9 <> ''
-                            AND (
-                                mg.ndc = :ndc9
-                                OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc9_clean
-                            )
-                        )
-                    ORDER BY
-                        CASE
-                            WHEN :spl_set_id <> '' AND mg.spl_set_id = :spl_set_id THEN 0
-                            WHEN :rxcui <> '' AND mg.rxcui = :rxcui THEN 1
-                            WHEN :ndc11 <> '' AND (
-                                mg.ndc = :ndc11
-                                OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc11_clean
-                            ) THEN 2
-                            WHEN :ndc9 <> '' AND (
-                                mg.ndc = :ndc9
-                                OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc9_clean
-                            ) THEN 3
-                            ELSE 4
-                        END,
-                        mg.updated_at DESC NULLS LAST
-                    LIMIT 1
-                    """
-                ),
-                guide_params,
-            ).fetchone()
-
-            guide_data = dict(guide_row._mapping) if guide_row else {}
-            dosage_value = guide_data.get("dosage_administration")
-            dosage_administration = dosage_value.strip() if isinstance(dosage_value, str) else dosage_value
-            if isinstance(dosage_administration, str) and not dosage_administration:
-                dosage_administration = None
-
-            return {
-                "drug_name": pill_info.get("medicine_name"),
-                "generic_name": guide_data.get("generic_name"),
-                "brand_name": guide_data.get("brand_name"),
-                "rxcui": guide_data.get("rxcui") or pill_info.get("rxcui"),
-                "ndc": guide_data.get("ndc") or pill_info.get("ndc11") or pill_info.get("ndc9"),
-                "spl_set_id": guide_data.get("spl_set_id") or pill_info.get("spl_set_id"),
-                "dosage_administration": dosage_administration,
-                "dosage_forms_and_strengths": guide_data.get("dosage") or None,
-                "has_boxed_warning": bool(guide_data.get("has_boxed_warning")),
-                "boxed_warning_html": guide_data.get("boxed_warning_html"),
-                "drug_class": (
-                    pill_info.get("dailymed_pharma_class_epc")
-                    or pill_info.get("pharmclass_fda_epc")
-                ),
-                "dosage_form": pill_info.get("dosage_form"),
-                "source_url": guide_data.get("source_url"),
-                "fetched_at": _to_iso(guide_data.get("fetched_at")),
-            }
+        return {
+            "drug_name": pill_info.get("medicine_name"),
+            "generic_name": guide_data.get("generic_name"),
+            "brand_name": guide_data.get("brand_name"),
+            "rxcui": guide_data.get("rxcui") or pill_info.get("rxcui"),
+            "ndc": guide_data.get("ndc") or pill_info.get("ndc11") or pill_info.get("ndc9"),
+            "spl_set_id": guide_data.get("spl_set_id") or pill_info.get("spl_set_id"),
+            "dosage_administration": dosage_administration,
+            "dosage_forms_and_strengths": guide_data.get("dosage") or None,
+            "has_boxed_warning": bool(guide_data.get("has_boxed_warning")),
+            "boxed_warning_html": guide_data.get("boxed_warning_html"),
+            "drug_class": (
+                pill_info.get("dailymed_pharma_class_epc")
+                or pill_info.get("pharmclass_fda_epc")
+            ),
+            "dosage_form": pill_info.get("dosage_form"),
+            "source_url": guide_data.get("source_url"),
+            "fetched_at": _to_iso(guide_data.get("fetched_at")),
+        }
     except HTTPException:
         raise
     except SQLAlchemyError as e:
