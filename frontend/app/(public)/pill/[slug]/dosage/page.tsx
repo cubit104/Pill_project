@@ -77,7 +77,7 @@ function resolveDrugName({
   pill: PillInfo | null
   slug: string
 }): string {
-  const brand = firstNonEmpty(dosage?.brand_name)
+  const brand = dosage?.brand_name?.trim() || null
   if (brand) return formatDrugName(brand, true)
   const fallback = firstNonEmpty(
     dosage?.generic_name,
@@ -143,17 +143,17 @@ export default async function DosagePage({
   const drugName = resolveDrugName({ dosage: dosageData, pill, slug })
   const headerDrugName = stripDoseFromName(drugName)
   const headerMeta = resolveHeaderMetadata({
-   drugName: headerDrugName,
-   pill,
-   guide: dosageData
-     ? {
-         generic_name: dosageData.generic_name,
-         brand_name: dosageData.brand_name,
-         proprietary_name: null,
-         drug_class: dosageData.drug_class,
-         dosage_form: dosageData.dosage_form,
-       }
-     : null,
+    drugName: headerDrugName,
+    pill,
+    guide: dosageData
+      ? {
+          generic_name: dosageData.generic_name,
+          brand_name: dosageData.brand_name,
+          proprietary_name: null,
+          drug_class: dosageData.drug_class,
+          dosage_form: dosageData.dosage_form,
+        }
+      : null,
   })
 
   const encodedSlug = encodeURIComponent(slug)
