@@ -173,9 +173,10 @@ export default async function DosagePage({
   })
 
   const encodedSlug = encodeURIComponent(slug)
-  // After the redirect above, slug is already the clean drug-name slug (or
-  // slugifyDrugName returned null, meaning no redirect occurred and slug stays
-  // as-is). Either way, encodedSlug is correct for all pill sub-page hrefs.
+  // permanentRedirect() throws and exits this function, so code below only
+  // runs when slug is already the clean drug-name slug (redirect not needed)
+  // or when no clean slug could be computed (slug stays as-is). In both cases
+  // encodeURIComponent(slug) is the correct slug for all pill sub-page hrefs.
   const canonicalDrugSlug = slugifyDrugName(drugName) || encodedSlug
   const rxcui = dosageData?.rxcui ?? pill.rxcui
   const ndc = dosageData?.ndc ?? pill.ndc11 ?? pill.ndc9

@@ -18,6 +18,13 @@ from utils import normalize_imprint, normalize_name, normalize_fields, process_i
 
 logger = logging.getLogger(__name__)
 IMAGE_BASE = (os.getenv("IMAGE_BASE") or "").strip().rstrip("/")
+
+# SQL expression to normalize medicine_name to a drug-name slug.
+# Mirrors slugifyDrugName() in frontend/app/lib/slug.ts:
+# preserve case with [^a-zA-Z0-9]+, then lower(), then trim dashes.
+_MEDICINE_SLUG_EXPR = (
+    "trim(lower(regexp_replace(medicine_name, '[^a-zA-Z0-9]+', '-', 'g')), '-')"
+)
 _IMAGE_BASE_WARNING_EMITTED = False
 _HISTORY_RESOLUTION_TTL_SECONDS = int(os.getenv("PILL_HISTORY_RESOLUTION_TTL_SECONDS", "3600"))
 _HISTORY_RESOLUTION_CACHE_MAX_ITEMS = int(os.getenv("PILL_HISTORY_RESOLUTION_CACHE_MAX_ITEMS", "1000"))
@@ -404,16 +411,14 @@ def get_pill_by_slug(slug: str):
             result = conn.execute(query, {"slug": slug})
             row = result.fetchone()
             if not row:
-                # Fallback: match by normalized drug-name slug against medicine_name.
-                # Mirrors slugifyDrugName() on the frontend: lower-case, replace
-                # non-alphanumeric runs with '-', trim leading/trailing dashes.
-                # NOTE: Keep this expression in sync with get_pill_dosage_by_slug below.
+                # Fallback: match by normalized drug-name slug against medicine_name
+                # using the shared _MEDICINE_SLUG_EXPR constant defined at module level.
                 result = conn.execute(
                     text(
-                        """
+                        f"""
                         SELECT * FROM pillfinder
                         WHERE deleted_at IS NULL AND published = true
-                          AND trim(lower(regexp_replace(medicine_name, '[^a-zA-Z0-9]+', '-', 'g')), '-') = :slug
+                          AND {_MEDICINE_SLUG_EXPR} = :slug
                         ORDER BY updated_at DESC NULLS LAST
                         LIMIT 1
                         """
@@ -717,13 +722,11 @@ def get_pill_dosage_by_slug(slug: str):
             )
             pill_row = pill_result.fetchone()
             if not pill_row:
-                # Fallback: match by normalized drug-name slug against medicine_name.
-                # Mirrors slugifyDrugName() on the frontend: lower-case, replace
-                # non-alphanumeric runs with '-', trim leading/trailing dashes.
-                # NOTE: Keep this expression in sync with get_pill_by_slug above.
+                # Fallback: match by normalized drug-name slug against medicine_name
+                # using the shared _MEDICINE_SLUG_EXPR constant defined at module level.
                 pill_result = conn.execute(
                     text(
-                        """
+                        f"""
                         SELECT
                             medicine_name,
                             rxcui,
@@ -735,7 +738,7 @@ def get_pill_dosage_by_slug(slug: str):
                             pharmclass_fda_epc
                         FROM pillfinder
                         WHERE deleted_at IS NULL AND published = true
-                          AND trim(lower(regexp_replace(medicine_name, '[^a-zA-Z0-9]+', '-', 'g')), '-') = :slug
+                          AND {_MEDICINE_SLUG_EXPR} = :slug
                         ORDER BY updated_at DESC NULLS LAST
                         LIMIT 1
                         """
