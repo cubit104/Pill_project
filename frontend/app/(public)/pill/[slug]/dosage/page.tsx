@@ -106,7 +106,7 @@ function cleanDosageHtml(html: string): string {
   let clean = html
 
   clean = clean.replace(/<section[^>]*>/gi, '').replace(/<\/section>/gi, '')
-  clean = clean.replace(/<h2[^>]*id="dosage"[^>]*>.*?<\/h2>/gi, '')
+  clean = clean.replace(/<h2[^>]*id="dosage"[^>]*>[\s\S]*?<\/h2>/gi, '')
   clean = clean.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1')
   clean = clean.replace(/\s*\(\d+\.\d+(?:[,\s]+\d+\.\d+)*\)/g, '')
   clean = clean.replace(/<em[^>]*>\s*\[see[\s\S]*?\]\s*<\/em>/gi, '')
