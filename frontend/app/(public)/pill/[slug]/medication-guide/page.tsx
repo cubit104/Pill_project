@@ -19,8 +19,10 @@ import {
 } from './layoutStyles'
 import {
   type LinkTarget,
+  type TermCounter,
   buildConditionLinks,
   buildLinkTargets,
+  createTermCounter,
   linkifyHtmlContent,
   linkifyText,
   normalizeTerms,
@@ -174,7 +176,7 @@ function GuideHtml({
 }: {
   content: string
   linkTargets: LinkTarget[]
-  counter?: { count: number }
+  counter?: TermCounter
 }) {
   return (
     <div
@@ -195,7 +197,7 @@ function GuideText({
   drugName: string
   conditionTags: string[]
   drugNames: string[]
-  counter?: { count: number }
+  counter?: TermCounter
 }) {
   return (
     <p className="my-4 whitespace-pre-line text-sm leading-8 text-slate-800">
@@ -219,9 +221,8 @@ function SectionBlock({
   conditionTags: string[]
   drugNames: string[]
   linkTargets: LinkTarget[]
-  counter?: { count: number }
+  counter?: TermCounter
 }) {
-  if (!content) return null
   return (
     <section className="border-b border-slate-100 py-5 last:border-b-0">
       <h2 className="mb-4 text-base font-semibold text-slate-900">{label}</h2>
@@ -255,7 +256,7 @@ function SectionFallback({
   conditionTags: string[]
   drugNames: string[]
   linkTargets: LinkTarget[]
-  counter?: { count: number }
+  counter?: TermCounter
 }) {
   return (
     <div>
@@ -459,7 +460,7 @@ export default async function MedicationGuidePage({
     ])
     const proConditionLinks = buildConditionLinks(proConditions)
     const proLinkTargets = buildLinkTargets({ drugNames: proDrugNames, conditionLinks: proConditionLinks })
-    const proSharedCounter = { count: 0 }
+    const proSharedCounter = createTermCounter()
     const linkedProfessionalHtml = professionalData?.professional_html
       ? linkifyHtmlContent(professionalData.professional_html, proLinkTargets, proSharedCounter)
       : null
@@ -646,7 +647,7 @@ export default async function MedicationGuidePage({
   const conditionTags = conditionLinks.map((condition) => condition.term)
 
   const linkTargets = buildLinkTargets({ drugNames, conditionLinks })
-  const sharedLinkCounter = { count: 0 }
+  const sharedLinkCounter = createTermCounter()
   const linkedBoxedWarningHtml = guideData?.boxed_warning_html
     ? linkifyHtmlContent(guideData.boxed_warning_html, linkTargets, sharedLinkCounter)
     : null

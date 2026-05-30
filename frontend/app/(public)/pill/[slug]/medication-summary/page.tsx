@@ -6,6 +6,7 @@ import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
 import {
   buildConditionLinks,
+  createTermCounter,
   linkifyText,
   normalizeTerms,
   splitBrandNames,
@@ -251,7 +252,7 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
   const headerMeta = resolveHeaderMetadata({ drugName: headerDrugName, pill, guide: guideData })
   const encodedSlug = encodeURIComponent(slug)
   const drugSlug = slugifyDrugName(drugName)
-  const summaryLinkCounter = { count: 0 }
+  const summaryLinkCounter = createTermCounter()
 
   const pageJsonLd = guidePageSchema({
     drugName,
