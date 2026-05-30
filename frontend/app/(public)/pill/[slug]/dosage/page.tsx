@@ -194,7 +194,7 @@ export default async function DosagePage({
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
     ...(canonicalDrugSlug ? [{ name: drugName, url: `/drug/${canonicalDrugSlug}` }] : []),
-    { name: 'Dosage', url: `/pill/${canonicalDrugSlug}/dosage` },
+    { name: 'Dosage', url: `/pill/${encodedSlug}/dosage` },
   ])
   const pageJsonLd = guidePageSchema({
     drugName,
