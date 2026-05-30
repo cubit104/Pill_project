@@ -137,17 +137,6 @@ async function fetchGuide(pill: PillInfo): Promise<GuideResponse | null> {
       if (res.ok) return (await res.json()) as GuideResponse
     }
 
-    async function fetchAllConditions(): Promise<ConditionListItem[]> {
-      try {
-        const res = await fetch(`${API_BASE}/api/conditions`, { next: { revalidate: 86400 } })
-        if (!res.ok) return []
-        const data = await res.json()
-        return data.conditions ?? []
-      } catch {
-        return []
-      }
-    }
-
     if (pill.ndc11) {
       const res = await fetch(
         `${API_BASE}/api/drugs/by-ndc/${encodeURIComponent(pill.ndc11)}/guide?${params.toString()}`,
@@ -175,6 +164,17 @@ async function fetchGuide(pill: PillInfo): Promise<GuideResponse | null> {
     return null
   } catch {
     return null
+  }
+}
+
+async function fetchAllConditions(): Promise<ConditionListItem[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/conditions`, { next: { revalidate: 86400 } })
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.conditions ?? []
+  } catch {
+    return []
   }
 }
 

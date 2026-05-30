@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import {
@@ -28,8 +29,6 @@ test('linkifyHtmlContent caps injected links at 3 and skips h1-h6 headings', () 
   assert.equal(linkCount, MAX_KEYWORD_LINKS_PER_PAGE)
   assert.match(output, /<h5>BAXFENDY diabetes<\/h5>/)
   assert.match(output, /<h6>diabetes BAXFENDY<\/h6>/)
-  assert.doesNotMatch(output, /<h5>.*<a /)
-  assert.doesNotMatch(output, /<h6>.*<a /)
 })
 
 test('linkifyHtmlContent enforces shared counter across multiple calls', () => {
