@@ -8,12 +8,12 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from email.utils import parsedate_to_datetime
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Any, Optional
 
 import httpx
 from sqlalchemy import text
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import OperationalError, ProgrammingError, TimeoutError
 
 import database
 from ndc_normalize import normalize_ndc_to_11
@@ -83,6 +83,8 @@ class NADACPricingService:
         self._logged_datasets: set[str] = set()
         self._logged_schema_failures: set[str] = set()
         self._http_client: httpx.AsyncClient | None = None
+        self._db_pool_retry_delay_seconds = max(0.0, float(os.getenv("DB_POOL_RETRY_DELAY_SECONDS", "0.2")))
+        self._db_pool_max_retries = max(0, int(os.getenv("DB_POOL_MAX_RETRIES", "1")))
 
     async def _ensure_client(self) -> httpx.AsyncClient:
         if self._http_client is None:
@@ -1071,23 +1073,56 @@ class NADACPricingService:
         if not database.db_engine and not database.connect_to_database():
             raise PricingServiceError("Database connection not available")
 
+    @staticmethod
+    def _is_pool_exhaustion_error(exc: Exception) -> bool:
+        if isinstance(exc, TimeoutError):
+            return True
+        if isinstance(exc, OperationalError):
+            message = str(exc).lower()
+            return "queuepool limit of size" in message and "connection timed out" in message
+        return False
+
+    def _run_db_read_with_pool_retry(self, operation: str, fn):
+        for attempt in range(self._db_pool_max_retries + 1):
+            try:
+                return fn()
+            except ProgrammingError:
+                raise
+            except Exception as exc:
+                if not self._is_pool_exhaustion_error(exc):
+                    raise
+                if attempt >= self._db_pool_max_retries:
+                    logger.warning(
+                        "DB pool exhausted during %s after %s attempt(s)",
+                        operation,
+                        attempt + 1,
+                        exc_info=True,
+                    )
+                    raise PricingServiceError(
+                        "Pricing database is temporarily busy. Please retry shortly."
+                    ) from exc
+                sleep(self._db_pool_retry_delay_seconds)
+
     # connection scoped to function body.
     def _get_cached_price(self, ndc_digits: str) -> dict[str, Any] | None:
         self._ensure_db()
         try:
-            with database.db_engine.connect() as conn:
-                row = conn.execute(
-                    text(
-                        """
-                        SELECT ndc, price_per_unit, unit, effective_date, source, raw_payload, fetched_at
-                        FROM drug_prices
-                        WHERE ndc = :ndc
-                        LIMIT 1
-                        """
-                    ),
-                    {"ndc": ndc_digits},
-                ).mappings().first()
-                return dict(row) if row else None
+            def _query() -> dict[str, Any] | None:
+                with database.db_engine.connect() as conn:
+                    row = conn.execute(
+                        text(
+                            """
+                            SELECT ndc, price_per_unit, unit, effective_date, source, raw_payload, fetched_at
+                            FROM drug_prices
+                            WHERE ndc = :ndc
+                            LIMIT 1
+                            """
+                        ),
+                        {"ndc": ndc_digits},
+                    ).mappings().first()
+                    return dict(row) if row else None
+
+            return self._run_db_read_with_pool_retry("cached price lookup", _query)
         except ProgrammingError as exc:
             if self._is_missing_relation(exc):
                 logger.error("drug_prices table missing — did the migration run?")
@@ -1100,22 +1135,51 @@ class NADACPricingService:
             return {}
         self._ensure_db()
         try:
-            with database.db_engine.connect() as conn:
-                rows = conn.execute(
-                    text(
-                        """
-                        SELECT ndc, price_per_unit, unit, effective_date, source, raw_payload, fetched_at
-                        FROM drug_prices
-                        WHERE ndc = ANY(:ndcs)
-                        """
-                    ),
-                    {"ndcs": ndc_digits_list},
-                ).mappings().all()
+            def _query():
+                with database.db_engine.connect() as conn:
+                    return conn.execute(
+                        text(
+                            """
+                            SELECT ndc, price_per_unit, unit, effective_date, source, raw_payload, fetched_at
+                            FROM drug_prices
+                            WHERE ndc = ANY(:ndcs)
+                            """
+                        ),
+                        {"ndcs": ndc_digits_list},
+                    ).mappings().all()
+
+            rows = self._run_db_read_with_pool_retry("bulk cached price lookup", _query)
             return {str(row["ndc"]): dict(row) for row in rows}
         except ProgrammingError as exc:
             if self._is_missing_relation(exc):
                 logger.error("drug_prices table missing — did the migration run?")
                 raise PricingServiceError("drug_prices table missing — did the migration run?") from exc
+            raise
+
+    def _get_cached_price_history_rows(self, ndc_digits: str, weeks: int) -> list[dict[str, Any]]:
+        self._ensure_db()
+        try:
+            def _query():
+                with database.db_engine.connect() as conn:
+                    return conn.execute(
+                        text(
+                            """
+                            SELECT ndc, effective_date, price_per_unit, unit
+                            FROM drug_price_history
+                            WHERE ndc = :ndc
+                            ORDER BY effective_date DESC
+                            LIMIT :weeks
+                            """
+                        ),
+                        {"ndc": ndc_digits, "weeks": weeks},
+                    ).mappings().all()
+
+            rows = self._run_db_read_with_pool_retry("cached price history lookup", _query)
+            return [dict(row) for row in rows]
+        except ProgrammingError as exc:
+            if self._is_missing_relation(exc):
+                logger.error("drug_price_history table missing — did the migration run?")
+                raise PricingServiceError("drug_price_history table missing — did the migration run?") from exc
             raise
 
     @staticmethod
@@ -1729,21 +1793,7 @@ class NADACPricingService:
             raise ValueError("Invalid NDC format")
 
         weeks = max(1, min(int(weeks), 260))
-        self._ensure_db()
-
-        with database.db_engine.connect() as conn:
-            cached_rows = conn.execute(
-                text(
-                    """
-                    SELECT ndc, effective_date, price_per_unit, unit
-                    FROM drug_price_history
-                    WHERE ndc = :ndc
-                    ORDER BY effective_date DESC
-                    LIMIT :weeks
-                    """
-                ),
-                {"ndc": ndc_digits, "weeks": weeks},
-            ).mappings().all()
+        cached_rows = self._get_cached_price_history_rows(ndc_digits, weeks)
         if cached_rows:
             newest_cached = self._parse_date(cached_rows[0].get("effective_date"))
             cache_recent_enough = newest_cached is not None and newest_cached >= (date.today() - timedelta(days=14))

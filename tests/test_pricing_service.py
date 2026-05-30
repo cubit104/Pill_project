@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from sqlalchemy.exc import OperationalError as SAOperationalError
+from sqlalchemy.exc import TimeoutError as SATimeoutError
 
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/testdb")
 
@@ -663,6 +665,100 @@ def test_get_price_cache_miss_when_stale_refreshes():
     mock_fetch.assert_called_once()
 
 
+def test_get_cached_price_retries_once_on_pool_timeout():
+    svc = NADACPricingService()
+    svc._db_pool_max_retries = 1
+    svc._db_pool_retry_delay_seconds = 0
+
+    mock_engine = MagicMock()
+    read_conn = MagicMock()
+    read_conn.__enter__.return_value = read_conn
+    read_conn.__exit__.return_value = False
+    read_result = MagicMock()
+    read_result.mappings.return_value.first.return_value = {
+        "ndc": "00002140102",
+        "price_per_unit": 0.55,
+        "unit": "EA",
+        "effective_date": date(2026, 5, 14),
+        "source": "NADAC (CMS)",
+        "raw_payload": {},
+        "fetched_at": datetime.now(timezone.utc),
+    }
+    read_conn.execute.return_value = read_result
+
+    timeout_exc = SATimeoutError("QueuePool limit of size 5 overflow 2 reached, connection timed out")
+    mock_engine.connect.side_effect = [timeout_exc, read_conn]
+
+    with patch("database.db_engine", mock_engine), patch.object(svc, "_ensure_db", return_value=None), patch(
+        "services.pricing_service.sleep"
+    ) as mock_sleep:
+        cached = svc._get_cached_price("00002140102")
+
+    assert cached is not None
+    assert cached["ndc"] == "00002140102"
+    assert mock_engine.connect.call_count == 2
+    mock_sleep.assert_called_once()
+
+
+def test_get_cached_price_raises_service_error_when_pool_stays_exhausted():
+    svc = NADACPricingService()
+    svc._db_pool_max_retries = 1
+    svc._db_pool_retry_delay_seconds = 0
+
+    timeout_exc = SATimeoutError("QueuePool limit of size 5 overflow 2 reached, connection timed out")
+    mock_engine = MagicMock()
+    mock_engine.connect.side_effect = [timeout_exc, timeout_exc]
+
+    with patch("database.db_engine", mock_engine), patch.object(svc, "_ensure_db", return_value=None), patch(
+        "services.pricing_service.sleep"
+    ) as mock_sleep:
+        with pytest.raises(PricingServiceError, match="temporarily busy"):
+            svc._get_cached_price("00002140102")
+
+    assert mock_engine.connect.call_count == 2
+    mock_sleep.assert_called_once()
+
+
+def test_get_cached_prices_bulk_retries_on_pool_operational_timeout():
+    svc = NADACPricingService()
+    svc._db_pool_max_retries = 1
+    svc._db_pool_retry_delay_seconds = 0
+
+    mock_engine = MagicMock()
+    read_conn = MagicMock()
+    read_conn.__enter__.return_value = read_conn
+    read_conn.__exit__.return_value = False
+    read_result = MagicMock()
+    read_result.mappings.return_value.all.return_value = [
+        {
+            "ndc": "00002140102",
+            "price_per_unit": 0.55,
+            "unit": "EA",
+            "effective_date": date(2026, 5, 14),
+            "source": "NADAC",
+            "raw_payload": {},
+            "fetched_at": datetime.now(timezone.utc),
+        }
+    ]
+    read_conn.execute.return_value = read_result
+
+    timeout_exc = SAOperationalError(
+        "SELECT 1",
+        {},
+        Exception("QueuePool limit of size 5 overflow 2 reached, connection timed out"),
+    )
+    mock_engine.connect.side_effect = [timeout_exc, read_conn]
+
+    with patch("database.db_engine", mock_engine), patch.object(svc, "_ensure_db", return_value=None), patch(
+        "services.pricing_service.sleep"
+    ) as mock_sleep:
+        cached = svc._get_cached_prices_bulk(["00002140102"])
+
+    assert "00002140102" in cached
+    assert mock_engine.connect.call_count == 2
+    mock_sleep.assert_called_once()
+
+
 def test_get_price_falls_back_to_equivalent_when_exact_ndc_missing():
     svc = NADACPricingService()
     siblings = ["11111111111", "22222222222", "33333333333"]
@@ -1138,6 +1234,43 @@ def test_get_price_history_uses_cache_when_present():
         history = asyncio.run(svc.get_price_history("00002-1401-02", weeks=2))
 
     assert [h["effective_date"] for h in history] == ["2026-05-01", "2026-05-08"]
+
+
+def test_get_price_history_closes_db_connection_before_upstream_awaits():
+    svc = NADACPricingService()
+
+    closed = {"value": False}
+    mock_engine = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.__enter__.return_value = mock_conn
+    mock_conn.__exit__.side_effect = lambda *args: closed.__setitem__("value", True)
+    mock_engine.connect.return_value = mock_conn
+
+    mock_result = MagicMock()
+    mock_result.mappings.return_value.all.return_value = []
+    mock_conn.execute.return_value = mock_result
+
+    async def _metadata():
+        assert closed["value"] is True
+        return {"dataset_id": "mock-dataset", "as_of_week": "2026-05-14"}
+
+    with patch("database.db_engine", mock_engine), patch.object(svc, "_ensure_db", return_value=None), patch.object(
+        svc, "_get_latest_dataset_metadata", new=AsyncMock(side_effect=_metadata)
+    ), patch.object(
+        svc,
+        "_resolve_column_map",
+        new=AsyncMock(
+            return_value={
+                "all_columns": ["ndc", "effective_date", "nadac_per_unit", "pricing_unit"],
+                "ndc": "ndc",
+                "effective_date": "effective_date",
+                "price": "nadac_per_unit",
+                "unit": "pricing_unit",
+            }
+        ),
+    ), patch.object(svc, "_request_datastore_query", new=AsyncMock(return_value={"results": []})):
+        with pytest.raises(PricingNotFoundError):
+            asyncio.run(svc.get_price_history("00002-1401-02", weeks=2))
 
 
 def test_get_price_history_recent_cache_skips_metadata_lookup():
