@@ -18,12 +18,12 @@ const PILL_REVALIDATE_SECONDS = 3600
 const DOSAGE_REVALIDATE_SECONDS = 86400
 
 type PillInfo = {
-  drug_name?: string
-  spl_set_id?: string
-  rxcui?: string
-  ndc11?: string
-  ndc9?: string
-  medicine_name?: string
+  drug_name?: string | null
+  spl_set_id?: string | null
+  rxcui?: string | null
+  ndc11?: string | null
+  ndc9?: string | null
+  medicine_name?: string | null
   brand_names?: string | null
   generic_name?: string | null
   brand_names_all?: string[] | null
