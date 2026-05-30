@@ -1533,7 +1533,7 @@ class NADACPricingService:
 
         cache_status = "miss"
         cache_started = perf_counter()
-        cached = self._get_cached_price(ndc_digits)
+        cached = await asyncio.to_thread(self._get_cached_price, ndc_digits)
         cache_duration_ms = (perf_counter() - cache_started) * 1000
         if cached and self._cache_fresh(cached, None):
             total_duration_ms = (perf_counter() - request_started) * 1000
@@ -1604,7 +1604,7 @@ class NADACPricingService:
         cache_key = f"rxcui:{rxcui_digits}"
         cache_status = "miss"
         cache_started = perf_counter()
-        cached = self._get_cached_price(cache_key)
+        cached = await asyncio.to_thread(self._get_cached_price, cache_key)
         cache_duration_ms = (perf_counter() - cache_started) * 1000
         if cached and self._cache_fresh(cached, None) and self._is_effective_date_within_threshold(cached):
             total_duration_ms = (perf_counter() - request_started) * 1000
@@ -1701,7 +1701,7 @@ class NADACPricingService:
         cache_key = f"name:{self._slugify_token(clean_name)}"
         cache_status = "miss"
         cache_started = perf_counter()
-        cached = self._get_cached_price(cache_key)
+        cached = await asyncio.to_thread(self._get_cached_price, cache_key)
         cache_duration_ms = (perf_counter() - cache_started) * 1000
         if cached and self._cache_fresh(cached, None) and self._is_effective_date_within_threshold(cached):
             total_duration_ms = (perf_counter() - request_started) * 1000
@@ -1807,7 +1807,7 @@ class NADACPricingService:
             raise ValueError("Invalid NDC format")
 
         weeks = max(1, min(int(weeks), 260))
-        cached_rows = self._get_cached_price_history_rows(ndc_digits, weeks)
+        cached_rows = await asyncio.to_thread(self._get_cached_price_history_rows, ndc_digits, weeks)
         if cached_rows:
             newest_cached = self._parse_date(cached_rows[0].get("effective_date"))
             cache_recent_enough = newest_cached is not None and newest_cached >= (date.today() - timedelta(days=14))
@@ -2215,7 +2215,7 @@ class NADACPricingService:
                         ndc_meta.setdefault(ndc, related)
 
             ndcs = list(dict.fromkeys(ndcs))[:MAX_ALTERNATIVE_NDCS]
-            cached_rows = self._get_cached_prices_bulk(ndcs)
+            cached_rows = await asyncio.to_thread(self._get_cached_prices_bulk, ndcs)
             rows: list[dict[str, Any]] = []
             stale_or_missing_ndcs: list[str] = []
 
