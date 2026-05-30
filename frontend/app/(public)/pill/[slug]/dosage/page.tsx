@@ -10,6 +10,7 @@ import {
 } from '../medication-guide/layoutStyles'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
+import { sanitizeRenderedHtml } from '../medication-guide/sanitizeRenderedHtml'
 
 type PageParams = Promise<{ slug: string }>
 
@@ -170,7 +171,7 @@ export default async function DosagePage({
   const pageJsonLd = guidePageSchema({
     drugName,
     slug,
-    pageType: 'medication-guide',
+    pageType: 'dosage',
     rxcui,
     ndc,
     splSetId,
@@ -179,7 +180,9 @@ export default async function DosagePage({
     fetchedAt: dosageData?.fetched_at,
   })
 
-  const dosageHtml = dosageData?.dosage_administration?.trim() || null
+  const dosageHtml = dosageData?.dosage_administration?.trim()
+    ? sanitizeRenderedHtml(dosageData.dosage_administration.trim())
+    : null
 
   return (
    <>
