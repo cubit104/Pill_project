@@ -121,6 +121,15 @@ test('detail page source keeps thumbnail selection separate from zoom state', ()
   assert.match(source, /selectedImage === img \? 'border-emerald-400 ring-2 ring-emerald-300' : 'border-slate-100'/)
 })
 
+test('detail page source uses static back link based on slugified drug name with home fallback', () => {
+  const source = readFileSync(sourcePath, 'utf8')
+
+  assert.match(source, /const drugSlug = slugifyDrugName\(pill\.drug_name\)/)
+  assert.match(source, /const backHref = drugSlug \? `\/drug\/\$\{drugSlug\}` : '\/'/)
+  assert.match(source, /<Link\s+href=\{backHref\}\s+className="flex items-center gap-1 text-sky-600 hover:text-sky-800 text-sm font-medium mb-6 transition-colors[\s\S]*focus:ring-2 focus:ring-sky-500 rounded"/)
+  assert.doesNotMatch(source, /router\.back\(\)/)
+})
+
 test('detail page source renders social share buttons as icon-only circles visible on mobile', () => {
   const source = readFileSync(sourcePath, 'utf8')
 
