@@ -30,8 +30,8 @@ function PillIconLarge() {
 }
 
 function DetailRow({ label, value, stripe }: { label: string; value?: string; stripe?: boolean }) {
-  if (!value) return null
   const [expanded, setExpanded] = useState(false)
+  if (!value) return null
   const shouldTruncate = value.length > 60
   const displayValue = shouldTruncate && !expanded ? `${value.slice(0, 60)}…` : value
   return (
