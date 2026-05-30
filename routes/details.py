@@ -488,14 +488,15 @@ def get_pill_by_slug(slug: str):
                             mg.updated_at DESC NULLS LAST
                         LIMIT 1
             """
-            guide_flags = {"has_medguide": False, "has_medication_summary": False}
+            guide_flags = {"has_medguide": False, "has_medication_summary": False, "has_dosage": False}
             try:
                 guide_row = conn.execute(
                     text(
                         """
                         SELECT
                             (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
-                            (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
+                            (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary,
+                            (NULLIF(mg.dosage_administration, '') IS NOT NULL) AS has_dosage
                         FROM public.medication_guide mg
                         """
                         + guide_filter_clause
@@ -506,6 +507,7 @@ def get_pill_by_slug(slug: str):
                     guide_flags = {
                         "has_medguide": bool(guide_row[0]),
                         "has_medication_summary": bool(guide_row[1]),
+                        "has_dosage": bool(guide_row[2]),
                     }
             except SQLAlchemyError as _e:
                 err_msg = str(_e).lower()
@@ -545,6 +547,7 @@ def get_pill_by_slug(slug: str):
                             guide_flags = {
                                 "has_medguide": bool(compat_row[0]),
                                 "has_medication_summary": False,
+                                "has_dosage": False,
                             }
                     except SQLAlchemyError as _compat_e:
                         logger.warning(
@@ -592,6 +595,7 @@ def get_pill_by_slug(slug: str):
                 ),
                 "has_medguide": guide_flags["has_medguide"],
                 "has_medication_summary": guide_flags["has_medication_summary"],
+                "has_dosage": guide_flags["has_dosage"],
                 "additional_ndcs": additional_ndcs,
                 "meta_description": pill_info.get("meta_description") or None,
                 "indication": None,
@@ -719,6 +723,7 @@ def get_pill_dosage_by_slug(slug: str):
                         mg.ndc,
                         mg.spl_set_id,
                         mg.dosage_administration,
+                        mg.dosage,
                         mg.has_boxed_warning,
                         mg.boxed_warning_html,
                         mg.source_url,
@@ -778,6 +783,7 @@ def get_pill_dosage_by_slug(slug: str):
                 "ndc": guide_data.get("ndc") or pill_info.get("ndc11") or pill_info.get("ndc9"),
                 "spl_set_id": guide_data.get("spl_set_id") or pill_info.get("spl_set_id"),
                 "dosage_administration": dosage_administration,
+                "dosage_forms_and_strengths": guide_data.get("dosage") or None,
                 "has_boxed_warning": bool(guide_data.get("has_boxed_warning")),
                 "boxed_warning_html": guide_data.get("boxed_warning_html"),
                 "drug_class": (

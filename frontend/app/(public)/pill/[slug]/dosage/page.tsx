@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
+import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
 import {
   SHARED_CONTENT_CARD_CLASSES,
@@ -32,6 +33,9 @@ type PillInfo = {
   dosage_form?: string | null
   is_brand_row?: boolean
   brand_or_generic?: 'brand' | 'generic'
+  has_medguide?: boolean
+  has_medication_summary?: boolean
+  has_dosage?: boolean
 }
 
 type DosageResponse = {
@@ -42,6 +46,7 @@ type DosageResponse = {
   ndc?: string | null
   spl_set_id?: string | null
   dosage_administration?: string | null
+  dosage_forms_and_strengths?: string | null
   has_boxed_warning?: boolean
   drug_class?: string | null
   dosage_form?: string | null
@@ -90,6 +95,28 @@ function resolveDrugName({
   return formatDrugName(fallback || 'Medication', false)
 }
 
+/**
+ * Clean dosage HTML for patient-facing display:
+ * 1. Remove the top-level <h2 id="dosage"> title (redundant with page header)
+ * 2. Strip all <a> tags but keep their inner text
+ * 3. Remove section number cross-references: (2.1), (5.1, 5.2), etc.
+ * 4. Remove [see ...] bracketed cross-references (including italic <em> wrappers)
+ */
+function cleanDosageHtml(html: string): string {
+  let clean = html
+
+  clean = clean.replace(/<section[^>]*>/gi, '').replace(/<\/section>/gi, '')
+  clean = clean.replace(/<h2[^>]*id="dosage"[^>]*>.*?<\/h2>/gi, '')
+  clean = clean.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1')
+  clean = clean.replace(/\s*\(\d+\.\d+(?:[,\s]+\d+\.\d+)*\)/g, '')
+  clean = clean.replace(/<em[^>]*>\s*\[see[\s\S]*?\]\s*<\/em>/gi, '')
+  clean = clean.replace(/\[see[\s\S]*?\]/gi, '')
+  clean = clean.replace(/<em[^>]*>\s*<\/em>/gi, '')
+  clean = clean.replace(/\s{2,}/g, ' ').trim()
+
+  return clean
+}
+
 async function fetchPill(slug: string): Promise<PillInfo | null> {
   try {
     const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, {
@@ -123,11 +150,12 @@ export async function generateMetadata({
   const pill = await fetchPill(slug)
   const dosage = await fetchDosage(slug)
   const drugName = resolveDrugName({ dosage, pill, slug })
+  const cleanSlug = slugifyDrugName(drugName) || encodeURIComponent(slug)
 
   return {
     title: `${drugName} Dosage & Administration – Recommended Doses | PillSeek`,
     description: `View recommended dosage and administration for ${drugName}, including adult doses, dosing adjustments, and FDA-approved prescribing instructions.`,
-    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/dosage` },
+    alternates: { canonical: `/pill/${cleanSlug}/dosage` },
   }
 }
 
@@ -158,15 +186,15 @@ export default async function DosagePage({
   })
 
   const encodedSlug = encodeURIComponent(slug)
-  const drugSlug = slugifyDrugName(drugName)
+  const canonicalDrugSlug = slugifyDrugName(drugName) || encodedSlug
   const rxcui = dosageData?.rxcui ?? pill.rxcui
   const ndc = dosageData?.ndc ?? pill.ndc11 ?? pill.ndc9
   const splSetId = dosageData?.spl_set_id ?? pill.spl_set_id
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    ...(drugSlug ? [{ name: drugName, url: `/drug/${drugSlug}` }] : []),
-    { name: 'Dosage', url: `/pill/${encodedSlug}/dosage` },
+    ...(canonicalDrugSlug ? [{ name: drugName, url: `/drug/${canonicalDrugSlug}` }] : []),
+    { name: 'Dosage', url: `/pill/${canonicalDrugSlug}/dosage` },
   ])
   const pageJsonLd = guidePageSchema({
     drugName,
@@ -180,8 +208,9 @@ export default async function DosagePage({
     fetchedAt: dosageData?.fetched_at,
   })
 
-  const dosageHtml = dosageData?.dosage_administration?.trim()
-    ? sanitizeRenderedHtml(dosageData.dosage_administration.trim())
+  const rawDosageHtml = dosageData?.dosage_administration?.trim() || null
+  const dosageHtml = rawDosageHtml
+    ? sanitizeRenderedHtml(cleanDosageHtml(rawDosageHtml))
     : null
 
   return (
@@ -196,11 +225,11 @@ export default async function DosagePage({
                 Home
               </Link>
             </li>
-            {drugSlug && (
+            {canonicalDrugSlug && (
               <>
                 <li aria-hidden="true" className="select-none">›</li>
                 <li>
-                  <Link href={`/drug/${drugSlug}`} className="hover:text-sky-700 transition-colors">
+                  <Link href={`/drug/${canonicalDrugSlug}`} className="hover:text-sky-700 transition-colors">
                     {drugName}
                   </Link>
                 </li>
@@ -221,37 +250,27 @@ export default async function DosagePage({
           isBrandPrimary={headerMeta.isBrandPrimary}
         />
 
-        <div className="no-print bg-white border border-slate-200 rounded-xl shadow-sm px-4 sm:px-6">
-          <nav
-            role="navigation"
-            className="flex gap-4 sm:gap-6 border-b border-slate-200"
-            aria-label="Medication content tabs"
-          >
-            <Link
-              href={`/pill/${encodedSlug}/medication-guide`}
-              className="px-1 py-3 text-sm font-medium border-b-2 transition-colors text-slate-500 border-transparent hover:text-slate-700"
-            >
-              Medication Guide
-            </Link>
-            <span
-              className="px-1 py-3 text-sm font-medium border-b-2 transition-colors text-emerald-700 border-emerald-700"
-              aria-current="page"
-            >
-              Dosage
-            </span>
-            <Link
-              href={`/pill/${encodedSlug}/professional-information`}
-              className="px-1 py-3 text-sm font-medium border-b-2 transition-colors text-slate-500 border-transparent hover:text-slate-700"
-            >
-              Professional Information
-            </Link>
-          </nav>
-        </div>
+        <MedicationGuideTabs
+          activeTab="dosage"
+          medicationGuideHref={pill?.has_medguide ? `/pill/${encodedSlug}/medication-guide` : null}
+          summaryHref={pill?.has_medication_summary ? `/pill/${encodedSlug}/medication-summary` : null}
+          dosageHref={`/pill/${encodedSlug}/dosage`}
+          professionalHref={`/pill/${encodedSlug}/professional-information`}
+        />
 
         <MedguideMetaBar guide={dosageData} />
 
         <div className="lg:max-w-[60rem] lg:mx-auto">
           <div className={SHARED_CONTENT_CARD_CLASSES}>
+            {dosageData?.dosage_forms_and_strengths && (
+              <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                <span className="font-semibold text-slate-800">Dosage Form & Strength: </span>
+                {dosageData.dosage_forms_and_strengths
+                  .replace(/<[^>]+>/g, '')
+                  .replace(/\s+/g, ' ')
+                  .trim()}
+              </div>
+            )}
             {dosageHtml ? (
               <article
                 id="dosage-content"
