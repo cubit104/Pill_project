@@ -173,9 +173,9 @@ export default async function DosagePage({
   })
 
   const encodedSlug = encodeURIComponent(slug)
-  // After the redirect above, slug === cleanDrugSlug (or cleanDrugSlug is null).
-  // tabSlug is the slug to use for all pill sub-page hrefs.
-  const tabSlug = cleanDrugSlug || encodedSlug
+  // After the redirect above, slug is already the clean drug-name slug (or
+  // slugifyDrugName returned null, meaning no redirect occurred and slug stays
+  // as-is). Either way, encodedSlug is correct for all pill sub-page hrefs.
   const canonicalDrugSlug = slugifyDrugName(drugName) || encodedSlug
   const rxcui = dosageData?.rxcui ?? pill.rxcui
   const ndc = dosageData?.ndc ?? pill.ndc11 ?? pill.ndc9
@@ -184,7 +184,7 @@ export default async function DosagePage({
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
     ...(canonicalDrugSlug ? [{ name: drugName, url: `/drug/${canonicalDrugSlug}` }] : []),
-    { name: 'Dosage', url: `/pill/${tabSlug}/dosage` },
+    { name: 'Dosage', url: `/pill/${encodedSlug}/dosage` },
   ])
   const pageJsonLd = guidePageSchema({
     drugName,
@@ -242,10 +242,10 @@ export default async function DosagePage({
 
         <MedicationGuideTabs
           activeTab="dosage"
-          medicationGuideHref={pill?.has_medguide ? `/pill/${tabSlug}/medication-guide` : null}
-          summaryHref={!pill?.has_medguide && pill?.has_medication_summary ? `/pill/${tabSlug}/medication-summary` : null}
-          dosageHref={`/pill/${tabSlug}/dosage`}
-          professionalHref={`/pill/${tabSlug}/professional-information`}
+          medicationGuideHref={pill?.has_medguide ? `/pill/${encodedSlug}/medication-guide` : null}
+          summaryHref={!pill?.has_medguide && pill?.has_medication_summary ? `/pill/${encodedSlug}/medication-summary` : null}
+          dosageHref={`/pill/${encodedSlug}/dosage`}
+          professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
         <MedguideMetaBar guide={dosageData} />

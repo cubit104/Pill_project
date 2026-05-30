@@ -407,6 +407,7 @@ def get_pill_by_slug(slug: str):
                 # Fallback: match by normalized drug-name slug against medicine_name.
                 # Mirrors slugifyDrugName() on the frontend: lower-case, replace
                 # non-alphanumeric runs with '-', trim leading/trailing dashes.
+                # NOTE: Keep this expression in sync with get_pill_dosage_by_slug below.
                 result = conn.execute(
                     text(
                         """
@@ -719,6 +720,7 @@ def get_pill_dosage_by_slug(slug: str):
                 # Fallback: match by normalized drug-name slug against medicine_name.
                 # Mirrors slugifyDrugName() on the frontend: lower-case, replace
                 # non-alphanumeric runs with '-', trim leading/trailing dashes.
+                # NOTE: Keep this expression in sync with get_pill_by_slug above.
                 pill_result = conn.execute(
                     text(
                         """
