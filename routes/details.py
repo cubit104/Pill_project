@@ -771,8 +771,11 @@ async def _resolve_dosage_guide_data(pill_info: Dict[str, Any]) -> Dict[str, Any
                 payload = await build_guide(spl_set_id=value)
             elif key == "ndc":
                 payload = await build_guide(ndc=value)
-            else:
+            elif key == "rxcui":
                 payload = await build_guide(rxcui=value)
+            else:
+                logger.warning("Unsupported dosage guide resolver key=%s", key)
+                continue
         except (GuideNotFoundError, GuideValidationError):
             continue
         except Exception:
