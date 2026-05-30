@@ -3,28 +3,28 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
+import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
 import {
   SHARED_CONTENT_CARD_CLASSES,
   SHARED_READING_PROSE_CLASSES,
 } from '../medication-guide/layoutStyles'
-import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
-import { breadcrumbSchema, safeJsonLd } from '../../../../lib/structured-data'
 import { slugifyDrugName } from '../../../../lib/slug'
+import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
+type PageParams = Promise<{ slug: string }>
 const PILL_REVALIDATE_SECONDS = 3600
 const DOSAGE_REVALIDATE_SECONDS = 86400
-const BOXED_WARNING_CARD_CLASSES =
-  'rounded-xl border border-rose-300 border-l-4 border-l-rose-600 bg-rose-50 p-5 text-rose-950 [&[open]>summary]:mb-3'
-const BOXED_WARNING_PROSE_CLASSES =
-  'text-sm [&_.boxed-warning-content]:space-y-0 [&_.boxed-warning-content_h2]:mt-5 [&_.boxed-warning-content_h2]:mb-3 [&_.boxed-warning-content_h2]:text-base [&_.boxed-warning-content_h2]:font-semibold [&_.boxed-warning-content_h2]:text-rose-900 [&_.boxed-warning-content_h3]:mt-4 [&_.boxed-warning-content_h3]:mb-2 [&_.boxed-warning-content_h3]:text-sm [&_.boxed-warning-content_h3]:font-semibold [&_.boxed-warning-content_h3]:text-rose-900 [&_.boxed-warning-content_p]:my-3 [&_.boxed-warning-content_p]:leading-8 [&_.boxed-warning-content_p]:text-rose-950 [&_.boxed-warning-content_ul]:my-3 [&_.boxed-warning-content_ul]:list-disc [&_.boxed-warning-content_ul]:pl-5 [&_.boxed-warning-content_ul]:space-y-2 [&_.boxed-warning-content_ol]:my-3 [&_.boxed-warning-content_ol]:list-decimal [&_.boxed-warning-content_ol]:pl-5 [&_.boxed-warning-content_ol]:space-y-2 [&_.boxed-warning-content_li]:my-2 [&_.boxed-warning-content_li]:leading-8 [&_.boxed-warning-content_li]:text-rose-950 [&_.boxed-warning-content_a]:text-rose-800 [&_.boxed-warning-content_a:hover]:text-rose-950 [&_.boxed-warning-content_strong]:font-semibold [&_.boxed-warning-content_strong]:text-rose-950'
-
-type PageParams = Promise<{ slug: string }>
 
 type PillInfo = {
-  drug_name?: string | null
-  generic_name?: string | null
+  drug_name?: string
+  spl_set_id?: string
+  rxcui?: string
+  ndc11?: string
+  ndc9?: string
+  medicine_name?: string
   brand_names?: string | null
+  generic_name?: string | null
   brand_names_all?: string[] | null
   pharma_class?: string | null
   dosage_form?: string | null
@@ -39,22 +39,53 @@ type DosageResponse = {
   rxcui?: string | null
   ndc?: string | null
   spl_set_id?: string | null
-  dosage?: string | null
+  dosage_administration?: string | null
   has_boxed_warning?: boolean
-  boxed_warning_html?: string | null
   drug_class?: string | null
   dosage_form?: string | null
   source_url?: string | null
   fetched_at?: string | null
 }
 
+function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (trimmed) return trimmed
+  }
+  return null
+}
+
+function formatDrugName(value: string, keepAllCaps: boolean): string {
+  const trimmed = value.trim()
+  if (!trimmed) return trimmed
+  if (keepAllCaps && /^[A-Z0-9\s\-()]+$/.test(trimmed)) return trimmed
+  return trimmed.toLowerCase().replace(/\b[a-z]/g, (char) => char.toUpperCase())
+}
+
 function stripDoseFromName(name: string): string {
   return name.replace(/\s+\d[\d./]*\s*(mg|mcg|ml|g|%|units?|iu|meq)\s*$/i, '').trim()
 }
 
-function resolveDrugName(pill: PillInfo | null, slug: string): string {
-  const name = pill?.drug_name?.trim()
-  return name || decodeURIComponent(slug).replace(/-/g, ' ')
+function resolveDrugName({
+  dosage,
+  pill,
+  slug,
+}: {
+  dosage: DosageResponse | null
+  pill: PillInfo | null
+  slug: string
+}): string {
+  const brand = firstNonEmpty(dosage?.brand_name)
+  if (brand) return formatDrugName(brand, true)
+  const fallback = firstNonEmpty(
+    dosage?.generic_name,
+    dosage?.drug_name,
+    pill?.drug_name,
+    pill?.medicine_name,
+    decodeURIComponent(slug).replace(/-/g, ' ')
+  )
+  return formatDrugName(fallback || 'Medication', false)
 }
 
 async function fetchPill(slug: string): Promise<PillInfo | null> {
@@ -81,14 +112,6 @@ async function fetchDosage(slug: string): Promise<DosageResponse | null> {
   }
 }
 
-function tabClasses(active: boolean): string {
-  return `px-1 py-3 text-sm font-medium border-b-2 transition-colors ${
-    active
-      ? 'text-emerald-700 border-emerald-700'
-      : 'text-slate-500 border-transparent hover:text-slate-700'
-  }`
-}
-
 export async function generateMetadata({
   params,
 }: {
@@ -96,11 +119,12 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params
   const pill = await fetchPill(slug)
-  const drugName = resolveDrugName(pill, slug)
+  const dosage = await fetchDosage(slug)
+  const drugName = resolveDrugName({ dosage, pill, slug })
 
   return {
-    title: `${drugName} Dosage Guide – Recommended Doses & Instructions | PillSeek`,
-    description: `View recommended dosage for ${drugName}, including adult doses, pediatric doses, and dosing adjustments. FDA-approved prescribing information.`,
+    title: `${drugName} Dosage & Administration – Recommended Doses | PillSeek`,
+    description: `View recommended dosage and administration for ${drugName}, including adult doses, dosing adjustments, and FDA-approved prescribing instructions.`,
     alternates: { canonical: `/pill/${encodeURIComponent(slug)}/dosage` },
   }
 }
@@ -115,35 +139,54 @@ export default async function DosagePage({
   if (!pill) notFound()
 
   const dosageData = await fetchDosage(slug)
-  const dosageHtml = dosageData?.dosage?.trim() ? dosageData.dosage : null
-  const drugName = resolveDrugName(pill, slug)
+  const drugName = resolveDrugName({ dosage: dosageData, pill, slug })
   const headerDrugName = stripDoseFromName(drugName)
   const headerMeta = resolveHeaderMetadata({
-    drugName: headerDrugName,
-    pill,
-    guide: {
-      generic_name: dosageData?.generic_name ?? null,
-      brand_name: null,
-      proprietary_name: null,
-      drug_class: dosageData?.drug_class ?? null,
-      dosage_form: dosageData?.dosage_form ?? null,
-    },
+   drugName: headerDrugName,
+   pill,
+   guide: dosageData
+     ? {
+         generic_name: dosageData.generic_name,
+         brand_name: dosageData.brand_name,
+         proprietary_name: null,
+         drug_class: dosageData.drug_class,
+         dosage_form: dosageData.dosage_form,
+       }
+     : null,
   })
 
-  const drugSlug = slugifyDrugName(drugName)
   const encodedSlug = encodeURIComponent(slug)
-  const dosageBreadcrumbs = breadcrumbSchema([
+  const drugSlug = slugifyDrugName(drugName)
+  const rxcui = dosageData?.rxcui ?? pill.rxcui
+  const ndc = dosageData?.ndc ?? pill.ndc11 ?? pill.ndc9
+  const splSetId = dosageData?.spl_set_id ?? pill.spl_set_id
+
+  const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
     ...(drugSlug ? [{ name: drugName, url: `/drug/${drugSlug}` }] : []),
     { name: 'Dosage', url: `/pill/${encodedSlug}/dosage` },
   ])
+  const pageJsonLd = guidePageSchema({
+    drugName,
+    slug,
+    pageType: 'medication-guide',
+    rxcui,
+    ndc,
+    splSetId,
+    genericName: dosageData?.generic_name,
+    brandName: dosageData?.brand_name,
+    fetchedAt: dosageData?.fetched_at,
+  })
+
+  const dosageHtml = dosageData?.dosage_administration?.trim() || null
 
   return (
-    <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(dosageBreadcrumbs) }} />
-      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        <nav aria-label="Breadcrumb">
-          <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
+   <>
+     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }} />
+     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(pageJsonLd) }} />
+     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+       <nav aria-label="Breadcrumb">
+         <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
             <li>
               <Link href="/" className="hover:text-sky-700 transition-colors">
                 Home
@@ -175,54 +218,55 @@ export default async function DosagePage({
         />
 
         <div className="no-print bg-white border border-slate-200 rounded-xl shadow-sm px-4 sm:px-6">
-          <nav role="navigation" className="flex gap-4 sm:gap-6 border-b border-slate-200" aria-label="Medication content tabs">
-            <Link href={`/pill/${encodedSlug}/medication-guide`} className={tabClasses(false)}>
+          <nav
+            role="navigation"
+            className="flex gap-4 sm:gap-6 border-b border-slate-200"
+            aria-label="Medication content tabs"
+          >
+            <Link
+              href={`/pill/${encodedSlug}/medication-guide`}
+              className="px-1 py-3 text-sm font-medium border-b-2 transition-colors text-slate-500 border-transparent hover:text-slate-700"
+            >
               Medication Guide
             </Link>
-            <span className={tabClasses(true)} aria-current="page">
+            <span
+              className="px-1 py-3 text-sm font-medium border-b-2 transition-colors text-emerald-700 border-emerald-700"
+              aria-current="page"
+            >
               Dosage
             </span>
-            <Link href={`/pill/${encodedSlug}/professional-information`} className={tabClasses(false)}>
+            <Link
+              href={`/pill/${encodedSlug}/professional-information`}
+              className="px-1 py-3 text-sm font-medium border-b-2 transition-colors text-slate-500 border-transparent hover:text-slate-700"
+            >
               Professional Information
             </Link>
           </nav>
         </div>
 
-        <div className="space-y-6">
-          <MedguideMetaBar guide={dosageData} />
+        <MedguideMetaBar guide={dosageData} />
 
-          {dosageData?.has_boxed_warning && (
-            <details open className={BOXED_WARNING_CARD_CLASSES}>
-              <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold text-rose-900 [&::-webkit-details-marker]:hidden">
-                <span aria-hidden>⚠️</span>
-                <span>Boxed Warning</span>
-              </summary>
-              {dosageData?.boxed_warning_html ? (
-                <div className={BOXED_WARNING_PROSE_CLASSES} dangerouslySetInnerHTML={{ __html: dosageData.boxed_warning_html }} />
-              ) : (
-                <p className="text-sm leading-8 text-rose-950">
-                  This medication includes an FDA boxed warning. See the Full Prescribing Information for details.
-                </p>
-              )}
-            </details>
-          )}
-
-          <div className={`${SHARED_CONTENT_CARD_CLASSES} lg:max-w-[60rem] lg:mx-auto`}>
+        <div className="lg:max-w-[60rem] lg:mx-auto">
+          <div className={SHARED_CONTENT_CARD_CLASSES}>
             {dosageHtml ? (
-              <article className={SHARED_READING_PROSE_CLASSES} dangerouslySetInnerHTML={{ __html: dosageHtml }} />
+              <article
+                id="dosage-content"
+                className={SHARED_READING_PROSE_CLASSES}
+                dangerouslySetInnerHTML={{ __html: dosageHtml }}
+              />
             ) : (
               <div className="text-center text-sm text-slate-600 py-8">
-                Dosage information is not available for this medication.
+                Dosage and administration information is not available for this medication.
               </div>
             )}
           </div>
         </div>
 
-        {(dosageData?.rxcui || dosageData?.ndc || dosageData?.fetched_at || dosageData?.source_url) && (
+        {(rxcui || ndc || dosageData?.fetched_at || dosageData?.source_url) && (
           <section className="border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1">
             <h2 className="font-semibold text-slate-600 mb-2">Sources</h2>
-            {dosageData?.rxcui && <p><span className="font-medium">RxCUI:</span> {dosageData.rxcui}</p>}
-            {dosageData?.ndc && <p><span className="font-medium">NDC:</span> {dosageData.ndc}</p>}
+            {rxcui && <p><span className="font-medium">RxCUI:</span> {rxcui}</p>}
+            {ndc && <p><span className="font-medium">NDC:</span> {ndc}</p>}
             {dosageData?.fetched_at && (
               <p><span className="font-medium">Last fetched:</span>{' '}
                 {new Date(dosageData.fetched_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}
