@@ -718,7 +718,7 @@ def get_pill_dosage_by_slug(slug: str):
                         mg.rxcui,
                         mg.ndc,
                         mg.spl_set_id,
-                        mg.dosage,
+                        mg.dosage_administration,
                         mg.has_boxed_warning,
                         mg.boxed_warning_html,
                         mg.source_url,
@@ -765,10 +765,10 @@ def get_pill_dosage_by_slug(slug: str):
             ).fetchone()
 
             guide_data = dict(guide_row._mapping) if guide_row else {}
-            dosage_value = guide_data.get("dosage")
-            dosage = dosage_value.strip() if isinstance(dosage_value, str) else dosage_value
-            if isinstance(dosage, str) and not dosage:
-                dosage = None
+            dosage_value = guide_data.get("dosage_administration")
+            dosage_administration = dosage_value.strip() if isinstance(dosage_value, str) else dosage_value
+            if isinstance(dosage_administration, str) and not dosage_administration:
+                dosage_administration = None
 
             return {
                 "drug_name": pill_info.get("medicine_name"),
@@ -777,7 +777,7 @@ def get_pill_dosage_by_slug(slug: str):
                 "rxcui": guide_data.get("rxcui") or pill_info.get("rxcui"),
                 "ndc": guide_data.get("ndc") or pill_info.get("ndc11") or pill_info.get("ndc9"),
                 "spl_set_id": guide_data.get("spl_set_id") or pill_info.get("spl_set_id"),
-                "dosage": dosage,
+                "dosage_administration": dosage_administration,
                 "has_boxed_warning": bool(guide_data.get("has_boxed_warning")),
                 "boxed_warning_html": guide_data.get("boxed_warning_html"),
                 "drug_class": (

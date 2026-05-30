@@ -1379,7 +1379,7 @@ def _make_pill_dosage_engine(*, dosage_value, has_guide: bool = True):
         "rxcui",
         "ndc",
         "spl_set_id",
-        "dosage",
+        "dosage_administration",
         "has_boxed_warning",
         "boxed_warning_html",
         "source_url",
@@ -1449,7 +1449,7 @@ def test_api_pill_dosage_returns_payload_when_guide_exists(client):
     assert payload["rxcui"] == "174742"
     assert payload["ndc"] == "63653-1171-01"
     assert payload["spl_set_id"] == "setid-123"
-    assert payload["dosage"] == "<p>Take once daily.</p>"
+    assert payload["dosage_administration"] == "<p>Take once daily.</p>"
     assert payload["has_boxed_warning"] is True
     assert payload["boxed_warning_html"] == "<p>Boxed warning</p>"
     assert payload["drug_class"] == "Platelet Aggregation Inhibitor [EPC]"
@@ -1470,4 +1470,4 @@ def test_api_pill_dosage_returns_null_for_blank_dosage(client):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["dosage"] is None
+    assert payload["dosage_administration"] is None
