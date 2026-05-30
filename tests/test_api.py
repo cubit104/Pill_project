@@ -1310,6 +1310,7 @@ def test_api_pill_slug_has_medguide_true_when_summary_column_missing(client):
     data = response.json()
     assert data["has_medguide"] is True
     assert data["has_medication_summary"] is False
+    assert data["has_dosage"] is False
 
 
 def test_api_pill_slug_has_medguide_false_when_summary_column_missing_and_no_guide(client):
@@ -1331,6 +1332,7 @@ def test_api_pill_slug_has_medguide_false_when_summary_column_missing_and_no_gui
     data = response.json()
     assert data["has_medguide"] is False
     assert data["has_medication_summary"] is False
+    assert data["has_dosage"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -1368,6 +1370,7 @@ def _make_pill_dosage_engine(*, dosage_value, has_guide: bool = True):
         "63653-1171-01",
         "setid-123",
         dosage_value,
+        "<p>75 mg tablets</p>",
         True,
         "<p>Boxed warning</p>",
         "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=setid-123",
@@ -1380,6 +1383,7 @@ def _make_pill_dosage_engine(*, dosage_value, has_guide: bool = True):
         "ndc",
         "spl_set_id",
         "dosage_administration",
+        "dosage",
         "has_boxed_warning",
         "boxed_warning_html",
         "source_url",
@@ -1450,6 +1454,7 @@ def test_api_pill_dosage_returns_payload_when_guide_exists(client):
     assert payload["ndc"] == "63653-1171-01"
     assert payload["spl_set_id"] == "setid-123"
     assert payload["dosage_administration"] == "<p>Take once daily.</p>"
+    assert payload["dosage_forms_and_strengths"] == "<p>75 mg tablets</p>"
     assert payload["has_boxed_warning"] is True
     assert payload["boxed_warning_html"] == "<p>Boxed warning</p>"
     assert payload["drug_class"] == "Platelet Aggregation Inhibitor [EPC]"

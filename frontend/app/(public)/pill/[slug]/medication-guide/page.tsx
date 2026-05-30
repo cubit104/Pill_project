@@ -51,6 +51,7 @@ type PillInfo = {
   dosage_form?: string | null
   is_brand_row?: boolean
   brand_or_generic?: 'brand' | 'generic'
+  has_dosage?: boolean
 }
 
 type ConditionListItem = {
@@ -531,6 +532,7 @@ export default async function MedicationGuidePage({
         <MedicationGuideTabs
           activeTab="pro"
           medicationGuideHref={null}
+          dosageHref={pill?.has_dosage ? `/pill/${encodedSlug}/dosage` : null}
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
@@ -736,6 +738,7 @@ export default async function MedicationGuidePage({
       <MedicationGuideTabs
         activeTab="consumer"
         medicationGuideHref={`/pill/${encodeURIComponent(slug)}/medication-guide`}
+        dosageHref={pill?.has_dosage ? `/pill/${encodedSlug}/dosage` : null}
         professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
       />
 
