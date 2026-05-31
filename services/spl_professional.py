@@ -4,7 +4,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import urlparse
 
 import bleach
@@ -451,6 +451,28 @@ def _format_revision_date(tree: etree._Element) -> Optional[str]:
 
 def _is_meaningful_html(fragment: str) -> bool:
     return bool(re.sub(r"<[^>]+>", "", fragment or "").strip())
+
+
+def extract_pro_section_html(article_html: Any, section_id: str) -> Optional[str]:
+    if not isinstance(article_html, str) or not article_html.strip():
+        return None
+    if not isinstance(section_id, str) or not section_id.strip():
+        return None
+
+    try:
+        root = lxml_html.fragment_fromstring(article_html, create_parent="div")
+    except (etree.ParserError, etree.XMLSyntaxError, ValueError, TypeError):
+        return None
+
+    sections = root.xpath(".//section[h2[@id=$section_id]]", section_id=section_id)
+    if not sections:
+        return None
+
+    try:
+        section_html = lxml_html.tostring(sections[0], encoding="unicode")
+    except Exception:
+        return None
+    return section_html.strip() or None
 
 
 def _sanitize_html(fragment: str) -> str:

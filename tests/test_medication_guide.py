@@ -1170,6 +1170,97 @@ def test_include_medguide_lazy_fetches_and_persists_on_cache_hit():
     assert result.get("medguide_html") == "<html>fetched medguide</html>"
 
 
+def test_build_guide_populates_adverse_reactions_from_professional_section():
+    label_record = {
+        "openfda": {
+            "rxcui": ["12345"],
+            "package_ndc": ["11111-2222"],
+            "spl_set_id": ["set-123"],
+            "generic_name": ["drugx"],
+            "brand_name": ["DrugX"],
+        },
+        "indications_and_usage": ["Used for condition Y."],
+        "adverse_reactions": ["Nausea."],
+    }
+    cache = {"row": None}
+
+    def _insert(_conn, payload):
+        cache["row"] = _row_from_payload(payload)
+        return cache["row"]
+
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=label_record),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+    mock_dm = MagicMock()
+    mock_dm.fetch_patient_guide.return_value = None
+    professional_html = (
+        '<section><h2 id="adverse-reactions">Adverse Reactions</h2><p>Full adverse content.</p></section>'
+        '<section><h2 id="drug-interactions">Drug Interactions</h2><p>Other section.</p></section>'
+    )
+    professional_rendered = SimpleNamespace(
+        article_html=professional_html,
+        highlights_html=None,
+        sections=[("adverse-reactions", "Adverse Reactions")],
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=None
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert), patch(
+        "services.medication_guide.fetch_spl_sections", new=AsyncMock(return_value={})
+    ), patch(
+        "services.medication_guide.fetch_professional_rendered",
+        new=AsyncMock(return_value=professional_rendered),
+    ):
+        asyncio.run(build_guide(rxcui="12345", openfda_client=mock_client, dailymed_client=mock_dm))
+
+    assert 'id="adverse-reactions"' in cache["row"]["adverse_reactions"]
+    assert "Drug Interactions" not in cache["row"]["adverse_reactions"]
+
+
+def test_build_guide_falls_back_to_side_effects_when_adverse_section_absent():
+    label_record = {
+        "openfda": {
+            "rxcui": ["12345"],
+            "package_ndc": ["11111-2222"],
+            "spl_set_id": ["set-123"],
+            "generic_name": ["drugx"],
+            "brand_name": ["DrugX"],
+        },
+        "indications_and_usage": ["Used for condition Y."],
+        "adverse_reactions": ["Nausea."],
+    }
+    cache = {"row": None}
+
+    def _insert(_conn, payload):
+        cache["row"] = _row_from_payload(payload)
+        return cache["row"]
+
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=label_record),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+    mock_dm = MagicMock()
+    mock_dm.fetch_patient_guide.return_value = None
+    professional_rendered = SimpleNamespace(
+        article_html='<section><h2 id="drug-interactions">Drug Interactions</h2><p>Only interactions.</p></section>',
+        highlights_html=None,
+        sections=[("drug-interactions", "Drug Interactions")],
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=None
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert), patch(
+        "services.medication_guide.fetch_spl_sections", new=AsyncMock(return_value={})
+    ), patch(
+        "services.medication_guide.fetch_professional_rendered",
+        new=AsyncMock(return_value=professional_rendered),
+    ):
+        asyncio.run(build_guide(rxcui="12345", openfda_client=mock_client, dailymed_client=mock_dm))
+
+    assert cache["row"]["adverse_reactions"] == "Nausea."
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(os.getenv("RUN_LIVE_OPENFDA_TESTS") != "1", reason="Live openFDA tests are disabled")
 def test_live_lipitor_sections():
