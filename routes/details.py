@@ -566,26 +566,47 @@ def get_pill_by_slug(slug: str):
                         slug,
                         _e,
                     )
+                    summary_column_missing = "medication_summary_html" in err_msg
                     try:
-                        compat_row = conn.execute(
-                            text(
-                                """
-                                SELECT
-                                    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
-                                    (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
-                                FROM public.medication_guide mg
-                                """
-                                + guide_filter_clause
-                            ),
-                            guide_params,
-                        ).fetchone()
-                        if compat_row:
-                            guide_flags = {
-                                "has_medguide": bool(compat_row[0]),
-                                "has_medication_summary": bool(compat_row[1]),
-                                "has_dosage": False,
-                                "has_adverse_reactions": False,
-                            }
+                        if summary_column_missing:
+                            legacy_row = conn.execute(
+                                text(
+                                    """
+                                    SELECT
+                                        (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide
+                                    FROM public.medication_guide mg
+                                    """
+                                    + guide_filter_clause
+                                ),
+                                guide_params,
+                            ).fetchone()
+                            if legacy_row:
+                                guide_flags = {
+                                    "has_medguide": bool(legacy_row[0]),
+                                    "has_medication_summary": False,
+                                    "has_dosage": False,
+                                    "has_adverse_reactions": False,
+                                }
+                        else:
+                            compat_row = conn.execute(
+                                text(
+                                    """
+                                    SELECT
+                                        (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
+                                        (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
+                                    FROM public.medication_guide mg
+                                    """
+                                    + guide_filter_clause
+                                ),
+                                guide_params,
+                            ).fetchone()
+                            if compat_row:
+                                guide_flags = {
+                                    "has_medguide": bool(compat_row[0]),
+                                    "has_medication_summary": bool(compat_row[1]),
+                                    "has_dosage": False,
+                                    "has_adverse_reactions": False,
+                                }
                     except SQLAlchemyError as _compat_e:
                         compat_msg = str(_compat_e).lower()
                         compat_pg_code = getattr(getattr(_compat_e, "orig", None), "pgcode", None)
@@ -993,7 +1014,7 @@ async def get_pill_adverse_reactions_by_slug(slug: str):
             if not pill_row:
                 pill_result = conn.execute(
                     text(
-                        f"""
+                        """
                         SELECT
                             medicine_name,
                             rxcui,
@@ -1003,7 +1024,7 @@ async def get_pill_adverse_reactions_by_slug(slug: str):
                             dosage_form
                         FROM pillfinder
                         WHERE deleted_at IS NULL AND published = true
-                          AND {_MEDICINE_SLUG_EXPR} = :slug
+                          AND trim(lower(regexp_replace(medicine_name, '[^a-zA-Z0-9]+', '-', 'g')), '-') = :slug
                         ORDER BY updated_at DESC NULLS LAST
                         LIMIT 1
                         """
