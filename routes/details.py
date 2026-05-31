@@ -537,7 +537,10 @@ def get_pill_by_slug(slug: str):
                                 NULLIF(mg.dosage_administration, '') IS NOT NULL
                                 OR NULLIF(mg.dosage, '') IS NOT NULL
                             ) AS has_dosage,
-                            (NULLIF(mg.side_effects, '') IS NOT NULL) AS has_adverse_reactions
+                            (
+                                NULLIF(mg.adverse_reactions, '') IS NOT NULL
+                                OR NULLIF(mg.side_effects, '') IS NOT NULL
+                            ) AS has_adverse_reactions
                         FROM public.medication_guide mg
                         """
                         + guide_filter_clause
@@ -782,6 +785,7 @@ def _fetch_dosage_guide_row(conn, *, spl_set_id: Optional[str], ndc: Optional[st
                 mg.dosage_administration,
                 mg.dosage,
                 mg.side_effects,
+                mg.adverse_reactions,
                 mg.has_boxed_warning,
                 mg.boxed_warning_html,
                 mg.source_url,
@@ -1039,7 +1043,7 @@ async def get_pill_adverse_reactions_by_slug(slug: str):
             pill_info = dict(zip(pill_columns, pill_row))
 
         guide_data = await _resolve_dosage_guide_data(pill_info)
-        adverse_html = guide_data.get("side_effects")
+        adverse_html = guide_data.get("adverse_reactions") or guide_data.get("side_effects")
         adverse_reactions = adverse_html.strip() if isinstance(adverse_html, str) else adverse_html
         if isinstance(adverse_reactions, str) and not adverse_reactions:
             adverse_reactions = None
