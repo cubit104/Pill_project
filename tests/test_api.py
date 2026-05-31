@@ -1384,8 +1384,8 @@ def test_api_pill_slug_has_dosage_when_dosage_column_exists(client):
     assert response.json()["has_dosage"] is True
 
 
-def test_api_pill_slug_has_adverse_reactions_when_side_effects_exists(client):
-    """has_adverse_reactions should follow side_effects section availability."""
+def test_api_pill_slug_has_adverse_reactions_when_adverse_reactions_exists(client):
+    """has_adverse_reactions should follow adverse_reactions or side_effects availability."""
     import database as db_module
 
     pill_row = (
@@ -1407,7 +1407,7 @@ def test_api_pill_slug_has_adverse_reactions_when_side_effects_exists(client):
         elif "from pill_ndcs" in sql_str:
             result.fetchall.return_value = []
         elif "from public.medication_guide" in sql_str:
-            if "nullif(mg.side_effects, '') is not null" in sql_str:
+            if "nullif(mg.adverse_reactions, '') is not null" in sql_str:
                 result.fetchone.return_value = (False, False, False, True)
             else:
                 result.fetchone.return_value = (False, False, False, False)
@@ -1479,6 +1479,7 @@ def _make_pill_dosage_engine(
         "dosage_administration",
         "dosage",
         "side_effects",
+        "adverse_reactions",
         "has_boxed_warning",
         "boxed_warning_html",
         "source_url",
@@ -1493,6 +1494,7 @@ def _make_pill_dosage_engine(
         "dosage_administration": dosage_value,
         "dosage": "<p>75 mg tablets</p>",
         "side_effects": "<p>Bleeding</p>",
+        "adverse_reactions": "<p>Bleeding</p>",
         "has_boxed_warning": True,
         "boxed_warning_html": "<p>Boxed warning</p>",
         "source_url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=setid-123",
@@ -1737,6 +1739,60 @@ def test_api_pill_adverse_reactions_returns_payload_when_guide_exists(client):
     assert response.headers.get("cache-control") == "public, max-age=3600, stale-while-revalidate=86400"
 
 
+def test_api_pill_adverse_reactions_prefers_dedicated_column(client):
+    import database as db_module
+
+    async def _fake_build_guide(**kwargs):
+        return {"spl_set_id": "setid-123", "rxcui": "174742", "ndc": "63653-1171-01"}
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(
+            dosage_value="<p>Take once daily.</p>",
+            has_guide=True,
+            guide_overrides={
+                "adverse_reactions": "<section><h2>Adverse Reactions</h2><p>Full section</p></section>",
+                "side_effects": None,
+            },
+        )
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix-75-1171/adverse-reactions")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["adverse_reactions"] == "<section><h2>Adverse Reactions</h2><p>Full section</p></section>"
+    assert payload["side_effects"] == "<section><h2>Adverse Reactions</h2><p>Full section</p></section>"
+
+
+def test_api_pill_adverse_reactions_falls_back_to_side_effects(client):
+    import database as db_module
+
+    async def _fake_build_guide(**kwargs):
+        return {"spl_set_id": "setid-123", "rxcui": "174742", "ndc": "63653-1171-01"}
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(
+            dosage_value="<p>Take once daily.</p>",
+            has_guide=True,
+            guide_overrides={
+                "adverse_reactions": None,
+                "side_effects": "<p>Fallback side effects</p>",
+            },
+        )
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix-75-1171/adverse-reactions")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["adverse_reactions"] == "<p>Fallback side effects</p>"
+    assert payload["side_effects"] == "<p>Fallback side effects</p>"
+
+
 def test_api_pill_adverse_reactions_returns_null_for_blank_content(client):
     import database as db_module
 
@@ -1748,7 +1804,7 @@ def test_api_pill_adverse_reactions_returns_null_for_blank_content(client):
         db_module.db_engine = _make_pill_dosage_engine(
             dosage_value="<p>Take once daily.</p>",
             has_guide=True,
-            guide_overrides={"side_effects": "   "},
+            guide_overrides={"adverse_reactions": "   ", "side_effects": "   "},
         )
         with patch("routes.details.build_guide", side_effect=_fake_build_guide):
             response = client.get("/api/pill/plavix-75-1171/adverse-reactions")
