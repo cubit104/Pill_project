@@ -178,6 +178,9 @@ export default async function DosagePage({
   const ndc = dosageData?.ndc ?? pill.ndc11 ?? pill.ndc9
   const splSetId = dosageData?.spl_set_id ?? pill.spl_set_id
 
+  const hasMedguide = Boolean(pill?.has_medguide)
+  const hasSummary = !hasMedguide && Boolean(pill?.has_medication_summary)
+
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
     ...(cleanDrugSlug ? [{ name: drugName, url: `/drug/${cleanDrugSlug}` }] : []),
@@ -239,8 +242,8 @@ export default async function DosagePage({
 
         <MedicationGuideTabs
           activeTab="dosage"
-          medicationGuideHref={`/pill/${cleanDrugSlug}/medication-guide`}
-          summaryHref={null}
+          medicationGuideHref={hasMedguide ? `/pill/${cleanDrugSlug}/medication-guide` : null}
+          summaryHref={hasSummary ? `/pill/${cleanDrugSlug}/medication-summary` : null}
           dosageHref={`/pill/${cleanDrugSlug}/dosage`}
           professionalHref={`/pill/${cleanDrugSlug}/professional-information`}
         />
