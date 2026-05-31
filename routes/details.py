@@ -619,7 +619,7 @@ def get_pill_by_slug(slug: str):
                 ),
                 "has_medguide": guide_flags["has_medguide"],
                 "has_medication_summary": guide_flags["has_medication_summary"],
-                "has_dosage": guide_flags["has_dosage"],
+                "has_dosage": bool(pill_info.get("spl_set_id") or pill_info.get("rxcui")),
                 "additional_ndcs": additional_ndcs,
                 "meta_description": pill_info.get("meta_description") or None,
                 "indication": None,
