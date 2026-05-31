@@ -1335,6 +1335,55 @@ def test_api_pill_slug_has_medguide_false_when_summary_column_missing_and_no_gui
     assert data["has_dosage"] is False
 
 
+def test_api_pill_slug_has_dosage_when_professional_html_exists(client):
+    """has_dosage should follow professional_html availability, even if dosage_administration is blank."""
+    import database as db_module
+
+    pill_row = (
+        "Plavix", "75", "Pink", "Round", "63653-1171-01", "174742",
+        None, "plavix-75-1171", None,
+    )
+    pill_columns = [
+        "medicine_name", "splimprint", "splcolor_text", "splshape_text",
+        "ndc11", "rxcui", "image_filename", "slug", "meta_description",
+    ]
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql).lower()
+        result = MagicMock()
+
+        if "from pillfinder where deleted_at is null and published = true and slug = :slug" in sql_str:
+            result.fetchone.return_value = pill_row
+            result.keys.return_value = pill_columns
+        elif "from pill_ndcs" in sql_str:
+            result.fetchall.return_value = []
+        elif "from public.medication_guide" in sql_str:
+            if "nullif(mg.professional_html, '') is not null) as has_dosage" in sql_str:
+                result.fetchone.return_value = (False, False, True)
+            else:
+                result.fetchone.return_value = (False, False, False)
+        elif "from drug_indications" in sql_str:
+            result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+
+    with patch(
+        "routes.details._resolve_history_identifier",
+        return_value={"history_ndc": None, "history_source": None},
+    ):
+        response = client.get("/api/pill/plavix-75-1171")
+
+    assert response.status_code == 200
+    assert response.json()["has_dosage"] is True
+
+
 # ---------------------------------------------------------------------------
 # /api/pill/{slug}/dosage endpoint
 # ---------------------------------------------------------------------------
