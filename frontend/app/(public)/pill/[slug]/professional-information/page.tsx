@@ -40,6 +40,7 @@ type PillInfo = {
   dosage_form?: string | null
   is_brand_row?: boolean
   brand_or_generic?: 'brand' | 'generic'
+  has_dosage?: boolean
 }
 
 type GuideResponse = {
@@ -312,6 +313,7 @@ export default async function ProfessionalInformationPage({
           summaryHref={
             hasMedicationSummaryFallback ? `/pill/${encodeURIComponent(slug)}/medication-summary` : null
           }
+          dosageHref={pill?.has_dosage ? `/pill/${drugSlug}/dosage` : null}
           professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
         />
 
