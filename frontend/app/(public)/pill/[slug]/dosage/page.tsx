@@ -239,8 +239,8 @@ export default async function DosagePage({
 
         <MedicationGuideTabs
           activeTab="dosage"
-          medicationGuideHref={pill?.has_medguide ? `/pill/${cleanDrugSlug}/medication-guide` : null}
-          summaryHref={!pill?.has_medguide && pill?.has_medication_summary ? `/pill/${cleanDrugSlug}/medication-summary` : null}
+          medicationGuideHref={`/pill/${cleanDrugSlug}/medication-guide`}
+          summaryHref={null}
           dosageHref={`/pill/${cleanDrugSlug}/dosage`}
           professionalHref={`/pill/${cleanDrugSlug}/professional-information`}
         />
