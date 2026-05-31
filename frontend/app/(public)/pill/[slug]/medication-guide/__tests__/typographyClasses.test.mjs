@@ -60,3 +60,16 @@ test('professional pages use compact header and place metadata after tabs', () =
   assert.equal(medguidePage.includes('Professional Information — {drugName}'), false)
   assert.ok(medguidePage.indexOf('<MedicationGuideTabs') < medguidePage.indexOf('<MedguideMetaBar guide={professionalData} />'))
 })
+
+test('dosage tab hrefs use medicine-name slug variables in professional and consumer branches', () => {
+  const medguidePage = read('../page.tsx')
+
+  assert.match(
+    medguidePage,
+    /dosageHref=\{pill\?\.has_dosage \? `\/pill\/\$\{drugSlugForUnavailable\}\/dosage` : null\}/
+  )
+  assert.match(
+    medguidePage,
+    /dosageHref=\{pill\?\.has_dosage \? `\/pill\/\$\{drugSlug\}\/dosage` : null\}/
+  )
+})
