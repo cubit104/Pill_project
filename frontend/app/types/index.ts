@@ -54,6 +54,10 @@ export interface PillDetail extends PillResult {
   has_medguide?: boolean
   /** True when a fallback Medication Summary exists. */
   has_medication_summary?: boolean
+  /** True when dosage and administration guide content exists. */
+  has_dosage?: boolean
+  /** True when adverse reactions/side effects guide content exists. */
+  has_adverse_reactions?: boolean
   /** Preferred NDC to use for a single history query on price pages. */
   history_ndc?: string | null
   /** Source used by backend to resolve history_ndc. */

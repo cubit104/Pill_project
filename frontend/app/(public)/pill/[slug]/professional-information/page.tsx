@@ -41,6 +41,7 @@ type PillInfo = {
   is_brand_row?: boolean
   brand_or_generic?: 'brand' | 'generic'
   has_dosage?: boolean
+  has_adverse_reactions?: boolean
 }
 
 type GuideResponse = {
@@ -314,6 +315,9 @@ export default async function ProfessionalInformationPage({
             hasMedicationSummaryFallback ? `/pill/${encodeURIComponent(slug)}/medication-summary` : null
           }
           dosageHref={pill?.has_dosage ? `/pill/${encodeURIComponent(slug)}/dosage` : null}
+          adverseReactionsHref={
+            pill?.has_adverse_reactions ? `/pill/${encodeURIComponent(slug)}/adverse-reactions` : null
+          }
           professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
         />
 

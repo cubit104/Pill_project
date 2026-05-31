@@ -195,7 +195,7 @@ export function medicalWebPageSchema(
 export function guidePageSchema(opts: {
   drugName: string
   slug: string
-  pageType: 'medication-guide' | 'professional-information' | 'medication-summary' | 'dosage'
+  pageType: 'medication-guide' | 'professional-information' | 'medication-summary' | 'dosage' | 'adverse-reactions'
   rxcui?: string | null
   ndc?: string | null
   splSetId?: string | null
@@ -211,7 +211,9 @@ export function guidePageSchema(opts: {
       ? `/pill/${encodeURIComponent(slug)}/professional-information`
       : pageType === 'dosage'
         ? `/pill/${encodeURIComponent(slug)}/dosage`
-        : `/pill/${encodeURIComponent(slug)}/medication-summary`
+        : pageType === 'adverse-reactions'
+          ? `/pill/${encodeURIComponent(slug)}/adverse-reactions`
+          : `/pill/${encodeURIComponent(slug)}/medication-summary`
 
   const pageName = pageType === 'medication-guide'
     ? `${drugName} Medication Guide`
@@ -219,7 +221,9 @@ export function guidePageSchema(opts: {
       ? `${drugName} Professional Information`
       : pageType === 'dosage'
         ? `${drugName} Dosage & Administration`
-        : `${drugName} Medication Summary`
+        : pageType === 'adverse-reactions'
+          ? `${drugName} Adverse Reactions`
+          : `${drugName} Medication Summary`
 
   const audience = pageType === 'professional-information'
     ? { '@type': 'MedicalAudience' as const, audienceType: 'Clinician' }
