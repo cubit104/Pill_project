@@ -71,6 +71,14 @@ export async function fetchPill(slug: string): Promise<PillDetail | null> {
       typeof raw.has_medication_summary === 'boolean'
         ? raw.has_medication_summary
         : undefined,
+    has_dosage:
+      typeof raw.has_dosage === 'boolean'
+        ? raw.has_dosage
+        : undefined,
+    has_adverse_reactions:
+      typeof raw.has_adverse_reactions === 'boolean'
+        ? raw.has_adverse_reactions
+        : undefined,
   }
 }
 

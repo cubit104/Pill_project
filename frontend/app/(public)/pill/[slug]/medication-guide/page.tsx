@@ -52,6 +52,7 @@ type PillInfo = {
   is_brand_row?: boolean
   brand_or_generic?: 'brand' | 'generic'
   has_dosage?: boolean
+  has_adverse_reactions?: boolean
 }
 
 type ConditionListItem = {
@@ -533,6 +534,9 @@ export default async function MedicationGuidePage({
           activeTab="pro"
           medicationGuideHref={null}
           dosageHref={pill?.has_dosage ? `/pill/${encodedSlug}/dosage` : null}
+          adverseReactionsHref={
+            pill?.has_adverse_reactions ? `/pill/${encodedSlug}/adverse-reactions` : null
+          }
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
@@ -739,6 +743,11 @@ export default async function MedicationGuidePage({
         activeTab="consumer"
         medicationGuideHref={`/pill/${encodeURIComponent(slug)}/medication-guide`}
         dosageHref={pill?.has_dosage ? `/pill/${encodeURIComponent(slug)}/dosage` : null}
+        adverseReactionsHref={
+          pill?.has_adverse_reactions
+            ? `/pill/${encodeURIComponent(slug)}/adverse-reactions`
+            : null
+        }
         professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
       />
 

@@ -12,13 +12,12 @@ import {
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 import { sanitizeRenderedHtml } from '../medication-guide/sanitizeRenderedHtml'
-import { cleanDosageHtml } from './cleanDosageHtml'
 
 type PageParams = Promise<{ slug: string }>
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const PILL_REVALIDATE_SECONDS = 3600
-const DOSAGE_REVALIDATE_SECONDS = 86400
+const ADVERSE_REACTIONS_REVALIDATE_SECONDS = 86400
 
 type PillInfo = {
   drug_name?: string | null
@@ -40,15 +39,15 @@ type PillInfo = {
   has_adverse_reactions?: boolean
 }
 
-type DosageResponse = {
+type AdverseReactionsResponse = {
   drug_name?: string | null
   generic_name?: string | null
   brand_name?: string | null
   rxcui?: string | null
   ndc?: string | null
   spl_set_id?: string | null
-  dosage_administration?: string | null
-  dosage_forms_and_strengths?: string | null
+  adverse_reactions?: string | null
+  side_effects?: string | null
   has_boxed_warning?: boolean
   drug_class?: string | null
   dosage_form?: string | null
@@ -77,26 +76,25 @@ function stripDoseFromName(name: string): string {
 }
 
 function resolveDrugName({
-  dosage,
+  adverseReactions,
   pill,
   slug,
 }: {
-  dosage: DosageResponse | null
+  adverseReactions: AdverseReactionsResponse | null
   pill: PillInfo | null
   slug: string
 }): string {
-  const brand = dosage?.brand_name?.trim() || null
+  const brand = adverseReactions?.brand_name?.trim() || null
   if (brand) return formatDrugName(brand, true)
   const fallback = firstNonEmpty(
-    dosage?.generic_name,
-    dosage?.drug_name,
+    adverseReactions?.generic_name,
+    adverseReactions?.drug_name,
     pill?.drug_name,
     pill?.medicine_name,
     decodeURIComponent(slug).replace(/-/g, ' ')
   )
   return formatDrugName(fallback || 'Medication', false)
 }
-
 
 async function fetchPill(slug: string): Promise<PillInfo | null> {
   try {
@@ -110,13 +108,13 @@ async function fetchPill(slug: string): Promise<PillInfo | null> {
   }
 }
 
-async function fetchDosage(slug: string): Promise<DosageResponse | null> {
+async function fetchAdverseReactions(slug: string): Promise<AdverseReactionsResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}/dosage`, {
-      next: { revalidate: DOSAGE_REVALIDATE_SECONDS },
+    const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}/adverse-reactions`, {
+      next: { revalidate: ADVERSE_REACTIONS_REVALIDATE_SECONDS },
     })
     if (!res.ok) return null
-    return (await res.json()) as DosageResponse
+    return (await res.json()) as AdverseReactionsResponse
   } catch {
     return null
   }
@@ -129,21 +127,17 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params
   const pill = await fetchPill(slug)
-  const dosage = await fetchDosage(slug)
-  const drugName = resolveDrugName({ dosage, pill, slug })
-  const cleanSlug =
-    slugifyDrugName(pill?.medicine_name || '') ||
-    slugifyDrugName(drugName) ||
-    encodeURIComponent(slug)
+  const adverseReactions = await fetchAdverseReactions(slug)
+  const drugName = resolveDrugName({ adverseReactions, pill, slug })
 
   return {
-    title: `${drugName} Dosage & Administration – Recommended Doses | PillSeek`,
-    description: `View recommended dosage and administration for ${drugName}, including adult doses, dosing adjustments, and FDA-approved prescribing instructions.`,
-    alternates: { canonical: `/pill/${cleanSlug}/dosage` },
+    title: `${drugName} Adverse Reactions & Side Effects | PillSeek`,
+    description: `Review adverse reactions and side effects reported for ${drugName}, based on FDA-approved prescribing information.`,
+    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/adverse-reactions` },
   }
 }
 
-export default async function DosagePage({
+export default async function AdverseReactionsPage({
   params,
 }: {
   params: PageParams
@@ -152,20 +146,20 @@ export default async function DosagePage({
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
-  const dosageData = await fetchDosage(slug)
-  const drugName = resolveDrugName({ dosage: dosageData, pill, slug })
+  const adverseReactionsData = await fetchAdverseReactions(slug)
+  const drugName = resolveDrugName({ adverseReactions: adverseReactionsData, pill, slug })
 
   const headerDrugName = stripDoseFromName(drugName)
   const headerMeta = resolveHeaderMetadata({
     drugName: headerDrugName,
     pill,
-    guide: dosageData
+    guide: adverseReactionsData
       ? {
-          generic_name: dosageData.generic_name,
-          brand_name: dosageData.brand_name,
+          generic_name: adverseReactionsData.generic_name,
+          brand_name: adverseReactionsData.brand_name,
           proprietary_name: null,
-          drug_class: dosageData.drug_class,
-          dosage_form: dosageData.dosage_form,
+          drug_class: adverseReactionsData.drug_class,
+          dosage_form: adverseReactionsData.dosage_form,
         }
       : null,
   })
@@ -175,9 +169,9 @@ export default async function DosagePage({
     slugifyDrugName(pill?.medicine_name || '') ||
     slugifyDrugName(drugName) ||
     encodedSlug
-  const rxcui = dosageData?.rxcui ?? pill.rxcui
-  const ndc = dosageData?.ndc ?? pill.ndc11 ?? pill.ndc9
-  const splSetId = dosageData?.spl_set_id ?? pill.spl_set_id
+  const rxcui = adverseReactionsData?.rxcui ?? pill.rxcui
+  const ndc = adverseReactionsData?.ndc ?? pill.ndc11 ?? pill.ndc9
+  const splSetId = adverseReactionsData?.spl_set_id ?? pill.spl_set_id
 
   const hasMedguide = Boolean(pill?.has_medguide)
   const hasSummary = !hasMedguide && Boolean(pill?.has_medication_summary)
@@ -185,32 +179,33 @@ export default async function DosagePage({
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
     ...(cleanDrugSlug ? [{ name: drugName, url: `/drug/${cleanDrugSlug}` }] : []),
-    { name: 'Dosage', url: `/pill/${cleanDrugSlug}/dosage` },
+    { name: 'Adverse Reactions', url: `/pill/${encodedSlug}/adverse-reactions` },
   ])
   const pageJsonLd = guidePageSchema({
     drugName,
     slug,
-    pageType: 'dosage',
+    pageType: 'adverse-reactions',
     rxcui,
     ndc,
     splSetId,
-    genericName: dosageData?.generic_name,
-    brandName: dosageData?.brand_name,
-    fetchedAt: dosageData?.fetched_at,
+    genericName: adverseReactionsData?.generic_name,
+    brandName: adverseReactionsData?.brand_name,
+    fetchedAt: adverseReactionsData?.fetched_at,
   })
 
-  const rawDosageHtml = dosageData?.dosage_administration?.trim() || null
-  const dosageHtml = rawDosageHtml
-    ? sanitizeRenderedHtml(cleanDosageHtml(rawDosageHtml))
+  const rawAdverseReactionsHtml =
+    adverseReactionsData?.adverse_reactions?.trim() || adverseReactionsData?.side_effects?.trim() || null
+  const adverseReactionsHtml = rawAdverseReactionsHtml
+    ? sanitizeRenderedHtml(rawAdverseReactionsHtml)
     : null
 
   return (
-   <>
-     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }} />
-     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(pageJsonLd) }} />
-     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-       <nav aria-label="Breadcrumb">
-         <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
+    <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(pageJsonLd) }} />
+      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+        <nav aria-label="Breadcrumb">
+          <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
             <li>
               <Link href="/" className="hover:text-sky-700 transition-colors">
                 Home
@@ -227,12 +222,12 @@ export default async function DosagePage({
               </>
             )}
             <li aria-hidden="true" className="select-none">›</li>
-            <li className="text-slate-700 font-medium">Dosage</li>
+            <li className="text-slate-700 font-medium">Adverse Reactions</li>
           </ol>
         </nav>
 
         <DrugPageHeader
-          pageLabel="Dosage Guide"
+          pageLabel="Adverse Reactions"
           drugName={headerDrugName}
           genericName={headerMeta.genericName}
           brandName={headerMeta.brandName}
@@ -242,57 +237,46 @@ export default async function DosagePage({
         />
 
         <MedicationGuideTabs
-          activeTab="dosage"
+          activeTab="adverse"
           medicationGuideHref={hasMedguide ? `/pill/${encodedSlug}/medication-guide` : null}
           summaryHref={hasSummary ? `/pill/${encodedSlug}/medication-summary` : null}
-          dosageHref={`/pill/${encodedSlug}/dosage`}
-          adverseReactionsHref={
-            pill?.has_adverse_reactions ? `/pill/${encodedSlug}/adverse-reactions` : null
-          }
+          dosageHref={pill?.has_dosage ? `/pill/${encodedSlug}/dosage` : null}
+          adverseReactionsHref={`/pill/${encodedSlug}/adverse-reactions`}
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
-        <MedguideMetaBar guide={dosageData} />
+        <MedguideMetaBar guide={adverseReactionsData} />
 
         <div className="lg:max-w-[60rem] lg:mx-auto">
           <div className={SHARED_CONTENT_CARD_CLASSES}>
-            {dosageData?.dosage_forms_and_strengths && (
-              <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                <span className="font-semibold text-slate-800">Dosage Form & Strength: </span>
-                {dosageData.dosage_forms_and_strengths
-                  .replace(/<[^>]+>/g, '')
-                  .replace(/\s+/g, ' ')
-                  .trim()}
-              </div>
-            )}
-            {dosageHtml ? (
+            {adverseReactionsHtml ? (
               <article
-                id="dosage-content"
+                id="adverse-reactions-content"
                 className={SHARED_READING_PROSE_CLASSES}
-                dangerouslySetInnerHTML={{ __html: dosageHtml }}
+                dangerouslySetInnerHTML={{ __html: adverseReactionsHtml }}
               />
             ) : (
               <div className="text-center text-sm text-slate-600 py-8">
-                Dosage and administration information is not available for this medication.
+                Adverse reactions information is not available for this medication.
               </div>
             )}
           </div>
         </div>
 
-        {(rxcui || ndc || dosageData?.fetched_at || dosageData?.source_url) && (
+        {(rxcui || ndc || adverseReactionsData?.fetched_at || adverseReactionsData?.source_url) && (
           <section className="border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1">
             <h2 className="font-semibold text-slate-600 mb-2">Sources</h2>
             {rxcui && <p><span className="font-medium">RxCUI:</span> {rxcui}</p>}
             {ndc && <p><span className="font-medium">NDC:</span> {ndc}</p>}
-            {dosageData?.fetched_at && (
+            {adverseReactionsData?.fetched_at && (
               <p><span className="font-medium">Last fetched:</span>{' '}
-                {new Date(dosageData.fetched_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}
+                {new Date(adverseReactionsData.fetched_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}
               </p>
             )}
-            {dosageData?.source_url && (
+            {adverseReactionsData?.source_url && (
               <p>
                 <span className="font-medium">Source:</span>{' '}
-                <a href={dosageData.source_url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">
+                <a href={adverseReactionsData.source_url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">
                   DailyMed ↗
                 </a>
               </p>
