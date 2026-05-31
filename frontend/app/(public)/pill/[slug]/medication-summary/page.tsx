@@ -39,6 +39,7 @@ type PillInfo = {
   dosage_form?: string | null
   is_brand_row?: boolean
   brand_or_generic?: 'brand' | 'generic'
+  has_dosage?: boolean
 }
 
 type SummaryQA = { question: string; answer: string }
@@ -313,6 +314,7 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
           activeTab="consumer"
           medicationGuideHref={null}
           summaryHref={`/pill/${encodedSlug}/medication-summary`}
+          dosageHref={pill?.has_dosage ? `/pill/${encodedSlug}/dosage` : null}
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
