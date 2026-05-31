@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from urllib.parse import quote
@@ -19,7 +20,11 @@ from services.dailymed_spl_client import fetch_spl_sections
 from services.medication_summary import generate_medication_summary
 from services.openfda_client import OpenFDAClient, OpenFDAUpstreamError
 from services.spl_medguide import fetch_boxed_warning_html, fetch_medguide_html
-from services.spl_professional import ProfessionalRendered, fetch_professional_rendered
+from services.spl_professional import (
+    ProfessionalRendered,
+    extract_pro_section_html,
+    fetch_professional_rendered,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +81,7 @@ _GUIDE_COLUMNS = [
     "dosage",
     "how_to_take",
     "side_effects",
+    "adverse_reactions",
     "warnings",
     "interactions",
     "contraindications",
@@ -241,6 +247,32 @@ def _build_professional_meta(professional: ProfessionalRendered) -> dict[str, An
         "highlights_html": professional.highlights_html,
         "sections": [[slug, label] for slug, label in professional.sections],
     }
+
+
+def _is_meaningful_html(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    return bool(re.sub(r"<[^>]+>", " ", value).strip())
+
+
+def _apply_adverse_reactions_from_professional_html(
+    mapped: dict[str, Any],
+    *,
+    existing: Optional[dict[str, Any]] = None,
+) -> None:
+    adverse_section_html = extract_pro_section_html(mapped.get("professional_html"), "adverse-reactions")
+    if _is_meaningful_html(adverse_section_html):
+        mapped["adverse_reactions"] = adverse_section_html
+        return
+
+    existing_adverse = (existing or {}).get("adverse_reactions")
+    if _is_meaningful_html(existing_adverse):
+        mapped["adverse_reactions"] = existing_adverse
+        return
+
+    fallback_side_effects = mapped.get("side_effects") or (existing or {}).get("side_effects")
+    if _is_meaningful_html(fallback_side_effects):
+        mapped["adverse_reactions"] = fallback_side_effects
 
 
 def _build_medication_summary_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -579,6 +611,7 @@ def _update_guide(conn, payload: dict[str, Any], *, existing_id: int) -> dict[st
                 dosage = :dosage,
                 how_to_take = :how_to_take,
                 side_effects = :side_effects,
+                adverse_reactions = COALESCE(:adverse_reactions, adverse_reactions),
                 warnings = :warnings,
                 interactions = :interactions,
                 contraindications = :contraindications,
@@ -624,7 +657,7 @@ def _insert_guide(conn, payload: dict[str, Any]) -> dict[str, Any]:
             """
             INSERT INTO public.medication_guide (
                 rxcui, ndc, spl_set_id, generic_name, brand_name,
-                overview, uses, dosage, how_to_take, side_effects,
+                overview, uses, dosage, how_to_take, side_effects, adverse_reactions,
                 warnings, interactions, contraindications, special_populations,
                 overdose, storage, pharmacology, manufacturer,
                 has_boxed_warning, source_url, professional_html, professional_meta, medguide_html, boxed_warning_html,
@@ -633,7 +666,7 @@ def _insert_guide(conn, payload: dict[str, Any]) -> dict[str, Any]:
             )
             VALUES (
                 :rxcui, :ndc, :spl_set_id, :generic_name, :brand_name,
-                :overview, :uses, :dosage, :how_to_take, :side_effects,
+                :overview, :uses, :dosage, :how_to_take, :side_effects, :adverse_reactions,
                 :warnings, :interactions, :contraindications, :special_populations,
                 :overdose, :storage, :pharmacology, :manufacturer,
                 :has_boxed_warning, :source_url, :professional_html, CAST(:professional_meta AS JSONB), :medguide_html, :boxed_warning_html,
@@ -748,6 +781,7 @@ async def build_guide(
                             "professional_html": professional.article_html,
                             "professional_meta": _build_professional_meta(professional),
                         }
+                        _apply_adverse_reactions_from_professional_html(new_payload, existing=cached)
                         if not new_payload.get("medguide_html"):
                             new_payload.update(_build_medication_summary_payload(new_payload))
                         if cached.get("id") is not None:
@@ -958,6 +992,7 @@ async def build_guide(
             if professional:
                 mapped["professional_html"] = professional.article_html
                 mapped["professional_meta"] = _build_professional_meta(professional)
+                _apply_adverse_reactions_from_professional_html(mapped, existing=cached)
         except Exception:
             logger.exception(
                 "professional fetch failed for spl_set_id=%s",
@@ -1082,6 +1117,7 @@ async def _build_guide_by_spl_set_id(
                         "professional_html": professional.article_html,
                         "professional_meta": _build_professional_meta(professional),
                     }
+                    _apply_adverse_reactions_from_professional_html(new_payload, existing=cached)
                     if not new_payload.get("medguide_html"):
                         new_payload.update(_build_medication_summary_payload(new_payload))
                     if cached.get("id") is not None:
@@ -1225,6 +1261,7 @@ async def _build_guide_by_spl_set_id(
         if professional:
             mapped["professional_html"] = professional.article_html
             mapped["professional_meta"] = _build_professional_meta(professional)
+            _apply_adverse_reactions_from_professional_html(mapped, existing=cached)
     except Exception:
         logger.exception("professional fetch failed for spl_set_id=%s", spl_set_id)
 

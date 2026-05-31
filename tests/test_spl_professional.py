@@ -57,6 +57,23 @@ def test_fetch_professional_html_returns_none_on_http_error():
     assert result is None
 
 
+def test_extract_pro_section_html_returns_exact_section_and_handles_missing():
+    article_html = (
+        '<section><h2 id="adverse-reactions">Adverse Reactions</h2><p>First line.</p>'
+        '<table><tr><td>Data</td></tr></table></section>'
+        '<section><h2 id="drug-interactions">Drug Interactions</h2><p>Other section.</p></section>'
+    )
+
+    extracted = spl_professional.extract_pro_section_html(article_html, "adverse-reactions")
+
+    assert extracted is not None
+    assert 'id="adverse-reactions"' in extracted
+    assert "Drug Interactions" not in extracted
+    assert extracted.count("<section") == 1
+    assert extracted.strip().endswith("</section>")
+    assert spl_professional.extract_pro_section_html(article_html, "not-present") is None
+
+
 def test_full_professional_renderer_extracts_highlights_and_all_sections():
     sections = []
     for code, slug, _label, heading in spl_professional.PRO_SECTIONS:

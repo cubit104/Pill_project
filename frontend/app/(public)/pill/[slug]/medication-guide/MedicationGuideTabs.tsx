@@ -60,11 +60,11 @@ export default function MedicationGuideTabs({
         {adverseReactionsHref && (
           activeTab === 'adverse' ? (
             <span className={tabClasses(true)} aria-current="page">
-              Adverse Reactions
+              Side Effects
             </span>
           ) : (
             <Link href={adverseReactionsHref} className={tabClasses(false)}>
-              Adverse Reactions
+              Side Effects
             </Link>
           )
         )}
