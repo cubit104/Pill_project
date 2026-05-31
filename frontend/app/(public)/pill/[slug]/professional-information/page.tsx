@@ -313,7 +313,7 @@ export default async function ProfessionalInformationPage({
           summaryHref={
             hasMedicationSummaryFallback ? `/pill/${encodeURIComponent(slug)}/medication-summary` : null
           }
-          dosageHref={pill?.has_dosage ? `/pill/${drugSlug}/dosage` : null}
+          dosageHref={pill?.has_dosage ? `/pill/${encodeURIComponent(slug)}/dosage` : null}
           professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
         />
 
