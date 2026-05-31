@@ -520,7 +520,7 @@ def get_pill_by_slug(slug: str):
                         SELECT
                             (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
                             (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary,
-                            (NULLIF(mg.dosage_administration, '') IS NOT NULL) AS has_dosage
+                            (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_dosage
                         FROM public.medication_guide mg
                         """
                         + guide_filter_clause
