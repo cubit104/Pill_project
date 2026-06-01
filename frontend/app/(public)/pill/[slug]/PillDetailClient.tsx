@@ -112,7 +112,7 @@ function MedicationResourcesCard({
     ? 'Read Medication Summary'
     : 'Read Medication Information'
 
-  const title = hasMedguide ? 'Medication Information' : hasMedicationSummary ? 'Medication Summary' : 'Medication Information'
+  const title = hasMedicationSummary && !hasMedguide ? 'Medication Summary' : 'Medication Information'
   const description = hasMedguide
     ? 'Read the official FDA Medication Guide — written for patients, sourced from DailyMed.'
     : hasMedicationSummary
@@ -137,7 +137,7 @@ function MedicationResourcesCard({
         </div>
         <div className="grid grid-cols-1 gap-2">
           <Link
-            href={hasMedguide ? `/pill/${resolvedSlug}/medication-guide` : `/pill/${resolvedSlug}/medication-summary`}
+            href={ctaHref}
             className="border border-slate-100 rounded-lg p-3 flex items-center gap-3 hover:border-emerald-300 hover:bg-emerald-50 transition-colors group"
           >
             <span className="shrink-0 w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100">
