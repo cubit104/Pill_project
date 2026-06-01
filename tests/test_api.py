@@ -405,7 +405,7 @@ def test_search_drug_flag_on_prefers_direct_results_without_synonym_fallback(cli
     combined = " ".join(executed_sql).lower()
     assert "drug_synonyms" not in combined
     assert "rxcui_to_ingredient" not in combined
-    assert "lower(tags) like lower(:tags_like)" not in combined
+    assert "tags_like" not in combined
     assert all("tags_like" not in (params or {}) for params in executed_params)
 
 
