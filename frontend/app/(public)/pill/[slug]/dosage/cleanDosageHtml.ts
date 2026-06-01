@@ -63,10 +63,10 @@ export function extractMaxDose(html: string): string | null {
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 
   const patterns = [
-    /maximum\s+(?:recommended\s+)?(?:daily\s+)?dose\s+(?:is\s+|of\s+)?(\d+[\d./]*\s*mg(?:\/(?:day|kg|m²))?)/i,
-    /not\s+to\s+exceed\s+(\d+[\d./]*\s*mg(?:\/(?:day|kg|m²))?)/i,
-    /(?:use\s+)?(\d+[\d./]*\s*mg)\s+dose\s+only/i,
-    /dose\s+(?:should\s+not\s+exceed|must\s+not\s+exceed)\s+(\d+[\d./]*\s*mg(?:\/(?:day|kg|m²))?)/i,
+    /maximum\s+(?:recommended\s+)?(?:daily\s+)?dose\s+(?:is\s+|of\s+)?(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?\s*mg(?:\/(?:day|kg|m²))?)/i,
+    /not\s+to\s+exceed\s+(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?\s*mg(?:\/(?:day|kg|m²))?)/i,
+    /(?:use\s+)?(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?\s*mg(?:\/(?:day|kg|m²))?)\s+dose\s+only/i,
+    /dose\s+(?:should\s+not\s+exceed|must\s+not\s+exceed)\s+(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?\s*mg(?:\/(?:day|kg|m²))?)/i,
   ]
 
   for (const pattern of patterns) {
