@@ -48,69 +48,117 @@ class SlugImages(BaseModel):
     images: List[str]
 
 
+_GUIDE_LATERAL_JOIN = """\
+        FROM pillfinder p
+        LEFT JOIN LATERAL (
+            SELECT {mg_cols}
+            FROM medication_guide m
+            WHERE (
+                NULLIF(p.rxcui, '') IS NOT NULL AND m.rxcui = p.rxcui
+            ) OR (
+                NULLIF(p.ndc11, '') IS NOT NULL AND (
+                    m.ndc = p.ndc11
+                    OR REPLACE(COALESCE(m.ndc, ''), '-', '') = REPLACE(p.ndc11, '-', '')
+                )
+            ) OR (
+                NULLIF(p.ndc9, '') IS NOT NULL AND (
+                    m.ndc = p.ndc9
+                    OR REPLACE(COALESCE(m.ndc, ''), '-', '') = REPLACE(p.ndc9, '-', '')
+                )
+            )
+            ORDER BY
+                CASE WHEN NULLIF(p.rxcui, '') IS NOT NULL AND m.rxcui = p.rxcui THEN 0 ELSE 1 END,
+                CASE WHEN NULLIF(p.ndc11, '') IS NOT NULL AND (
+                    m.ndc = p.ndc11
+                    OR REPLACE(COALESCE(m.ndc, ''), '-', '') = REPLACE(p.ndc11, '-', '')
+                ) THEN 0 ELSE 1 END,
+                m.updated_at DESC NULLS LAST
+            LIMIT 1
+        ) mg ON TRUE
+        WHERE p.deleted_at IS NULL
+          AND p.published = true
+          AND p.slug IS NOT NULL
+        ORDER BY p.slug"""
+
+
 def _fetch_guide_page_slugs(conn) -> List[GuidePageSlug]:
-    result = conn.execute(
-        text(
-            """
-            SELECT
-                p.slug,
-                (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
-                (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional,
-                (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary,
-                (
-                    NULLIF(mg.dosage_administration, '') IS NOT NULL
-                    OR NULLIF(mg.dosage, '') IS NOT NULL
-                ) AS has_dosage,
-                (
-                    NULLIF(mg.adverse_reactions, '') IS NOT NULL
-                    OR NULLIF(mg.side_effects, '') IS NOT NULL
-                ) AS has_adverse_reactions
-            FROM pillfinder p
-            LEFT JOIN LATERAL (
-                SELECT medguide_html, professional_html, medication_summary_html,
-                       dosage_administration, dosage, adverse_reactions, side_effects
-                FROM medication_guide m
-                WHERE (
-                    NULLIF(p.rxcui, '') IS NOT NULL AND m.rxcui = p.rxcui
-                ) OR (
-                    NULLIF(p.ndc11, '') IS NOT NULL AND (
-                        m.ndc = p.ndc11
-                        OR REPLACE(COALESCE(m.ndc, ''), '-', '') = REPLACE(p.ndc11, '-', '')
-                    )
-                ) OR (
-                    NULLIF(p.ndc9, '') IS NOT NULL AND (
-                        m.ndc = p.ndc9
-                        OR REPLACE(COALESCE(m.ndc, ''), '-', '') = REPLACE(p.ndc9, '-', '')
+    try:
+        result = conn.execute(
+            text(
+                "SELECT\n"
+                "    p.slug,\n"
+                "    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,\n"
+                "    (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional,\n"
+                "    (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary,\n"
+                "    (\n"
+                "        NULLIF(mg.dosage_administration, '') IS NOT NULL\n"
+                "        OR NULLIF(mg.dosage, '') IS NOT NULL\n"
+                "    ) AS has_dosage,\n"
+                "    (\n"
+                "        NULLIF(mg.adverse_reactions, '') IS NOT NULL\n"
+                "        OR NULLIF(mg.side_effects, '') IS NOT NULL\n"
+                "    ) AS has_adverse_reactions\n"
+                + _GUIDE_LATERAL_JOIN.format(
+                    mg_cols=(
+                        "medguide_html, professional_html, medication_summary_html,\n"
+                        "                   dosage_administration, dosage, adverse_reactions, side_effects"
                     )
                 )
-                ORDER BY
-                    CASE WHEN NULLIF(p.rxcui, '') IS NOT NULL AND m.rxcui = p.rxcui THEN 0 ELSE 1 END,
-                    CASE WHEN NULLIF(p.ndc11, '') IS NOT NULL AND (
-                        m.ndc = p.ndc11
-                        OR REPLACE(COALESCE(m.ndc, ''), '-', '') = REPLACE(p.ndc11, '-', '')
-                    ) THEN 0 ELSE 1 END,
-                    m.updated_at DESC NULLS LAST
-                LIMIT 1
-            ) mg ON TRUE
-            WHERE p.deleted_at IS NULL
-              AND p.published = true
-              AND p.slug IS NOT NULL
-            ORDER BY p.slug
-            """
+            )
+        ).fetchall()
+        return [
+            GuidePageSlug(
+                slug=row[0],
+                has_medguide=bool(row[1]),
+                has_professional=bool(row[2]),
+                has_medication_summary=bool(row[3]),
+                has_dosage=bool(row[4]),
+                has_adverse_reactions=bool(row[5]),
+            )
+            for row in result
+            if row[0]
+        ]
+    except SQLAlchemyError as e:
+        err_msg = str(e).lower()
+        pg_code = getattr(getattr(e, "orig", None), "pgcode", None)
+        _is_missing_col = pg_code == "42703" or (
+            "does not exist" in err_msg
+            or "undefined" in err_msg
+            or "no such column" in err_msg
         )
-    ).fetchall()
-    return [
-        GuidePageSlug(
-            slug=row[0],
-            has_medguide=bool(row[1]),
-            has_professional=bool(row[2]),
-            has_medication_summary=bool(row[3]),
-            has_dosage=bool(row[4]),
-            has_adverse_reactions=bool(row[5]),
+        if not _is_missing_col:
+            raise
+        logger.debug(
+            "Guide page slug query: dosage/adverse columns missing, using compat query: %s", e
         )
-        for row in result
-        if row[0]
-    ]
+        try:
+            compat_result = conn.execute(
+                text(
+                    "SELECT\n"
+                    "    p.slug,\n"
+                    "    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,\n"
+                    "    (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional,\n"
+                    "    (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary\n"
+                    + _GUIDE_LATERAL_JOIN.format(
+                        mg_cols="medguide_html, professional_html, medication_summary_html"
+                    )
+                )
+            ).fetchall()
+            return [
+                GuidePageSlug(
+                    slug=row[0],
+                    has_medguide=bool(row[1]),
+                    has_professional=bool(row[2]),
+                    has_medication_summary=bool(row[3]),
+                    has_dosage=False,
+                    has_adverse_reactions=False,
+                )
+                for row in compat_result
+                if row[0]
+            ]
+        except SQLAlchemyError as compat_e:
+            logger.warning("Guide page slug compat query also failed: %s", compat_e)
+            raise
 
 
 def _fetch_slugs_with_images(conn) -> List[SlugImages]:
