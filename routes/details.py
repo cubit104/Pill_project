@@ -947,7 +947,7 @@ async def get_pill_dosage_by_slug(slug: str):
             pill_info = dict(zip(pill_columns, pill_row))
 
         guide_data = await _resolve_dosage_guide_data(pill_info)
-        dosage_value = guide_data.get("dosage_administration")
+        dosage_value = guide_data.get("dosage_administration") or guide_data.get("dosage")
         dosage_administration = dosage_value.strip() if isinstance(dosage_value, str) else dosage_value
         if isinstance(dosage_administration, str) and not dosage_administration:
             dosage_administration = None
