@@ -48,6 +48,14 @@ export function cleanDosageHtml(html: string): string {
   return clean
 }
 
+const MAX_DOSE_VALUE_PATTERN = String.raw`(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?\s*mg(?:\/(?:day|kg|m²))?)`
+const MAX_DOSE_PATTERNS = [
+  new RegExp(`maximum\\s+(?:recommended\\s+)?(?:daily\\s+)?dose\\s+(?:is\\s+|of\\s+)?${MAX_DOSE_VALUE_PATTERN}`, 'i'),
+  new RegExp(`not\\s+to\\s+exceed\\s+${MAX_DOSE_VALUE_PATTERN}`, 'i'),
+  new RegExp(`(?:use\\s+)?${MAX_DOSE_VALUE_PATTERN}\\s+dose\\s+only`, 'i'),
+  new RegExp(`dose\\s+(?:should\\s+not\\s+exceed|must\\s+not\\s+exceed)\\s+${MAX_DOSE_VALUE_PATTERN}`, 'i'),
+]
+
 /**
  * Extract the maximum dose from dosage HTML.
  * Looks for common patterns like:
@@ -61,16 +69,8 @@ export function cleanDosageHtml(html: string): string {
 export function extractMaxDose(html: string): string | null {
   // Strip tags first for clean text matching
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-  const dosePattern = '(\\d+(?:\\.\\d+)?(?:\\/\\d+(?:\\.\\d+)?)?\\s*mg(?:\\/(?:day|kg|m²))?)'
 
-  const patterns = [
-    new RegExp(`maximum\\s+(?:recommended\\s+)?(?:daily\\s+)?dose\\s+(?:is\\s+|of\\s+)?${dosePattern}`, 'i'),
-    new RegExp(`not\\s+to\\s+exceed\\s+${dosePattern}`, 'i'),
-    new RegExp(`(?:use\\s+)?${dosePattern}\\s+dose\\s+only`, 'i'),
-    new RegExp(`dose\\s+(?:should\\s+not\\s+exceed|must\\s+not\\s+exceed)\\s+${dosePattern}`, 'i'),
-  ]
-
-  for (const pattern of patterns) {
+  for (const pattern of MAX_DOSE_PATTERNS) {
     const match = text.match(pattern)
     if (match?.[1]) return match[1].trim()
   }

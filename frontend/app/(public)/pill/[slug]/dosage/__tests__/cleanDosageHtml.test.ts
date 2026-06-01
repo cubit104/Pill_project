@@ -123,6 +123,18 @@ test('strips subsection numbers from h3 headings', () => {
   assert.match(result, /<h3>General Instructions<\/h3>/)
 })
 
+test('strips multi-level subsection numbers from h3 headings', () => {
+  const input = '<h3>2.1.3 Titration Guidance</h3>'
+  const result = cleanDosageHtml(input)
+  assert.match(result, /<h3>Titration Guidance<\/h3>/)
+})
+
+test('strips subsection numbers from h4 headings', () => {
+  const input = '<h4>4.2 Renal Impairment</h4>'
+  const result = cleanDosageHtml(input)
+  assert.match(result, /<h4>Renal Impairment<\/h4>/)
+})
+
 test('removes empty paragraph tags', () => {
   const input = '<p>Keep this.</p><p>   </p><p></p>'
   const result = cleanDosageHtml(input)
