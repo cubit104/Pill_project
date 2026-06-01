@@ -277,6 +277,26 @@ def _apply_adverse_reactions_from_professional_html(
         mapped["adverse_reactions"] = fallback_side_effects
 
 
+def _apply_dosage_administration_from_professional_html(
+    mapped: dict[str, Any],
+    *,
+    existing: Optional[dict[str, Any]] = None,
+) -> None:
+    dosage_section_html = extract_pro_section_html(mapped.get("professional_html"), "dosage")
+    if _is_meaningful_html(dosage_section_html):
+        mapped["dosage_administration"] = dosage_section_html
+        return
+
+    existing_dosage = (existing or {}).get("dosage_administration")
+    if _is_meaningful_html(existing_dosage):
+        mapped["dosage_administration"] = existing_dosage
+        return
+
+    fallback_dosage = mapped.get("dosage") or (existing or {}).get("dosage")
+    if _is_meaningful_html(fallback_dosage):
+        mapped["dosage_administration"] = fallback_dosage
+
+
 def _build_medication_summary_payload(row: dict[str, Any]) -> dict[str, Any]:
     summary_json, summary_html = generate_medication_summary(row)
     return {
@@ -785,6 +805,7 @@ async def build_guide(
                             "professional_meta": _build_professional_meta(professional),
                         }
                         _apply_adverse_reactions_from_professional_html(new_payload, existing=cached)
+                        _apply_dosage_administration_from_professional_html(new_payload, existing=cached)
                         if not new_payload.get("medguide_html"):
                             new_payload.update(_build_medication_summary_payload(new_payload))
                         if cached.get("id") is not None:
@@ -996,6 +1017,7 @@ async def build_guide(
                 mapped["professional_html"] = professional.article_html
                 mapped["professional_meta"] = _build_professional_meta(professional)
                 _apply_adverse_reactions_from_professional_html(mapped, existing=cached)
+                _apply_dosage_administration_from_professional_html(mapped, existing=cached)
         except Exception:
             logger.exception(
                 "professional fetch failed for spl_set_id=%s",
@@ -1121,6 +1143,7 @@ async def _build_guide_by_spl_set_id(
                         "professional_meta": _build_professional_meta(professional),
                     }
                     _apply_adverse_reactions_from_professional_html(new_payload, existing=cached)
+                    _apply_dosage_administration_from_professional_html(new_payload, existing=cached)
                     if not new_payload.get("medguide_html"):
                         new_payload.update(_build_medication_summary_payload(new_payload))
                     if cached.get("id") is not None:
@@ -1265,6 +1288,7 @@ async def _build_guide_by_spl_set_id(
             mapped["professional_html"] = professional.article_html
             mapped["professional_meta"] = _build_professional_meta(professional)
             _apply_adverse_reactions_from_professional_html(mapped, existing=cached)
+            _apply_dosage_administration_from_professional_html(mapped, existing=cached)
     except Exception:
         logger.exception("professional fetch failed for spl_set_id=%s", spl_set_id)
 
