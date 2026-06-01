@@ -363,6 +363,7 @@ def test_search_drug_flag_off_keeps_existing_query(client):
 def test_search_drug_flag_on_prefers_direct_results_without_synonym_fallback(client):
     import database as db_module
     executed_sql = []
+    executed_params = []
     plavix_row = (
         "Plavix",
         "1171",
@@ -378,6 +379,7 @@ def test_search_drug_flag_on_prefers_direct_results_without_synonym_fallback(cli
     def side_effect(sql, params=None, *args, **kwargs):
         sql_str = str(sql)
         executed_sql.append(sql_str)
+        executed_params.append(params)
         result = MagicMock()
         if "COUNT(*)" in sql_str:
             result.scalar.return_value = 1
@@ -403,6 +405,8 @@ def test_search_drug_flag_on_prefers_direct_results_without_synonym_fallback(cli
     combined = " ".join(executed_sql).lower()
     assert "drug_synonyms" not in combined
     assert "rxcui_to_ingredient" not in combined
+    assert "tags_like" not in combined
+    assert all("tags_like" not in (params or {}) for params in executed_params)
 
 
 def test_search_drug_flag_on_uses_synonym_fallback_only_when_direct_has_no_results(client):
