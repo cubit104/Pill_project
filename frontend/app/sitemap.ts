@@ -64,6 +64,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       has_medguide: boolean
       has_professional: boolean
       has_medication_summary: boolean
+      has_dosage?: boolean
+      has_adverse_reactions?: boolean
     }
     const guideSlugs: GuideSlugEntry[] = guideSlugRes.ok
       ? await guideSlugRes.json()
@@ -115,12 +117,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.7,
       }))
 
+    const dosagePages: MetadataRoute.Sitemap = guideSlugs
+      .filter((entry) => entry.slug && entry.has_dosage)
+      .map((entry) => ({
+        url: `${SITE_URL}/pill/${encodeURIComponent(entry.slug)}/dosage`,
+        changeFrequency: 'monthly' as const,
+        priority: 0.7,
+      }))
+
+    const adverseReactionsPages: MetadataRoute.Sitemap = guideSlugs
+      .filter((entry) => entry.slug && entry.has_adverse_reactions)
+      .map((entry) => ({
+        url: `${SITE_URL}/pill/${encodeURIComponent(entry.slug)}/adverse-reactions`,
+        changeFrequency: 'monthly' as const,
+        priority: 0.7,
+      }))
+
     return [
       ...staticPages,
       ...pillPages,
       ...medicationGuidePages,
       ...professionalInfoPages,
       ...medicationSummaryPages,
+      ...dosagePages,
+      ...adverseReactionsPages,
       ...classPages,
     ]
   } catch (err) {
