@@ -71,9 +71,10 @@ export function extractMaxDose(html: string): string | null {
   // Strip tags first for clean text matching
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 
+  // In each regex above, capture group 1 is the normalized dose value we return.
   for (const pattern of MAX_DOSE_PATTERNS) {
     const match = text.match(pattern)
-    if (match?.[1]) return match[1].trim()
+    if (match?.[1]) return match[1].trim().replace(/\/m2\b/i, '/m²')
   }
   return null
 }

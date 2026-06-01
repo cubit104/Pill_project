@@ -181,6 +181,11 @@ test('extracts max dose from "dose should not exceed"', () => {
   assert.equal(extractMaxDose(html), '20 mg/kg')
 })
 
+test('normalizes mg/m2 max dose unit to mg/m²', () => {
+  const html = '<p>Maximum recommended dose is 10 mg/m2.</p>'
+  assert.equal(extractMaxDose(html), '10 mg/m²')
+})
+
 test('returns null when no max dose pattern is found', () => {
   const html = '<p>Initial dose is 5 mg once daily.</p>'
   assert.equal(extractMaxDose(html), null)
