@@ -251,17 +251,12 @@ export default async function AdverseReactionsPage({
         <div className="lg:max-w-[60rem] lg:mx-auto">
           <div className={SHARED_CONTENT_CARD_CLASSES}>
             {adverseReactionsHtml ? (
-              <div>
-                <h2 className="text-xl font-semibold text-slate-900 mb-5">
-                  Adverse Reactions &amp; Side Effects
-                </h2>
-                <div className="[&_h3]:border-l-4 [&_h3]:border-emerald-500 [&_h3]:pl-3 [&_h3]:text-emerald-900">
-                  <article
-                    id="adverse-reactions-content"
-                    className={SHARED_READING_PROSE_CLASSES}
-                    dangerouslySetInnerHTML={{ __html: adverseReactionsHtml }}
-                  />
-                </div>
+              <div className="[&_h3]:border-l-4 [&_h3]:border-emerald-500 [&_h3]:pl-3 [&_h3]:text-emerald-900">
+                <article
+                  id="adverse-reactions-content"
+                  className={SHARED_READING_PROSE_CLASSES}
+                  dangerouslySetInnerHTML={{ __html: adverseReactionsHtml }}
+                />
               </div>
             ) : (
               <div className="text-center text-sm text-slate-600 py-8">
