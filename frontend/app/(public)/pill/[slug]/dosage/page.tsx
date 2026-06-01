@@ -131,15 +131,11 @@ export async function generateMetadata({
   const pill = await fetchPill(slug)
   const dosage = await fetchDosage(slug)
   const drugName = resolveDrugName({ dosage, pill, slug })
-  const cleanSlug =
-    slugifyDrugName(pill?.medicine_name || '') ||
-    slugifyDrugName(drugName) ||
-    encodeURIComponent(slug)
 
   return {
-    title: `${drugName} Dosage & Administration – Recommended Doses | PillSeek`,
+    title: `${drugName} Dosage & Administration – Recommended Doses`,
     description: `View recommended dosage and administration for ${drugName}, including adult doses, dosing adjustments, and FDA-approved prescribing instructions.`,
-    alternates: { canonical: `/pill/${cleanSlug}/dosage` },
+    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/dosage` },
   }
 }
 
