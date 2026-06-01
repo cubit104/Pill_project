@@ -533,7 +533,7 @@ export default async function MedicationGuidePage({
         <MedicationGuideTabs
           activeTab="pro"
           medicationGuideHref={null}
-          dosageHref={pill?.has_dosage ? `/pill/${encodedSlug}/dosage` : null}
+          dosageHref={`/pill/${encodedSlug}/dosage`}
           adverseReactionsHref={
             pill?.has_adverse_reactions ? `/pill/${encodedSlug}/adverse-reactions` : null
           }
@@ -742,7 +742,7 @@ export default async function MedicationGuidePage({
       <MedicationGuideTabs
         activeTab="consumer"
         medicationGuideHref={`/pill/${encodeURIComponent(slug)}/medication-guide`}
-        dosageHref={pill?.has_dosage ? `/pill/${encodeURIComponent(slug)}/dosage` : null}
+        dosageHref={`/pill/${encodeURIComponent(slug)}/dosage`}
         adverseReactionsHref={
           pill?.has_adverse_reactions
             ? `/pill/${encodeURIComponent(slug)}/adverse-reactions`
