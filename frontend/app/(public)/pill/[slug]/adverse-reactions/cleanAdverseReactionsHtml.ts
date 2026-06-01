@@ -8,8 +8,11 @@
 export function cleanAdverseReactionsHtml(html: string): string {
   let result = html
 
-  // Remove section-number prefixes from headings: "6.1 Foo" → "Foo"
-  result = result.replace(/(>)\s*\d+(\.\d+)*\s+/g, '$1')
+  // Remove section-number prefixes from HEADINGS only: "<h3>6.1 Foo</h3>" → "<h3>Foo</h3>".
+  // Scoped to heading tags (h1-h6) so legitimate content that starts with a number
+  // — e.g. "<p>2 patients...", "<li>1 in 10...", or a paragraph beginning with a year —
+  // is not corrupted. Mirrors the safer pattern used by cleanDosageHtml.
+  result = result.replace(/(<h[1-6][^>]*>)\s*\d+(\.\d+)*\s+/gi, '$1')
 
   // Strip ALL anchor tags but preserve inner text (removes hyperlinks completely)
   result = result.replace(/<a[^>]*>([\s\S]*?)<\/a>/gi, '$1')
