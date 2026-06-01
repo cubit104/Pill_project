@@ -21,32 +21,28 @@ test('detail page source resets expanded brand names when the pill changes', () 
   assert.match(source, /useEffect\(\(\) => \{\s*setShowAllBrands\(false\)\s*\}, \[resolvedSlug, brandNamesKey\]\)/)
 })
 
-test('detail page source renders guide, summary, and fallback medication sections without embedded price cards', () => {
+test('detail page source renders unified medication resources card without embedded price cards', () => {
   const source = readFileSync(sourcePath, 'utf8')
 
-  assert.match(source, /data-testid=\{testId\}/)
-  assert.match(source, /testId="medication-info-grid-guide"/)
-  assert.match(source, /testId="medication-info-grid-summary"/)
-  assert.match(source, /testId="medication-info-grid-fallback"/)
-  assert.match(source, /function MedicationInfoCard/)
+  assert.match(source, /data-testid="medication-resources-card"/)
+  assert.match(source, /function MedicationResourcesCard/)
+  assert.doesNotMatch(source, /function MedicationInfoCard/)
   assert.doesNotMatch(source, /function MedicationInfoWithPrice/)
 
   assert.match(
     source,
-    /\{resolvedSlug && pill\.has_medguide === true && \(\s*<MedicationInfoCard[\s\S]*?ctaLabel="Read Medication Guide"/
+    /\{resolvedSlug && \(\s*<MedicationResourcesCard[\s\S]*?hasMedguide=\{pill\.has_medguide === true\}[\s\S]*?hasMedicationSummary=\{pill\.has_medication_summary === true\}/
   )
-  assert.match(
-    source,
-    /\{resolvedSlug && pill\.has_medguide !== true && pill\.has_medication_summary === true && \(\s*<MedicationInfoCard[\s\S]*?ctaLabel="Read Medication Summary"/
-  )
-  assert.match(
-    source,
-    /\{resolvedSlug && pill\.has_medguide !== true && pill\.has_medication_summary !== true && \(\s*<MedicationInfoCard[\s\S]*?ctaLabel="Read Medication Information"/
-  )
+  assert.match(source, /const ctaHref = hasMedguide[\s\S]*?hasMedicationSummary[\s\S]*?\/medication-summary[\s\S]*?\/medication-guide/)
+  assert.match(source, /const ctaLabel = hasMedguide[\s\S]*?'Read Medication Guide'[\s\S]*?'Read Medication Summary'[\s\S]*?'Read Medication Information'/)
 
   assert.match(source, /Read Medication Guide/)
   assert.match(source, /Read Medication Summary/)
   assert.match(source, /Read Medication Information/)
+  assert.match(source, /Medication Guide/)
+  assert.match(source, /Dosage &amp; Administration/)
+  assert.match(source, /Side Effects/)
+  assert.match(source, /Prescribing Information/)
   assert.equal((source.match(/<PriceSummaryCard/g) || []).length, 2)
 })
 

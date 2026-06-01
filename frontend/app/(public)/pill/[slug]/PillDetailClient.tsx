@@ -91,31 +91,118 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
   )
 }
 
-function MedicationInfoCard({
-  testId,
-  title,
-  description,
-  ctaHref,
-  ctaLabel,
+function MedicationResourcesCard({
+  resolvedSlug,
+  hasMedguide,
+  hasMedicationSummary,
 }: {
-  testId: string
-  title: string
-  description: string
-  ctaHref: string
-  ctaLabel: string
+  resolvedSlug: string
+  hasMedguide: boolean
+  hasMedicationSummary: boolean
 }) {
+  const ctaHref = hasMedguide
+    ? `/pill/${resolvedSlug}/medication-guide`
+    : hasMedicationSummary
+    ? `/pill/${resolvedSlug}/medication-summary`
+    : `/pill/${resolvedSlug}/medication-guide`
+
+  const ctaLabel = hasMedguide
+    ? 'Read Medication Guide'
+    : hasMedicationSummary
+    ? 'Read Medication Summary'
+    : 'Read Medication Information'
+
+  const title = hasMedguide ? 'Medication Information' : hasMedicationSummary ? 'Medication Summary' : 'Medication Information'
+  const description = hasMedguide
+    ? 'Read the official FDA Medication Guide — written for patients, sourced from DailyMed.'
+    : hasMedicationSummary
+    ? 'No separate FDA Medication Guide was found for this label. Read a patient-friendly summary based on FDA/DailyMed prescribing information.'
+    : 'Read prescribing information and professional label data sourced from FDA/DailyMed.'
+
   return (
     <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-6 mb-6">
-      <div data-testid={testId}>
-        <h2 className="text-xl font-semibold text-slate-900 mb-2">{title}</h2>
-        <p className="text-slate-600 mb-4">{description}</p>
-        <Link
-          href={ctaHref}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
-        >
-          {ctaLabel}
-          <span aria-hidden="true">→</span>
-        </Link>
+      <div data-testid="medication-resources-card" className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div className="flex flex-col justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-900 mb-2">{title}</h2>
+            <p className="text-slate-600 mb-4">{description}</p>
+          </div>
+          <Link
+            href={ctaHref}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
+          >
+            {ctaLabel}
+            <span aria-hidden="true">→</span>
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 gap-2">
+          <Link
+            href={hasMedguide ? `/pill/${resolvedSlug}/medication-guide` : `/pill/${resolvedSlug}/medication-summary`}
+            className="border border-slate-100 rounded-lg p-3 flex items-center gap-3 hover:border-emerald-300 hover:bg-emerald-50 transition-colors group"
+          >
+            <span className="shrink-0 w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-emerald-600" aria-hidden="true">
+                <path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v16.5a1.5 1.5 0 0 0-1.5-1.5H5z" />
+                <path d="M5 4.5V20a1 1 0 0 0 1 1h11.5A1.5 1.5 0 0 0 19 19.5V3" />
+                <path d="M8 7h8M8 11h8M8 15h5" />
+              </svg>
+            </span>
+            <span>
+              <span className="text-sm font-semibold text-slate-800 block">Medication Guide</span>
+              <span className="text-xs text-slate-500">Patient-friendly FDA guide</span>
+            </span>
+            <span aria-hidden="true" className="ml-auto text-slate-400 group-hover:text-emerald-600 text-sm">→</span>
+          </Link>
+          <Link
+            href={`/pill/${resolvedSlug}/dosage`}
+            className="border border-slate-100 rounded-lg p-3 flex items-center gap-3 hover:border-emerald-300 hover:bg-emerald-50 transition-colors group"
+          >
+            <span className="shrink-0 w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-emerald-600" aria-hidden="true">
+                <ellipse cx="12" cy="12" rx="8" ry="8" />
+                <line x1="6" y1="12" x2="18" y2="12" />
+              </svg>
+            </span>
+            <span>
+              <span className="text-sm font-semibold text-slate-800 block">Dosage &amp; Administration</span>
+              <span className="text-xs text-slate-500">Doses, schedules &amp; max doses</span>
+            </span>
+            <span aria-hidden="true" className="ml-auto text-slate-400 group-hover:text-emerald-600 text-sm">→</span>
+          </Link>
+          <Link
+            href={`/pill/${resolvedSlug}/adverse-reactions`}
+            className="border border-slate-100 rounded-lg p-3 flex items-center gap-3 hover:border-emerald-300 hover:bg-emerald-50 transition-colors group"
+          >
+            <span className="shrink-0 w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-emerald-600" aria-hidden="true">
+                <path d="M12 3L2.5 20.5h19L12 3z" />
+                <path d="M12 9v5" />
+                <circle cx="12" cy="17" r="1" fill="currentColor" stroke="none" />
+              </svg>
+            </span>
+            <span>
+              <span className="text-sm font-semibold text-slate-800 block">Side Effects</span>
+              <span className="text-xs text-slate-500">Adverse reactions &amp; safety</span>
+            </span>
+            <span aria-hidden="true" className="ml-auto text-slate-400 group-hover:text-emerald-600 text-sm">→</span>
+          </Link>
+          <Link
+            href={`/pill/${resolvedSlug}/professional-information`}
+            className="border border-slate-100 rounded-lg p-3 flex items-center gap-3 hover:border-emerald-300 hover:bg-emerald-50 transition-colors group"
+          >
+            <span className="shrink-0 w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-emerald-600" aria-hidden="true">
+                <rect x="6" y="4" width="12" height="16" rx="1.5" />
+                <path d="M9 8h6M9 12h6M9 16h4M10 3h4" />
+              </svg>
+            </span>
+            <span>
+              <span className="text-sm font-semibold text-slate-800 block">Prescribing Information</span>
+              <span className="text-xs text-slate-500">Full FDA prescribing label</span>
+            </span>
+            <span aria-hidden="true" className="ml-auto text-slate-400 group-hover:text-emerald-600 text-sm">→</span>
+          </Link>
+        </div>
       </div>
     </section>
   )
@@ -644,36 +731,11 @@ export default function PillDetailClient({
           />
         )}
 
-        {/* Official Medication Guide card: only when an official guide exists. */}
-        {resolvedSlug && pill.has_medguide === true && (
-          <MedicationInfoCard
-            testId="medication-info-grid-guide"
-            title="Medication Information"
-            description="Read the official FDA Medication Guide — written for patients, sourced from DailyMed."
-            ctaHref={`/pill/${resolvedSlug}/medication-guide`}
-            ctaLabel="Read Medication Guide"
-          />
-        )}
-
-        {/* Fallback summary card when no official guide exists but a summary is available. */}
-        {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary === true && (
-          <MedicationInfoCard
-            testId="medication-info-grid-summary"
-            title="Medication Summary"
-            description="No separate FDA Medication Guide was found for this label. Read a patient-friendly summary based on FDA/DailyMed prescribing information."
-            ctaHref={`/pill/${resolvedSlug}/medication-summary`}
-            ctaLabel="Read Medication Summary"
-          />
-        )}
-
-        {/* Generic fallback when neither official guide nor summary flags are available. */}
-        {resolvedSlug && pill.has_medguide !== true && pill.has_medication_summary !== true && (
-          <MedicationInfoCard
-            testId="medication-info-grid-fallback"
-            title="Medication Information"
-            description="Read prescribing information and professional label data sourced from FDA/DailyMed."
-            ctaHref={`/pill/${resolvedSlug}/medication-guide`}
-            ctaLabel="Read Medication Information"
+        {resolvedSlug && (
+          <MedicationResourcesCard
+            resolvedSlug={resolvedSlug}
+            hasMedguide={pill.has_medguide === true}
+            hasMedicationSummary={pill.has_medication_summary === true}
           />
         )}
 
