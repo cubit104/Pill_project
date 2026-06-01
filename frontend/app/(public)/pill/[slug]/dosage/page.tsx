@@ -12,7 +12,7 @@ import {
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 import { sanitizeRenderedHtml } from '../medication-guide/sanitizeRenderedHtml'
-import { cleanDosageHtml } from './cleanDosageHtml'
+import { cleanDosageHtml, extractMaxDose } from './cleanDosageHtml'
 
 type PageParams = Promise<{ slug: string }>
 
@@ -203,6 +203,7 @@ export default async function DosagePage({
   const dosageHtml = rawDosageHtml
     ? sanitizeRenderedHtml(cleanDosageHtml(rawDosageHtml))
     : null
+  const maxDose = dosageHtml ? extractMaxDose(dosageHtml) : null
 
   return (
    <>
@@ -256,21 +257,31 @@ export default async function DosagePage({
 
         <div className="lg:max-w-[60rem] lg:mx-auto">
           <div className={SHARED_CONTENT_CARD_CLASSES}>
-            {dosageData?.dosage_forms_and_strengths && (
-              <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                <span className="font-semibold text-slate-800">Dosage Form & Strength: </span>
-                {dosageData.dosage_forms_and_strengths
-                  .replace(/<[^>]+>/g, '')
-                  .replace(/\s+/g, ' ')
-                  .trim()}
-              </div>
-            )}
             {dosageHtml ? (
-              <article
-                id="dosage-content"
-                className={SHARED_READING_PROSE_CLASSES}
-                dangerouslySetInnerHTML={{ __html: dosageHtml }}
-              />
+              <div>
+                {/* Max dose badge */}
+                {maxDose && (
+                  <div
+                    className="mb-5 inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800"
+                    aria-label="Maximum dose information"
+                  >
+                    <span className="text-emerald-600" aria-hidden="true">💊</span>
+                    <span>Max Dose: <strong>{maxDose}</strong></span>
+                  </div>
+                )}
+                {/* Section heading */}
+                <h2 className="text-xl font-semibold text-slate-900 mb-5">
+                  Recommended Dosage &amp; Administration
+                </h2>
+                {/* Scoped emerald left-border accent on subsection h3 headings */}
+                <div className="[&_h3]:border-l-4 [&_h3]:border-emerald-500 [&_h3]:pl-3 [&_h3]:text-emerald-900">
+                  <article
+                    id="dosage-content"
+                    className={SHARED_READING_PROSE_CLASSES}
+                    dangerouslySetInnerHTML={{ __html: dosageHtml }}
+                  />
+                </div>
+              </div>
             ) : (
               <div className="text-center text-sm text-slate-600 py-8">
                 Dosage and administration information is not available for this medication.

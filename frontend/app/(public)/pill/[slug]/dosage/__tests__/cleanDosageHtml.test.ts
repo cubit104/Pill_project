@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { cleanDosageHtml } from '../cleanDosageHtml'
+import { cleanDosageHtml, extractMaxDose } from '../cleanDosageHtml'
 
 // ── Section-reference removal ──────────────────────────────────────────────
 
@@ -116,10 +116,30 @@ test('no space before comma after ref removal', () => {
 
 // ── Section headings preserved ─────────────────────────────────────────────
 
-test('preserves subsection headings like 2.1 General Instructions', () => {
+test('strips subsection numbers from h3 headings', () => {
   const input = '<h3>2.1 General Instructions</h3><p>Text here.</p>'
   const result = cleanDosageHtml(input)
-  assert.match(result, /2\.1 General Instructions/)
+  assert.doesNotMatch(result, /2\.1 General Instructions/)
+  assert.match(result, /<h3>General Instructions<\/h3>/)
+})
+
+test('strips multi-level subsection numbers from h3 headings', () => {
+  const input = '<h3>2.1.3 Titration Guidance</h3>'
+  const result = cleanDosageHtml(input)
+  assert.match(result, /<h3>Titration Guidance<\/h3>/)
+})
+
+test('strips subsection numbers from h4 headings', () => {
+  const input = '<h4>4.2 Renal Impairment</h4>'
+  const result = cleanDosageHtml(input)
+  assert.match(result, /<h4>Renal Impairment<\/h4>/)
+})
+
+test('removes empty paragraph tags', () => {
+  const input = '<p>Keep this.</p><p>   </p><p></p>'
+  const result = cleanDosageHtml(input)
+  assert.match(result, /<p>Keep this\.<\/p>/)
+  assert.doesNotMatch(result, /<p>\s*<\/p>/)
 })
 
 test('removes top-level h2 with id="dosage"', () => {
@@ -137,4 +157,36 @@ test('strips <a> tags but keeps link text', () => {
   const result = cleanDosageHtml(input)
   assert.doesNotMatch(result, /<a/)
   assert.match(result, /Section 2/)
+})
+
+// ── Max dose extraction ──────────────────────────────────────────────────────
+
+test('extracts max dose from "maximum recommended dose is"', () => {
+  const html = '<p>The maximum recommended dose is 40 mg daily.</p>'
+  assert.equal(extractMaxDose(html), '40 mg')
+})
+
+test('extracts max dose from "not to exceed"', () => {
+  const html = '<p>Maximum total amount is not to exceed 10 mg/day.</p>'
+  assert.equal(extractMaxDose(html), '10 mg/day')
+})
+
+test('extracts max dose from "Use 40 mg dose only"', () => {
+  const html = '<p>For severe cases, use 40 mg dose only.</p>'
+  assert.equal(extractMaxDose(html), '40 mg')
+})
+
+test('extracts max dose from "dose should not exceed"', () => {
+  const html = '<p>The dose should not exceed 20 mg/kg in children.</p>'
+  assert.equal(extractMaxDose(html), '20 mg/kg')
+})
+
+test('normalizes mg/m2 max dose unit to mg/m²', () => {
+  const html = '<p>Maximum recommended dose is 10 mg/m2.</p>'
+  assert.equal(extractMaxDose(html), '10 mg/m²')
+})
+
+test('returns null when no max dose pattern is found', () => {
+  const html = '<p>Initial dose is 5 mg once daily.</p>'
+  assert.equal(extractMaxDose(html), null)
 })
