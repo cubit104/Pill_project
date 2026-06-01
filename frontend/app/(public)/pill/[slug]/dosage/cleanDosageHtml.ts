@@ -49,7 +49,7 @@ export function cleanDosageHtml(html: string): string {
 }
 
 /**
- * Extract the maximum dose from dosage HTML for tablet medications.
+ * Extract the maximum dose from dosage HTML.
  * Looks for common patterns like:
  * - "maximum dose of 40 mg"
  * - "maximum recommended dose is 40 mg"
@@ -61,12 +61,13 @@ export function cleanDosageHtml(html: string): string {
 export function extractMaxDose(html: string): string | null {
   // Strip tags first for clean text matching
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  const dosePattern = '(\\d+(?:\\.\\d+)?(?:\\/\\d+(?:\\.\\d+)?)?\\s*mg(?:\\/(?:day|kg|m²))?)'
 
   const patterns = [
-    /maximum\s+(?:recommended\s+)?(?:daily\s+)?dose\s+(?:is\s+|of\s+)?(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?\s*mg(?:\/(?:day|kg|m²))?)/i,
-    /not\s+to\s+exceed\s+(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?\s*mg(?:\/(?:day|kg|m²))?)/i,
-    /(?:use\s+)?(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?\s*mg(?:\/(?:day|kg|m²))?)\s+dose\s+only/i,
-    /dose\s+(?:should\s+not\s+exceed|must\s+not\s+exceed)\s+(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?\s*mg(?:\/(?:day|kg|m²))?)/i,
+    new RegExp(`maximum\\s+(?:recommended\\s+)?(?:daily\\s+)?dose\\s+(?:is\\s+|of\\s+)?${dosePattern}`, 'i'),
+    new RegExp(`not\\s+to\\s+exceed\\s+${dosePattern}`, 'i'),
+    new RegExp(`(?:use\\s+)?${dosePattern}\\s+dose\\s+only`, 'i'),
+    new RegExp(`dose\\s+(?:should\\s+not\\s+exceed|must\\s+not\\s+exceed)\\s+${dosePattern}`, 'i'),
   ]
 
   for (const pattern of patterns) {

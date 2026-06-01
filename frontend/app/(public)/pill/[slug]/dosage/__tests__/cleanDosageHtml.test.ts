@@ -155,13 +155,18 @@ test('extracts max dose from "maximum recommended dose is"', () => {
 })
 
 test('extracts max dose from "not to exceed"', () => {
-  const html = '<p>Dose should not exceed; not to exceed 10 mg/day.</p>'
+  const html = '<p>Maximum total amount is not to exceed 10 mg/day.</p>'
   assert.equal(extractMaxDose(html), '10 mg/day')
 })
 
 test('extracts max dose from "Use 40 mg dose only"', () => {
   const html = '<p>For severe cases, Use 40 mg dose only.</p>'
   assert.equal(extractMaxDose(html), '40 mg')
+})
+
+test('extracts max dose from "dose should not exceed"', () => {
+  const html = '<p>The dose should not exceed 20 mg/kg in children.</p>'
+  assert.equal(extractMaxDose(html), '20 mg/kg')
 })
 
 test('returns null when no max dose pattern is found', () => {
