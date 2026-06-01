@@ -1018,7 +1018,7 @@ async def get_pill_adverse_reactions_by_slug(slug: str):
             if not pill_row:
                 pill_result = conn.execute(
                     text(
-                        """
+                        f"""
                         SELECT
                             medicine_name,
                             rxcui,
@@ -1028,7 +1028,7 @@ async def get_pill_adverse_reactions_by_slug(slug: str):
                             dosage_form
                         FROM pillfinder
                         WHERE deleted_at IS NULL AND published = true
-                          AND trim(lower(regexp_replace(medicine_name, '[^a-zA-Z0-9]+', '-', 'g')), '-') = :slug
+                          AND {_MEDICINE_SLUG_EXPR} = :slug
                         ORDER BY updated_at DESC NULLS LAST
                         LIMIT 1
                         """
