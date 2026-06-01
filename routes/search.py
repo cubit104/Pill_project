@@ -305,11 +305,10 @@ def api_search(
                 elif search_type == "drug":
                     lower_query = query.lower()
                     direct_conditions = [
-                        "(LOWER(medicine_name) LIKE LOWER(:drug_name) OR REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE LOWER(:drug_name) OR LOWER(tags) LIKE LOWER(:tags_like))"
+                        "(LOWER(medicine_name) LIKE LOWER(:drug_name) OR REGEXP_REPLACE(LOWER(medicine_name), '[^a-z0-9]+', ' ', 'g') LIKE LOWER(:drug_name))"
                     ]
                     direct_params = {
                         "drug_name": f"{lower_query}%",
-                        "tags_like": f"%{lower_query}%",
                     }
                     total, rows = run_search_query(conn, direct_conditions, direct_params)
 
