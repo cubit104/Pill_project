@@ -80,32 +80,43 @@ _GUIDE_LATERAL_JOIN = """\
           AND p.slug IS NOT NULL
         ORDER BY p.slug"""
 
+_GUIDE_SELECT_FULL = (
+    "SELECT\n"
+    "    p.slug,\n"
+    "    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,\n"
+    "    (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional,\n"
+    "    (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary,\n"
+    "    (\n"
+    "        NULLIF(mg.dosage_administration, '') IS NOT NULL\n"
+    "        OR NULLIF(mg.dosage, '') IS NOT NULL\n"
+    "    ) AS has_dosage,\n"
+    "    (\n"
+    "        NULLIF(mg.adverse_reactions, '') IS NOT NULL\n"
+    "        OR NULLIF(mg.side_effects, '') IS NOT NULL\n"
+    "    ) AS has_adverse_reactions\n"
+    + _GUIDE_LATERAL_JOIN.format(
+        mg_cols=(
+            "medguide_html, professional_html, medication_summary_html,"
+            " dosage_administration, dosage, adverse_reactions, side_effects"
+        )
+    )
+)
+
+_GUIDE_SELECT_COMPAT = (
+    "SELECT\n"
+    "    p.slug,\n"
+    "    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,\n"
+    "    (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional,\n"
+    "    (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary\n"
+    + _GUIDE_LATERAL_JOIN.format(
+        mg_cols="medguide_html, professional_html, medication_summary_html"
+    )
+)
+
 
 def _fetch_guide_page_slugs(conn) -> List[GuidePageSlug]:
     try:
-        result = conn.execute(
-            text(
-                "SELECT\n"
-                "    p.slug,\n"
-                "    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,\n"
-                "    (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional,\n"
-                "    (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary,\n"
-                "    (\n"
-                "        NULLIF(mg.dosage_administration, '') IS NOT NULL\n"
-                "        OR NULLIF(mg.dosage, '') IS NOT NULL\n"
-                "    ) AS has_dosage,\n"
-                "    (\n"
-                "        NULLIF(mg.adverse_reactions, '') IS NOT NULL\n"
-                "        OR NULLIF(mg.side_effects, '') IS NOT NULL\n"
-                "    ) AS has_adverse_reactions\n"
-                + _GUIDE_LATERAL_JOIN.format(
-                    mg_cols=(
-                        "medguide_html, professional_html, medication_summary_html,\n"
-                        "                   dosage_administration, dosage, adverse_reactions, side_effects"
-                    )
-                )
-            )
-        ).fetchall()
+        result = conn.execute(text(_GUIDE_SELECT_FULL)).fetchall()
         return [
             GuidePageSlug(
                 slug=row[0],
@@ -132,18 +143,7 @@ def _fetch_guide_page_slugs(conn) -> List[GuidePageSlug]:
             "Guide page slug query: dosage/adverse columns missing, using compat query: %s", e
         )
         try:
-            compat_result = conn.execute(
-                text(
-                    "SELECT\n"
-                    "    p.slug,\n"
-                    "    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,\n"
-                    "    (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional,\n"
-                    "    (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary\n"
-                    + _GUIDE_LATERAL_JOIN.format(
-                        mg_cols="medguide_html, professional_html, medication_summary_html"
-                    )
-                )
-            ).fetchall()
+            compat_result = conn.execute(text(_GUIDE_SELECT_COMPAT)).fetchall()
             return [
                 GuidePageSlug(
                     slug=row[0],
