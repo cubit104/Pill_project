@@ -205,6 +205,10 @@ export default async function DosagePage({
     : null
   const maxDose = dosageHtml ? extractMaxDose(dosageHtml) : null
 
+  const dosageFormsHtml = dosageData?.dosage_forms_and_strengths?.trim()
+    ? sanitizeRenderedHtml(dosageData.dosage_forms_and_strengths)
+    : null
+
   return (
    <>
      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }} />
@@ -279,24 +283,17 @@ export default async function DosagePage({
                     dangerouslySetInnerHTML={{ __html: dosageHtml }}
                   />
                 </div>
-                {dosageData?.dosage_forms_and_strengths && (
-                  <div className="mt-6 pt-5 border-t border-slate-100">
-                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-4">
-                      <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-2">
+                {/* Dosage Forms & Strengths box */}
+                {dosageFormsHtml && (
+                  <div className="mt-6 pt-5 border-t border-slate-100 mx-4 sm:mx-8">
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-5 py-4">
+                      <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-3">
                         📋 Dosage Forms &amp; Strengths
                       </p>
-                      <p className="text-sm text-slate-700 leading-relaxed">
-                        {dosageData.dosage_forms_and_strengths
-                          .replace(/<[^>]+>/g, ' ')
-                          .replace(/&quot;/g, '"')
-                          .replace(/&amp;/g, '&')
-                          .replace(/&#39;/g, "'")
-                          .replace(/&lt;/g, '<')
-                          .replace(/&gt;/g, '>')
-                          .replace(/&nbsp;/g, ' ')
-                          .replace(/\s+/g, ' ')
-                          .trim()}
-                      </p>
+                      <div
+                        className={SHARED_READING_PROSE_CLASSES}
+                        dangerouslySetInnerHTML={{ __html: dosageFormsHtml }}
+                      />
                     </div>
                   </div>
                 )}
