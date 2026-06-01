@@ -12,6 +12,7 @@ import {
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 import { sanitizeRenderedHtml } from '../medication-guide/sanitizeRenderedHtml'
+import { cleanAdverseReactionsHtml } from './cleanAdverseReactionsHtml'
 
 type PageParams = Promise<{ slug: string }>
 
@@ -131,7 +132,7 @@ export async function generateMetadata({
   const drugName = resolveDrugName({ adverseReactions, pill, slug })
 
   return {
-    title: `${drugName} Adverse Reactions & Side Effects | PillSeek`,
+    title: `${drugName} Adverse Reactions & Side Effects`,
     description: `Review adverse reactions and side effects reported for ${drugName}, based on FDA-approved prescribing information.`,
     alternates: { canonical: `/pill/${encodeURIComponent(slug)}/adverse-reactions` },
   }
@@ -196,7 +197,7 @@ export default async function AdverseReactionsPage({
   const rawAdverseReactionsHtml =
     adverseReactionsData?.adverse_reactions?.trim() || adverseReactionsData?.side_effects?.trim() || null
   const adverseReactionsHtml = rawAdverseReactionsHtml
-    ? sanitizeRenderedHtml(rawAdverseReactionsHtml)
+    ? sanitizeRenderedHtml(cleanAdverseReactionsHtml(rawAdverseReactionsHtml))
     : null
 
   return (
@@ -250,11 +251,18 @@ export default async function AdverseReactionsPage({
         <div className="lg:max-w-[60rem] lg:mx-auto">
           <div className={SHARED_CONTENT_CARD_CLASSES}>
             {adverseReactionsHtml ? (
-              <article
-                id="adverse-reactions-content"
-                className={SHARED_READING_PROSE_CLASSES}
-                dangerouslySetInnerHTML={{ __html: adverseReactionsHtml }}
-              />
+              <div>
+                <h2 className="text-xl font-semibold text-slate-900 mb-5">
+                  Adverse Reactions &amp; Side Effects
+                </h2>
+                <div className="[&_h3]:border-l-4 [&_h3]:border-emerald-500 [&_h3]:pl-3 [&_h3]:text-emerald-900">
+                  <article
+                    id="adverse-reactions-content"
+                    className={SHARED_READING_PROSE_CLASSES}
+                    dangerouslySetInnerHTML={{ __html: adverseReactionsHtml }}
+                  />
+                </div>
+              </div>
             ) : (
               <div className="text-center text-sm text-slate-600 py-8">
                 Adverse reactions information is not available for this medication.
