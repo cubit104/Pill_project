@@ -279,6 +279,24 @@ export default async function DosagePage({
                     dangerouslySetInnerHTML={{ __html: dosageHtml }}
                   />
                 </div>
+                {dosageData?.dosage_forms_and_strengths && (
+                  <div className="mt-6 pt-5 border-t border-slate-100">
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-4">
+                      <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-2">
+                        📋 Dosage Forms &amp; Strengths
+                      </p>
+                      <p className="text-sm text-slate-700 leading-relaxed">
+                        {dosageData.dosage_forms_and_strengths
+                          .replace(/<[^>]+>/g, ' ')
+                          .replace(/&quot;/g, '"')
+                          .replace(/&amp;/g, '&')
+                          .replace(/&#39;/g, "'")
+                          .replace(/\s+/g, ' ')
+                          .trim()}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center text-sm text-slate-600 py-8">
