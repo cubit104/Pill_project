@@ -271,13 +271,16 @@ export default async function DosagePage({
                 )}
                 {/* Section heading */}
                 <h2 className="text-xl font-semibold text-slate-900 mb-5">
-                  Recommended Dosage & Administration
+                  Recommended Dosage &amp; Administration
                 </h2>
-                <article
-                  id="dosage-content"
-                  className={SHARED_READING_PROSE_CLASSES}
-                  dangerouslySetInnerHTML={{ __html: dosageHtml }}
-                />
+                {/* Scoped emerald left-border accent on subsection h3 headings */}
+                <div className="[&_h3]:border-l-4 [&_h3]:border-emerald-500 [&_h3]:pl-3 [&_h3]:text-emerald-900">
+                  <article
+                    id="dosage-content"
+                    className={SHARED_READING_PROSE_CLASSES}
+                    dangerouslySetInnerHTML={{ __html: dosageHtml }}
+                  />
+                </div>
               </div>
             ) : (
               <div className="text-center text-sm text-slate-600 py-8">
