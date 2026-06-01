@@ -80,6 +80,7 @@ _GUIDE_COLUMNS = [
     "overview",
     "uses",
     "dosage",
+    "dosage_administration",
     "how_to_take",
     "side_effects",
     "adverse_reactions",
@@ -610,6 +611,7 @@ def _update_guide(conn, payload: dict[str, Any], *, existing_id: int) -> dict[st
                 overview = :overview,
                 uses = :uses,
                 dosage = :dosage,
+                dosage_administration = :dosage_administration,
                 how_to_take = :how_to_take,
                 side_effects = :side_effects,
                 adverse_reactions = COALESCE(NULLIF(:adverse_reactions, ''), adverse_reactions),
@@ -658,7 +660,7 @@ def _insert_guide(conn, payload: dict[str, Any]) -> dict[str, Any]:
             """
             INSERT INTO public.medication_guide (
                 rxcui, ndc, spl_set_id, generic_name, brand_name,
-                overview, uses, dosage, how_to_take, side_effects, adverse_reactions,
+                overview, uses, dosage, dosage_administration, how_to_take, side_effects, adverse_reactions,
                 warnings, interactions, contraindications, special_populations,
                 overdose, storage, pharmacology, manufacturer,
                 has_boxed_warning, source_url, professional_html, professional_meta, medguide_html, boxed_warning_html,
@@ -667,7 +669,7 @@ def _insert_guide(conn, payload: dict[str, Any]) -> dict[str, Any]:
             )
             VALUES (
                 :rxcui, :ndc, :spl_set_id, :generic_name, :brand_name,
-                :overview, :uses, :dosage, :how_to_take, :side_effects, NULLIF(:adverse_reactions, ''),
+                :overview, :uses, :dosage, :dosage_administration, :how_to_take, :side_effects, NULLIF(:adverse_reactions, ''),
                 :warnings, :interactions, :contraindications, :special_populations,
                 :overdose, :storage, :pharmacology, :manufacturer,
                 :has_boxed_warning, :source_url, :professional_html, CAST(:professional_meta AS JSONB), :medguide_html, :boxed_warning_html,

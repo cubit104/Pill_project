@@ -30,7 +30,7 @@ NS = "urn:hl7-org:v3"
 LOINC_TO_SECTION: dict[str, str] = {
     "34089-3": "overview",           # Description
     "34067-9": "uses",               # Indications & Usage
-    "34068-7": "dosage",             # Dosage & Administration
+    "34068-7": "dosage_administration",  # Dosage & Administration
     "43678-2": "dosage",             # Dosage Forms & Strengths (merge)
     "34076-0": "how_to_take",        # Information for Patients
     "42231-1": "how_to_take",        # SPL Medguide Section (patient-facing)

@@ -122,6 +122,7 @@ def test_build_guide_maps_openfda_fields_and_null_sections():
 
 def test_guide_columns_include_professional_meta():
     assert "professional_meta" in _GUIDE_COLUMNS
+    assert "dosage_administration" in _GUIDE_COLUMNS
 
 
 def test_build_guide_cache_hit_skips_openfda_within_30_days():
@@ -1638,9 +1639,11 @@ def test_insert_guide_serializes_professional_meta():
     from services.medication_guide import _insert_guide, _GUIDE_COLUMNS
 
     captured_params: dict = {}
+    captured_sql: list[str] = []
 
     class _MockConn:
         def execute(self, stmt, params):
+            captured_sql.append(str(stmt))
             captured_params.update(params)
 
             class _MockResult:
@@ -1671,6 +1674,40 @@ def test_insert_guide_serializes_professional_meta():
     assert isinstance(meta_param, str), "professional_meta must be JSON-serialised before binding"
     parsed = _json.loads(meta_param)
     assert parsed["sections"] == [["a", "B"]]
+    assert "dosage_administration" in captured_params
+    assert "dosage_administration" in captured_sql[0]
+
+
+def test_update_guide_binds_dosage_administration():
+    from services.medication_guide import _update_guide, _GUIDE_COLUMNS
+
+    captured_sql: list[str] = []
+    captured_params: list[dict] = []
+
+    class _MockConn:
+        def execute(self, stmt, params):
+            captured_sql.append(str(stmt))
+            captured_params.append(params)
+
+            class _MockResult:
+                def fetchone(_self):
+                    row_data = {k: params.get(k) for k in _GUIDE_COLUMNS}
+                    row_data["id"] = params.get("id", 1)
+
+                    class _MockRow:
+                        _mapping = row_data
+
+                        def __iter__(self):
+                            return iter(row_data.values())
+
+                    return _MockRow()
+
+            return _MockResult()
+
+    _update_guide(_MockConn(), {"rxcui": "123", "dosage_administration": "<p>Take with food.</p>"}, existing_id=1)
+
+    assert "dosage_administration = :dosage_administration" in captured_sql[0]
+    assert captured_params[0]["dosage_administration"] == "<p>Take with food.</p>"
 
 
 # ---------------------------------------------------------------------------
