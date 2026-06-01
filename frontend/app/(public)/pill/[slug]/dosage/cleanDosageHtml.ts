@@ -48,8 +48,8 @@ export function cleanDosageHtml(html: string): string {
   return clean
 }
 
-// Includes mg/day, mg/kg, and mg/m² (body-surface-area dosing) suffixes.
-const MAX_DOSE_VALUE_PATTERN = String.raw`(\d+(?:\.\d+)?\s*mg(?:\/(?:day|kg|m²))?)`
+// Includes mg/day, mg/kg, mg/m², and mg/m2 (body-surface-area dosing) suffixes.
+const MAX_DOSE_VALUE_PATTERN = String.raw`(\d+(?:\.\d+)?\s*mg(?:\/(?:day|kg|m²|m2))?)`
 const MAX_DOSE_PATTERNS = [
   new RegExp(`maximum\\s+(?:recommended\\s+)?(?:daily\\s+)?dose\\s+(?:is\\s+|of\\s+)?${MAX_DOSE_VALUE_PATTERN}`, 'i'),
   new RegExp(`not\\s+to\\s+exceed\\s+${MAX_DOSE_VALUE_PATTERN}`, 'i'),

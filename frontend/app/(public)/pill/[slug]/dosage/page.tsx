@@ -271,7 +271,7 @@ export default async function DosagePage({
                 )}
                 {/* Section heading */}
                 <h2 className="text-xl font-semibold text-slate-900 mb-5">
-                  Recommended Dosage &amp; Administration
+                  Recommended Dosage & Administration
                 </h2>
                 <article
                   id="dosage-content"
