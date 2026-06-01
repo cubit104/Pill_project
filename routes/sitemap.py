@@ -39,6 +39,8 @@ class GuidePageSlug(BaseModel):
     has_medguide: bool
     has_professional: bool
     has_medication_summary: bool
+    has_dosage: bool = False
+    has_adverse_reactions: bool = False
 
 
 class SlugImages(BaseModel):
@@ -54,10 +56,19 @@ def _fetch_guide_page_slugs(conn) -> List[GuidePageSlug]:
                 p.slug,
                 (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
                 (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional,
-                (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
+                (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary,
+                (
+                    NULLIF(mg.dosage_administration, '') IS NOT NULL
+                    OR NULLIF(mg.dosage, '') IS NOT NULL
+                ) AS has_dosage,
+                (
+                    NULLIF(mg.adverse_reactions, '') IS NOT NULL
+                    OR NULLIF(mg.side_effects, '') IS NOT NULL
+                ) AS has_adverse_reactions
             FROM pillfinder p
             LEFT JOIN LATERAL (
-                SELECT medguide_html, professional_html, medication_summary_html
+                SELECT medguide_html, professional_html, medication_summary_html,
+                       dosage_administration, dosage, adverse_reactions, side_effects
                 FROM medication_guide m
                 WHERE (
                     NULLIF(p.rxcui, '') IS NOT NULL AND m.rxcui = p.rxcui
@@ -94,6 +105,8 @@ def _fetch_guide_page_slugs(conn) -> List[GuidePageSlug]:
             has_medguide=bool(row[1]),
             has_professional=bool(row[2]),
             has_medication_summary=bool(row[3]),
+            has_dosage=bool(row[4]),
+            has_adverse_reactions=bool(row[5]),
         )
         for row in result
         if row[0]
@@ -224,6 +237,14 @@ def sitemap():
                 guide_urls.append(
                     f"  <url><loc>{base_url}/pill/{xml_escape(row.slug)}/medication-summary</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>"
                 )
+            if row.has_dosage:
+                guide_urls.append(
+                    f"  <url><loc>{base_url}/pill/{xml_escape(row.slug)}/dosage</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>"
+                )
+            if row.has_adverse_reactions:
+                guide_urls.append(
+                    f"  <url><loc>{base_url}/pill/{xml_escape(row.slug)}/adverse-reactions</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>"
+                )
         xml_content = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -285,4 +306,70 @@ def sitemap_prices():
         raise HTTPException(status_code=500, detail="Database error")
     except Exception as e:
         logger.error(f"Error generating sitemap-prices: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/sitemap-dosage.xml")
+def sitemap_dosage():
+    """Generate XML sitemap for all pill dosage pages."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            guide_slugs = _fetch_guide_page_slugs(conn)
+
+        base_url = os.getenv("SITE_URL", "https://pillseek.com").rstrip("/")
+        urls = [
+            f"  <url><loc>{base_url}/pill/{xml_escape(row.slug)}/dosage</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>"
+            for row in guide_slugs
+            if row.has_dosage
+        ]
+        xml_content = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            + "\n".join(urls)
+            + "\n</urlset>"
+        )
+        return Response(content=xml_content, media_type="application/xml")
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in sitemap-dosage: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error generating sitemap-dosage: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/sitemap-adverse-reactions.xml")
+def sitemap_adverse_reactions():
+    """Generate XML sitemap for all pill adverse reactions pages."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            guide_slugs = _fetch_guide_page_slugs(conn)
+
+        base_url = os.getenv("SITE_URL", "https://pillseek.com").rstrip("/")
+        urls = [
+            f"  <url><loc>{base_url}/pill/{xml_escape(row.slug)}/adverse-reactions</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>"
+            for row in guide_slugs
+            if row.has_adverse_reactions
+        ]
+        xml_content = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            + "\n".join(urls)
+            + "\n</urlset>"
+        )
+        return Response(content=xml_content, media_type="application/xml")
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in sitemap-adverse-reactions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error generating sitemap-adverse-reactions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
