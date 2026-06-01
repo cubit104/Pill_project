@@ -172,7 +172,7 @@ test('extracts max dose from "not to exceed"', () => {
 })
 
 test('extracts max dose from "Use 40 mg dose only"', () => {
-  const html = '<p>For severe cases, Use 40 mg dose only.</p>'
+  const html = '<p>For severe cases, use 40 mg dose only.</p>'
   assert.equal(extractMaxDose(html), '40 mg')
 })
 
