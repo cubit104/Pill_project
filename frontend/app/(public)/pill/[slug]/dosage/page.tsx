@@ -261,7 +261,10 @@ export default async function DosagePage({
               <div>
                 {/* Max dose badge */}
                 {maxDose && (
-                  <div className="mb-5 inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800">
+                  <div
+                    className="mb-5 inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800"
+                    aria-label="Maximum dose information"
+                  >
                     <span className="text-emerald-600" aria-hidden="true">💊</span>
                     <span>Max Dose: <strong>{maxDose}</strong></span>
                   </div>
