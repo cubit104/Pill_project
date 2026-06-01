@@ -363,6 +363,7 @@ def test_search_drug_flag_off_keeps_existing_query(client):
 def test_search_drug_flag_on_prefers_direct_results_without_synonym_fallback(client):
     import database as db_module
     executed_sql = []
+    executed_params = []
     plavix_row = (
         "Plavix",
         "1171",
@@ -378,6 +379,7 @@ def test_search_drug_flag_on_prefers_direct_results_without_synonym_fallback(cli
     def side_effect(sql, params=None, *args, **kwargs):
         sql_str = str(sql)
         executed_sql.append(sql_str)
+        executed_params.append(params)
         result = MagicMock()
         if "COUNT(*)" in sql_str:
             result.scalar.return_value = 1
@@ -403,6 +405,8 @@ def test_search_drug_flag_on_prefers_direct_results_without_synonym_fallback(cli
     combined = " ".join(executed_sql).lower()
     assert "drug_synonyms" not in combined
     assert "rxcui_to_ingredient" not in combined
+    assert "tags_like" not in combined
+    assert all("tags_like" not in (params or {}) for params in executed_params)
 
 
 def test_search_drug_flag_on_uses_synonym_fallback_only_when_direct_has_no_results(client):
@@ -1310,6 +1314,7 @@ def test_api_pill_slug_has_medguide_true_when_summary_column_missing(client):
     data = response.json()
     assert data["has_medguide"] is True
     assert data["has_medication_summary"] is False
+    assert data["has_dosage"] is False
 
 
 def test_api_pill_slug_has_medguide_false_when_summary_column_missing_and_no_guide(client):
@@ -1331,3 +1336,486 @@ def test_api_pill_slug_has_medguide_false_when_summary_column_missing_and_no_gui
     data = response.json()
     assert data["has_medguide"] is False
     assert data["has_medication_summary"] is False
+    assert data["has_dosage"] is False
+
+
+def test_api_pill_slug_has_dosage_when_dosage_column_exists(client):
+    """has_dosage should follow dosage section availability."""
+    import database as db_module
+
+    pill_row = (
+        "Plavix", "75", "Pink", "Round", "63653-1171-01", "174742",
+        None, "plavix-75-1171", None,
+    )
+    pill_columns = [
+        "medicine_name", "splimprint", "splcolor_text", "splshape_text",
+        "ndc11", "rxcui", "image_filename", "slug", "meta_description",
+    ]
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql).lower()
+        result = MagicMock()
+
+        if "from pillfinder where deleted_at is null and published = true and slug = :slug" in sql_str:
+            result.fetchone.return_value = pill_row
+            result.keys.return_value = pill_columns
+        elif "from pill_ndcs" in sql_str:
+            result.fetchall.return_value = []
+        elif "from public.medication_guide" in sql_str:
+            if "nullif(mg.dosage_administration, '') is not null" in sql_str:
+                result.fetchone.return_value = (False, False, True, False)
+            else:
+                result.fetchone.return_value = (False, False, False, False)
+        elif "from drug_indications" in sql_str:
+            result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+
+    with patch(
+        "routes.details._resolve_history_identifier",
+        return_value={"history_ndc": None, "history_source": None},
+    ):
+        response = client.get("/api/pill/plavix-75-1171")
+
+    assert response.status_code == 200
+    assert response.json()["has_dosage"] is True
+
+
+def test_api_pill_slug_has_adverse_reactions_when_adverse_reactions_exists(client):
+    """has_adverse_reactions should follow adverse_reactions or side_effects availability."""
+    import database as db_module
+
+    pill_row = (
+        "Plavix", "75", "Pink", "Round", "63653-1171-01", "174742",
+        None, "plavix-75-1171", None,
+    )
+    pill_columns = [
+        "medicine_name", "splimprint", "splcolor_text", "splshape_text",
+        "ndc11", "rxcui", "image_filename", "slug", "meta_description",
+    ]
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql).lower()
+        result = MagicMock()
+
+        if "from pillfinder where deleted_at is null and published = true and slug = :slug" in sql_str:
+            result.fetchone.return_value = pill_row
+            result.keys.return_value = pill_columns
+        elif "from pill_ndcs" in sql_str:
+            result.fetchall.return_value = []
+        elif "from public.medication_guide" in sql_str:
+            if "nullif(mg.adverse_reactions, '') is not null" in sql_str:
+                result.fetchone.return_value = (False, False, False, True)
+            else:
+                result.fetchone.return_value = (False, False, False, False)
+        elif "from drug_indications" in sql_str:
+            result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+
+    with patch(
+        "routes.details._resolve_history_identifier",
+        return_value={"history_ndc": None, "history_source": None},
+    ):
+        response = client.get("/api/pill/plavix-75-1171")
+
+    assert response.status_code == 200
+    assert response.json()["has_adverse_reactions"] is True
+
+
+# ---------------------------------------------------------------------------
+# /api/pill/{slug}/dosage endpoint
+# ---------------------------------------------------------------------------
+
+def _make_pill_dosage_engine(
+    *,
+    dosage_value,
+    has_guide: bool = True,
+    pill_overrides: dict | None = None,
+    guide_overrides: dict | None = None,
+):
+    from datetime import datetime, timezone
+
+    pill_columns = [
+        "medicine_name",
+        "rxcui",
+        "ndc11",
+        "ndc9",
+        "spl_set_id",
+        "dosage_form",
+        "dailymed_pharma_class_epc",
+        "pharmclass_fda_epc",
+    ]
+    pill_values = {
+        "medicine_name": "Plavix",
+        "rxcui": "174742",
+        "ndc11": "63653-1171-01",
+        "ndc9": "636531171",
+        "spl_set_id": "setid-123",
+        "dosage_form": "tablet",
+        "dailymed_pharma_class_epc": "Platelet Aggregation Inhibitor [EPC]",
+        "pharmclass_fda_epc": None,
+    }
+    if pill_overrides:
+        pill_values.update(pill_overrides)
+    pill_row = tuple(pill_values[column] for column in pill_columns)
+
+    guide_columns = [
+        "generic_name",
+        "brand_name",
+        "rxcui",
+        "ndc",
+        "spl_set_id",
+        "dosage_administration",
+        "dosage",
+        "side_effects",
+        "adverse_reactions",
+        "has_boxed_warning",
+        "boxed_warning_html",
+        "source_url",
+        "fetched_at",
+    ]
+    guide_values = {
+        "generic_name": "clopidogrel",
+        "brand_name": "Plavix",
+        "rxcui": "174742",
+        "ndc": "63653-1171-01",
+        "spl_set_id": "setid-123",
+        "dosage_administration": dosage_value,
+        "dosage": "<p>75 mg tablets</p>",
+        "side_effects": "<p>Bleeding</p>",
+        "adverse_reactions": "<p>Bleeding</p>",
+        "has_boxed_warning": True,
+        "boxed_warning_html": "<p>Boxed warning</p>",
+        "source_url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=setid-123",
+        "fetched_at": datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc),
+    }
+    if guide_overrides:
+        guide_values.update(guide_overrides)
+    guide_row = tuple(guide_values[column] for column in guide_columns)
+
+    def _execute(sql, params=None):
+        sql_str = str(sql).lower()
+
+        if "from pillfinder" in sql_str:
+            result = MagicMock()
+            result.fetchone.return_value = pill_row
+            result.keys.return_value = pill_columns
+            return result
+
+        if "from public.medication_guide" in sql_str:
+            result = MagicMock()
+            if has_guide:
+                params = params or {}
+                guide_spl_set_id = str(guide_values.get("spl_set_id") or "")
+                guide_rxcui = str(guide_values.get("rxcui") or "")
+                guide_ndc = str(guide_values.get("ndc") or "")
+                guide_ndc_clean = guide_ndc.replace("-", "")
+                lookup_spl = str(params.get("spl_set_id") or "")
+                lookup_rxcui = str(params.get("rxcui") or "")
+                lookup_ndc = str(params.get("ndc") or "")
+                lookup_ndc_clean = str(params.get("ndc_clean") or "")
+                matches = (
+                    (lookup_spl and lookup_spl == guide_spl_set_id)
+                    or (lookup_rxcui and lookup_rxcui == guide_rxcui)
+                    or (
+                        lookup_ndc
+                        and (
+                            lookup_ndc == guide_ndc
+                            or lookup_ndc.replace("-", "") == guide_ndc_clean
+                            or (lookup_ndc_clean and lookup_ndc_clean == guide_ndc_clean)
+                        )
+                    )
+                )
+                result.fetchone.return_value = MagicMock(_mapping=dict(zip(guide_columns, guide_row)))
+                if not matches:
+                    result.fetchone.return_value = None
+            else:
+                result.fetchone.return_value = None
+            return result
+
+        result = MagicMock()
+        result.fetchone.return_value = None
+        return result
+
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_conn.execute.side_effect = _execute
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    return mock_engine
+
+
+def test_api_pill_dosage_returns_404_for_missing_slug(client):
+    import database as db_module
+
+    missing_result = MagicMock()
+    missing_result.fetchone.return_value = None
+
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.return_value = missing_result
+
+    response = client.get("/api/pill/nonexistent-slug/dosage")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Pill not found"
+
+
+def test_api_pill_dosage_returns_payload_when_guide_exists(client):
+    import database as db_module
+
+    async def _fake_build_guide(**kwargs):
+        return {"spl_set_id": "setid-123", "rxcui": "174742", "ndc": "63653-1171-01"}
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(dosage_value="<p>Take once daily.</p>", has_guide=True)
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix-75-1171/dosage")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["drug_name"] == "Plavix"
+    assert payload["generic_name"] == "clopidogrel"
+    assert payload["brand_name"] == "Plavix"
+    assert payload["rxcui"] == "174742"
+    assert payload["ndc"] == "63653-1171-01"
+    assert payload["spl_set_id"] == "setid-123"
+    assert payload["dosage_administration"] == "<p>Take once daily.</p>"
+    assert payload["dosage_forms_and_strengths"] == "<p>75 mg tablets</p>"
+    assert payload["has_boxed_warning"] is True
+    assert payload["boxed_warning_html"] == "<p>Boxed warning</p>"
+    assert payload["drug_class"] == "Platelet Aggregation Inhibitor [EPC]"
+    assert payload["dosage_form"] == "tablet"
+    assert payload["source_url"].startswith("https://dailymed.nlm.nih.gov/")
+    assert payload["fetched_at"] == "2026-05-20T12:00:00Z"
+
+
+def test_api_pill_dosage_returns_cache_control_header(client):
+    import database as db_module
+
+    async def _fake_build_guide(**kwargs):
+        return {"spl_set_id": "setid-123", "rxcui": "174742", "ndc": "63653-1171-01"}
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(dosage_value="<p>Take once daily.</p>", has_guide=True)
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix-75-1171/dosage")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    assert response.headers.get("cache-control") == "public, max-age=3600, stale-while-revalidate=86400"
+
+
+def test_api_pill_dosage_returns_null_for_blank_dosage(client):
+    import database as db_module
+
+    async def _fake_build_guide(**kwargs):
+        return {"spl_set_id": "setid-123", "rxcui": "174742", "ndc": "63653-1171-01"}
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(dosage_value="   ", has_guide=True)
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix-75-1171/dosage")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["dosage_administration"] is None
+
+
+def test_api_pill_dosage_resolves_with_mismatched_identifiers(client):
+    import database as db_module
+    from services.medication_guide import GuideNotFoundError
+
+    calls = []
+
+    async def _fake_build_guide(**kwargs):
+        calls.append(kwargs)
+        if kwargs == {"ndc": "00024117190"}:
+            raise GuideNotFoundError("not found")
+        if kwargs == {"rxcui": "749198"}:
+            raise GuideNotFoundError("not found")
+        if kwargs == {"ndc": "0024-1171"}:
+            return {
+                "spl_set_id": "de8b0b67-eb25-4684-83b5-7ad785314227",
+                "rxcui": "213169",
+                "ndc": "0024-1171",
+            }
+        raise GuideNotFoundError("not found")
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(
+            dosage_value="<p>Take once daily.</p>",
+            has_guide=True,
+            pill_overrides={
+                "rxcui": "749198",
+                "ndc11": "00024117190",
+                "ndc9": "0024-1171",
+                "spl_set_id": None,
+            },
+            guide_overrides={
+                "rxcui": "213169",
+                "ndc": "0024-1171",
+                "spl_set_id": "de8b0b67-eb25-4684-83b5-7ad785314227",
+            },
+        )
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix/dosage")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["dosage_administration"] == "<p>Take once daily.</p>"
+    assert payload["dosage_forms_and_strengths"] == "<p>75 mg tablets</p>"
+    assert payload["rxcui"] == "213169"
+    assert payload["ndc"] == "0024-1171"
+    assert calls == [{"ndc": "00024117190"}, {"rxcui": "749198"}, {"ndc": "0024-1171"}]
+
+
+# ---------------------------------------------------------------------------
+# /api/pill/{slug}/adverse-reactions endpoint
+# ---------------------------------------------------------------------------
+
+def test_api_pill_adverse_reactions_returns_404_for_missing_slug(client):
+    import database as db_module
+
+    missing_result = MagicMock()
+    missing_result.fetchone.return_value = None
+
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.return_value = missing_result
+
+    response = client.get("/api/pill/nonexistent-slug/adverse-reactions")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Pill not found"
+
+
+def test_api_pill_adverse_reactions_returns_payload_when_guide_exists(client):
+    import database as db_module
+
+    async def _fake_build_guide(**kwargs):
+        return {"spl_set_id": "setid-123", "rxcui": "174742", "ndc": "63653-1171-01"}
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(dosage_value="<p>Take once daily.</p>", has_guide=True)
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix-75-1171/adverse-reactions")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["drug_name"] == "Plavix"
+    assert payload["generic_name"] == "clopidogrel"
+    assert payload["brand_name"] == "Plavix"
+    assert payload["rxcui"] == "174742"
+    assert payload["ndc"] == "63653-1171-01"
+    assert payload["spl_set_id"] == "setid-123"
+    assert payload["adverse_reactions"] == "<p>Bleeding</p>"
+    assert payload["side_effects"] == "<p>Bleeding</p>"
+    assert payload["source_url"].startswith("https://dailymed.nlm.nih.gov/")
+    assert payload["fetched_at"] == "2026-05-20T12:00:00Z"
+    assert response.headers.get("cache-control") == "public, max-age=3600, stale-while-revalidate=86400"
+
+
+def test_api_pill_adverse_reactions_prefers_dedicated_column(client):
+    import database as db_module
+
+    async def _fake_build_guide(**kwargs):
+        return {"spl_set_id": "setid-123", "rxcui": "174742", "ndc": "63653-1171-01"}
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(
+            dosage_value="<p>Take once daily.</p>",
+            has_guide=True,
+            guide_overrides={
+                "adverse_reactions": "<section><h2>Adverse Reactions</h2><p>Full section</p></section>",
+                "side_effects": None,
+            },
+        )
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix-75-1171/adverse-reactions")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["adverse_reactions"] == "<section><h2>Adverse Reactions</h2><p>Full section</p></section>"
+    assert payload["side_effects"] == "<section><h2>Adverse Reactions</h2><p>Full section</p></section>"
+
+
+def test_api_pill_adverse_reactions_falls_back_to_side_effects(client):
+    import database as db_module
+
+    async def _fake_build_guide(**kwargs):
+        return {"spl_set_id": "setid-123", "rxcui": "174742", "ndc": "63653-1171-01"}
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(
+            dosage_value="<p>Take once daily.</p>",
+            has_guide=True,
+            guide_overrides={
+                "adverse_reactions": None,
+                "side_effects": "<p>Fallback side effects</p>",
+            },
+        )
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix-75-1171/adverse-reactions")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["adverse_reactions"] == "<p>Fallback side effects</p>"
+    assert payload["side_effects"] == "<p>Fallback side effects</p>"
+
+
+def test_api_pill_adverse_reactions_returns_null_for_blank_content(client):
+    import database as db_module
+
+    async def _fake_build_guide(**kwargs):
+        return {"spl_set_id": "setid-123", "rxcui": "174742", "ndc": "63653-1171-01"}
+
+    original = db_module.db_engine
+    try:
+        db_module.db_engine = _make_pill_dosage_engine(
+            dosage_value="<p>Take once daily.</p>",
+            has_guide=True,
+            guide_overrides={"adverse_reactions": "   ", "side_effects": "   "},
+        )
+        with patch("routes.details.build_guide", side_effect=_fake_build_guide):
+            response = client.get("/api/pill/plavix-75-1171/adverse-reactions")
+    finally:
+        db_module.db_engine = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["adverse_reactions"] is None
+    assert payload["side_effects"] is None

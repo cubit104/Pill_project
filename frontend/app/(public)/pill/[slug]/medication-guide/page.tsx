@@ -28,6 +28,7 @@ import {
   normalizeTerms,
   splitBrandNames,
 } from './linkifyUtils'
+import { sanitizeRenderedHtml } from './sanitizeRenderedHtml'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
@@ -50,6 +51,8 @@ type PillInfo = {
   dosage_form?: string | null
   is_brand_row?: boolean
   brand_or_generic?: 'brand' | 'generic'
+  has_dosage?: boolean
+  has_adverse_reactions?: boolean
 }
 
 type ConditionListItem = {
@@ -178,10 +181,11 @@ function GuideHtml({
   linkTargets: LinkTarget[]
   counter?: TermCounter
 }) {
+  const sanitizedHtml = sanitizeRenderedHtml(linkifyHtmlContent(content, linkTargets, counter))
   return (
     <div
       className={SHARED_READING_PROSE_CLASSES}
-      dangerouslySetInnerHTML={{ __html: linkifyHtmlContent(content, linkTargets, counter) }}
+      dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
     />
   )
 }
@@ -465,6 +469,12 @@ export default async function MedicationGuidePage({
     const linkedProfessionalHtml = professionalData?.professional_html
       ? linkifyHtmlContent(professionalData.professional_html, proLinkTargets, proSharedCounter)
       : null
+    const sanitizedProfessionalHighlightsHtml = professionalData?.professional_highlights_html
+      ? sanitizeRenderedHtml(professionalData.professional_highlights_html)
+      : null
+    const sanitizedLinkedProfessionalHtml = linkedProfessionalHtml
+      ? sanitizeRenderedHtml(linkedProfessionalHtml)
+      : null
 
     const proPageJsonLd = guidePageSchema({
       drugName,
@@ -523,6 +533,8 @@ export default async function MedicationGuidePage({
         <MedicationGuideTabs
           activeTab="pro"
           medicationGuideHref={null}
+          dosageHref={`/pill/${encodedSlug}/dosage`}
+          adverseReactionsHref={`/pill/${encodedSlug}/adverse-reactions`}
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
@@ -555,7 +567,7 @@ export default async function MedicationGuidePage({
                 <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
                   <div
                     className={PRO_HIGHLIGHTS_PROSE_CLASSES}
-                    dangerouslySetInnerHTML={{ __html: professionalData.professional_highlights_html }}
+                    dangerouslySetInnerHTML={{ __html: sanitizedProfessionalHighlightsHtml ?? '' }}
                   />
                 </div>
               )}
@@ -564,7 +576,7 @@ export default async function MedicationGuidePage({
                 <article
                   id="pro-content"
                   className={PRO_PROSE_CLASSES}
-                  dangerouslySetInnerHTML={{ __html: linkedProfessionalHtml ?? '' }}
+                  dangerouslySetInnerHTML={{ __html: sanitizedLinkedProfessionalHtml ?? '' }}
                 />
               ) : (
                 <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
@@ -656,6 +668,12 @@ export default async function MedicationGuidePage({
   const linkedMedguideHtml = guideData?.medguide_html
     ? linkifyHtmlContent(guideData.medguide_html, linkTargets, sharedLinkCounter)
     : null
+  const sanitizedLinkedBoxedWarningHtml = linkedBoxedWarningHtml
+    ? sanitizeRenderedHtml(linkedBoxedWarningHtml)
+    : null
+  const sanitizedLinkedMedguideHtml = linkedMedguideHtml
+    ? sanitizeRenderedHtml(linkedMedguideHtml)
+    : null
   const hasConsumerToc =
     (linkedMedguideHtml?.match(/<h[23]\b[^>]*id=/gi)?.length ?? 0) >= MIN_PROFESSIONAL_TOC_SECTIONS
 
@@ -722,6 +740,8 @@ export default async function MedicationGuidePage({
       <MedicationGuideTabs
         activeTab="consumer"
         medicationGuideHref={`/pill/${encodeURIComponent(slug)}/medication-guide`}
+        dosageHref={`/pill/${encodeURIComponent(slug)}/dosage`}
+        adverseReactionsHref={`/pill/${encodeURIComponent(slug)}/adverse-reactions`}
         professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
       />
 
@@ -740,7 +760,7 @@ export default async function MedicationGuidePage({
             {linkedBoxedWarningHtml ? (
               <div
                 className={BOXED_WARNING_PROSE_CLASSES}
-                dangerouslySetInnerHTML={{ __html: linkedBoxedWarningHtml }}
+                dangerouslySetInnerHTML={{ __html: sanitizedLinkedBoxedWarningHtml ?? '' }}
               />
             ) : (
               <p className="text-sm leading-8 text-rose-950">
@@ -787,7 +807,7 @@ export default async function MedicationGuidePage({
               <article
                 id="medguide-content"
                 className={SHARED_READING_PROSE_CLASSES}
-                dangerouslySetInnerHTML={{ __html: linkedMedguideHtml }}
+                dangerouslySetInnerHTML={{ __html: sanitizedLinkedMedguideHtml ?? '' }}
               />
             ) : (
               <SectionFallback

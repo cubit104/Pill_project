@@ -8,16 +8,31 @@ from threading import Lock
 import time
 
 from fastapi import APIRouter, Query, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
+from services.medication_guide import (
+    GuideInternalError,
+    GuideNotFoundError,
+    GuideValidationError,
+    build_guide,
+)
+from services.openfda_client import OpenFDAUpstreamError
 from services.synonym_resolver import get_synonyms_for_rxcui, filter_self_from_brands
 from ndc_normalize import normalize_ndc_to_11
 from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames, slugify_class
 
 logger = logging.getLogger(__name__)
 IMAGE_BASE = (os.getenv("IMAGE_BASE") or "").strip().rstrip("/")
+
+# SQL expression to normalize medicine_name to a drug-name slug.
+# Mirrors slugifyDrugName() in frontend/app/lib/slug.ts:
+# preserve case with [^a-zA-Z0-9]+, then lower(), then trim dashes.
+_MEDICINE_SLUG_EXPR = (
+    "trim(lower(regexp_replace(medicine_name, '[^a-zA-Z0-9]+', '-', 'g')), '-')"
+)
 _IMAGE_BASE_WARNING_EMITTED = False
 _HISTORY_RESOLUTION_TTL_SECONDS = int(os.getenv("PILL_HISTORY_RESOLUTION_TTL_SECONDS", "3600"))
 _HISTORY_RESOLUTION_CACHE_MAX_ITEMS = int(os.getenv("PILL_HISTORY_RESOLUTION_CACHE_MAX_ITEMS", "1000"))
@@ -31,6 +46,7 @@ _history_resolution_cache: "OrderedDict[str, tuple[float, dict[str, Any]]]" = Or
 _history_resolution_cache_lock = Lock()
 
 router = APIRouter()
+CACHE_CONTROL_HEADER = "public, max-age=3600, stale-while-revalidate=86400"
 
 
 def _to_iso(value) -> Optional[str]:
@@ -404,7 +420,23 @@ def get_pill_by_slug(slug: str):
             result = conn.execute(query, {"slug": slug})
             row = result.fetchone()
             if not row:
-                raise HTTPException(status_code=404, detail="Pill not found")
+                # Fallback: match by normalized drug-name slug against medicine_name
+                # using the shared _MEDICINE_SLUG_EXPR constant defined at module level.
+                result = conn.execute(
+                    text(
+                        f"""
+                        SELECT * FROM pillfinder
+                        WHERE deleted_at IS NULL AND published = true
+                          AND {_MEDICINE_SLUG_EXPR} = :slug
+                        ORDER BY updated_at DESC NULLS LAST
+                        LIMIT 1
+                        """
+                    ),
+                    {"slug": slug},
+                )
+                row = result.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Pill not found")
 
             columns = result.keys()
             pill_info = dict(zip(columns, row))
@@ -488,14 +520,27 @@ def get_pill_by_slug(slug: str):
                             mg.updated_at DESC NULLS LAST
                         LIMIT 1
             """
-            guide_flags = {"has_medguide": False, "has_medication_summary": False}
+            guide_flags = {
+                "has_medguide": False,
+                "has_medication_summary": False,
+                "has_dosage": False,
+                "has_adverse_reactions": False,
+            }
             try:
                 guide_row = conn.execute(
                     text(
                         """
                         SELECT
                             (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
-                            (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
+                            (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary,
+                            (
+                                NULLIF(mg.dosage_administration, '') IS NOT NULL
+                                OR NULLIF(mg.dosage, '') IS NOT NULL
+                            ) AS has_dosage,
+                            (
+                                NULLIF(mg.adverse_reactions, '') IS NOT NULL
+                                OR NULLIF(mg.side_effects, '') IS NOT NULL
+                            ) AS has_adverse_reactions
                         FROM public.medication_guide mg
                         """
                         + guide_filter_clause
@@ -506,52 +551,105 @@ def get_pill_by_slug(slug: str):
                     guide_flags = {
                         "has_medguide": bool(guide_row[0]),
                         "has_medication_summary": bool(guide_row[1]),
+                        "has_dosage": bool(guide_row[2]),
+                        "has_adverse_reactions": bool(guide_row[3]),
                     }
             except SQLAlchemyError as _e:
                 err_msg = str(_e).lower()
-                # Detect a missing-column error for the new medication_summary_html column
-                # (migration not yet applied).  Check the PostgreSQL error code (42703 =
-                # undefined_column) first; fall back to string matching for other drivers.
+                # Detect missing-column errors for not-yet-applied guide schema migrations.
                 pg_code = getattr(getattr(_e, "orig", None), "pgcode", None)
-                _is_missing_summary_col = pg_code == "42703" or (
-                    "medication_summary_html" in err_msg
-                    and (
-                        "does not exist" in err_msg
-                        or "undefined" in err_msg
-                        or "no such column" in err_msg
-                    )
+                _is_missing_col = pg_code == "42703" or (
+                    "does not exist" in err_msg
+                    or "undefined" in err_msg
+                    or "no such column" in err_msg
                 )
-                if _is_missing_summary_col:
-                    # Fall back to a compat query that only checks medguide_html so that
-                    # existing official Medication Guide cards are not broken.
+                if _is_missing_col:
                     logger.debug(
-                        "medication_summary_html column not yet present, using compat query for %s: %s",
+                        "Medication guide columns missing, using compat query for %s: %s",
                         slug,
                         _e,
                     )
+                    summary_column_missing = "medication_summary_html" in err_msg
                     try:
-                        compat_row = conn.execute(
-                            text(
-                                """
-                                SELECT
-                                    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide
-                                FROM public.medication_guide mg
-                                """
-                                + guide_filter_clause
-                            ),
-                            guide_params,
-                        ).fetchone()
-                        if compat_row:
-                            guide_flags = {
-                                "has_medguide": bool(compat_row[0]),
-                                "has_medication_summary": False,
-                            }
+                        if summary_column_missing:
+                            legacy_row = conn.execute(
+                                text(
+                                    """
+                                    SELECT
+                                        (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide
+                                    FROM public.medication_guide mg
+                                    """
+                                    + guide_filter_clause
+                                ),
+                                guide_params,
+                            ).fetchone()
+                            if legacy_row:
+                                guide_flags = {
+                                    "has_medguide": bool(legacy_row[0]),
+                                    "has_medication_summary": False,
+                                    "has_dosage": False,
+                                    "has_adverse_reactions": False,
+                                }
+                        else:
+                            compat_row = conn.execute(
+                                text(
+                                    """
+                                    SELECT
+                                        (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
+                                        (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
+                                    FROM public.medication_guide mg
+                                    """
+                                    + guide_filter_clause
+                                ),
+                                guide_params,
+                            ).fetchone()
+                            if compat_row:
+                                guide_flags = {
+                                    "has_medguide": bool(compat_row[0]),
+                                    "has_medication_summary": bool(compat_row[1]),
+                                    "has_dosage": False,
+                                    "has_adverse_reactions": False,
+                                }
                     except SQLAlchemyError as _compat_e:
-                        logger.warning(
-                            "Medication guide compat flag lookup failed for %s: %s",
-                            slug,
-                            _compat_e,
+                        compat_msg = str(_compat_e).lower()
+                        compat_pg_code = getattr(getattr(_compat_e, "orig", None), "pgcode", None)
+                        compat_missing_col = compat_pg_code == "42703" or (
+                            "does not exist" in compat_msg
+                            or "undefined" in compat_msg
+                            or "no such column" in compat_msg
                         )
+                        if compat_missing_col:
+                            try:
+                                legacy_row = conn.execute(
+                                    text(
+                                        """
+                                        SELECT
+                                            (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide
+                                        FROM public.medication_guide mg
+                                        """
+                                        + guide_filter_clause
+                                    ),
+                                    guide_params,
+                                ).fetchone()
+                                if legacy_row:
+                                    guide_flags = {
+                                        "has_medguide": bool(legacy_row[0]),
+                                        "has_medication_summary": False,
+                                        "has_dosage": False,
+                                        "has_adverse_reactions": False,
+                                    }
+                            except SQLAlchemyError as _legacy_e:
+                                logger.warning(
+                                    "Medication guide legacy flag lookup failed for %s: %s",
+                                    slug,
+                                    _legacy_e,
+                                )
+                        else:
+                            logger.warning(
+                                "Medication guide compat flag lookup failed for %s: %s",
+                                slug,
+                                _compat_e,
+                            )
                 else:
                     logger.warning("Medication guide flag lookup failed for %s: %s", slug, _e)
 
@@ -592,6 +690,8 @@ def get_pill_by_slug(slug: str):
                 ),
                 "has_medguide": guide_flags["has_medguide"],
                 "has_medication_summary": guide_flags["has_medication_summary"],
+                "has_dosage": guide_flags["has_dosage"],
+                "has_adverse_reactions": guide_flags["has_adverse_reactions"],
                 "additional_ndcs": additional_ndcs,
                 "meta_description": pill_info.get("meta_description") or None,
                 "indication": None,
@@ -662,6 +762,319 @@ def get_pill_by_slug(slug: str):
         raise HTTPException(status_code=500, detail="Database error")
     except Exception as e:
         logger.error(f"Error in get_pill_by_slug: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+def _fetch_dosage_guide_row(conn, *, spl_set_id: Optional[str], ndc: Optional[str], rxcui: Optional[str]):
+    """Load one medication_guide row for dosage fields using prioritized identifiers."""
+    params = {
+        "spl_set_id": str(spl_set_id or ""),
+        "ndc": str(ndc or ""),
+        "ndc_clean": str(ndc or "").replace("-", ""),
+        "rxcui": str(rxcui or ""),
+    }
+    return conn.execute(
+        text(
+            """
+            SELECT
+                mg.generic_name,
+                mg.brand_name,
+                mg.rxcui,
+                mg.ndc,
+                mg.spl_set_id,
+                mg.dosage_administration,
+                mg.dosage,
+                mg.side_effects,
+                mg.adverse_reactions,
+                mg.has_boxed_warning,
+                mg.boxed_warning_html,
+                mg.source_url,
+                mg.fetched_at
+            FROM public.medication_guide mg
+            WHERE (
+                    :spl_set_id <> ''
+                    AND mg.spl_set_id = :spl_set_id
+                ) OR (
+                    :ndc <> ''
+                    AND (
+                        mg.ndc = :ndc
+                        OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc_clean
+                    )
+                ) OR (
+                    :rxcui <> ''
+                    AND mg.rxcui = :rxcui
+                )
+            ORDER BY
+                CASE
+                    WHEN :spl_set_id <> '' AND mg.spl_set_id = :spl_set_id THEN 0
+                    WHEN :ndc <> '' AND (
+                        mg.ndc = :ndc
+                        OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc_clean
+                    ) THEN 1
+                    WHEN :rxcui <> '' AND mg.rxcui = :rxcui THEN 2
+                    ELSE 3
+                END,
+                mg.updated_at DESC NULLS LAST
+            LIMIT 1
+            """
+        ),
+        params,
+    ).fetchone()
+
+
+async def _resolve_dosage_guide_data(pill_info: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve dosage guide data via build_guide using setid → ndc11 → rxcui → ndc9."""
+    attempts: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for key, value in (
+        ("spl_set_id", pill_info.get("spl_set_id")),
+        ("ndc", pill_info.get("ndc11")),
+        ("rxcui", pill_info.get("rxcui")),
+        ("ndc", pill_info.get("ndc9")),
+    ):
+        normalized = str(value or "").strip()
+        if not normalized:
+            continue
+        attempt = (key, normalized)
+        if attempt in seen:
+            continue
+        seen.add(attempt)
+        attempts.append(attempt)
+
+    for key, value in attempts:
+        try:
+            if key == "spl_set_id":
+                payload = await build_guide(spl_set_id=value)
+            elif key == "ndc":
+                payload = await build_guide(ndc=value)
+            elif key == "rxcui":
+                payload = await build_guide(rxcui=value)
+            else:
+                logger.warning("Unsupported dosage guide resolver key=%s", key)
+                continue
+        except (GuideNotFoundError, GuideValidationError):
+            continue
+        except OpenFDAUpstreamError:
+            raise
+        except GuideInternalError:
+            raise
+        except Exception:
+            logger.warning("Dosage guide resolution failed for %s=%s", key, value, exc_info=True)
+            continue
+
+        spl_set_id = payload.get("spl_set_id") if isinstance(payload, dict) else None
+        ndc = payload.get("ndc") if isinstance(payload, dict) else None
+        rxcui = payload.get("rxcui") if isinstance(payload, dict) else None
+
+        if key == "spl_set_id":
+            spl_set_id = spl_set_id or value
+        elif key == "ndc":
+            ndc = ndc or value
+        elif key == "rxcui":
+            rxcui = rxcui or value
+
+        with database.db_engine.connect() as conn:
+            guide_row = _fetch_dosage_guide_row(
+                conn,
+                spl_set_id=spl_set_id,
+                ndc=ndc,
+                rxcui=rxcui,
+            )
+        if guide_row:
+            return dict(guide_row._mapping)
+
+    return {}
+
+
+@router.get("/api/pill/{slug}/dosage")
+async def get_pill_dosage_by_slug(slug: str):
+    """Get dosage content for a pill slug using medication_guide resolver parity."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            pill_result = conn.execute(
+                text(
+                    """
+                    SELECT
+                        medicine_name,
+                        rxcui,
+                        ndc11,
+                        ndc9,
+                        spl_set_id,
+                        dosage_form,
+                        dailymed_pharma_class_epc,
+                        pharmclass_fda_epc
+                    FROM pillfinder
+                    WHERE deleted_at IS NULL AND published = true AND slug = :slug
+                    LIMIT 1
+                    """
+                ),
+                {"slug": slug},
+            )
+            pill_row = pill_result.fetchone()
+            if not pill_row:
+                # Fallback: match by normalized drug-name slug against medicine_name
+                # using the shared _MEDICINE_SLUG_EXPR constant defined at module level.
+                pill_result = conn.execute(
+                    text(
+                        f"""
+                        SELECT
+                            medicine_name,
+                            rxcui,
+                            ndc11,
+                            ndc9,
+                            spl_set_id,
+                            dosage_form,
+                            dailymed_pharma_class_epc,
+                            pharmclass_fda_epc
+                        FROM pillfinder
+                        WHERE deleted_at IS NULL AND published = true
+                          AND {_MEDICINE_SLUG_EXPR} = :slug
+                        ORDER BY updated_at DESC NULLS LAST
+                        LIMIT 1
+                        """
+                    ),
+                    {"slug": slug},
+                )
+                pill_row = pill_result.fetchone()
+                if not pill_row:
+                    raise HTTPException(status_code=404, detail="Pill not found")
+
+            pill_columns = pill_result.keys()
+            pill_info = dict(zip(pill_columns, pill_row))
+
+        guide_data = await _resolve_dosage_guide_data(pill_info)
+        dosage_value = guide_data.get("dosage_administration")
+        dosage_administration = dosage_value.strip() if isinstance(dosage_value, str) else dosage_value
+        if isinstance(dosage_administration, str) and not dosage_administration:
+            dosage_administration = None
+
+        return JSONResponse(content={
+            "drug_name": pill_info.get("medicine_name"),
+            "generic_name": guide_data.get("generic_name"),
+            "brand_name": guide_data.get("brand_name"),
+            "rxcui": guide_data.get("rxcui") or pill_info.get("rxcui"),
+            "ndc": guide_data.get("ndc") or pill_info.get("ndc11") or pill_info.get("ndc9"),
+            "spl_set_id": guide_data.get("spl_set_id") or pill_info.get("spl_set_id"),
+            "dosage_administration": dosage_administration,
+            "dosage_forms_and_strengths": guide_data.get("dosage") or None,
+            "has_boxed_warning": bool(guide_data.get("has_boxed_warning")),
+            "boxed_warning_html": guide_data.get("boxed_warning_html"),
+            "drug_class": (
+                pill_info.get("dailymed_pharma_class_epc")
+                or pill_info.get("pharmclass_fda_epc")
+            ),
+            "dosage_form": pill_info.get("dosage_form"),
+            "source_url": guide_data.get("source_url"),
+            "fetched_at": _to_iso(guide_data.get("fetched_at")),
+        }, headers={"Cache-Control": CACHE_CONTROL_HEADER})
+    except GuideNotFoundError:
+        return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
+    except OpenFDAUpstreamError:
+        return JSONResponse(status_code=502, content={"error": "Failed to fetch FDA label"})
+    except GuideInternalError as exc:
+        logger.error("Medication guide internal error (slug=%s): %s", slug, exc)
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_pill_dosage_by_slug: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in get_pill_dosage_by_slug: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/api/pill/{slug}/adverse-reactions")
+async def get_pill_adverse_reactions_by_slug(slug: str):
+    """Get adverse reactions content for a pill slug using medication_guide resolver parity."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            pill_result = conn.execute(
+                text(
+                    """
+                    SELECT
+                        medicine_name,
+                        rxcui,
+                        ndc11,
+                        ndc9,
+                        spl_set_id,
+                        dosage_form
+                    FROM pillfinder
+                    WHERE deleted_at IS NULL AND published = true AND slug = :slug
+                    LIMIT 1
+                    """
+                ),
+                {"slug": slug},
+            )
+            pill_row = pill_result.fetchone()
+            if not pill_row:
+                pill_result = conn.execute(
+                    text(
+                        f"""
+                        SELECT
+                            medicine_name,
+                            rxcui,
+                            ndc11,
+                            ndc9,
+                            spl_set_id,
+                            dosage_form
+                        FROM pillfinder
+                        WHERE deleted_at IS NULL AND published = true
+                          AND {_MEDICINE_SLUG_EXPR} = :slug
+                        ORDER BY updated_at DESC NULLS LAST
+                        LIMIT 1
+                        """
+                    ),
+                    {"slug": slug},
+                )
+                pill_row = pill_result.fetchone()
+                if not pill_row:
+                    raise HTTPException(status_code=404, detail="Pill not found")
+
+            pill_columns = pill_result.keys()
+            pill_info = dict(zip(pill_columns, pill_row))
+
+        guide_data = await _resolve_dosage_guide_data(pill_info)
+        adverse_html = guide_data.get("adverse_reactions") or guide_data.get("side_effects")
+        adverse_reactions = adverse_html.strip() if isinstance(adverse_html, str) else adverse_html
+        if isinstance(adverse_reactions, str) and not adverse_reactions:
+            adverse_reactions = None
+
+        return JSONResponse(content={
+            "drug_name": pill_info.get("medicine_name"),
+            "generic_name": guide_data.get("generic_name"),
+            "brand_name": guide_data.get("brand_name"),
+            "rxcui": guide_data.get("rxcui") or pill_info.get("rxcui"),
+            "ndc": guide_data.get("ndc") or pill_info.get("ndc11") or pill_info.get("ndc9"),
+            "spl_set_id": guide_data.get("spl_set_id") or pill_info.get("spl_set_id"),
+            "adverse_reactions": adverse_reactions,
+            "side_effects": adverse_reactions,
+            "dosage_form": pill_info.get("dosage_form"),
+            "source_url": guide_data.get("source_url"),
+            "fetched_at": _to_iso(guide_data.get("fetched_at")),
+        }, headers={"Cache-Control": CACHE_CONTROL_HEADER})
+    except GuideNotFoundError:
+        return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
+    except OpenFDAUpstreamError:
+        return JSONResponse(status_code=502, content={"error": "Failed to fetch FDA label"})
+    except GuideInternalError as exc:
+        logger.error("Medication guide internal error (slug=%s): %s", slug, exc)
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_pill_adverse_reactions_by_slug: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in get_pill_adverse_reactions_by_slug: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

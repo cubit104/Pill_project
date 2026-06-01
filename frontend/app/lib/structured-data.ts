@@ -195,7 +195,7 @@ export function medicalWebPageSchema(
 export function guidePageSchema(opts: {
   drugName: string
   slug: string
-  pageType: 'medication-guide' | 'professional-information' | 'medication-summary'
+  pageType: 'medication-guide' | 'professional-information' | 'medication-summary' | 'dosage' | 'adverse-reactions'
   rxcui?: string | null
   ndc?: string | null
   splSetId?: string | null
@@ -209,17 +209,25 @@ export function guidePageSchema(opts: {
     ? `/pill/${encodeURIComponent(slug)}/medication-guide`
     : pageType === 'professional-information'
       ? `/pill/${encodeURIComponent(slug)}/professional-information`
-      : `/pill/${encodeURIComponent(slug)}/medication-summary`
+      : pageType === 'dosage'
+        ? `/pill/${encodeURIComponent(slug)}/dosage`
+        : pageType === 'adverse-reactions'
+          ? `/pill/${encodeURIComponent(slug)}/adverse-reactions`
+          : `/pill/${encodeURIComponent(slug)}/medication-summary`
 
   const pageName = pageType === 'medication-guide'
     ? `${drugName} Medication Guide`
     : pageType === 'professional-information'
       ? `${drugName} Professional Information`
-      : `${drugName} Medication Summary`
+      : pageType === 'dosage'
+        ? `${drugName} Dosage & Administration`
+        : pageType === 'adverse-reactions'
+          ? `${drugName} Adverse Reactions`
+          : `${drugName} Medication Summary`
 
-  const audience = pageType === 'medication-guide' || pageType === 'medication-summary'
-    ? { '@type': 'Patient' as const }
-    : { '@type': 'MedicalAudience' as const, audienceType: 'Clinician' }
+  const audience = pageType === 'professional-information'
+    ? { '@type': 'MedicalAudience' as const, audienceType: 'Clinician' }
+    : { '@type': 'Patient' as const }
 
   type PropertyValue = { '@type': 'PropertyValue'; name: string; value: string }
   const identifier: PropertyValue[] = []

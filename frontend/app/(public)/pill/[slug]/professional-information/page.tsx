@@ -8,6 +8,7 @@ import MobileTocBar from '../medication-guide/MobileTocBar'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { MIN_PROFESSIONAL_TOC_SECTIONS } from '../medication-guide/professionalTocConfig'
 import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
+import { sanitizeRenderedHtml } from '../medication-guide/sanitizeRenderedHtml'
 import {
   PRO_BOXED_WARNING_PROSE_CLASSES,
   PRO_HIGHLIGHTS_CONTAINER_CLASSES,
@@ -39,6 +40,8 @@ type PillInfo = {
   dosage_form?: string | null
   is_brand_row?: boolean
   brand_or_generic?: 'brand' | 'generic'
+  has_dosage?: boolean
+  has_adverse_reactions?: boolean
 }
 
 type GuideResponse = {
@@ -234,6 +237,12 @@ export default async function ProfessionalInformationPage({
   const proRxcui = guideData?.rxcui ?? pill.rxcui
   const proNdc = guideData?.ndc ?? pill.ndc11 ?? pill.ndc9
   const proSplSetId = pill.spl_set_id
+  const sanitizedProfessionalHighlightsHtml = guideData?.professional_highlights_html
+    ? sanitizeRenderedHtml(guideData.professional_highlights_html)
+    : null
+  const sanitizedProfessionalHtml = guideData?.professional_html
+    ? sanitizeRenderedHtml(guideData.professional_html)
+    : null
 
   const proPageJsonLd = guidePageSchema({
     drugName,
@@ -305,6 +314,8 @@ export default async function ProfessionalInformationPage({
           summaryHref={
             hasMedicationSummaryFallback ? `/pill/${encodeURIComponent(slug)}/medication-summary` : null
           }
+          dosageHref={`/pill/${encodeURIComponent(slug)}/dosage`}
+          adverseReactionsHref={`/pill/${encodeURIComponent(slug)}/adverse-reactions`}
           professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
         />
 
@@ -326,7 +337,7 @@ export default async function ProfessionalInformationPage({
               <div className={`${PRO_HIGHLIGHTS_CONTAINER_CLASSES} mb-6`}>
                 <div
                   className={PRO_HIGHLIGHTS_PROSE_CLASSES}
-                  dangerouslySetInnerHTML={{ __html: guideData.professional_highlights_html }}
+                  dangerouslySetInnerHTML={{ __html: sanitizedProfessionalHighlightsHtml ?? '' }}
                 />
               </div>
             )}
@@ -335,7 +346,7 @@ export default async function ProfessionalInformationPage({
               <article
                 id="pro-content"
                 className={PRO_PROSE_CLASSES}
-                dangerouslySetInnerHTML={{ __html: guideData.professional_html }}
+                dangerouslySetInnerHTML={{ __html: sanitizedProfessionalHtml ?? '' }}
               />
             ) : (
               <ProfessionalEmptyState guide={guideData} />

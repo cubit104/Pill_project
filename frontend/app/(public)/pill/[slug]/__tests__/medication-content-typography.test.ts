@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs'
 
 const medicationGuidePath = new URL('../medication-guide/page.tsx', import.meta.url)
 const medicationSummaryPath = new URL('../medication-summary/page.tsx', import.meta.url)
+const dosagePagePath = new URL('../dosage/page.tsx', import.meta.url)
+const adverseReactionsPagePath = new URL('../adverse-reactions/page.tsx', import.meta.url)
 const professionalInfoPath = new URL('../professional-information/page.tsx', import.meta.url)
 const sharedLayoutStylesPath = new URL('../medication-guide/layoutStyles.ts', import.meta.url)
 
@@ -45,4 +47,22 @@ test('professional information prose wrappers use SHARED_READING_PROSE_CLASSES',
   assert.ok(layoutSource.includes('[&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mt-4 [&_h3]:mb-1'))
   assert.ok(layoutSource.includes('[&_p]:mt-0 [&_p]:mb-4 [&_p]:text-base [&_p]:leading-relaxed [&_p]:text-slate-800'))
   assert.ok(layoutSource.includes('[&_li]:text-base [&_li]:leading-relaxed [&_li]:text-slate-800'))
+})
+
+test('dosage page uses shared prose styles and omits boxed warning markup', () => {
+  const dosageSource = readFileSync(dosagePagePath, 'utf8')
+
+  assert.ok(dosageSource.includes('SHARED_READING_PROSE_CLASSES'))
+  assert.ok(dosageSource.includes('dosage_administration'))
+  assert.ok(!dosageSource.includes('Boxed Warning'))
+  assert.ok(!dosageSource.includes('boxed_warning_html'))
+})
+
+test('adverse reactions page uses shared prose styles and sanitized HTML rendering', () => {
+  const adverseSource = readFileSync(adverseReactionsPagePath, 'utf8')
+
+  assert.ok(adverseSource.includes('SHARED_READING_PROSE_CLASSES'))
+  assert.ok(adverseSource.includes('sanitizeRenderedHtml'))
+  assert.ok(adverseSource.includes('activeTab="adverse"'))
+  assert.ok(adverseSource.includes('/api/pill/${encodeURIComponent(slug)}/adverse-reactions'))
 })
