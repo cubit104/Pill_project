@@ -52,7 +52,8 @@ class GuideValidationError(RuntimeError):
 SECTION_MAPPING: dict[str, tuple[str, ...]] = {
     "overview": ("medication_guide", "patient_package_insert", "spl_patient_package_insert"),
     "uses": ("indications_and_usage",),
-    "dosage": ("dosage_and_administration", "dosage_forms_and_strengths"),
+    "dosage": ("dosage_forms_and_strengths",),
+    "dosage_administration": ("dosage_and_administration",),
     "how_to_take": ("instructions_for_use", "information_for_patients"),
     "side_effects": ("adverse_reactions",),
     "warnings": ("boxed_warning", "warnings_and_cautions", "warnings"),
