@@ -238,9 +238,9 @@ export default async function AdverseReactionsPage({
 
         <MedicationGuideTabs
           activeTab="adverse"
-          medicationGuideHref={hasMedguide ? `/pill/${encodedSlug}/medication-guide` : null}
+          medicationGuideHref={`/pill/${encodedSlug}/medication-guide`}
           summaryHref={hasSummary ? `/pill/${encodedSlug}/medication-summary` : null}
-          dosageHref={pill?.has_dosage ? `/pill/${encodedSlug}/dosage` : null}
+          dosageHref={`/pill/${encodedSlug}/dosage`}
           adverseReactionsHref={`/pill/${encodedSlug}/adverse-reactions`}
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />

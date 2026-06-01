@@ -69,21 +69,23 @@ test('dosage and adverse-reactions tab hrefs use raw encoded slug across tab pag
   const adverseReactionsPage = read('../../adverse-reactions/page.tsx')
   const tabs = read('../MedicationGuideTabs.tsx')
 
-  assert.ok(medguidePage.includes('dosageHref={pill?.has_dosage ? `/pill/${encodedSlug}/dosage` : null}'))
-  assert.ok(medguidePage.includes('adverseReactionsHref={'))
-  assert.ok(medguidePage.includes('pill?.has_adverse_reactions'))
+  assert.ok(medguidePage.includes('dosageHref={`/pill/${encodedSlug}/dosage`}'))
+  assert.ok(medguidePage.includes('adverseReactionsHref={`/pill/${encodedSlug}/adverse-reactions`}'))
   assert.ok(medguidePage.includes('`/pill/${encodedSlug}/adverse-reactions`'))
 
   assert.ok(summaryPage.includes('dosageHref={pill?.has_dosage ? `/pill/${encodedSlug}/dosage` : null}'))
   assert.ok(summaryPage.includes('pill?.has_adverse_reactions ? `/pill/${encodedSlug}/adverse-reactions` : null'))
 
-  assert.ok(professionalPage.includes('dosageHref={pill?.has_dosage ? `/pill/${encodeURIComponent(slug)}/dosage` : null}'))
-  assert.ok(professionalPage.includes('pill?.has_adverse_reactions ? `/pill/${encodeURIComponent(slug)}/adverse-reactions` : null'))
+  assert.ok(professionalPage.includes('dosageHref={`/pill/${encodeURIComponent(slug)}/dosage`}'))
+  assert.ok(professionalPage.includes('adverseReactionsHref={`/pill/${encodeURIComponent(slug)}/adverse-reactions`}'))
 
   assert.ok(dosagePage.includes('activeTab="dosage"'))
-  assert.ok(dosagePage.includes('pill?.has_adverse_reactions ? `/pill/${encodedSlug}/adverse-reactions` : null'))
+  assert.ok(dosagePage.includes('medicationGuideHref={`/pill/${encodedSlug}/medication-guide`}'))
+  assert.ok(dosagePage.includes('adverseReactionsHref={`/pill/${encodedSlug}/adverse-reactions`}'))
 
   assert.ok(adverseReactionsPage.includes('activeTab="adverse"'))
+  assert.ok(adverseReactionsPage.includes('medicationGuideHref={`/pill/${encodedSlug}/medication-guide`}'))
+  assert.ok(adverseReactionsPage.includes('dosageHref={`/pill/${encodedSlug}/dosage`}'))
   assert.ok(adverseReactionsPage.includes('adverseReactionsHref={`/pill/${encodedSlug}/adverse-reactions`}'))
 
   assert.ok(tabs.includes("type TabId = 'consumer' | 'dosage' | 'adverse' | 'pro'"))

@@ -315,9 +315,7 @@ export default async function ProfessionalInformationPage({
             hasMedicationSummaryFallback ? `/pill/${encodeURIComponent(slug)}/medication-summary` : null
           }
           dosageHref={`/pill/${encodeURIComponent(slug)}/dosage`}
-          adverseReactionsHref={
-            pill?.has_adverse_reactions ? `/pill/${encodeURIComponent(slug)}/adverse-reactions` : null
-          }
+          adverseReactionsHref={`/pill/${encodeURIComponent(slug)}/adverse-reactions`}
           professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
         />
 
