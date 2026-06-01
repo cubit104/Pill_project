@@ -205,6 +205,10 @@ export default async function DosagePage({
     : null
   const maxDose = dosageHtml ? extractMaxDose(dosageHtml) : null
 
+  const dosageFormsHtml = dosageData?.dosage_forms_and_strengths?.trim()
+    ? sanitizeRenderedHtml(dosageData.dosage_forms_and_strengths)
+    : null
+
   return (
    <>
      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }} />
@@ -279,6 +283,20 @@ export default async function DosagePage({
                     dangerouslySetInnerHTML={{ __html: dosageHtml }}
                   />
                 </div>
+                {/* Dosage Forms & Strengths box */}
+                {dosageFormsHtml && (
+                  <div className="mt-6 pt-5 border-t border-slate-100 mx-4 sm:mx-8">
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-5 py-4">
+                      <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-3">
+                        📋 Dosage Forms &amp; Strengths
+                      </p>
+                      <div
+                        className={SHARED_READING_PROSE_CLASSES}
+                        dangerouslySetInnerHTML={{ __html: dosageFormsHtml }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center text-sm text-slate-600 py-8">
