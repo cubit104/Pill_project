@@ -38,8 +38,40 @@ export function cleanDosageHtml(html: string): string {
   clean = clean.replace(/\s*\(\d+(?:\.\d+)?(?:\s*,\s*\d+(?:\.\d+)?)*\)/g, '')
   // Fix space-before-punctuation artifacts (e.g. "daily . " → "daily.")
   clean = clean.replace(/\s+([.,;:])/g, '$1')
+  // Strip leading subsection numbers from headings e.g. "2.1 General Dosing Information" → "General Dosing Information"
+  clean = clean.replace(/(<h[34][^>]*>)\s*\d+(\.\d+)*\s+/gi, '$1')
+  // Remove empty <p> tags that leave blank gaps
+  clean = clean.replace(/<p[^>]*>\s*<\/p>/gi, '')
   // Collapse multiple consecutive spaces
   clean = clean.replace(/\s{2,}/g, ' ').trim()
 
   return clean
+}
+
+/**
+ * Extract the maximum dose from dosage HTML for tablet medications.
+ * Looks for common patterns like:
+ * - "maximum dose of 40 mg"
+ * - "maximum recommended dose is 40 mg"
+ * - "not to exceed 40 mg"
+ * - "Use 40 mg dose only"
+ * - "maximum daily dose of 40 mg"
+ * Returns the matched dose string or null if not found.
+ */
+export function extractMaxDose(html: string): string | null {
+  // Strip tags first for clean text matching
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+
+  const patterns = [
+    /maximum\s+(?:recommended\s+)?(?:daily\s+)?dose\s+(?:is\s+|of\s+)?(\d+[\d./]*\s*mg(?:\/(?:day|kg|m²))?)/i,
+    /not\s+to\s+exceed\s+(\d+[\d./]*\s*mg(?:\/(?:day|kg|m²))?)/i,
+    /(?:use\s+)?(\d+[\d./]*\s*mg)\s+dose\s+only/i,
+    /dose\s+(?:should\s+not\s+exceed|must\s+not\s+exceed)\s+(\d+[\d./]*\s*mg(?:\/(?:day|kg|m²))?)/i,
+  ]
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    if (match?.[1]) return match[1].trim()
+  }
+  return null
 }
