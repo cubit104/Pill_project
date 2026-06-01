@@ -291,6 +291,9 @@ export default async function DosagePage({
                           .replace(/&quot;/g, '"')
                           .replace(/&amp;/g, '&')
                           .replace(/&#39;/g, "'")
+                          .replace(/&lt;/g, '<')
+                          .replace(/&gt;/g, '>')
+                          .replace(/&nbsp;/g, ' ')
                           .replace(/\s+/g, ' ')
                           .trim()}
                       </p>
