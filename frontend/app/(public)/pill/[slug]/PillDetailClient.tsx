@@ -100,11 +100,12 @@ function MedicationResourcesCard({
   hasMedguide: boolean
   hasMedicationSummary: boolean
 }) {
+  const encodedSlug = encodeURIComponent(resolvedSlug)
   const ctaHref = hasMedguide
-    ? `/pill/${resolvedSlug}/medication-guide`
+    ? `/pill/${encodedSlug}/medication-guide`
     : hasMedicationSummary
-    ? `/pill/${resolvedSlug}/medication-summary`
-    : `/pill/${resolvedSlug}/medication-guide`
+    ? `/pill/${encodedSlug}/medication-summary`
+    : `/pill/${encodedSlug}/medication-guide`
 
   const ctaLabel = hasMedguide
     ? 'Read Medication Guide'
@@ -154,7 +155,7 @@ function MedicationResourcesCard({
             <span aria-hidden="true" className="ml-auto text-slate-400 group-hover:text-emerald-600 text-sm">→</span>
           </Link>
           <Link
-            href={`/pill/${resolvedSlug}/dosage`}
+            href={`/pill/${encodedSlug}/dosage`}
             className="border border-slate-100 rounded-lg p-3 flex items-center gap-3 hover:border-emerald-300 hover:bg-emerald-50 transition-colors group"
           >
             <span className="shrink-0 w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100">
@@ -170,7 +171,7 @@ function MedicationResourcesCard({
             <span aria-hidden="true" className="ml-auto text-slate-400 group-hover:text-emerald-600 text-sm">→</span>
           </Link>
           <Link
-            href={`/pill/${resolvedSlug}/adverse-reactions`}
+            href={`/pill/${encodedSlug}/adverse-reactions`}
             className="border border-slate-100 rounded-lg p-3 flex items-center gap-3 hover:border-emerald-300 hover:bg-emerald-50 transition-colors group"
           >
             <span className="shrink-0 w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100">
@@ -187,7 +188,7 @@ function MedicationResourcesCard({
             <span aria-hidden="true" className="ml-auto text-slate-400 group-hover:text-emerald-600 text-sm">→</span>
           </Link>
           <Link
-            href={`/pill/${resolvedSlug}/professional-information`}
+            href={`/pill/${encodedSlug}/professional-information`}
             className="border border-slate-100 rounded-lg p-3 flex items-center gap-3 hover:border-emerald-300 hover:bg-emerald-50 transition-colors group"
           >
             <span className="shrink-0 w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100">
