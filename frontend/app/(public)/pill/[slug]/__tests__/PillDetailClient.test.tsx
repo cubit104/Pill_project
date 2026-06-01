@@ -39,7 +39,7 @@ test('detail page source renders unified medication resources card without embed
   assert.match(source, /Read Medication Guide/)
   assert.match(source, /Read Medication Summary/)
   assert.match(source, /Read Medication Information/)
-  assert.match(source, /Medication Guide/)
+  assert.match(source, />Medication Guide<\//)
   assert.match(source, /Dosage &amp; Administration/)
   assert.match(source, /Side Effects/)
   assert.match(source, /Prescribing Information/)
