@@ -24,6 +24,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-key")
 
 from routes import medication_guide as medication_guide_routes
 from services.medication_guide import (
+    _apply_dosage_administration_from_professional_html,
     _GUIDE_COLUMNS,
     GuideNotFoundError,
     GuideValidationError,
@@ -122,6 +123,7 @@ def test_build_guide_maps_openfda_fields_and_null_sections():
 
 def test_guide_columns_include_professional_meta():
     assert "professional_meta" in _GUIDE_COLUMNS
+    assert "dosage_administration" in _GUIDE_COLUMNS
 
 
 def test_build_guide_cache_hit_skips_openfda_within_30_days():
@@ -1261,6 +1263,108 @@ def test_build_guide_falls_back_to_side_effects_when_adverse_section_absent():
     assert cache["row"]["adverse_reactions"] == "Nausea."
 
 
+def test_apply_dosage_administration_uses_professional_dosage_section():
+    mapped = {
+        "professional_html": (
+            '<section><h2 id="dosage">Dosage and Administration</h2><p>Professional dosage content.</p></section>'
+            '<section><h2 id="warnings">Warnings</h2><p>Other section.</p></section>'
+        )
+    }
+
+    _apply_dosage_administration_from_professional_html(mapped)
+
+    assert mapped["dosage_administration"] == (
+        '<section><h2 id="dosage">Dosage and Administration</h2><p>Professional dosage content.</p></section>'
+    )
+
+
+def test_apply_dosage_administration_falls_back_to_existing_value():
+    mapped = {"professional_html": '<section><h2 id="warnings">Warnings</h2><p>No dosage section.</p></section>'}
+    existing = {"dosage_administration": "<p>Existing dosage administration.</p>"}
+
+    _apply_dosage_administration_from_professional_html(mapped, existing=existing)
+
+    assert mapped["dosage_administration"] == "<p>Existing dosage administration.</p>"
+
+
+def test_apply_dosage_administration_falls_back_to_dosage_content():
+    mapped = {
+        "professional_html": '<section><h2 id="warnings">Warnings</h2><p>No dosage section.</p></section>',
+        "dosage": "<p>Dosage fallback content.</p>",
+    }
+
+    _apply_dosage_administration_from_professional_html(mapped)
+
+    assert mapped["dosage_administration"] == "<p>Dosage fallback content.</p>"
+
+
+def test_apply_dosage_administration_leaves_field_unset_when_no_meaningful_sources():
+    mapped = {
+        "professional_html": '<section><h2 id="warnings"></h2></section>',
+        "dosage": "<div>   </div>",
+    }
+    existing = {
+        "dosage_administration": "<div>  </div>",
+        "dosage": "<p> </p>",
+    }
+
+    _apply_dosage_administration_from_professional_html(mapped, existing=existing)
+
+    assert "dosage_administration" not in mapped
+
+
+def test_build_guide_populates_dosage_administration_from_professional_section():
+    label_record = {
+        "openfda": {
+            "rxcui": ["12345"],
+            "package_ndc": ["11111-2222"],
+            "spl_set_id": ["set-123"],
+            "generic_name": ["drugx"],
+            "brand_name": ["DrugX"],
+        },
+        "indications_and_usage": ["Used for condition Y."],
+        "dosage_and_administration": [],
+    }
+    cache = {"row": None}
+
+    def _insert(_conn, payload):
+        cache["row"] = _row_from_payload(payload)
+        return cache["row"]
+
+    mock_client = SimpleNamespace(
+        fetch_label_by_rxcui=AsyncMock(return_value=label_record),
+        fetch_label_by_ndc=AsyncMock(return_value=None),
+    )
+    professional_rendered = SimpleNamespace(
+        article_html=(
+            '<section><h2 id="dosage">Dosage and Administration</h2><p>Full dosage content.</p></section>'
+            '<section><h2 id="drug-interactions">Drug Interactions</h2><p>Other section.</p></section>'
+        ),
+        highlights_html=None,
+        sections=[("dosage", "Dosage and Administration")],
+    )
+
+    with patch("services.medication_guide.database.db_engine", _DummyEngine()), patch(
+        "services.medication_guide._select_cached_row", return_value=None
+    ), patch("services.medication_guide._insert_guide", side_effect=_insert), patch(
+        "services.medication_guide.fetch_spl_sections",
+        new=AsyncMock(return_value={"34084-4": "<section><h2>Adverse Reactions</h2><p>AR.</p></section>"}),
+    ), patch(
+        "services.medication_guide.fetch_professional_rendered",
+        new=AsyncMock(return_value=professional_rendered),
+    ):
+        asyncio.run(
+            build_guide(
+                rxcui="12345",
+                include_professional=True,
+                openfda_client=mock_client,
+            )
+        )
+
+    assert 'id="dosage"' in cache["row"]["dosage_administration"]
+    assert "Drug Interactions" not in cache["row"]["dosage_administration"]
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(os.getenv("RUN_LIVE_OPENFDA_TESTS") != "1", reason="Live openFDA tests are disabled")
 def test_live_lipitor_sections():
@@ -1638,9 +1742,11 @@ def test_insert_guide_serializes_professional_meta():
     from services.medication_guide import _insert_guide, _GUIDE_COLUMNS
 
     captured_params: dict = {}
+    captured_sql: list[str] = []
 
     class _MockConn:
         def execute(self, stmt, params):
+            captured_sql.append(str(stmt))
             captured_params.update(params)
 
             class _MockResult:
@@ -1671,6 +1777,40 @@ def test_insert_guide_serializes_professional_meta():
     assert isinstance(meta_param, str), "professional_meta must be JSON-serialised before binding"
     parsed = _json.loads(meta_param)
     assert parsed["sections"] == [["a", "B"]]
+    assert "dosage_administration" in captured_params
+    assert "dosage_administration" in captured_sql[0]
+
+
+def test_update_guide_binds_dosage_administration():
+    from services.medication_guide import _update_guide, _GUIDE_COLUMNS
+
+    captured_sql: list[str] = []
+    captured_params: list[dict] = []
+
+    class _MockConn:
+        def execute(self, stmt, params):
+            captured_sql.append(str(stmt))
+            captured_params.append(params)
+
+            class _MockResult:
+                def fetchone(_self):
+                    row_data = {k: params.get(k) for k in _GUIDE_COLUMNS}
+                    row_data["id"] = params.get("id", 1)
+
+                    class _MockRow:
+                        _mapping = row_data
+
+                        def __iter__(self):
+                            return iter(row_data.values())
+
+                    return _MockRow()
+
+            return _MockResult()
+
+    _update_guide(_MockConn(), {"rxcui": "123", "dosage_administration": "<p>Take with food.</p>"}, existing_id=1)
+
+    assert "dosage_administration = :dosage_administration" in captured_sql[0]
+    assert captured_params[0]["dosage_administration"] == "<p>Take with food.</p>"
 
 
 # ---------------------------------------------------------------------------

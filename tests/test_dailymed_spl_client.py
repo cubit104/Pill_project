@@ -279,16 +279,16 @@ def test_fetch_spl_sections_sets_has_boxed_warning():
     assert "warnings" in result
 
 
-def test_fetch_spl_sections_merges_multiple_loinc_codes():
-    """Two sections mapping to the same key should be merged with <hr>."""
+def test_fetch_spl_sections_splits_dosage_loinc_codes():
+    """Dosage and dosage-administration LOINCs should map to separate keys."""
     xml_bytes = _make_spl([
         {
-            "code": "34068-7",  # Dosage & Administration → "dosage"
+            "code": "34068-7",  # Dosage & Administration
             "title": "DOSAGE AND ADMINISTRATION",
             "text_body": "<paragraph>Take 10 mg once daily.</paragraph>",
         },
         {
-            "code": "43678-2",  # Dosage Forms & Strengths → "dosage" (merge)
+            "code": "43678-2",  # Dosage Forms & Strengths
             "title": "DOSAGE FORMS AND STRENGTHS",
             "text_body": "<paragraph>Tablets: 10 mg, 20 mg.</paragraph>",
         },
@@ -306,11 +306,10 @@ def test_fetch_spl_sections_merges_multiple_loinc_codes():
     with patch("services.dailymed_spl_client.httpx.AsyncClient", return_value=mock_client):
         result = asyncio.run(fetch_spl_sections("fake-set-id"))
 
-    assert "dosage" in result
-    dosage_html = result["dosage"]
-    assert "10 mg once daily" in dosage_html
-    assert "Tablets" in dosage_html
-    assert "<hr>" in dosage_html
+    assert result["dosage_administration"]
+    assert "10 mg once daily" in result["dosage_administration"]
+    assert result["dosage"]
+    assert "Tablets" in result["dosage"]
 
 
 def test_fetch_spl_sections_returns_empty_on_xml_parse_error():
