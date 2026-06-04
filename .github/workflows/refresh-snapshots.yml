@@ -20,7 +20,7 @@ jobs:
   refresh-snapshots:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 360
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -39,10 +39,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Refresh snapshots (force all — weekly price update)
-        if: github.event_name != 'workflow_dispatch' || inputs.strategy == 'force-all'
+      - name: Refresh snapshots (scheduled — backfill missing only)
+        if: github.event_name == 'workflow_run'
+        run: python -m scripts.refresh_pill_price_snapshots --only-missing --all --concurrency 20
+
+      - name: Refresh snapshots (manual force-all)
+        if: github.event_name == 'workflow_dispatch' && inputs.strategy == 'force-all'
         run: python -m scripts.refresh_pill_price_snapshots --force --all --concurrency 20
 
-      - name: Refresh snapshots (only missing — backfill new pills)
+      - name: Refresh snapshots (manual only-missing)
         if: github.event_name == 'workflow_dispatch' && inputs.strategy == 'only-missing'
         run: python -m scripts.refresh_pill_price_snapshots --only-missing --all --concurrency 20
