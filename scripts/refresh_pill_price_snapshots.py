@@ -206,6 +206,8 @@ async def _run(args) -> dict[str, Any]:
             await asyncio.to_thread(_upsert_snapshot, snapshot)
             return "updated"
         except BaseException as exc:
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                raise
             print(
                 json.dumps(
                     {
