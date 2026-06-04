@@ -286,6 +286,7 @@ def api_search(
                     f"  image_filename,\n"
                     f"  slug,\n"
                     f"  spl_strength\n"
+                )
                 paginated_params = {
                     **params,
                     "limit": per_page,
