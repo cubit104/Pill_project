@@ -211,9 +211,24 @@ async def _try_exact_price(pill: dict[str, Any]) -> tuple[dict[str, Any], str] |
     ndc_digits = _normalize_ndc_digits(pill.get("ndc11") or pill.get("ndc"))
     if not ndc_digits:
         return None
+
+    # Try local drug_prices DB first — no CMS API call needed
+    cached = pricing_service._get_cached_price(ndc_digits)
+    if cached:
+        priced = pricing_service._add_totals(
+            pricing_service._payload_from_cached_row(cached, latest_week=None),
+            days_supply=30, units_per_day=1.0,
+        )
+        priced["match_type"] = "exact"
+        return priced, ndc_digits
+
+    # Fall through to live CMS only if not in local DB
     try:
         latest = await pricing_service._fetch_nadac_latest_for_ndc(ndc_digits)
     except PricingNotFoundError:
+        return None
+    except PricingServiceError as exc:
+        logger.warning("exact price CMS lookup failed for ndc=%s: %s", ndc_digits, exc)
         return None
     priced = pricing_service._add_totals(latest, days_supply=30, units_per_day=1.0)
     priced["match_type"] = "exact"
@@ -226,10 +241,29 @@ async def _try_sibling_family(pill: dict[str, Any]) -> tuple[dict[str, Any], str
         return None
 
     parsed_rows: list[tuple[dict[str, Any], str]] = []
+
+    # Try local DB cache first for all siblings in bulk
+    bulk_cached = pricing_service._get_cached_prices_bulk(candidates)
+    for sibling_ndc, cached in bulk_cached.items():
+        priced = pricing_service._add_totals(
+            pricing_service._payload_from_cached_row(cached, latest_week=None),
+            days_supply=30, units_per_day=1.0,
+        )
+        priced["match_type"] = "equivalent"
+        priced["matched_ndc"] = sibling_ndc
+        parsed_rows.append((priced, sibling_ndc))
+
+    # For any siblings not in local cache, try live CMS
+    cached_ndcs = set(bulk_cached.keys())
     for sibling_ndc in candidates:
+        if sibling_ndc in cached_ndcs:
+            continue
         try:
             latest = await pricing_service._fetch_nadac_latest_for_ndc(sibling_ndc)
         except PricingNotFoundError:
+            continue
+        except PricingServiceError as exc:
+            logger.warning("sibling price CMS lookup failed for ndc=%s: %s", sibling_ndc, exc)
             continue
         priced = pricing_service._add_totals(latest, days_supply=30, units_per_day=1.0)
         priced["match_type"] = "equivalent"
