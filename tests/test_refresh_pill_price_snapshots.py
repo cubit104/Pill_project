@@ -96,6 +96,46 @@ def test_run_dry_run_does_not_count_updates_or_write_snapshots():
     to_thread_mock.assert_not_awaited()
 
 
+def test_run_base_exception_does_not_crash_batch():
+    """A BaseException raised inside process_one must not kill the whole batch."""
+    rows = [
+        {"slug": "pill-ok"},
+        {"slug": "pill-cancelled"},
+        {"slug": "pill-ok-2"},
+    ]
+
+    async def fake_resolve(pill):
+        if pill["slug"] == "pill-cancelled":
+            raise asyncio.CancelledError("simulated cancellation")
+        return {
+            "slug": pill["slug"],
+            "match_type": "exact",
+            "resolved_via": "test",
+            "price_per_unit": 1.23,
+        }
+
+    args = SimpleNamespace(
+        slug=None,
+        limit=None,
+        offset=0,
+        only_missing=False,
+        force=True,
+        dry_run=False,
+        concurrency=3,
+    )
+
+    with (
+        patch.object(mod, "_select_pills", return_value=rows),
+        patch.object(mod, "resolve_pill_to_snapshot", new=fake_resolve),
+        patch.object(mod, "_upsert_snapshot"),
+    ):
+        summary = asyncio.run(mod._run(args))
+
+    assert summary["processed"] == 3
+    assert summary["updated"] == 2
+    assert summary["errors"] == 1
+
+
 def test_run_writes_snapshots_via_to_thread():
     rows = [{"slug": "pill-a"}]
 

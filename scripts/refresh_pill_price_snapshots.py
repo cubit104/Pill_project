@@ -205,7 +205,7 @@ async def _run(args) -> dict[str, Any]:
                 return "dry_run"
             await asyncio.to_thread(_upsert_snapshot, snapshot)
             return "updated"
-        except Exception as exc:
+        except BaseException as exc:
             print(
                 json.dumps(
                     {
@@ -222,7 +222,15 @@ async def _run(args) -> dict[str, Any]:
     results: list[str] = []
     for start in range(0, len(rows), concurrency):
         chunk = rows[start : start + concurrency]
-        results.extend(await asyncio.gather(*(process_one(pill) for pill in chunk)))
+        raw = await asyncio.gather(
+            *(process_one(pill) for pill in chunk), return_exceptions=True
+        )
+        for item in raw:
+            if isinstance(item, BaseException):
+                logger.error("Unhandled exception in process_one: %s", item)
+                results.append("error")
+            else:
+                results.append(item)
     summary["processed"] = len(results)
     summary["updated"] = results.count("updated")
     summary["errors"] = results.count("error")
