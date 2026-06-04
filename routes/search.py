@@ -237,7 +237,7 @@ def api_search(
             filter_conditions.append("LOWER(TRIM(splshape_text)) = LOWER(:shape)")
             filter_params["shape"] = shape.strip().lower()
 
-        def run_search_query(conn, search_conditions: List[str], search_params: dict) -> tuple[int, list]:
+        def run_search_query(conn, search_conditions: List[str], search_params: dict, imprint_rank_q: Optional[str] = None) -> tuple[int, list]:
             all_conditions = [*search_conditions, *filter_conditions]
             params = {**search_params, **filter_params}
             base_sql = """
@@ -271,12 +271,33 @@ def api_search(
             total = count_result.scalar() or 0
 
             offset = (page - 1) * per_page
-            paginated_sql = (
-                f"{base_sql}\n"
-                "ORDER BY medicine_name, splimprint, ndc11, rxcui, image_filename, slug, spl_strength\n"
-                "LIMIT :limit OFFSET :offset"
-            )
-            paginated_params = {**params, "limit": per_page, "offset": offset}
+            if imprint_rank_q is not None:
+                order_by = (
+                    f"ORDER BY\n"
+                    f"  CASE\n"
+                    f"    WHEN {_NORMALIZED_IMPRINT_SQL} = UPPER(:imprint_rank_q) THEN 0\n"
+                    f"    WHEN {_NORMALIZED_IMPRINT_SQL} LIKE UPPER(:imprint_rank_prefix) THEN 1\n"
+                    f"    ELSE 2\n"
+                    f"  END,\n"
+                    f"  medicine_name,\n"
+                    f"  splimprint,\n"
+                    f"  ndc11,\n"
+                    f"  rxcui,\n"
+                    f"  image_filename,\n"
+                    f"  slug,\n"
+                    f"  spl_strength\n"
+                )
+                paginated_params = {
+                    **params,
+                    "limit": per_page,
+                    "offset": offset,
+                    "imprint_rank_q": imprint_rank_q,
+                    "imprint_rank_prefix": imprint_rank_q + "%",
+                }
+            else:
+                order_by = "ORDER BY medicine_name, splimprint, ndc11, rxcui, image_filename, slug, spl_strength\n"
+                paginated_params = {**params, "limit": per_page, "offset": offset}
+            paginated_sql = f"{base_sql}\n{order_by}LIMIT :limit OFFSET :offset"
             result = conn.execute(text(paginated_sql), paginated_params)
             rows = result.fetchall()
             return total, rows
@@ -285,6 +306,7 @@ def api_search(
         search_params: dict = {}
         fallback_used = False
         fallback_term: Optional[str] = None
+        imprint_rank_q: Optional[str] = None
         total = 0
         rows = []
 
@@ -294,6 +316,7 @@ def api_search(
                 if search_type == "imprint":
                     norm = normalize_imprint(query)
                     tokens = norm.split()
+                    imprint_rank_q = norm if len(tokens) == 1 and norm else None
                     if len(tokens) == 1:
                         search_conditions.append(
                             f"{_NORMALIZED_IMPRINT_SQL} ~ ('(^| )' || UPPER(:imprint_token) || '( |$)')"
@@ -365,7 +388,7 @@ def api_search(
                     search_params["like_ndc"] = f"%{clean_ndc}%"
 
             if not (q and search_type == "drug"):
-                total, rows = run_search_query(conn, search_conditions, search_params)
+                total, rows = run_search_query(conn, search_conditions, search_params, imprint_rank_q=imprint_rank_q)
 
             grouped: dict = {}
             for row in rows:
