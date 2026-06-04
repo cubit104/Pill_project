@@ -10,8 +10,12 @@ os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/tes
 os.environ.setdefault("ALLOWED_ORIGINS", "http://testserver")
 
 
-from services.pricing_service import PricingNotFoundError  # noqa: E402
-from services.snapshot_resolver import resolve_pill_to_snapshot  # noqa: E402
+from services.pricing_service import PricingNotFoundError, PricingServiceError  # noqa: E402
+from services.snapshot_resolver import (  # noqa: E402
+    resolve_pill_to_snapshot,
+    _try_exact_price,
+    _try_sibling_family,
+)
 
 
 WEGOVY_PILL = {
@@ -48,7 +52,8 @@ def test_resolve_exact_snapshot_sets_schema_valid_true():
         "fair_retail_high": 2984.4,
     }
 
-    with patch("services.snapshot_resolver.pricing_service._fetch_nadac_latest_for_ndc", new=AsyncMock(return_value={"ndc": "00169440113"})), \
+    with patch("services.snapshot_resolver.pricing_service._get_cached_price", return_value=None), \
+         patch("services.snapshot_resolver.pricing_service._fetch_nadac_latest_for_ndc", new=AsyncMock(return_value={"ndc": "00169440113"})), \
          patch("services.snapshot_resolver.pricing_service._add_totals", return_value=priced), \
          patch(
              "services.snapshot_resolver._fetch_snapshot_downstream",
@@ -81,6 +86,8 @@ def test_resolve_wegovy_9mg_uses_sibling_family_match():
         new=AsyncMock(side_effect=[PricingNotFoundError("missing"), {"ndc": "00169442531"}]),
     ), patch("services.snapshot_resolver.pricing_service._add_totals", return_value=sibling_price), \
          patch("services.snapshot_resolver._sibling_family_candidates", return_value=["00169442531"]), \
+         patch("services.snapshot_resolver.pricing_service._get_cached_price", return_value=None), \
+         patch("services.snapshot_resolver.pricing_service._get_cached_prices_bulk", return_value={}), \
          patch(
              "services.snapshot_resolver._fetch_snapshot_downstream",
              new=AsyncMock(return_value=([{"effective_date": "2026-05-01", "price_per_unit": 33.16, "unit": "EA"}], "00169442531", [], [])),
@@ -162,3 +169,170 @@ def test_snapshot_route_returns_cached_row(client):
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "public, max-age=300, stale-while-revalidate=300"
     assert response.json()["schema_offers_valid"] is True
+
+
+# ---------------------------------------------------------------------------
+# Cache-first behaviour in _try_exact_price
+# ---------------------------------------------------------------------------
+
+def test_try_exact_price_uses_local_cache_and_skips_cms():
+    """When _get_cached_price returns a row, _fetch_nadac_latest_for_ndc must NOT be called."""
+    cached_row = {
+        "ndc": "00169440113",
+        "price_per_unit": 33.16,
+        "unit": "EA",
+        "effective_date": "2026-05-14",
+        "source": "NADAC (CMS)",
+        "raw_payload": None,
+        "fetched_at": None,
+    }
+    priced = {
+        "ndc": "00169440113",
+        "match_type": "exact",
+        "price_per_unit": 33.16,
+        "unit": "EA",
+        "effective_date": "2026-05-14",
+        "source": "NADAC (CMS)",
+        "total_acquisition_cost": 994.8,
+        "fair_retail_low": 1492.2,
+        "fair_retail_high": 2984.4,
+    }
+
+    fetch_mock = AsyncMock()
+    with patch("services.snapshot_resolver.pricing_service._get_cached_price", return_value=cached_row), \
+         patch("services.snapshot_resolver.pricing_service._payload_from_cached_row", return_value={"ndc": "00169440113"}), \
+         patch("services.snapshot_resolver.pricing_service._add_totals", return_value=priced), \
+         patch("services.snapshot_resolver.pricing_service._fetch_nadac_latest_for_ndc", new=fetch_mock):
+        result = asyncio.run(_try_exact_price(WEGOVY_PILL))
+
+    fetch_mock.assert_not_awaited()
+    assert result is not None
+    price_result, ndc = result
+    assert ndc == "00169440113"
+    assert price_result["match_type"] == "exact"
+
+
+def test_try_exact_price_cms_error_returns_none():
+    """When local cache misses and CMS returns 403 (PricingServiceError), return None."""
+    with patch("services.snapshot_resolver.pricing_service._get_cached_price", return_value=None), \
+         patch(
+             "services.snapshot_resolver.pricing_service._fetch_nadac_latest_for_ndc",
+             new=AsyncMock(side_effect=PricingServiceError("HTTPStatusError 403")),
+         ):
+        result = asyncio.run(_try_exact_price(WEGOVY_PILL))
+
+    assert result is None
+
+
+def test_resolve_pill_continues_to_rxcui_when_exact_price_service_error():
+    """When exact price hits a PricingServiceError, resolve_pill_to_snapshot falls through to rxcui."""
+    rxcui_price = {
+        "ndc": "00169440113",
+        "match_type": "approximate",
+        "price_per_unit": 33.16,
+        "unit": "EA",
+        "effective_date": "2026-05-14",
+        "source": "NADAC (CMS)",
+        "total_acquisition_cost": 994.8,
+        "fair_retail_low": 1492.2,
+        "fair_retail_high": 2984.4,
+    }
+
+    with patch("services.snapshot_resolver.pricing_service._get_cached_price", return_value=None), \
+         patch(
+             "services.snapshot_resolver.pricing_service._fetch_nadac_latest_for_ndc",
+             new=AsyncMock(side_effect=PricingServiceError("HTTPStatusError 403")),
+         ), \
+         patch("services.snapshot_resolver._sibling_family_candidates", return_value=[]), \
+         patch("services.snapshot_resolver.pricing_service._get_cached_prices_bulk", return_value={}), \
+         patch(
+             "services.snapshot_resolver.pricing_service.get_price_by_rxcui",
+             new=AsyncMock(return_value=rxcui_price),
+         ), \
+         patch(
+             "services.snapshot_resolver._fetch_snapshot_downstream",
+             new=AsyncMock(return_value=([], "00169440113", [], [])),
+         ):
+        snapshot = asyncio.run(resolve_pill_to_snapshot(WEGOVY_PILL))
+
+    assert snapshot["match_type"] != "none"
+    assert snapshot["resolved_via"] == "rxcui"
+
+
+# ---------------------------------------------------------------------------
+# Cache-first behaviour in _try_sibling_family
+# ---------------------------------------------------------------------------
+
+def test_try_sibling_family_uses_bulk_cache_and_skips_cms():
+    """When _get_cached_prices_bulk returns all siblings, _fetch_nadac_latest_for_ndc must NOT be called."""
+    sibling_ndc = "00169442531"
+    cached_row = {
+        "ndc": sibling_ndc,
+        "price_per_unit": 33.16,
+        "unit": "EA",
+        "effective_date": "2026-05-14",
+        "source": "NADAC (CMS)",
+        "raw_payload": None,
+        "fetched_at": None,
+    }
+    priced = {
+        "ndc": sibling_ndc,
+        "match_type": "equivalent",
+        "matched_ndc": sibling_ndc,
+        "price_per_unit": 33.16,
+        "unit": "EA",
+        "effective_date": "2026-05-14",
+        "source": "NADAC (CMS)",
+        "total_acquisition_cost": 994.8,
+        "fair_retail_low": 1492.21,
+        "fair_retail_high": 2984.42,
+    }
+
+    fetch_mock = AsyncMock()
+    with patch("services.snapshot_resolver._sibling_family_candidates", return_value=[sibling_ndc]), \
+         patch("services.snapshot_resolver.pricing_service._get_cached_prices_bulk", return_value={sibling_ndc: cached_row}), \
+         patch("services.snapshot_resolver.pricing_service._payload_from_cached_row", return_value={"ndc": sibling_ndc}), \
+         patch("services.snapshot_resolver.pricing_service._add_totals", return_value=priced), \
+         patch("services.snapshot_resolver.pricing_service._fetch_nadac_latest_for_ndc", new=fetch_mock):
+        result = asyncio.run(_try_sibling_family(WEGOVY_9MG_PILL))
+
+    fetch_mock.assert_not_awaited()
+    assert result is not None
+    price_result, matched_ndc = result
+    assert matched_ndc == sibling_ndc
+    assert price_result["match_type"] == "equivalent"
+
+
+def test_try_sibling_family_cms_error_continues_to_next_sibling():
+    """When local cache misses and CMS errors for a sibling, that sibling is skipped (not raised)."""
+    good_ndc = "00169442531"
+    bad_ndc = "00169442599"
+    good_priced = {
+        "ndc": good_ndc,
+        "match_type": "equivalent",
+        "matched_ndc": good_ndc,
+        "price_per_unit": 33.16,
+        "unit": "EA",
+        "effective_date": "2026-05-14",
+        "source": "NADAC (CMS)",
+        "total_acquisition_cost": 994.8,
+        "fair_retail_low": 1492.21,
+        "fair_retail_high": 2984.42,
+    }
+
+    with patch("services.snapshot_resolver._sibling_family_candidates", return_value=[bad_ndc, good_ndc]), \
+         patch("services.snapshot_resolver.pricing_service._get_cached_prices_bulk", return_value={}), \
+         patch(
+             "services.snapshot_resolver.pricing_service._fetch_nadac_latest_for_ndc",
+             new=AsyncMock(side_effect=[
+                 PricingServiceError("HTTPStatusError 403"),
+                 {"ndc": good_ndc},
+             ]),
+         ), \
+         patch("services.snapshot_resolver.pricing_service._add_totals", return_value=good_priced):
+        result = asyncio.run(_try_sibling_family(WEGOVY_9MG_PILL))
+
+    assert result is not None
+    price_result, matched_ndc = result
+    assert matched_ndc == good_ndc
+    assert price_result["match_type"] == "equivalent"
