@@ -202,7 +202,7 @@ function MissingImagesInner() {
                       {uploading === pill.id ? 'Uploading…' : 'Upload'}
                       <input
                         type="file"
-                        accept=".jpg,.jpeg,.png,.webp"
+                        accept=".jpg,.jpeg,.png,.webp,.avif"
                         className="hidden"
                         disabled={uploading === pill.id}
                         onChange={(e) => {

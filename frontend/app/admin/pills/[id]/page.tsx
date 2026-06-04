@@ -236,7 +236,7 @@ function ImageGallery({
         <label className="flex items-center gap-2 bg-green-600 text-white px-3 py-1.5 rounded-md hover:bg-green-700 text-xs font-medium cursor-pointer transition-colors">
           <Upload className="w-3 h-3" />
           {uploadingImage ? 'Uploading\u2026' : 'Upload Image'}
-          <input type="file" accept=".jpg,.jpeg,.png,.webp" className="hidden" onChange={handleImageUpload} disabled={uploadingImage} />
+          <input type="file" accept=".jpg,.jpeg,.png,.webp,.avif" className="hidden" onChange={handleImageUpload} disabled={uploadingImage} />
         </label>
       </div>
       <div className="p-4">

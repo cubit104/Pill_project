@@ -97,7 +97,7 @@ Reviewers can approve + publish in one action.
 
 1. Navigate to the pill edit page (`/admin/pills/[id]`)
 2. Scroll to the **Image** section at the bottom of the form
-3. Click **"Choose file"** and select a `.jpg`, `.png`, or `.webp` file
+3. Click **"Choose file"** and select a `.jpg`, `.png`, `.webp`, or `.avif` file
 4. Maximum size: **5 MB**
 5. Click **"Upload Image"**
 6. The new image will appear in the preview immediately
@@ -189,4 +189,4 @@ Another admin edited the same pill while you had the form open. Refresh the page
 ### Image not appearing after upload
 - Check that the Supabase Storage bucket is correctly configured (`STORAGE_BUCKET` env var)
 - Verify `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set correctly
-- Images must be `.jpg`, `.png`, or `.webp` and under 5 MB
+- Images must be `.jpg`, `.png`, `.webp`, or `.avif` and under 5 MB

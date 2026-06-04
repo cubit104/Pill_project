@@ -565,7 +565,7 @@ export default function BulkUploadPage() {
       try {
         setZipProgress(20)
         const zip = await JSZip.loadAsync(f)
-        const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
+        const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.avif'])
 
         const entries = Object.entries(zip.files).filter(([, entry]) => !entry.dir)
         const imageEntries = entries.filter(([name]) => {
@@ -918,7 +918,7 @@ export default function BulkUploadPage() {
           ) : (
             <>
               <p className="text-sm font-medium text-gray-700">Click or drag a ZIP file here</p>
-              <p className="text-xs text-gray-400 mt-1">Accepts .zip · .jpg .jpeg .png .webp inside</p>
+              <p className="text-xs text-gray-400 mt-1">Accepts .zip · .jpg .jpeg .png .webp .avif inside</p>
             </>
           )}
           <input
