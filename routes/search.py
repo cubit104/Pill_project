@@ -310,8 +310,8 @@ def api_search(
                 query = q.strip()
                 if search_type == "imprint":
                     norm = normalize_imprint(query)
-                    imprint_rank_q = norm
                     tokens = norm.split()
+                    imprint_rank_q = norm if len(tokens) == 1 and norm else None
                     if len(tokens) == 1:
                         search_conditions.append(
                             f"{_NORMALIZED_IMPRINT_SQL} ~ ('(^| )' || UPPER(:imprint_token) || '( |$)')"
