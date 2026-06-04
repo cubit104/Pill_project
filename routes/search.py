@@ -280,8 +280,12 @@ def api_search(
                     f"    ELSE 2\n"
                     f"  END,\n"
                     f"  medicine_name,\n"
-                    f"  splimprint\n"
-                )
+                    f"  splimprint,\n"
+                    f"  ndc11,\n"
+                    f"  rxcui,\n"
+                    f"  image_filename,\n"
+                    f"  slug,\n"
+                    f"  spl_strength\n"
                 paginated_params = {
                     **params,
                     "limit": per_page,
