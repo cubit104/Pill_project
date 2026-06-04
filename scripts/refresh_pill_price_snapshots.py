@@ -228,8 +228,13 @@ async def _run(args) -> dict[str, Any]:
             *(process_one(pill) for pill in chunk), return_exceptions=True
         )
         for item in raw:
+            if isinstance(item, (KeyboardInterrupt, SystemExit)):
+                raise item
             if isinstance(item, BaseException):
-                logger.error("Unhandled exception in process_one: %s", item)
+                logger.error(
+                    "Unhandled exception in process_one",
+                    exc_info=(type(item), item, item.__traceback__),
+                )
                 results.append("error")
             else:
                 results.append(item)
