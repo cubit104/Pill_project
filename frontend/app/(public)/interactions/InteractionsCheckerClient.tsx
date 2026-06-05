@@ -71,7 +71,8 @@ export default function InteractionsCheckerClient() {
   const [checkError, setCheckError] = useState<string | null>(null)
   const [checkResult, setCheckResult] = useState<InteractionResponse | null>(null)
 
-  const handleCheck = async () => {
+  const handleCheck = (): void => {
+    const runCheck = async () => {
     const drug1 = drug1Input.trim()
     const drug2 = drug2Input.trim()
     if (!drug1 || !drug2 || checking) return
@@ -83,7 +84,7 @@ export default function InteractionsCheckerClient() {
     try {
       const params = new URLSearchParams({ drug1, drug2 })
       const res = await fetch(buildApiUrl(`/api/interactions?${params.toString()}`))
-      if (!res.ok) throw new Error('Failed')
+      if (!res.ok) throw new Error(`Failed to check interactions (status ${res.status})`)
       const payload = (await res.json()) as InteractionResponse
       setCheckResult(payload)
     } catch {
@@ -91,6 +92,9 @@ export default function InteractionsCheckerClient() {
     } finally {
       setChecking(false)
     }
+    }
+
+    void runCheck()
   }
 
   return (
@@ -107,7 +111,7 @@ export default function InteractionsCheckerClient() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault()
-                  void handleCheck()
+                  handleCheck()
                 }
               }}
               placeholder="Enter first drug name..."
@@ -124,7 +128,7 @@ export default function InteractionsCheckerClient() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault()
-                  void handleCheck()
+                  handleCheck()
                 }
               }}
               placeholder="Enter second drug name..."
@@ -135,7 +139,7 @@ export default function InteractionsCheckerClient() {
         <div className="mt-5 flex justify-center">
           <button
             type="button"
-            onClick={() => void handleCheck()}
+            onClick={handleCheck}
             disabled={checking || !drug1Input.trim() || !drug2Input.trim()}
             className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-6 py-2.5 rounded-lg disabled:opacity-60"
           >
