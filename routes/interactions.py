@@ -168,7 +168,11 @@ def cache_low_confidence_interaction(conn, rxcui_1: str, rxcui_2: str, drug_1: s
                 (:r1, :r2, :n1, :n2, :description, :severity, 'low', FALSE, TRUE, NOW())
             ON CONFLICT (rxcui_1, rxcui_2) DO UPDATE
             SET source_openfda = TRUE,
-                confidence = CASE WHEN drug_interactions.source_kaggle THEN 'high' ELSE 'medium' END,
+                confidence = CASE
+                    WHEN drug_interactions.source_kaggle THEN 'high'
+                    WHEN drug_interactions.source_openfda THEN COALESCE(drug_interactions.confidence, 'low')
+                    ELSE 'low'
+                END,
                 description = EXCLUDED.description,
                 severity = EXCLUDED.severity,
                 updated_at = NOW()
