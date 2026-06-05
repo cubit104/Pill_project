@@ -4,7 +4,7 @@ import logging
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -15,6 +15,7 @@ router = APIRouter()
 
 RXNORM_URL = "https://rxnav.nlm.nih.gov/REST/rxcui.json"
 OPENFDA_URL = "https://api.fda.gov/drug/label.json"
+_VALID_SEVERITIES = frozenset({"major", "moderate", "minor", "unknown"})
 
 
 class InteractionResponse(BaseModel):
@@ -29,6 +30,35 @@ class InteractionResponse(BaseModel):
     source_openfda: bool = False
     found: bool
     message: Optional[str] = None
+
+
+class DrugInteractionItem(BaseModel):
+    drug_name: str
+    rxcui: Optional[str]
+    severity: Optional[str]
+    description: Optional[str]
+    confidence: Optional[str]
+    source_kaggle: bool = False
+    source_openfda: bool = False
+
+
+class SeveritySummary(BaseModel):
+    major: int = 0
+    moderate: int = 0
+    minor: int = 0
+    unknown: int = 0
+
+
+class DrugInteractionsListResponse(BaseModel):
+    drug: str
+    rxcui: Optional[str]
+    generic_name: Optional[str]
+    brand_names: list[str] = []
+    total: int
+    page: int
+    per_page: int
+    severity_summary: SeveritySummary
+    interactions: list[DrugInteractionItem]
 
 
 def classify_severity(text_value: str) -> str:
@@ -206,6 +236,166 @@ def cache_low_confidence_interaction(conn, rxcui_1: str, rxcui_2: str, drug_1: s
     )
 
 
+def get_interactions_for_drug(
+    conn,
+    rxcui: str,
+    severity: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 20,
+) -> tuple[int, dict, list[dict]]:
+    """
+    Return (total, severity_summary, interactions) for all pairs involving rxcui.
+    Handles the canonical ordering — the queried drug may live in rxcui_1 or rxcui_2.
+    The severity_summary always reflects the full unfiltered set.
+    """
+    base_params: dict = {"rxcui": rxcui}
+    has_severity_filter = bool(severity and severity in _VALID_SEVERITIES)
+    if has_severity_filter:
+        base_params["severity"] = severity
+
+    count_sql = """
+        SELECT COUNT(*)
+        FROM drug_interactions
+        WHERE (rxcui_1 = :rxcui OR rxcui_2 = :rxcui)
+    """
+    if has_severity_filter:
+        count_sql += " AND severity = :severity"
+    count_row = conn.execute(
+        text(count_sql),
+        base_params,
+    ).fetchone()
+    total = int(count_row[0]) if count_row else 0
+
+    # Severity summary always over the full unfiltered set
+    summary_rows = conn.execute(
+        text(
+            """
+            SELECT severity, COUNT(*) AS cnt
+            FROM drug_interactions
+            WHERE rxcui_1 = :rxcui OR rxcui_2 = :rxcui
+            GROUP BY severity
+            """
+        ),
+        {"rxcui": rxcui},
+    ).fetchall()
+    severity_summary: dict = {"major": 0, "moderate": 0, "minor": 0, "unknown": 0}
+    for row in summary_rows:
+        key = row[0] if row[0] in severity_summary else "unknown"
+        severity_summary[key] = int(row[1])
+
+    offset = (page - 1) * per_page
+    paginated_params = {**base_params, "limit": per_page, "offset": offset}
+    interactions_sql = """
+        SELECT
+            CASE WHEN rxcui_1 = :rxcui THEN rxcui_2     ELSE rxcui_1     END AS other_rxcui,
+            CASE WHEN rxcui_1 = :rxcui THEN drug_name_2  ELSE drug_name_1  END AS other_drug_name,
+            severity,
+            description,
+            confidence,
+            source_kaggle,
+            source_openfda
+        FROM drug_interactions
+        WHERE (rxcui_1 = :rxcui OR rxcui_2 = :rxcui)
+    """
+    if has_severity_filter:
+        interactions_sql += " AND severity = :severity"
+    interactions_sql += """
+        ORDER BY
+            CASE severity
+                WHEN 'major'    THEN 0
+                WHEN 'moderate' THEN 1
+                WHEN 'minor'    THEN 2
+                ELSE 3
+            END,
+            CASE WHEN rxcui_1 = :rxcui THEN drug_name_2 ELSE drug_name_1 END
+        LIMIT :limit OFFSET :offset
+    """
+    result_rows = conn.execute(
+        text(interactions_sql),
+        paginated_params,
+    ).fetchall()
+
+    interactions = [
+        {
+            "drug_name": row[1] or "",
+            "rxcui": row[0],
+            "severity": row[2],
+            "description": row[3],
+            "confidence": row[4],
+            "source_kaggle": bool(row[5]),
+            "source_openfda": bool(row[6]),
+        }
+        for row in result_rows
+    ]
+    return total, severity_summary, interactions
+
+
+@router.get("/api/interactions/resolve")
+def resolve_interaction_name(name: str = Query(..., description="Drug name to resolve")):
+    if not database.db_engine and not database.connect_to_database():
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    with database.db_engine.connect() as conn:
+        resolved = resolve_drug_name(conn, name)
+
+    return {
+        "name": name,
+        "rxcui": resolved.get("rxcui"),
+        "generic_name": resolved.get("generic_name"),
+        "brand_names": resolved.get("brand_names") or [],
+    }
+
+
+@router.get("/api/interactions/{drug}", response_model=DrugInteractionsListResponse)
+def list_interactions_for_drug(
+    drug: str = Path(..., description="Drug name or brand name"),
+    severity: Optional[str] = Query(None, description="Filter by severity: major, moderate, minor, unknown"),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    per_page: int = Query(20, ge=1, le=100, description="Results per page (max 100)"),
+):
+    """
+    List all known drug interactions for a single drug.
+
+    Results are ordered by severity (major → moderate → minor → unknown) then
+    interacting drug name. The `severity_summary` field always reflects the full
+    unfiltered counts regardless of the `severity` query parameter.
+    """
+    if not database.db_engine and not database.connect_to_database():
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    if severity and severity not in _VALID_SEVERITIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid severity '{severity}'. Must be one of: {sorted(_VALID_SEVERITIES)}",
+        )
+
+    with database.db_engine.connect() as conn:
+        resolved = resolve_drug_name(conn, drug)
+        rxcui = resolved.get("rxcui")
+
+        if not rxcui:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Could not resolve '{drug}' to a known drug. Check spelling or try the generic name.",
+            )
+
+        total, severity_summary, interactions = get_interactions_for_drug(
+            conn, rxcui, severity=severity, page=page, per_page=per_page
+        )
+
+    return DrugInteractionsListResponse(
+        drug=drug,
+        rxcui=rxcui,
+        generic_name=resolved.get("generic_name"),
+        brand_names=resolved.get("brand_names") or [],
+        total=total,
+        page=page,
+        per_page=per_page,
+        severity_summary=SeveritySummary(**severity_summary),
+        interactions=[DrugInteractionItem(**i) for i in interactions],
+    )
+
+
 @router.get("/api/interactions", response_model=InteractionResponse)
 def get_interaction(
     drug1: str = Query(..., description="First drug name"),
@@ -370,19 +560,3 @@ def get_interaction(
         found=False,
         message="No interaction data found",
     )
-
-
-@router.get("/api/interactions/resolve")
-def resolve_interaction_name(name: str = Query(..., description="Drug name to resolve")):
-    if not database.db_engine and not database.connect_to_database():
-        raise HTTPException(status_code=503, detail="Database unavailable")
-
-    with database.db_engine.connect() as conn:
-        resolved = resolve_drug_name(conn, name)
-
-    return {
-        "name": name,
-        "rxcui": resolved.get("rxcui"),
-        "generic_name": resolved.get("generic_name"),
-        "brand_names": resolved.get("brand_names") or [],
-    }

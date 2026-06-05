@@ -137,3 +137,174 @@ def test_resolve_endpoint_returns_resolution_shape(client, monkeypatch):
         "generic_name": "Aspirin",
         "brand_names": ["Bayer"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Tests for GET /api/interactions/{drug}
+# ---------------------------------------------------------------------------
+
+def test_drug_list_returns_interactions(client, monkeypatch):
+    """Basic happy path: known drug, has interactions."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(
+        interactions,
+        "resolve_drug_name",
+        lambda conn, name: {"rxcui": "1191", "generic_name": "Aspirin", "brand_names": ["Bayer"]},
+    )
+    monkeypatch.setattr(
+        interactions,
+        "get_interactions_for_drug",
+        lambda conn, rxcui, severity, page, per_page: (
+            2,
+            {"major": 1, "moderate": 1, "minor": 0, "unknown": 0},
+            [
+                {"drug_name": "Warfarin", "rxcui": "11289", "severity": "major",
+                 "description": "Avoid.", "confidence": "medium", "source_kaggle": True, "source_openfda": False},
+                {"drug_name": "Ibuprofen", "rxcui": "5640", "severity": "moderate",
+                 "description": "Monitor closely.", "confidence": "medium", "source_kaggle": True, "source_openfda": False},
+            ],
+        ),
+    )
+
+    response = client.get("/api/interactions/aspirin")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["drug"] == "aspirin"
+    assert payload["rxcui"] == "1191"
+    assert payload["generic_name"] == "Aspirin"
+    assert payload["brand_names"] == ["Bayer"]
+    assert payload["total"] == 2
+    assert payload["page"] == 1
+    assert payload["per_page"] == 20
+    assert payload["severity_summary"]["major"] == 1
+    assert payload["severity_summary"]["moderate"] == 1
+    assert payload["severity_summary"]["minor"] == 0
+    assert len(payload["interactions"]) == 2
+    assert payload["interactions"][0]["drug_name"] == "Warfarin"
+    assert payload["interactions"][0]["severity"] == "major"
+    assert payload["interactions"][1]["drug_name"] == "Ibuprofen"
+
+
+def test_drug_list_unknown_drug_returns_404(client, monkeypatch):
+    """Unresolvable drug name should return 404."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(
+        interactions,
+        "resolve_drug_name",
+        lambda conn, name: {"rxcui": None, "generic_name": None, "brand_names": []},
+    )
+
+    response = client.get("/api/interactions/notadrug")
+    assert response.status_code == 404
+    assert "notadrug" in response.json()["detail"]
+
+
+def test_drug_list_severity_filter_forwarded(client, monkeypatch):
+    """severity query param must be passed through to get_interactions_for_drug."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+    captured: dict = {}
+
+    def _get_interactions(conn, rxcui, severity, page, per_page):
+        captured["severity"] = severity
+        return (
+            1,
+            {"major": 1, "moderate": 0, "minor": 0, "unknown": 0},
+            [{"drug_name": "Warfarin", "rxcui": "11289", "severity": "major",
+              "description": "Avoid.", "confidence": "medium", "source_kaggle": True, "source_openfda": False}],
+        )
+
+    monkeypatch.setattr(
+        interactions,
+        "resolve_drug_name",
+        lambda conn, name: {"rxcui": "1191", "generic_name": "Aspirin", "brand_names": []},
+    )
+    monkeypatch.setattr(interactions, "get_interactions_for_drug", _get_interactions)
+
+    response = client.get("/api/interactions/aspirin", params={"severity": "major"})
+    assert response.status_code == 200
+    assert captured["severity"] == "major"
+
+
+def test_drug_list_invalid_severity_returns_422(client, monkeypatch):
+    """Unrecognised severity value should be rejected with 422 before hitting DB."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(
+        interactions,
+        "resolve_drug_name",
+        lambda conn, name: {"rxcui": "1191", "generic_name": "Aspirin", "brand_names": []},
+    )
+
+    response = client.get("/api/interactions/aspirin", params={"severity": "lethal"})
+    assert response.status_code == 422
+
+
+def test_drug_list_pagination_params_forwarded(client, monkeypatch):
+    """page and per_page must be forwarded to helper and reflected in the response."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+    captured: dict = {}
+
+    def _get_interactions(conn, rxcui, severity, page, per_page):
+        captured["page"] = page
+        captured["per_page"] = per_page
+        return 0, {"major": 0, "moderate": 0, "minor": 0, "unknown": 0}, []
+
+    monkeypatch.setattr(
+        interactions,
+        "resolve_drug_name",
+        lambda conn, name: {"rxcui": "1191", "generic_name": "Aspirin", "brand_names": []},
+    )
+    monkeypatch.setattr(interactions, "get_interactions_for_drug", _get_interactions)
+
+    response = client.get("/api/interactions/aspirin", params={"page": 3, "per_page": 50})
+    assert response.status_code == 200
+    assert captured["page"] == 3
+    assert captured["per_page"] == 50
+    payload = response.json()
+    assert payload["page"] == 3
+    assert payload["per_page"] == 50
+
+
+def test_drug_list_empty_interactions_returns_200(client, monkeypatch):
+    """Known drug with zero interactions should return 200 with empty list, not 404."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(
+        interactions,
+        "resolve_drug_name",
+        lambda conn, name: {"rxcui": "9999", "generic_name": "RareDrug", "brand_names": []},
+    )
+    monkeypatch.setattr(
+        interactions,
+        "get_interactions_for_drug",
+        lambda conn, rxcui, severity, page, per_page: (
+            0, {"major": 0, "moderate": 0, "minor": 0, "unknown": 0}, []
+        ),
+    )
+
+    response = client.get("/api/interactions/raredrug")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 0
+    assert payload["interactions"] == []
+
+
+def test_resolve_route_not_captured_by_drug_path_param(client, monkeypatch):
+    """/api/interactions/resolve must NOT be matched by /{drug} path param."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(
+        interactions,
+        "resolve_drug_name",
+        lambda conn, name: {"rxcui": "1191", "generic_name": "Aspirin", "brand_names": ["Bayer"]},
+    )
+
+    response = client.get("/api/interactions/resolve", params={"name": "aspirin"})
+    assert response.status_code == 200
+    payload = response.json()
+    # Must have the resolve shape, not the list shape
+    assert "rxcui" in payload
+    assert "interactions" not in payload
+    assert "severity_summary" not in payload
