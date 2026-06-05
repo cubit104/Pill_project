@@ -78,6 +78,31 @@ def canonical_pair(rxcui_1: str, rxcui_2: str, drug_1: str, drug_2: str) -> tupl
     return rxcui_2, rxcui_1, drug_2, drug_1
 
 
+def _resolve_to_ingredient_rxcui(rxcui: str) -> str:
+    """Resolve a brand/product RXCUI to an ingredient-level RXCUI using RxNorm.
+
+    Calls GET rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/related.json?tty=IN and
+    returns the first ingredient RXCUI found.  Falls back to the original
+    ``rxcui`` on any error or empty result.
+    """
+    try:
+        url = f"https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/related.json"
+        response = httpx.get(url, params={"tty": "IN"}, timeout=10)
+        if response.status_code != 200:
+            return rxcui
+        data = response.json() or {}
+        related_group = data.get("relatedGroup") or {}
+        concept_groups = related_group.get("conceptGroup") or []
+        for group in concept_groups:
+            for prop in (group.get("conceptProperties") or []):
+                ingredient_rxcui = (prop.get("rxcui") or "").strip()
+                if ingredient_rxcui:
+                    return ingredient_rxcui
+    except Exception as exc:
+        logger.warning("Ingredient RXCUI resolution failed for %s: %s", rxcui, exc)
+    return rxcui
+
+
 def resolve_rxcui_from_rxnorm(name: str) -> Optional[str]:
     cleaned = (name or "").strip()
     if not cleaned:
@@ -88,7 +113,8 @@ def resolve_rxcui_from_rxnorm(name: str) -> Optional[str]:
             return None
         rxnorm_ids = (((response.json() or {}).get("idGroup") or {}).get("rxnormId") or [])
         if rxnorm_ids:
-            return str(rxnorm_ids[0]).strip()
+            raw_rxcui = str(rxnorm_ids[0]).strip()
+            return _resolve_to_ingredient_rxcui(raw_rxcui)
     except Exception as exc:
         logger.warning("RxNorm resolution failed for %s: %s", cleaned, exc)
     return None
@@ -336,8 +362,8 @@ def get_interaction_drug_suggestions(
     limit: int = Query(10, ge=1, le=20, description="Max suggestions to return"),
 ):
     """
-    Autocomplete suggestions for drug names from the drug_interactions table.
-    Queries drug_name_1 and drug_name_2 columns for prefix matches.
+    Autocomplete suggestions for drug names from drug_interactions and drug_synonyms.
+    Queries drug_name_1/drug_name_2 and drug_synonyms brand_names/generic_name for prefix matches.
     Returns a list of unique drug name strings.
     """
     norm_q = q.strip()
@@ -357,14 +383,22 @@ def get_interaction_drug_suggestions(
                     SELECT DISTINCT drug_name_1 AS name
                     FROM drug_interactions
                     WHERE LOWER(drug_name_1) LIKE :prefix
-                      AND drug_name_1 IS NOT NULL
-                      AND drug_name_1 <> ''
+                      AND drug_name_1 IS NOT NULL AND drug_name_1 <> ''
                     UNION
                     SELECT DISTINCT drug_name_2 AS name
                     FROM drug_interactions
                     WHERE LOWER(drug_name_2) LIKE :prefix
-                      AND drug_name_2 IS NOT NULL
-                      AND drug_name_2 <> ''
+                      AND drug_name_2 IS NOT NULL AND drug_name_2 <> ''
+                    UNION
+                    SELECT DISTINCT bn AS name
+                    FROM drug_synonyms, unnest(brand_names) AS bn
+                    WHERE LOWER(bn) LIKE :prefix
+                      AND bn IS NOT NULL AND bn <> ''
+                    UNION
+                    SELECT DISTINCT generic_name AS name
+                    FROM drug_synonyms
+                    WHERE LOWER(generic_name) LIKE :prefix
+                      AND generic_name IS NOT NULL AND generic_name <> ''
                 ) combined
                 ORDER BY name
                 LIMIT :lim
