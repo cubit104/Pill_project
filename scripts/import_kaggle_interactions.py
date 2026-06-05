@@ -86,6 +86,15 @@ def classify_severity(text_value: str) -> str:
         "increase the", "decrease the", "may reduce", "may impair",
         "excretion", "absorption", "metabolism",
         "additive", "synergistic",
+        # DrugBank-style PK interaction phrases
+        "serum concentration",
+        "can be increased", "can be decreased",
+        "may be increased", "may be decreased",
+        "is increased", "is decreased",
+        "area under the curve", "auc",
+        "half-life", "clearance",
+        "peak serum", "plasma concentration",
+        "risk or severity",
     ]
     if any(w in text_value for w in moderate_keywords):
         return "moderate"
