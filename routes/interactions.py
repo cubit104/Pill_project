@@ -362,8 +362,8 @@ def get_interaction_drug_suggestions(
     limit: int = Query(10, ge=1, le=20, description="Max suggestions to return"),
 ):
     """
-    Autocomplete suggestions for drug names from the drug_interactions table.
-    Queries drug_name_1 and drug_name_2 columns for prefix matches.
+    Autocomplete suggestions for drug names from drug_interactions and drug_synonyms.
+    Queries drug_name_1/drug_name_2 and drug_synonyms brand_names/generic_name for prefix matches.
     Returns a list of unique drug name strings.
     """
     norm_q = q.strip()
