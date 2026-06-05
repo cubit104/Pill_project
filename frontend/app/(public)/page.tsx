@@ -33,12 +33,12 @@ type PillarCard =
 export const metadata: Metadata = {
   title: { absolute: 'Free Pill Identifier, Prices & Patient Guide | PillSeek' },
   description:
-    'Free pill identifier, drug price checks, and patient-friendly medication guides powered by FDA, DailyMed, and NADAC data.',
+    'Free pill identifier, drug interaction checker, price comparison, and patient guides powered by FDA, DailyMed, and NADAC data.',
   alternates: { canonical: '/' },
   openGraph: {
     title: 'Free Pill Identifier, Prices & Patient Guide | PillSeek',
     description:
-      'Free pill identifier, drug price checks, and patient-friendly medication guides powered by FDA, DailyMed, and NADAC data.',
+      'Free pill identifier, drug interaction checker, price comparison, and patient guides powered by FDA, DailyMed, and NADAC data.',
     url: SITE_URL,
     type: 'website',
   },
@@ -46,7 +46,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Free Pill Identifier, Prices & Patient Guide | PillSeek',
     description:
-      'Free pill identifier, drug price checks, and patient-friendly medication guides powered by FDA, DailyMed, and NADAC data.',
+      'Free pill identifier, drug interaction checker, price comparison, and patient guides powered by FDA, DailyMed, and NADAC data.',
   },
 }
 
@@ -78,6 +78,15 @@ export default function HomePage() {
       title: 'Patient Guide',
       description: 'Plain-language dosing, side effects, and what to know before taking your medication.',
       cta: 'Read Plavix guide →',
+    },
+    {
+      href: '/interactions',
+      iconType: 'emoji',
+      icon: '⚠️',
+      iconLabel: 'Drug interaction checker',
+      title: 'Interaction Checker',
+      description: 'Check any two medications for known drug-drug interactions across 178,000+ pairs.',
+      cta: 'Check interactions →',
     },
   ]
 
@@ -161,7 +170,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 md:grid-cols-3 text-left">
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-left">
             {pillarCards.map((card) => (
               <Link
                 key={card.title}
@@ -196,9 +205,9 @@ export default function HomePage() {
         <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
           {[
             { value: '10,000+', label: 'FDA-approved medications' },
+            { value: '178,000+', label: 'Drug interaction pairs' },
             { value: 'Free', label: 'No ads · No account' },
-            { value: 'Official', label: 'FDA · NADAC (CMS) · RxNorm' },
-            { value: 'Weekly', label: 'Pricing data updated' },
+            { value: 'Official', label: 'FDA · DailyMed · RxNorm' },
           ].map((stat) => (
             <div key={stat.label}>
               <p className="text-3xl font-bold text-emerald-700">{stat.value}</p>

@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/pills", tags=["admin-images"])
 
-ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB per individual image
 MAX_ZIP_SIZE = int(os.getenv("MAX_ZIP_SIZE_MB", "50")) * 1024 * 1024  # default 50 MB (compressed)
 MAX_IMAGES_PER_ZIP = int(os.getenv("MAX_IMAGES_PER_ZIP", "500"))
@@ -37,6 +37,7 @@ _CONTENT_TYPE_MAP = {
     ".jpeg": "image/jpeg",
     ".png": "image/png",
     ".webp": "image/webp",
+    ".avif": "image/avif",
 }
 
 

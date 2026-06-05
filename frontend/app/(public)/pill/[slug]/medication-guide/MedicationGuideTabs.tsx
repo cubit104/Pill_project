@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-type TabId = 'consumer' | 'dosage' | 'adverse' | 'pro'
+type TabId = 'consumer' | 'dosage' | 'adverse' | 'interactions' | 'pro'
 
 function tabClasses(active: boolean): string {
   return `px-1 py-3 text-sm font-medium border-b-2 transition-colors ${
@@ -16,6 +16,7 @@ export default function MedicationGuideTabs({
   summaryHref = null,
   dosageHref = null,
   adverseReactionsHref = null,
+  interactionsHref = null,
   professionalHref,
 }: {
   activeTab: TabId
@@ -23,6 +24,7 @@ export default function MedicationGuideTabs({
   summaryHref?: string | null
   dosageHref?: string | null
   adverseReactionsHref?: string | null
+  interactionsHref?: string | null
   professionalHref: string
 }) {
   const leftTabHref = summaryHref ?? medicationGuideHref
@@ -65,6 +67,17 @@ export default function MedicationGuideTabs({
           ) : (
             <Link href={adverseReactionsHref} className={tabClasses(false)}>
               Side Effects
+            </Link>
+          )
+        )}
+        {interactionsHref && (
+          activeTab === 'interactions' ? (
+            <span className={tabClasses(true)} aria-current="page">
+              Interactions
+            </span>
+          ) : (
+            <Link href={interactionsHref} className={tabClasses(false)}>
+              Interactions
             </Link>
           )
         )}

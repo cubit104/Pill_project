@@ -248,6 +248,7 @@ export default async function DosagePage({
           summaryHref={hasSummary ? `/pill/${encodedSlug}/medication-summary` : null}
           dosageHref={`/pill/${encodedSlug}/dosage`}
           adverseReactionsHref={`/pill/${encodedSlug}/adverse-reactions`}
+          interactionsHref={`/pill/${encodedSlug}/interactions`}
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 

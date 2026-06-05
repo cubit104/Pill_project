@@ -50,3 +50,4 @@ yarn-error.log*
 *.tsbuildinfo
 frontend/node_modules
 frontend/package-lock.json
+data/drug_drug_interactions.csv

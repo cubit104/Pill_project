@@ -535,6 +535,7 @@ export default async function MedicationGuidePage({
           medicationGuideHref={null}
           dosageHref={`/pill/${encodedSlug}/dosage`}
           adverseReactionsHref={`/pill/${encodedSlug}/adverse-reactions`}
+          interactionsHref={`/pill/${encodedSlug}/interactions`}
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
@@ -742,6 +743,7 @@ export default async function MedicationGuidePage({
         medicationGuideHref={`/pill/${encodeURIComponent(slug)}/medication-guide`}
         dosageHref={`/pill/${encodeURIComponent(slug)}/dosage`}
         adverseReactionsHref={`/pill/${encodeURIComponent(slug)}/adverse-reactions`}
+        interactionsHref={`/pill/${encodeURIComponent(slug)}/interactions`}
         professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
       />
 

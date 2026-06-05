@@ -11,6 +11,28 @@ import DrugIndicationSection from './DrugIndicationSection'
 import PriceSummaryCard from './pricing/PriceSummaryCard'
 import { usePillView } from './usePillView'
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
+
+type PreviewInteractionItem = {
+  drug_name: string
+  severity: 'major' | 'moderate' | 'minor' | 'unknown' | null
+  description: string | null
+}
+
+type PreviewInteractionsResponse = {
+  total: number
+  interactions: PreviewInteractionItem[]
+}
+
+function buildApiUrl(path: string): string {
+  return API_BASE ? `${API_BASE}${path}` : path
+}
+
+function truncateText(value: string | null | undefined, maxLength: number): string {
+  if (!value) return 'No description available.'
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value
+}
+
 function PillIconLarge() {
   return (
     <svg
@@ -188,6 +210,22 @@ function MedicationResourcesCard({
             <span aria-hidden="true" className="ml-auto text-slate-400 group-hover:text-emerald-600 text-sm">→</span>
           </Link>
           <Link
+            href={`/pill/${encodedSlug}/interactions`}
+            className="border border-slate-100 rounded-lg p-3 flex items-center gap-3 hover:border-red-300 hover:bg-red-50 transition-colors group"
+          >
+            <span className="shrink-0 w-8 h-8 rounded-md bg-red-50 flex items-center justify-center group-hover:bg-red-100">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-red-500" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 8v4M12 16h.01" />
+              </svg>
+            </span>
+            <span>
+              <span className="text-sm font-semibold text-slate-800 block">Drug Interactions</span>
+              <span className="text-xs text-slate-500">Known drug-drug interactions</span>
+            </span>
+            <span aria-hidden="true" className="ml-auto text-slate-400 group-hover:text-red-500 text-sm">→</span>
+          </Link>
+          <Link
             href={`/pill/${encodedSlug}/professional-information`}
             className="border border-slate-100 rounded-lg p-3 flex items-center gap-3 hover:border-emerald-300 hover:bg-emerald-50 transition-colors group"
           >
@@ -204,6 +242,77 @@ function MedicationResourcesCard({
             <span aria-hidden="true" className="ml-auto text-slate-400 group-hover:text-emerald-600 text-sm">→</span>
           </Link>
         </div>
+      </div>
+    </section>
+  )
+}
+
+function InteractionsPreviewCard({ slug, drugName }: { slug: string; drugName: string }) {
+  const [data, setData] = useState<PreviewInteractionsResponse | null>(null)
+
+  useEffect(() => {
+    const trimmedName = drugName.trim()
+    if (!trimmedName) return
+
+    const controller = new AbortController()
+    const load = async () => {
+      try {
+        const res = await fetch(
+          buildApiUrl(`/api/interactions/${encodeURIComponent(trimmedName)}?per_page=3&severity=major`),
+          { signal: controller.signal }
+        )
+        if (!res.ok) return
+        const payload = (await res.json()) as PreviewInteractionsResponse
+        if (!payload || !payload.total || payload.total <= 0) return
+        if (!controller.signal.aborted) setData(payload)
+      } catch {
+        // Intentionally render nothing on errors.
+      }
+    }
+
+    void load()
+    return () => controller.abort()
+  }, [drugName])
+
+  if (!data || data.total <= 0) return null
+
+  return (
+    <section className="bg-white border border-red-100 rounded-xl shadow-sm p-6 mb-6">
+      <h2 className="text-base font-semibold text-slate-800 mb-1 border-l-4 border-red-400 pl-3">
+        ⚠️ Drug Interactions
+      </h2>
+      <p className="text-xs text-slate-500 mb-4">
+        {data.total.toLocaleString()} major interactions highlighted for {drugName}
+      </p>
+      <div className="space-y-2">
+        {(data.interactions || []).slice(0, 3).map((interaction, index) => (
+          <div key={`${interaction.drug_name}-${index}`} className="flex items-start gap-2 text-sm">
+            <span
+              aria-hidden="true"
+              className={`mt-1 inline-block h-2.5 w-2.5 rounded-full ${
+                interaction.severity === 'major'
+                  ? 'bg-red-500'
+                  : interaction.severity === 'moderate'
+                    ? 'bg-orange-400'
+                    : interaction.severity === 'minor'
+                      ? 'bg-yellow-400'
+                      : 'bg-slate-300'
+              }`}
+            />
+            <p className="text-slate-700 min-w-0">
+              <span className="font-semibold text-slate-800">{interaction.drug_name}</span>{' '}
+              {truncateText(interaction.description, 80)}
+            </p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 pt-2">
+        <Link
+          href={`/pill/${encodeURIComponent(slug)}/interactions`}
+          className="text-sm text-red-600 hover:underline font-medium"
+        >
+          View all interactions →
+        </Link>
       </div>
     </section>
   )
@@ -739,6 +848,7 @@ export default function PillDetailClient({
             hasMedicationSummary={pill.has_medication_summary === true}
           />
         )}
+        {resolvedSlug && <InteractionsPreviewCard slug={resolvedSlug} drugName={pill.drug_name} />}
 
         {/* FAQ Block */}
         {faqItems && faqItems.length > 0 && (

@@ -456,9 +456,11 @@ def test_zip_storage_path_follows_scheme(client):
         (PILL_A_UUID, "Aspirin", "aspirin", None, None),
     ]
     captured_paths: list = []
+    captured_content_types: list = []
 
     async def upload_mock(path, data, content_type):
         captured_paths.append(path)
+        captured_content_types.append(content_type)
         return True
 
     side_effect = _build_side_effect(pill_rows)
@@ -470,7 +472,7 @@ def test_zip_storage_path_follows_scheme(client):
 
     db_module.db_engine = mock_engine
 
-    zip_bytes = _make_zip(("aspirin.jpg", b"fake-jpeg"))
+    zip_bytes = _make_zip(("aspirin.avif", b"fake-avif"))
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD), patch(
         "routes.admin.images._async_supabase_upload", new_callable=AsyncMock, side_effect=upload_mock
@@ -487,9 +489,10 @@ def test_zip_storage_path_follows_scheme(client):
     path = captured_paths[0]
     prefix, filename = path.split("/", 1)
     assert prefix == PILL_A_UUID, f"Storage path must start with pill_id, got: {path!r}"
-    # filename should be {pill_id[:8]}-{timestamp}-{uuid_suffix}.jpg
+    # filename should be {pill_id[:8]}-{timestamp}-{uuid_suffix}.avif
     assert filename.startswith(PILL_A_UUID[:8] + "-"), f"Filename must start with pill_id[:8]-: {filename!r}"
-    assert filename.endswith(".jpg"), f"Filename must end with .jpg: {filename!r}"
+    assert filename.endswith(".avif"), f"Filename must end with .avif: {filename!r}"
+    assert captured_content_types[0] == "image/avif"
 
 
 def test_zip_respects_max_images_limit(client):
