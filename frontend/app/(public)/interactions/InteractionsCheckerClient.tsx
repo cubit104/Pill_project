@@ -284,7 +284,7 @@ export default function InteractionsCheckerClient() {
             if (item.error) {
               return (
                 <article key={key} role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  ⚠ Could not check {item.drug1} + {item.drug2}. Please try again.
+                  ⚠ Could not check {item.drug1} + {item.drug2} due to a temporary issue. Please try again.
                 </article>
               )
             }

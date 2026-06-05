@@ -34,10 +34,13 @@ export default function DrugAutocompleteInput({
   const [open, setOpen] = useState(false)
   const [highlighted, setHighlighted] = useState(-1)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const requestAbortRef = useRef<AbortController | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (requestAbortRef.current) requestAbortRef.current.abort()
     const trimmed = value.trim()
     if (trimmed.length < 2) {
       setSuggestions([])
@@ -45,23 +48,40 @@ export default function DrugAutocompleteInput({
       return
     }
     debounceRef.current = setTimeout(async () => {
+      const controller = new AbortController()
+      requestAbortRef.current = controller
       try {
         const res = await fetch(
-          buildApiUrl(`/api/interactions/suggestions?q=${encodeURIComponent(trimmed)}&limit=${SUGGESTIONS_LIMIT}`)
+          buildApiUrl(`/api/interactions/suggestions?q=${encodeURIComponent(trimmed)}&limit=${SUGGESTIONS_LIMIT}`),
+          { signal: controller.signal }
         )
         if (!res.ok) return
         const data = await res.json() as string[]
         setSuggestions(Array.isArray(data) ? data : [])
         setOpen(Array.isArray(data) && data.length > 0)
         setHighlighted(-1)
-      } catch {
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return
         // silently ignore
+      } finally {
+        if (requestAbortRef.current === controller) {
+          requestAbortRef.current = null
+        }
       }
     }, DEBOUNCE_MS)
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
+      if (requestAbortRef.current) requestAbortRef.current.abort()
     }
   }, [value])
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current)
+      if (requestAbortRef.current) requestAbortRef.current.abort()
+    }
+  }, [])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open || suggestions.length === 0) return
@@ -82,7 +102,8 @@ export default function DrugAutocompleteInput({
   }
 
   const handleBlur = () => {
-    setTimeout(() => {
+    if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current)
+    blurTimeoutRef.current = setTimeout(() => {
       setOpen(false)
     }, BLUR_DELAY_MS)
   }
