@@ -330,6 +330,61 @@ def get_interactions_for_drug(
     return total, severity_summary, interactions
 
 
+@router.get("/api/interactions/suggestions")
+def get_interaction_drug_suggestions(
+    q: str = Query(..., min_length=1, description="Drug name prefix to search"),
+    limit: int = Query(10, ge=1, le=20, description="Max suggestions to return"),
+):
+    """
+    Autocomplete suggestions for drug names from the drug_interactions table.
+    Queries drug_name_1 and drug_name_2 columns for prefix matches.
+    Returns a list of unique drug name strings.
+    """
+    norm_q = (q or "").strip()
+    if len(norm_q) < 2:
+        return []
+
+    if not database.db_engine and not database.connect_to_database():
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    lower_q = norm_q.lower()
+
+    with database.db_engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT name FROM (
+                    SELECT DISTINCT drug_name_1 AS name
+                    FROM drug_interactions
+                    WHERE LOWER(drug_name_1) LIKE :prefix
+                      AND drug_name_1 IS NOT NULL
+                      AND drug_name_1 <> ''
+                    UNION
+                    SELECT DISTINCT drug_name_2 AS name
+                    FROM drug_interactions
+                    WHERE LOWER(drug_name_2) LIKE :prefix
+                      AND drug_name_2 IS NOT NULL
+                      AND drug_name_2 <> ''
+                ) combined
+                ORDER BY name
+                LIMIT :lim
+                """
+            ),
+            {"prefix": f"{lower_q}%", "lim": limit},
+        ).fetchall()
+
+    seen = set()
+    suggestions = []
+    for row in rows:
+        name = (row[0] or "").strip()
+        key = name.lower()
+        if name and key not in seen:
+            seen.add(key)
+            suggestions.append(name)
+
+    return suggestions
+
+
 @router.get("/api/interactions/resolve")
 def resolve_interaction_name(name: str = Query(..., description="Drug name to resolve")):
     if not database.db_engine and not database.connect_to_database():

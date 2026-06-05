@@ -1,19 +1,14 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
+import DrugAutocompleteInput from './DrugAutocompleteInput'
 
 type InteractionResponse = {
   drug1: string
   drug2: string
-  drug1_rxcui: string | null
-  drug2_rxcui: string | null
   severity: string | null
   description: string | null
-  confidence: string | null
-  source_kaggle: boolean
-  source_openfda: boolean
   found: boolean
-  message: string | null
 }
 
 type PairResult = {
@@ -33,8 +28,9 @@ const SEVERITY_STYLES = {
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 const MAX_DRUGS = 10
 const DESCRIPTION_TRUNCATE_LENGTH = 200
-const MAX_DRUGS_ERROR = 'Maximum 10 drugs allowed. Remove one to add another.'
-const MIN_DRUGS_ERROR = 'Add at least 2 medications to check interactions'
+const MIN_DRUGS_ERROR = 'Add at least 2 medications to check interactions.'
+const MAX_DRUGS_ERROR = 'Maximum 10 drugs allowed.'
+const INPUT_ID = 'interactions-drug-input'
 
 const SEVERITY_RANK: Record<'major' | 'moderate' | 'minor' | 'unknown', number> = {
   major: 0,
@@ -55,14 +51,6 @@ function severityKey(value: string | null | undefined): 'major' | 'moderate' | '
   return 'unknown'
 }
 
-function confidenceBadgeText(value: string | null | undefined): 'High' | 'Medium' | 'Low' | null {
-  const normalized = (value || '').toLowerCase()
-  if (normalized === 'high') return 'High'
-  if (normalized === 'medium') return 'Medium'
-  if (normalized === 'low') return 'Low'
-  return null
-}
-
 function pairKey(drug1: string, drug2: string): string {
   return `${drug1}__${drug2}`
 }
@@ -77,11 +65,18 @@ function generatePairs(drugs: string[]): Array<{ drug1: string; drug2: string }>
   return pairs
 }
 
-function truncateText(text: string, maxLength = DESCRIPTION_TRUNCATE_LENGTH): { shortText: string; needsToggle: boolean } {
-  if (text.length <= maxLength) {
+function truncateText(text: string): { shortText: string; needsToggle: boolean } {
+  if (text.length <= DESCRIPTION_TRUNCATE_LENGTH) {
     return { shortText: text, needsToggle: false }
   }
-  return { shortText: `${text.slice(0, maxLength)}...`, needsToggle: true }
+  return { shortText: `${text.slice(0, DESCRIPTION_TRUNCATE_LENGTH)}...`, needsToggle: true }
+}
+
+function focusDrugInput() {
+  const input = document.getElementById(INPUT_ID)
+  if (input instanceof HTMLInputElement) {
+    input.focus()
+  }
 }
 
 export default function InteractionsCheckerClient() {
@@ -91,8 +86,6 @@ export default function InteractionsCheckerClient() {
   const [results, setResults] = useState<PairResult[] | null>(null)
   const [checkError, setCheckError] = useState<string | null>(null)
   const [expandedPairs, setExpandedPairs] = useState<Record<string, boolean>>({})
-
-  const inputRef = useRef<HTMLInputElement>(null)
 
   const addDrug = (): void => {
     const trimmed = drugInput.trim()
@@ -106,7 +99,7 @@ export default function InteractionsCheckerClient() {
     const exists = drugList.some((drug) => drug.toLowerCase() === trimmed.toLowerCase())
     if (exists) {
       setDrugInput('')
-      inputRef.current?.focus()
+      focusDrugInput()
       return
     }
 
@@ -115,7 +108,7 @@ export default function InteractionsCheckerClient() {
     setResults(null)
     setCheckError(null)
     setExpandedPairs({})
-    inputRef.current?.focus()
+    focusDrugInput()
   }
 
   const removeDrug = (drugToRemove: string): void => {
@@ -131,7 +124,7 @@ export default function InteractionsCheckerClient() {
     setResults(null)
     setCheckError(null)
     setExpandedPairs({})
-    inputRef.current?.focus()
+    focusDrugInput()
   }
 
   const handleCheck = async (): Promise<void> => {
@@ -168,16 +161,16 @@ export default function InteractionsCheckerClient() {
       const sorted = [...fetchedPairs].sort((a, b) => {
         const aFound = a.result?.found === true
         const bFound = b.result?.found === true
-
         if (aFound !== bFound) return aFound ? -1 : 1
 
         if (aFound && bFound) {
-          const aSeverity = severityKey(a.result?.severity)
-          const bSeverity = severityKey(b.result?.severity)
-          return SEVERITY_RANK[aSeverity] - SEVERITY_RANK[bSeverity]
+          return SEVERITY_RANK[severityKey(a.result?.severity)] - SEVERITY_RANK[severityKey(b.result?.severity)]
         }
 
-        if (a.error !== b.error) return a.error ? 1 : -1
+        const aNoInteraction = a.result?.found === false
+        const bNoInteraction = b.result?.found === false
+        if (aNoInteraction !== bNoInteraction) return aNoInteraction ? 1 : -1
+
         return pairKey(a.drug1, a.drug2).localeCompare(pairKey(b.drug1, b.drug2))
       })
 
@@ -190,7 +183,6 @@ export default function InteractionsCheckerClient() {
     }
   }
 
-  const totalPairs = useMemo(() => (drugList.length * (drugList.length - 1)) / 2, [drugList])
   const foundCount = useMemo(
     () => (results || []).filter((item) => item.result?.found === true).length,
     [results]
@@ -199,37 +191,35 @@ export default function InteractionsCheckerClient() {
   return (
     <div className="space-y-6">
       <section className="rounded-xl border border-slate-200 bg-white p-5">
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <input
-            ref={inputRef}
-            type="text"
+        <form
+          className="flex flex-col gap-2 sm:flex-row"
+          onSubmit={(event) => {
+            event.preventDefault()
+            addDrug()
+          }}
+        >
+          <DrugAutocompleteInput
+            id={INPUT_ID}
             value={drugInput}
-            onChange={(event) => {
-              setDrugInput(event.target.value)
+            onChange={(value) => {
+              setDrugInput(value)
               if (checkError === MAX_DRUGS_ERROR || checkError === MIN_DRUGS_ERROR) {
                 setCheckError(null)
               }
             }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                addDrug()
-              }
-            }}
+            onSelect={(value) => setDrugInput(value)}
             placeholder="Enter a drug name..."
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
-            aria-label="Drug name"
             disabled={checking}
           />
           <button
-            type="button"
-            onClick={addDrug}
+            type="submit"
             disabled={checking}
             className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
           >
             Add
           </button>
-        </div>
+        </form>
 
         <div className="mt-5">
           <div className="mb-2 flex items-center justify-between gap-4">
@@ -277,37 +267,30 @@ export default function InteractionsCheckerClient() {
           </button>
         </div>
 
-        {checking && (
-          <p className="mt-3 text-center text-sm text-slate-500" aria-live="polite">
-            Checking {totalPairs} pairs...
-          </p>
-        )}
-
         {checkError && <p className="mt-3 text-sm text-red-600">{checkError}</p>}
       </section>
 
       {results && (
         <section className="space-y-3" aria-live="polite">
           <h2 className="text-sm font-semibold text-slate-800">
-            Found {foundCount} interaction(s) across {results.length} drug pair(s) checked
+            Found {foundCount} interaction(s) across {results.length} pairs checked
           </h2>
 
           {results.map((item) => {
+            const key = pairKey(item.drug1, item.drug2)
+
             if (item.error) {
               return (
-                <article key={pairKey(item.drug1, item.drug2)} role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  <span aria-hidden="true">⚠ </span>
-                  Could not check {item.drug1} + {item.drug2} due to a temporary network or server issue.
-                  Please try again.
+                <article key={key} role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  ⚠ Could not check {item.drug1} + {item.drug2}
                 </article>
               )
             }
 
             if (!item.result || item.result.found !== true) {
               return (
-                <article key={pairKey(item.drug1, item.drug2)} role="status" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                  <p className="font-medium"><span aria-hidden="true">✓ </span>No interaction found between {item.drug1} + {item.drug2}</p>
-                  <p className="mt-1 text-slate-600">No known interaction found in our database.</p>
+                <article key={key} role="status" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  ✓ No known interaction — {item.drug1} + {item.drug2}
                 </article>
               )
             }
@@ -316,9 +299,7 @@ export default function InteractionsCheckerClient() {
             const style = SEVERITY_STYLES[severity]
             const description = item.result.description || 'Interaction found in our database.'
             const { shortText, needsToggle } = truncateText(description)
-            const key = pairKey(item.drug1, item.drug2)
             const expanded = expandedPairs[key] === true
-            const confidence = confidenceBadgeText(item.result.confidence)
 
             return (
               <article key={key} className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
@@ -345,20 +326,6 @@ export default function InteractionsCheckerClient() {
                     {expanded ? 'Show less' : 'Show more'}
                   </button>
                 )}
-
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                  {item.result.source_kaggle && (
-                    <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">📊 Kaggle</span>
-                  )}
-                  {item.result.source_openfda && (
-                    <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">🧪 OpenFDA</span>
-                  )}
-                  {confidence && (
-                    <span aria-label={`Confidence level: ${confidence}`} className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">
-                      {confidence}
-                    </span>
-                  )}
-                </div>
               </article>
             )
           })}
@@ -367,10 +334,7 @@ export default function InteractionsCheckerClient() {
 
       <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
         <p>
-          <span aria-hidden="true">⚠️ </span>
-          This tool checks drug-drug interactions only and is for informational purposes only.
-          It does not cover food, alcohol, or disease interactions. Always consult your pharmacist
-          or doctor before taking multiple medications.
+          ⚠️ For informational purposes only. Always consult your pharmacist or doctor before taking multiple medications together.
         </p>
       </section>
     </div>

@@ -319,3 +319,40 @@ def test_resolve_route_not_captured_by_drug_path_param(client, monkeypatch):
     assert "rxcui" in payload
     assert "interactions" not in payload
     assert "severity_summary" not in payload
+
+
+def test_suggestions_endpoint_returns_unique_names(client, monkeypatch):
+    _, mock_conn = _mock_conn_for_interactions(monkeypatch)
+
+    mock_conn.execute.return_value.fetchall.return_value = [
+        ("Aspirin",),
+        ("aspirin ",),
+        ("Atorvastatin",),
+        ("",),
+        (None,),
+    ]
+
+    response = client.get("/api/interactions/suggestions", params={"q": "as", "limit": 8})
+    assert response.status_code == 200
+    assert response.json() == ["Aspirin", "Atorvastatin"]
+
+    _, params = mock_conn.execute.call_args[0]
+    assert params["prefix"] == "as%"
+    assert params["lim"] == 8
+
+
+def test_suggestions_short_query_returns_empty(client):
+    response = client.get("/api/interactions/suggestions", params={"q": "a"})
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_suggestions_route_not_captured_by_drug_path_param(client, monkeypatch):
+    _, mock_conn = _mock_conn_for_interactions(monkeypatch)
+    mock_conn.execute.return_value.fetchall.return_value = [("Aspirin",)]
+
+    response = client.get("/api/interactions/suggestions", params={"q": "as"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, list)
+    assert payload == ["Aspirin"]
