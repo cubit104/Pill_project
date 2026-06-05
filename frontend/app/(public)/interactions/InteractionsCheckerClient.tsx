@@ -29,7 +29,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 const MAX_DRUGS = 10
 const DESCRIPTION_TRUNCATE_LENGTH = 200
 const MIN_DRUGS_ERROR = 'Add at least 2 medications to check interactions.'
-const MAX_DRUGS_ERROR = 'Maximum 10 drugs allowed.'
+const MAX_DRUGS_ERROR = 'Maximum 10 drugs allowed. Remove one to add another.'
 const INPUT_ID = 'interactions-drug-input'
 
 const SEVERITY_RANK: Record<'major' | 'moderate' | 'minor' | 'unknown', number> = {
@@ -164,7 +164,9 @@ export default function InteractionsCheckerClient() {
         if (aFound !== bFound) return aFound ? -1 : 1
 
         if (aFound && bFound) {
-          return SEVERITY_RANK[severityKey(a.result?.severity)] - SEVERITY_RANK[severityKey(b.result?.severity)]
+          const aSeverity = severityKey(a.result?.severity)
+          const bSeverity = severityKey(b.result?.severity)
+          return SEVERITY_RANK[aSeverity] - SEVERITY_RANK[bSeverity]
         }
 
         const aNoInteraction = a.result?.found === false

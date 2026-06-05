@@ -13,6 +13,8 @@ type DrugAutocompleteInputProps = {
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
+const SUGGESTIONS_LIMIT = 8
+const DEBOUNCE_MS = 200
 
 function buildApiUrl(path: string): string {
   return API_BASE ? `${API_BASE}${path}` : path
@@ -43,7 +45,9 @@ export default function DrugAutocompleteInput({
     }
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(buildApiUrl(`/api/interactions/suggestions?q=${encodeURIComponent(trimmed)}&limit=8`))
+        const res = await fetch(
+          buildApiUrl(`/api/interactions/suggestions?q=${encodeURIComponent(trimmed)}&limit=${SUGGESTIONS_LIMIT}`)
+        )
         if (!res.ok) return
         const data = await res.json() as string[]
         setSuggestions(Array.isArray(data) ? data : [])
@@ -52,7 +56,7 @@ export default function DrugAutocompleteInput({
       } catch {
         // silently ignore
       }
-    }, 200)
+    }, DEBOUNCE_MS)
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
