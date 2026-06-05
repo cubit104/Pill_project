@@ -24,6 +24,14 @@ logger = logging.getLogger("import_kaggle_interactions")
 DATASET_HANDLE = "mghobashy/drug-drug-interactions"
 _RXNORM_URL = "https://rxnav.nlm.nih.gov/REST/rxcui.json"
 BATCH_SIZE = 100
+
+# Well-known local paths where the CSV may already exist (checked in order)
+_LOCAL_CSV_CANDIDATES = [
+    Path("/opt/render/.cache/kaggle_data/db_drug_interactions.csv"),
+    Path("/opt/render/.cache/kagglehub/datasets/mghobashy/drug-drug-interactions/versions/1/db_drug_interactions.csv"),
+    Path("db_drug_interactions.csv"),
+]
+
 _INSERT_INTERACTION_SQL = """
     INSERT INTO drug_interactions
         (rxcui_1, rxcui_2, drug_name_1, drug_name_2, description, severity, confidence, source_kaggle, source_openfda, updated_at)
@@ -100,6 +108,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--reclassify", action="store_true", default=False,
                         help="Re-classify severity for all existing rows that have severity=unknown")
+    parser.add_argument("--csv", type=str, default=None,
+                        help="Explicit path to the CSV file (skips kagglehub download)")
     return parser.parse_args(argv)
 
 
@@ -129,14 +139,31 @@ def _pick_column(columns: list[str], choices: list[str]) -> str:
     raise RuntimeError(f"Unable to find required column among: {columns}")
 
 
-def _load_dataset_df():
+def _load_dataset_df(csv_override: str | None = None):
     import pandas as pd
 
+    # 1. Explicit path passed via --csv
+    if csv_override:
+        p = Path(csv_override)
+        if p.exists():
+            logger.info("Loading CSV from explicit path: %s", p)
+            return pd.read_csv(p)
+        raise RuntimeError(f"CSV not found at explicit path: {p}")
+
+    # 2. Check well-known local candidates first (no download needed)
+    for candidate in _LOCAL_CSV_CANDIDATES:
+        if candidate.exists():
+            logger.info("Loading CSV from local cache: %s", candidate)
+            return pd.read_csv(candidate)
+
+    # 3. Fall back to kagglehub download
+    logger.info("CSV not found locally — downloading via kagglehub...")
     dataset_dir = Path(kagglehub.dataset_download(DATASET_HANDLE))
     csv_files = sorted(dataset_dir.rglob("*.csv"))
     if not csv_files:
         raise RuntimeError(f"No CSV files found in dataset cache: {dataset_dir}")
     csv_path = csv_files[0]
+    logger.info("Downloaded CSV: %s", csv_path)
     relative_path = csv_path.relative_to(dataset_dir).as_posix()
     try:
         return kagglehub.dataset_load(KaggleDatasetAdapter.PANDAS, DATASET_HANDLE, relative_path)
@@ -230,7 +257,7 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("Reclassify done: checked=%d updated=%d", len(rows), updated)
         return
 
-    df = _load_dataset_df()
+    df = _load_dataset_df(csv_override=args.csv)
     columns = list(df.columns)
     drug1_col = _pick_column(columns, ["drug1", "drug_1", "drug 1"])
     drug2_col = _pick_column(columns, ["drug2", "drug_2", "drug 2"])
