@@ -143,6 +143,7 @@ export default function InteractionsCheckerClient() {
     }
 
     setChecking(true)
+    setResults(null)
     setCheckError(null)
     setExpandedPairs({})
 
@@ -218,10 +219,12 @@ export default function InteractionsCheckerClient() {
             placeholder="Enter a drug name..."
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
             aria-label="Drug name"
+            disabled={checking}
           />
           <button
             type="button"
             onClick={addDrug}
+            disabled={checking}
             className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
           >
             Add
@@ -234,7 +237,7 @@ export default function InteractionsCheckerClient() {
             <button
               type="button"
               onClick={startOver}
-              disabled={drugList.length === 0 && !drugInput && !results}
+              disabled={checking || (drugList.length === 0 && !drugInput && !results)}
               className="text-sm font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50"
             >
               Start over
@@ -251,6 +254,7 @@ export default function InteractionsCheckerClient() {
                   <button
                     type="button"
                     onClick={() => removeDrug(drug)}
+                    disabled={checking}
                     className="text-lg leading-none text-slate-500 hover:text-slate-800"
                     aria-label={`Remove ${drug}`}
                   >
