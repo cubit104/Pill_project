@@ -173,11 +173,17 @@ export default function InteractionsCheckerClient() {
               </p>
 
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-{checkResult.source_kaggle && (
-  <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-slate-700"><span aria-hidden="true">📊 </span>Kaggle DDI</span>
-)}
+                {checkResult.source_kaggle && (
+                  <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-slate-700">
+                    <span aria-hidden="true">📊 </span>
+                    Kaggle DDI
+                  </span>
+                )}
                 {checkResult.source_openfda && (
-                  <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-slate-700">🧪 OpenFDA</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-slate-700">
+                    <span aria-hidden="true">🧪 </span>
+                    OpenFDA
+                  </span>
                 )}
                 {confidenceLabel(checkResult.confidence) && (
                   <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700">
@@ -187,10 +193,12 @@ export default function InteractionsCheckerClient() {
               </div>
 
               <div className="mt-4">
-<Link
-  href={`/search?q=${encodeURIComponent(checkResult.drug1)}&type=drug`}
-  className="text-sm font-medium text-sky-700 hover:text-sky-800 hover:underline"
->
+                <Link
+                  href={`/search?q=${encodeURIComponent(checkResult.drug1)}&type=drug`}
+                  className="text-sm font-medium text-sky-700 hover:text-sky-800 hover:underline"
+                >
+                  View all interactions for {checkResult.drug1} →
+                </Link>
               </div>
 
               <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
