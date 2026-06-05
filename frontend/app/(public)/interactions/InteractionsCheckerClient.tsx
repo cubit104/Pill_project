@@ -71,8 +71,7 @@ export default function InteractionsCheckerClient() {
   const [checkError, setCheckError] = useState<string | null>(null)
   const [checkResult, setCheckResult] = useState<InteractionResponse | null>(null)
 
-  const handleCheck = (): void => {
-    const runCheck = async () => {
+  const handleCheck = async (): Promise<void> => {
     const drug1 = drug1Input.trim()
     const drug2 = drug2Input.trim()
     if (!drug1 || !drug2 || checking) return
@@ -87,14 +86,16 @@ export default function InteractionsCheckerClient() {
       if (!res.ok) throw new Error(`Failed to check interactions (status ${res.status})`)
       const payload = (await res.json()) as InteractionResponse
       setCheckResult(payload)
-    } catch {
+    } catch (error) {
+      console.error('Interaction check failed', error)
       setCheckError('Could not check interactions right now. Please try again.')
     } finally {
       setChecking(false)
     }
-    }
+  }
 
-    void runCheck()
+  const triggerCheck = (): void => {
+    void handleCheck()
   }
 
   return (
@@ -111,7 +112,7 @@ export default function InteractionsCheckerClient() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault()
-                  handleCheck()
+                  triggerCheck()
                 }
               }}
               placeholder="Enter first drug name..."
@@ -128,7 +129,7 @@ export default function InteractionsCheckerClient() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault()
-                  handleCheck()
+                  triggerCheck()
                 }
               }}
               placeholder="Enter second drug name..."
@@ -139,7 +140,7 @@ export default function InteractionsCheckerClient() {
         <div className="mt-5 flex justify-center">
           <button
             type="button"
-            onClick={handleCheck}
+            onClick={triggerCheck}
             disabled={checking || !drug1Input.trim() || !drug2Input.trim()}
             className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-6 py-2.5 rounded-lg disabled:opacity-60"
           >
