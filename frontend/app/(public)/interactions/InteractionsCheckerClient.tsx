@@ -190,6 +190,8 @@ export default function InteractionsCheckerClient() {
     [results]
   )
 
+  const totalPairs = useMemo(() => (drugList.length * (drugList.length - 1)) / 2, [drugList])
+
   return (
     <div className="space-y-6">
       <section className="rounded-xl border border-slate-200 bg-white p-5">
@@ -218,7 +220,7 @@ export default function InteractionsCheckerClient() {
           <button
             type="submit"
             disabled={checking}
-            className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+            className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
           >
             Add
           </button>
@@ -266,7 +268,7 @@ export default function InteractionsCheckerClient() {
             disabled={checking}
             className="rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
           >
-            Check Interactions
+            {checking ? `Checking ${totalPairs} pairs...` : 'Check Interactions'}
           </button>
         </div>
 
