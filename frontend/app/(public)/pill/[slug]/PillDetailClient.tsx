@@ -282,7 +282,7 @@ function InteractionsPreviewCard({ slug, drugName }: { slug: string; drugName: s
         ⚠️ Drug Interactions
       </h2>
       <p className="text-xs text-slate-500 mb-4">
-        {data.total.toLocaleString()} interactions known for {drugName}
+        {data.total.toLocaleString()} major interactions known for {drugName}
       </p>
       <div className="space-y-2">
         {(data.interactions || []).slice(0, 3).map((interaction, index) => (
@@ -311,7 +311,7 @@ function InteractionsPreviewCard({ slug, drugName }: { slug: string; drugName: s
           href={`/pill/${encodeURIComponent(slug)}/interactions`}
           className="text-sm text-red-600 hover:underline font-medium"
         >
-          See all {data.total.toLocaleString()} interactions →
+          See all {data.total.toLocaleString()} major interactions →
         </Link>
       </div>
     </section>

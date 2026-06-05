@@ -129,12 +129,14 @@ export default function InteractionsClient({
       if (!res.ok) throw new Error('Failed to load interactions')
 
       const payload = (await res.json()) as DrugInteractionsListResponse
-      setSeveritySummary({
-        major: payload.severity_summary?.major ?? 0,
-        moderate: payload.severity_summary?.moderate ?? 0,
-        minor: payload.severity_summary?.minor ?? 0,
-        unknown: payload.severity_summary?.unknown ?? 0,
-      })
+      if (filter === 'all') {
+        setSeveritySummary({
+          major: payload.severity_summary?.major ?? 0,
+          moderate: payload.severity_summary?.moderate ?? 0,
+          minor: payload.severity_summary?.minor ?? 0,
+          unknown: payload.severity_summary?.unknown ?? 0,
+        })
+      }
       setTotal(typeof payload.total === 'number' ? payload.total : 0)
       setPage(nextPage)
       setItems((prev) => (append ? [...prev, ...(payload.interactions || [])] : (payload.interactions || [])))
@@ -278,7 +280,7 @@ export default function InteractionsClient({
                   <span className={`mt-1 inline-block h-2.5 w-2.5 rounded-full ${SEVERITY_COLORS[itemSeverity]}`} aria-hidden="true" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Link href={`/pill/${itemSlug}`} className="font-semibold text-slate-800 hover:text-sky-700">
+                      <Link href={`/drug/${itemSlug}`} className="font-semibold text-slate-800 hover:text-sky-700">
                         {item.drug_name}
                       </Link>
                       <span className={`text-xs font-semibold uppercase ${SEVERITY_TEXT_COLORS[itemSeverity]}`}>
@@ -292,7 +294,9 @@ export default function InteractionsClient({
             )
           })}
 
-          {!loadingList && items.length === 0 && (
+          {listError && <p className="text-sm text-red-600">{listError}</p>}
+
+          {!loadingList && !listError && items.length === 0 && (
             <p className="text-sm text-slate-500">
               {filter === 'all'
                 ? `No interactions found for ${drugName}.`
