@@ -340,7 +340,7 @@ def get_interaction_drug_suggestions(
     Queries drug_name_1 and drug_name_2 columns for prefix matches.
     Returns a list of unique drug name strings.
     """
-    norm_q = (q or "").strip()
+    norm_q = q.strip()
     if len(norm_q) < 2:
         return []
 
