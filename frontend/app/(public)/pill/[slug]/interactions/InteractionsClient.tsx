@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { slugifyDrugName } from '../../../../lib/slug'
 
 type Severity = 'major' | 'moderate' | 'minor' | 'unknown'
 type SeverityFilter = 'all' | Severity
@@ -69,10 +68,6 @@ function truncate(value: string | null | undefined, maxLength: number): string {
 
 function buildApiUrl(path: string): string {
   return API_BASE ? `${API_BASE}${path}` : path
-}
-
-function toInteractionSlug(drugName: string): string {
-  return slugifyDrugName(drugName) || encodeURIComponent(drugName.trim().toLowerCase().replace(/\s+/g, '-'))
 }
 
 export default function InteractionsClient({
@@ -273,14 +268,16 @@ export default function InteractionsClient({
         <div className="mt-4 space-y-3">
           {items.map((item, index) => {
             const itemSeverity = severityKey(item.severity)
-            const itemSlug = toInteractionSlug(item.drug_name)
             return (
               <article key={`${item.drug_name}-${item.rxcui || 'na'}-${index}`} className="rounded-lg border border-slate-200 p-4">
                 <div className="flex items-start gap-3">
                   <span className={`mt-1 inline-block h-2.5 w-2.5 rounded-full ${SEVERITY_COLORS[itemSeverity]}`} aria-hidden="true" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Link href={`/drug/${itemSlug}`} className="font-semibold text-slate-800 hover:text-sky-700">
+<Link
+  href={`/search?q=${encodeURIComponent(item.drug_name)}&type=drug`}
+  className="font-semibold text-slate-800 hover:text-sky-700"
+>
                         {item.drug_name}
                       </Link>
                       <span className={`text-xs font-semibold uppercase ${SEVERITY_TEXT_COLORS[itemSeverity]}`}>
