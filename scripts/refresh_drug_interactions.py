@@ -119,7 +119,7 @@ def _fetch_recent_label_results(client: httpx.Client, days_back: int) -> list[di
     since = (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime("%Y%m%d")
     response = client.get(
         OPENFDA_URL,
-        params={"search": f"effective_time:[{since}+TO+99991231]", "limit": 100},
+        params={"search": f"effective_time:[{since} TO 99991231]", "limit": 100},
         timeout=15,
     )
     if response.status_code != 200:
