@@ -81,6 +81,40 @@ def test_interaction_falls_back_to_live_openfda(client, monkeypatch):
     assert calls, "expected low-confidence cache helper to be called"
 
 
+def test_interaction_fallback_checks_other_label_with_synonyms(client, monkeypatch):
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+    calls = []
+
+    def _resolve(conn, name):
+        if name == "aspirin":
+            return {"rxcui": "1191", "generic_name": "Aspirin", "brand_names": ["Bayer"]}
+        return {"rxcui": "5640", "generic_name": "Ibuprofen", "brand_names": ["Advil"]}
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", _resolve)
+    monkeypatch.setattr(interactions, "get_interaction_pair", lambda conn, r1, r2: None)
+    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: None)
+
+    def _fetch(rxcui):
+        if rxcui == "1191":
+            return "Aspirin", "No interaction listed here."
+        return "Ibuprofen", "Avoid combining with Bayer products."
+
+    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", _fetch)
+    monkeypatch.setattr(
+        interactions,
+        "cache_low_confidence_interaction",
+        lambda conn, r1, r2, d1, d2, desc: calls.append((r1, r2, d1, d2, desc)),
+    )
+
+    response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "advil"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["found"] is True
+    assert payload["confidence"] == "low"
+    assert "Bayer" in payload["description"]
+    assert calls, "expected low-confidence cache helper to be called"
+
+
 def test_resolve_endpoint_returns_resolution_shape(client, monkeypatch):
     interactions, _ = _mock_conn_for_interactions(monkeypatch)
 
