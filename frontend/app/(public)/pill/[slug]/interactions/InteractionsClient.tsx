@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { slugifyDrugName } from '../../../../lib/slug'
 
@@ -71,6 +71,10 @@ function buildApiUrl(path: string): string {
   return API_BASE ? `${API_BASE}${path}` : path
 }
 
+function toInteractionSlug(drugName: string): string {
+  return slugifyDrugName(drugName) || encodeURIComponent(drugName.trim().toLowerCase().replace(/\s+/g, '-'))
+}
+
 export default function InteractionsClient({
   drugName,
   genericName,
@@ -94,21 +98,22 @@ export default function InteractionsClient({
 
   const showingCount = items.length
   const hasMore = showingCount < total
+  const allCount = severitySummary.major + severitySummary.moderate + severitySummary.minor + severitySummary.unknown
   const genericSuffix = genericName?.trim() ? ` (${genericName.trim()})` : ''
   const backHref = `/pill/${encodeURIComponent(slug)}`
 
   const filterOptions: Array<{ id: SeverityFilter; label: string; count?: number; dotClass?: string }> = useMemo(
     () => [
-      { id: 'all', label: 'All', count: initialSeveritySummary.major + initialSeveritySummary.moderate + initialSeveritySummary.minor + initialSeveritySummary.unknown },
+      { id: 'all', label: 'All', count: allCount },
       { id: 'major', label: 'Major', count: severitySummary.major, dotClass: 'bg-red-500' },
       { id: 'moderate', label: 'Moderate', count: severitySummary.moderate, dotClass: 'bg-orange-400' },
       { id: 'minor', label: 'Minor', count: severitySummary.minor, dotClass: 'bg-yellow-400' },
       { id: 'unknown', label: 'Unknown', count: severitySummary.unknown, dotClass: 'bg-slate-300' },
     ],
-    [initialSeveritySummary.major, initialSeveritySummary.moderate, initialSeveritySummary.minor, initialSeveritySummary.unknown, severitySummary]
+    [allCount, severitySummary]
   )
 
-  const loadInteractions = async (nextPage: number, append: boolean) => {
+  const loadInteractions = useCallback(async (nextPage: number, append: boolean) => {
     setLoadingList(true)
     setListError(null)
     try {
@@ -124,7 +129,12 @@ export default function InteractionsClient({
       if (!res.ok) throw new Error('Failed to load interactions')
 
       const payload = (await res.json()) as DrugInteractionsListResponse
-      setSeveritySummary(payload.severity_summary ?? initialSeveritySummary)
+      setSeveritySummary({
+        major: payload.severity_summary?.major ?? 0,
+        moderate: payload.severity_summary?.moderate ?? 0,
+        minor: payload.severity_summary?.minor ?? 0,
+        unknown: payload.severity_summary?.unknown ?? 0,
+      })
       setTotal(typeof payload.total === 'number' ? payload.total : 0)
       setPage(nextPage)
       setItems((prev) => (append ? [...prev, ...(payload.interactions || [])] : (payload.interactions || [])))
@@ -134,14 +144,14 @@ export default function InteractionsClient({
     } finally {
       setLoadingList(false)
     }
-  }
+  }, [drugName, filter])
 
   useEffect(() => {
     setItems([])
     setPage(0)
     setTotal(0)
     void loadInteractions(1, false)
-  }, [filter])
+  }, [filter, loadInteractions])
 
   const handleCheck = async () => {
     const drug2 = drug2Input.trim()
@@ -207,7 +217,7 @@ export default function InteractionsClient({
           </button>
         </div>
 
-        {checking && <p className="text-sm text-slate-500 mt-3">Loading…</p>}
+        {checking && <p className="text-sm text-slate-500 mt-3" aria-live="polite">Loading…</p>}
         {checkError && <p className="text-sm text-red-600 mt-3">{checkError}</p>}
         {checkResult && !checking && !checkError && (
           <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -261,7 +271,7 @@ export default function InteractionsClient({
         <div className="mt-4 space-y-3">
           {items.map((item, index) => {
             const itemSeverity = severityKey(item.severity)
-            const itemSlug = slugifyDrugName(item.drug_name) || encodeURIComponent(item.drug_name.trim().toLowerCase().replace(/\s+/g, '-'))
+            const itemSlug = toInteractionSlug(item.drug_name)
             return (
               <article key={`${item.drug_name}-${item.rxcui || 'na'}-${index}`} className="rounded-lg border border-slate-200 p-4">
                 <div className="flex items-start gap-3">
@@ -291,7 +301,7 @@ export default function InteractionsClient({
           )}
         </div>
 
-        {loadingList && <p className="mt-4 text-sm text-slate-500">Loading…</p>}
+        {loadingList && <p className="mt-4 text-sm text-slate-500" aria-live="polite">Loading…</p>}
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-slate-600">

@@ -254,25 +254,24 @@ function InteractionsPreviewCard({ slug, drugName }: { slug: string; drugName: s
     const trimmedName = drugName.trim()
     if (!trimmedName) return
 
-    let cancelled = false
+    const controller = new AbortController()
     const load = async () => {
       try {
         const res = await fetch(
-          buildApiUrl(`/api/interactions/${encodeURIComponent(trimmedName)}?per_page=3&severity=major`)
+          buildApiUrl(`/api/interactions/${encodeURIComponent(trimmedName)}?per_page=3&severity=major`),
+          { signal: controller.signal }
         )
         if (!res.ok) return
         const payload = (await res.json()) as PreviewInteractionsResponse
-        if (cancelled || !payload || !payload.total || payload.total <= 0) return
-        setData(payload)
+        if (!payload || !payload.total || payload.total <= 0) return
+        if (!controller.signal.aborted) setData(payload)
       } catch {
         // Intentionally render nothing on errors.
       }
     }
 
     void load()
-    return () => {
-      cancelled = true
-    }
+    return () => controller.abort()
   }, [drugName])
 
   if (!data || data.total <= 0) return null

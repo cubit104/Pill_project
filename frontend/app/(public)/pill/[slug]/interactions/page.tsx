@@ -236,7 +236,7 @@ export default async function InteractionsPage({ params }: { params: PageParams 
 
         <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>
-          <p className="text-xs text-amber-700 leading-8">
+          <p className="text-xs text-amber-700 leading-relaxed">
             This information is for educational purposes only and is not medical advice. Always consult your doctor,
             pharmacist, or other licensed healthcare professional before starting, stopping, or changing any medicine.{` `}
             <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
