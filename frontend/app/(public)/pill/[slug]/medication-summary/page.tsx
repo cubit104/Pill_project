@@ -319,6 +319,7 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
           adverseReactionsHref={
             pill?.has_adverse_reactions ? `/pill/${encodedSlug}/adverse-reactions` : null
           }
+          interactionsHref={`/pill/${encodedSlug}/interactions`}
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
