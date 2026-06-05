@@ -171,7 +171,7 @@ export default function InteractionsCheckerClient() {
 
         const aNoInteraction = a.result?.found === false
         const bNoInteraction = b.result?.found === false
-        if (aNoInteraction !== bNoInteraction) return aNoInteraction ? 1 : -1
+        if (aNoInteraction !== bNoInteraction) return aNoInteraction ? -1 : 1
 
         return pairKey(a.drug1, a.drug2).localeCompare(pairKey(b.drug1, b.drug2))
       })
@@ -211,6 +211,7 @@ export default function InteractionsCheckerClient() {
             }}
             onSelect={(value) => setDrugInput(value)}
             placeholder="Enter a drug name..."
+            ariaLabel="Drug name"
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
             disabled={checking}
           />

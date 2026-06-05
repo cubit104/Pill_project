@@ -332,7 +332,7 @@ def get_interactions_for_drug(
 
 @router.get("/api/interactions/suggestions")
 def get_interaction_drug_suggestions(
-    q: str = Query(..., min_length=1, description="Drug name prefix to search"),
+    q: str = Query(..., min_length=1, description="Drug name prefix to search (must be at least 2 characters to return results)"),
     limit: int = Query(10, ge=1, le=20, description="Max suggestions to return"),
 ):
     """

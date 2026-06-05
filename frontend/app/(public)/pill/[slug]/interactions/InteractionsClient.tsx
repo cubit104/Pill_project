@@ -205,6 +205,7 @@ export default function InteractionsClient({
               setDrug2Input(val)
             }}
             placeholder="Enter a drug name..."
+            ariaLabel="Second drug name"
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
           />
           <button

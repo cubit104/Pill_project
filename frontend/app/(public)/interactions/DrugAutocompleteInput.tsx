@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 
 type DrugAutocompleteInputProps = {
   value: string
@@ -8,6 +8,7 @@ type DrugAutocompleteInputProps = {
   onSelect: (value: string) => void
   placeholder?: string
   id?: string
+  ariaLabel?: string
   disabled?: boolean
   className?: string
 }
@@ -27,6 +28,7 @@ export default function DrugAutocompleteInput({
   onSelect,
   placeholder = 'Enter a drug name...',
   id,
+  ariaLabel,
   disabled = false,
   className = '',
 }: DrugAutocompleteInputProps) {
@@ -83,7 +85,7 @@ export default function DrugAutocompleteInput({
     }
   }, [])
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (!open || suggestions.length === 0) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
@@ -122,6 +124,7 @@ export default function DrugAutocompleteInput({
         disabled={disabled}
         className={className}
         autoComplete="off"
+        aria-label={ariaLabel}
         aria-autocomplete="list"
         aria-expanded={open}
       />
