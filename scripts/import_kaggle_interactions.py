@@ -23,6 +23,30 @@ logger = logging.getLogger("import_kaggle_interactions")
 
 DATASET_HANDLE = "mghobashy/drug-drug-interactions"
 _RXNORM_URL = "https://rxnav.nlm.nih.gov/REST/rxcui.json"
+BATCH_SIZE = 100
+_INSERT_INTERACTION_SQL = """
+    INSERT INTO drug_interactions
+        (rxcui_1, rxcui_2, drug_name_1, drug_name_2, description, severity, confidence, source_kaggle, source_openfda, updated_at)
+    VALUES
+        (:r1, :r2, :n1, :n2, :description, :severity, 'medium', TRUE, FALSE, NOW())
+    ON CONFLICT (rxcui_1, rxcui_2) DO UPDATE
+    SET source_kaggle = TRUE,
+        description = CASE
+            WHEN drug_interactions.description IS NULL OR drug_interactions.description = ''
+            THEN EXCLUDED.description
+            ELSE drug_interactions.description
+        END,
+        severity = CASE
+            WHEN drug_interactions.severity IS NULL OR drug_interactions.severity = 'unknown'
+            THEN EXCLUDED.severity
+            ELSE drug_interactions.severity
+        END,
+        confidence = CASE
+            WHEN drug_interactions.source_openfda THEN 'high'
+            ELSE 'medium'
+        END,
+        updated_at = NOW()
+"""
 
 
 def classify_severity(text_value: str) -> str:
@@ -85,10 +109,13 @@ def _load_dataset_df():
         return pd.read_csv(csv_path)
 
 
-def _resolve_rxcui(conn, client: httpx.Client, drug_name: str) -> str | None:
+def _resolve_rxcui(conn, client: httpx.Client, drug_name: str, cache: dict[str, str | None]) -> str | None:
     cleaned = (drug_name or "").strip()
     if not cleaned:
         return None
+    cache_key = cleaned.lower()
+    if cache_key in cache:
+        return cache[cache_key]
 
     row = conn.execute(
         text(
@@ -107,17 +134,23 @@ def _resolve_rxcui(conn, client: httpx.Client, drug_name: str) -> str | None:
         {"name": cleaned},
     ).fetchone()
     if row and row[0]:
-        return str(row[0]).strip()
+        resolved = str(row[0]).strip()
+        cache[cache_key] = resolved
+        return resolved
 
     try:
         response = client.get(_RXNORM_URL, params={"name": cleaned, "allsrc": 0}, timeout=10)
         if response.status_code != 200:
+            cache[cache_key] = None
             return None
         rxnorm_ids = (((response.json() or {}).get("idGroup") or {}).get("rxnormId") or [])
         if rxnorm_ids:
-            return str(rxnorm_ids[0]).strip()
+            resolved = str(rxnorm_ids[0]).strip()
+            cache[cache_key] = resolved
+            return resolved
     except Exception as exc:
         logger.warning("RxNorm lookup failed for %s: %s", cleaned, exc)
+    cache[cache_key] = None
     return None
 
 
@@ -125,6 +158,15 @@ def _canonical_pair(rxcui_1: str, rxcui_2: str, name_1: str, name_2: str) -> tup
     if rxcui_1 <= rxcui_2:
         return rxcui_1, rxcui_2, name_1, name_2
     return rxcui_2, rxcui_1, name_2, name_1
+
+
+def _flush_batch(engine, batch: list[dict[str, str]], dry_run: bool) -> int:
+    if not batch or dry_run:
+        return len(batch)
+    with engine.begin() as conn:
+        for params in batch:
+            conn.execute(text(_INSERT_INTERACTION_SQL), params)
+    return len(batch)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -136,9 +178,9 @@ def main(argv: list[str] | None = None) -> None:
 
     df = _load_dataset_df()
     columns = list(df.columns)
-    drug1_col = _pick_column(columns, ["drug1", "drug_1"])
-    drug2_col = _pick_column(columns, ["drug2", "drug_2"])
-    desc_col = _pick_column(columns, ["interaction", "description"])
+    drug1_col = _pick_column(columns, ["drug1", "drug_1", "drug 1"])
+    drug2_col = _pick_column(columns, ["drug2", "drug_2", "drug 2"])
+    desc_col = _pick_column(columns, ["interaction", "description", "interaction description"])
 
     if args.offset:
         df = df.iloc[args.offset :]
@@ -148,10 +190,14 @@ def main(argv: list[str] | None = None) -> None:
     inserted = 0
     skipped_no_rxcui = 0
     errors = 0
+    total_processed = 0
+    batch: list[dict[str, str]] = []
+    rxcui_cache: dict[str, str | None] = {}
 
-    with database.db_engine.begin() as conn:
+    with database.db_engine.connect() as conn:
         with httpx.Client(timeout=10) as client:
             for _, row in df.iterrows():
+                total_processed += 1
                 try:
                     drug1 = str(row.get(drug1_col) or "").strip()
                     drug2 = str(row.get(drug2_col) or "").strip()
@@ -160,8 +206,8 @@ def main(argv: list[str] | None = None) -> None:
                         skipped_no_rxcui += 1
                         continue
 
-                    rxcui1 = _resolve_rxcui(conn, client, drug1)
-                    rxcui2 = _resolve_rxcui(conn, client, drug2)
+                    rxcui1 = _resolve_rxcui(conn, client, drug1, rxcui_cache)
+                    rxcui2 = _resolve_rxcui(conn, client, drug2, rxcui_cache)
                     if not rxcui1 or not rxcui2 or rxcui1 == rxcui2:
                         skipped_no_rxcui += 1
                         continue
@@ -169,32 +215,7 @@ def main(argv: list[str] | None = None) -> None:
                     r1, r2, n1, n2 = _canonical_pair(rxcui1, rxcui2, drug1, drug2)
                     severity = classify_severity(description)
                     if not args.dry_run:
-                        conn.execute(
-                            text(
-                                """
-                                INSERT INTO drug_interactions
-                                    (rxcui_1, rxcui_2, drug_name_1, drug_name_2, description, severity, confidence, source_kaggle, source_openfda, updated_at)
-                                VALUES
-                                    (:r1, :r2, :n1, :n2, :description, :severity, 'medium', TRUE, FALSE, NOW())
-                                ON CONFLICT (rxcui_1, rxcui_2) DO UPDATE
-                                SET source_kaggle = TRUE,
-                                    description = CASE
-                                        WHEN drug_interactions.description IS NULL OR drug_interactions.description = ''
-                                        THEN EXCLUDED.description
-                                        ELSE drug_interactions.description
-                                    END,
-                                    severity = CASE
-                                        WHEN drug_interactions.severity IS NULL OR drug_interactions.severity = 'unknown'
-                                        THEN EXCLUDED.severity
-                                        ELSE drug_interactions.severity
-                                    END,
-                                    confidence = CASE
-                                        WHEN drug_interactions.source_openfda THEN 'high'
-                                        ELSE 'medium'
-                                    END,
-                                    updated_at = NOW()
-                                """
-                            ),
+                        batch.append(
                             {
                                 "r1": r1,
                                 "r2": r2,
@@ -202,13 +223,25 @@ def main(argv: list[str] | None = None) -> None:
                                 "n2": n2,
                                 "description": description,
                                 "severity": severity,
-                            },
+                            }
                         )
-                    if not args.dry_run:
-                        inserted += 1
+                        if len(batch) >= BATCH_SIZE:
+                            inserted += _flush_batch(database.db_engine, batch, args.dry_run)
+                            batch.clear()
                 except Exception as exc:
                     errors += 1
                     logger.warning("Failed to import interaction row: %s", exc)
+                if total_processed % 500 == 0:
+                    logger.info(
+                        "Progress: processed=%d inserted=%d skipped=%d errors=%d",
+                        total_processed,
+                        inserted,
+                        skipped_no_rxcui,
+                        errors,
+                    )
+    if not args.dry_run and batch:
+        inserted += _flush_batch(database.db_engine, batch, args.dry_run)
+        batch.clear()
 
     logger.info(
         "Kaggle import done: inserted=%s skipped_no_rxcui=%s errors=%s dry_run=%s",
