@@ -31,6 +31,10 @@ const SEVERITY_STYLES = {
 } as const
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
+const MAX_DRUGS = 10
+const DESCRIPTION_TRUNCATE_LENGTH = 200
+const MAX_DRUGS_ERROR = 'Maximum 10 drugs allowed. Remove one to add another.'
+const MIN_DRUGS_ERROR = 'Add at least 2 medications to check interactions'
 
 const SEVERITY_RANK: Record<'major' | 'moderate' | 'minor' | 'unknown', number> = {
   major: 0,
@@ -45,10 +49,13 @@ function buildApiUrl(path: string): string {
 
 function severityKey(value: string | null | undefined): 'major' | 'moderate' | 'minor' | 'unknown' {
   const normalized = (value || '').toLowerCase()
-  return normalized === 'major' || normalized === 'moderate' || normalized === 'minor' ? normalized : 'unknown'
+  if (normalized === 'major') return 'major'
+  if (normalized === 'moderate') return 'moderate'
+  if (normalized === 'minor') return 'minor'
+  return 'unknown'
 }
 
-function confidenceLabel(value: string | null | undefined): 'High' | 'Medium' | 'Low' | null {
+function confidenceBadgeText(value: string | null | undefined): 'High' | 'Medium' | 'Low' | null {
   const normalized = (value || '').toLowerCase()
   if (normalized === 'high') return 'High'
   if (normalized === 'medium') return 'Medium'
@@ -70,7 +77,7 @@ function generatePairs(drugs: string[]): Array<{ drug1: string; drug2: string }>
   return pairs
 }
 
-function truncateText(text: string, maxLength = 200): { shortText: string; needsToggle: boolean } {
+function truncateText(text: string, maxLength = DESCRIPTION_TRUNCATE_LENGTH): { shortText: string; needsToggle: boolean } {
   if (text.length <= maxLength) {
     return { shortText: text, needsToggle: false }
   }
@@ -91,8 +98,8 @@ export default function InteractionsCheckerClient() {
     const trimmed = drugInput.trim()
     if (!trimmed) return
 
-    if (drugList.length >= 10) {
-      setCheckError('Maximum 10 drugs reached')
+    if (drugList.length >= MAX_DRUGS) {
+      setCheckError(MAX_DRUGS_ERROR)
       return
     }
 
@@ -131,7 +138,7 @@ export default function InteractionsCheckerClient() {
     if (checking) return
 
     if (drugList.length < 2) {
-      setCheckError('Add at least 2 medications to check interactions')
+      setCheckError(MIN_DRUGS_ERROR)
       return
     }
 
@@ -198,7 +205,7 @@ export default function InteractionsCheckerClient() {
             value={drugInput}
             onChange={(event) => {
               setDrugInput(event.target.value)
-              if (checkError === 'Maximum 10 drugs reached' || checkError === 'Add at least 2 medications to check interactions') {
+              if (checkError === MAX_DRUGS_ERROR || checkError === MIN_DRUGS_ERROR) {
                 setCheckError(null)
               }
             }}
@@ -278,23 +285,24 @@ export default function InteractionsCheckerClient() {
       {results && (
         <section className="space-y-3" aria-live="polite">
           <h2 className="text-sm font-semibold text-slate-800">
-            Found {foundCount} interaction{foundCount === 1 ? '' : 's'} across {results.length} drug pair
-            {results.length === 1 ? '' : 's'} checked
+            Found {foundCount} interaction(s) across {results.length} drug pair(s) checked
           </h2>
 
           {results.map((item) => {
             if (item.error) {
               return (
-                <article key={pairKey(item.drug1, item.drug2)} className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  ⚠ Could not check {item.drug1} + {item.drug2}
+                <article key={pairKey(item.drug1, item.drug2)} role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <span aria-hidden="true">⚠ </span>
+                  Could not check {item.drug1} + {item.drug2} due to a temporary network or server issue.
+                  Please try again.
                 </article>
               )
             }
 
             if (!item.result || item.result.found !== true) {
               return (
-                <article key={pairKey(item.drug1, item.drug2)} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                  <p className="font-medium">✓ No interaction {item.drug1} + {item.drug2}</p>
+                <article key={pairKey(item.drug1, item.drug2)} role="status" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  <p className="font-medium"><span aria-hidden="true">✓ </span>No interaction found between {item.drug1} + {item.drug2}</p>
                   <p className="mt-1 text-slate-600">No known interaction found in our database.</p>
                 </article>
               )
@@ -303,10 +311,10 @@ export default function InteractionsCheckerClient() {
             const severity = severityKey(item.result.severity)
             const style = SEVERITY_STYLES[severity]
             const description = item.result.description || 'Interaction found in our database.'
-            const { shortText, needsToggle } = truncateText(description, 200)
+            const { shortText, needsToggle } = truncateText(description)
             const key = pairKey(item.drug1, item.drug2)
             const expanded = expandedPairs[key] === true
-            const confidence = confidenceLabel(item.result.confidence)
+            const confidence = confidenceBadgeText(item.result.confidence)
 
             return (
               <article key={key} className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
@@ -342,7 +350,7 @@ export default function InteractionsCheckerClient() {
                     <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">🧪 OpenFDA</span>
                   )}
                   {confidence && (
-                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                    <span aria-label={`Confidence level: ${confidence}`} className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">
                       {confidence}
                     </span>
                   )}
@@ -355,7 +363,8 @@ export default function InteractionsCheckerClient() {
 
       <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
         <p>
-          ⚠️ This tool checks drug-drug interactions only and is for informational purposes only.
+          <span aria-hidden="true">⚠️ </span>
+          This tool checks drug-drug interactions only and is for informational purposes only.
           It does not cover food, alcohol, or disease interactions. Always consult your pharmacist
           or doctor before taking multiple medications.
         </p>
