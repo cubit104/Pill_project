@@ -173,9 +173,9 @@ export default function InteractionsCheckerClient() {
               </p>
 
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                {checkResult.source_kaggle && (
-                  <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-slate-700">📊 Kaggle DDI</span>
-                )}
+{checkResult.source_kaggle && (
+  <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-slate-700"><span aria-hidden="true">📊 </span>Kaggle DDI</span>
+)}
                 {checkResult.source_openfda && (
                   <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-slate-700">🧪 OpenFDA</span>
                 )}
