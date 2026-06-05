@@ -316,6 +316,7 @@ export default async function ProfessionalInformationPage({
           }
           dosageHref={`/pill/${encodeURIComponent(slug)}/dosage`}
           adverseReactionsHref={`/pill/${encodeURIComponent(slug)}/adverse-reactions`}
+          interactionsHref={`/pill/${encodeURIComponent(slug)}/interactions`}
           professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
         />
 
