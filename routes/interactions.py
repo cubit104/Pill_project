@@ -91,9 +91,8 @@ def _resolve_to_ingredient_rxcui(rxcui: str) -> str:
         if response.status_code != 200:
             return rxcui
         data = response.json() or {}
-        concept_groups = (
-            ((data.get("relatedGroup") or {}).get("conceptGroup") or [])
-        )
+        related_group = data.get("relatedGroup") or {}
+        concept_groups = related_group.get("conceptGroup") or []
         for group in concept_groups:
             for prop in (group.get("conceptProperties") or []):
                 ingredient_rxcui = (prop.get("rxcui") or "").strip()
