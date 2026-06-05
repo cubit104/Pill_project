@@ -15,6 +15,7 @@ type DrugAutocompleteInputProps = {
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 const SUGGESTIONS_LIMIT = 8
 const DEBOUNCE_MS = 200
+const BLUR_DELAY_MS = 150
 
 function buildApiUrl(path: string): string {
   return API_BASE ? `${API_BASE}${path}` : path
@@ -83,7 +84,7 @@ export default function DrugAutocompleteInput({
   const handleBlur = () => {
     setTimeout(() => {
       setOpen(false)
-    }, 150)
+    }, BLUR_DELAY_MS)
   }
 
   return (

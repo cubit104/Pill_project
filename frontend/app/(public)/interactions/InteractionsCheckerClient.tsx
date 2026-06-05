@@ -284,7 +284,7 @@ export default function InteractionsCheckerClient() {
             if (item.error) {
               return (
                 <article key={key} role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  ⚠ Could not check {item.drug1} + {item.drug2}
+                  ⚠ Could not check {item.drug1} + {item.drug2}. Please try again.
                 </article>
               )
             }
@@ -292,7 +292,8 @@ export default function InteractionsCheckerClient() {
             if (!item.result || item.result.found !== true) {
               return (
                 <article key={key} role="status" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                  ✓ No known interaction — {item.drug1} + {item.drug2}
+                  <span aria-hidden="true">✓ </span>
+                  No known interaction — {item.drug1} + {item.drug2}
                 </article>
               )
             }
@@ -336,7 +337,8 @@ export default function InteractionsCheckerClient() {
 
       <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
         <p>
-          ⚠️ For informational purposes only. Always consult your pharmacist or doctor before taking multiple medications together.
+          <span aria-hidden="true">⚠️ </span>
+          For informational purposes only. Always consult your pharmacist or doctor before taking multiple medications together.
         </p>
       </section>
     </div>
