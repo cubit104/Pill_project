@@ -360,14 +360,14 @@ def list_interactions_for_drug(
     interacting drug name. The `severity_summary` field always reflects the full
     unfiltered counts regardless of the `severity` query parameter.
     """
-    if not database.db_engine and not database.connect_to_database():
-        raise HTTPException(status_code=503, detail="Database unavailable")
-
-    if severity and severity not in _VALID_SEVERITIES:
+    if severity is not None and severity not in _VALID_SEVERITIES:
         raise HTTPException(
             status_code=422,
             detail=f"Invalid severity '{severity}'. Must be one of: {sorted(_VALID_SEVERITIES)}",
         )
+
+    if not database.db_engine and not database.connect_to_database():
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
     with database.db_engine.connect() as conn:
         resolved = resolve_drug_name(conn, drug)

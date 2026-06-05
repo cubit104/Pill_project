@@ -202,15 +202,19 @@ def test_drug_list_unknown_drug_returns_404(client, monkeypatch):
 
 
 def test_drug_list_severity_filter_forwarded(client, monkeypatch):
-    """severity query param must be passed through to get_interactions_for_drug."""
+    """severity query param must be passed through to get_interactions_for_drug,
+    and severity_summary must reflect the full unfiltered counts even when the
+    interactions list is filtered."""
     interactions, _ = _mock_conn_for_interactions(monkeypatch)
     captured: dict = {}
 
     def _get_interactions(conn, rxcui, severity, page, per_page):
         captured["severity"] = severity
+        # Simulate: 3 total interactions (1 major, 2 moderate) but only 1 is
+        # returned after the "major" filter; the summary covers all 3.
         return (
             1,
-            {"major": 1, "moderate": 0, "minor": 0, "unknown": 0},
+            {"major": 1, "moderate": 2, "minor": 0, "unknown": 0},
             [{"drug_name": "Warfarin", "rxcui": "11289", "severity": "major",
               "description": "Avoid.", "confidence": "medium", "source_kaggle": True, "source_openfda": False}],
         )
@@ -225,6 +229,13 @@ def test_drug_list_severity_filter_forwarded(client, monkeypatch):
     response = client.get("/api/interactions/aspirin", params={"severity": "major"})
     assert response.status_code == 200
     assert captured["severity"] == "major"
+    data = response.json()
+    # severity_summary must reflect the full unfiltered totals, not just the filtered page
+    assert data["severity_summary"]["major"] == 1
+    assert data["severity_summary"]["moderate"] == 2
+    # interactions list is filtered to "major" only
+    assert len(data["interactions"]) == 1
+    assert data["interactions"][0]["severity"] == "major"
 
 
 def test_drug_list_invalid_severity_returns_422(client, monkeypatch):
