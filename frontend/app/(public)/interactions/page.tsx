@@ -3,9 +3,9 @@ import InteractionsCheckerClient from './InteractionsCheckerClient'
 import { breadcrumbSchema, safeJsonLd } from '../../lib/structured-data'
 
 export const metadata: Metadata = {
-  title: 'Drug Interaction Checker — Check Any Two Medications | PillSeek',
+  title: 'Drug Interaction Checker — Check Multiple Medications | PillSeek',
   description:
-    'Free drug interaction checker. Enter any two medications to instantly see known interactions, severity level, and clinical description from 178,000+ drug pairs.',
+    'Free drug interaction checker. Add multiple medications to instantly see known interactions across all drug pairs, including severity and details from 178,000+ pairs.',
   alternates: { canonical: '/interactions' },
 }
 
@@ -22,8 +22,9 @@ export default function InteractionsPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-slate-900 mb-2">Drug Interaction Checker</h1>
           <p className="text-slate-600">
-            Enter two medications to check for known interactions. Sourced from{' '}
-            <strong>178,000+</strong> drug-drug interaction pairs.
+            Add multiple medications to check all interactions between them at once.
+            Sourced from <strong>178,000+</strong> drug-drug interaction pairs. Enter
+            each drug name and click <strong>Check Interactions</strong>.
           </p>
         </div>
         <InteractionsCheckerClient />

@@ -274,12 +274,9 @@ export default function InteractionsClient({
                   <span className={`mt-1 inline-block h-2.5 w-2.5 rounded-full ${SEVERITY_COLORS[itemSeverity]}`} aria-hidden="true" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-<Link
-  href={`/search?q=${encodeURIComponent(item.drug_name)}&type=drug`}
-  className="font-semibold text-slate-800 hover:text-sky-700"
->
+                      <span className="font-semibold text-slate-800">
                         {item.drug_name}
-                      </Link>
+                      </span>
                       <span className={`text-xs font-semibold uppercase ${SEVERITY_TEXT_COLORS[itemSeverity]}`}>
                         {itemSeverity}
                       </span>
