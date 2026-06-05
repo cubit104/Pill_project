@@ -356,3 +356,116 @@ def test_suggestions_route_not_captured_by_drug_path_param(client, monkeypatch):
     payload = response.json()
     assert isinstance(payload, list)
     assert payload == ["Aspirin"]
+
+
+def test_suggestions_sql_includes_brand_names_and_generic(client, monkeypatch):
+    """The suggestions SQL must query drug_synonyms brand_names and generic_name
+    in addition to drug_interactions drug_name_1/2."""
+    _, mock_conn = _mock_conn_for_interactions(monkeypatch)
+    mock_conn.execute.return_value.fetchall.return_value = [("Lipitor",)]
+
+    response = client.get("/api/interactions/suggestions", params={"q": "li", "limit": 5})
+    assert response.status_code == 200
+    assert response.json() == ["Lipitor"]
+
+    # Inspect the SQL that was executed
+    executed_sql = str(mock_conn.execute.call_args[0][0])
+    assert "drug_synonyms" in executed_sql
+    assert "unnest(brand_names)" in executed_sql
+    assert "generic_name" in executed_sql
+
+
+# ---------------------------------------------------------------------------
+# Tests for _resolve_to_ingredient_rxcui
+# ---------------------------------------------------------------------------
+
+def test_resolve_to_ingredient_rxcui_returns_ingredient():
+    """Should return the first ingredient RXCUI from RxNorm related endpoint."""
+    import routes.interactions as interactions
+    from unittest.mock import patch, MagicMock
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "relatedGroup": {
+            "conceptGroup": [
+                {"conceptProperties": [{"rxcui": "7646", "name": "omeprazole"}]}
+            ]
+        }
+    }
+
+    with patch("routes.interactions.httpx.get", return_value=mock_response) as mock_get:
+        result = interactions._resolve_to_ingredient_rxcui("40790")
+
+    assert result == "7646"
+    mock_get.assert_called_once()
+    call_args = mock_get.call_args
+    assert "40790" in call_args[0][0]
+    assert call_args[1]["params"] == {"tty": "IN"}
+
+
+def test_resolve_to_ingredient_rxcui_falls_back_on_empty():
+    """Should return original RXCUI when API returns no ingredient concepts."""
+    import routes.interactions as interactions
+    from unittest.mock import patch, MagicMock
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "relatedGroup": {"conceptGroup": []}
+    }
+
+    with patch("routes.interactions.httpx.get", return_value=mock_response):
+        result = interactions._resolve_to_ingredient_rxcui("40790")
+
+    assert result == "40790"
+
+
+def test_resolve_to_ingredient_rxcui_falls_back_on_http_error():
+    """Should return original RXCUI when HTTP call fails."""
+    import routes.interactions as interactions
+    from unittest.mock import patch, MagicMock
+
+    mock_response = MagicMock()
+    mock_response.status_code = 500
+
+    with patch("routes.interactions.httpx.get", return_value=mock_response):
+        result = interactions._resolve_to_ingredient_rxcui("40790")
+
+    assert result == "40790"
+
+
+def test_resolve_to_ingredient_rxcui_falls_back_on_exception():
+    """Should return original RXCUI when an exception is raised."""
+    import routes.interactions as interactions
+    from unittest.mock import patch
+
+    with patch("routes.interactions.httpx.get", side_effect=Exception("network error")):
+        result = interactions._resolve_to_ingredient_rxcui("40790")
+
+    assert result == "40790"
+
+
+def test_resolve_rxcui_from_rxnorm_resolves_to_ingredient():
+    """resolve_rxcui_from_rxnorm should resolve brand RXCUI to ingredient RXCUI."""
+    import routes.interactions as interactions
+    from unittest.mock import patch, MagicMock
+
+    rxnorm_response = MagicMock()
+    rxnorm_response.status_code = 200
+    rxnorm_response.json.return_value = {"idGroup": {"rxnormId": ["40790"]}}
+
+    ingredient_response = MagicMock()
+    ingredient_response.status_code = 200
+    ingredient_response.json.return_value = {
+        "relatedGroup": {
+            "conceptGroup": [
+                {"conceptProperties": [{"rxcui": "7646", "name": "omeprazole"}]}
+            ]
+        }
+    }
+
+    with patch("routes.interactions.httpx.get", side_effect=[rxnorm_response, ingredient_response]):
+        result = interactions.resolve_rxcui_from_rxnorm("prilosec")
+
+    assert result == "7646"
