@@ -187,12 +187,10 @@ export default function InteractionsCheckerClient() {
               </div>
 
               <div className="mt-4">
-                <Link
-                  href={`/search?q=${encodeURIComponent(drug1Input.trim())}&search_type=drug`}
-                  className="text-sm font-medium text-sky-700 hover:text-sky-800 hover:underline"
-                >
-                  → View all {checkResult.drug1} interactions
-                </Link>
+<Link
+  href={`/search?q=${encodeURIComponent(checkResult.drug1)}&type=drug`}
+  className="text-sm font-medium text-sky-700 hover:text-sky-800 hover:underline"
+>
               </div>
 
               <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
