@@ -196,12 +196,16 @@ export default function InteractionsCheckerClient() {
               </div>
 
               <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                ⚠️ Disclaimer: This result is for informational purposes only. Always consult your pharmacist or doctor.
+                <span aria-hidden="true">⚠️ </span>
+                Disclaimer: This result is for informational purposes only. Always consult your pharmacist or doctor.
               </p>
             </section>
           ) : (
             <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-              <h2 className="text-base font-semibold text-emerald-800">✓ No known interaction found</h2>
+              <h2 className="text-base font-semibold text-emerald-800">
+                <span aria-hidden="true">✓ </span>
+                No known interaction found
+              </h2>
               <p className="mt-2 text-sm text-emerald-800">
                 No interaction between {checkResult.drug1} and {checkResult.drug2} in our database.
               </p>
@@ -214,7 +218,10 @@ export default function InteractionsCheckerClient() {
       </div>
 
       <section className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-        <h2 className="text-base font-semibold text-slate-900">ℹ️ About this checker</h2>
+        <h2 className="text-base font-semibold text-slate-900">
+          <span aria-hidden="true">ℹ️ </span>
+          About this checker
+        </h2>
         <p className="mt-2 text-sm text-slate-700">Data sourced from 178,000+ drug-drug interaction pairs.</p>
         <p className="mt-1 text-sm text-slate-700">Severity is classified as major, moderate, or minor.</p>
         <p className="mt-1 text-sm text-slate-700">This tool is for informational purposes only.</p>
