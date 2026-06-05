@@ -204,7 +204,8 @@ def main(argv: list[str] | None = None) -> None:
                                 "severity": severity,
                             },
                         )
-                    inserted += 1
+                    if not args.dry_run:
+                        inserted += 1
                 except Exception as exc:
                     errors += 1
                     logger.warning("Failed to import interaction row: %s", exc)
