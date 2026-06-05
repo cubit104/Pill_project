@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import DrugAutocompleteInput from '../../../interactions/DrugAutocompleteInput'
 
 type Severity = 'major' | 'moderate' | 'minor' | 'unknown'
 type SeverityFilter = 'all' | Severity
@@ -197,12 +198,14 @@ export default function InteractionsClient({
             aria-label="Current drug"
           />
           <span className="hidden sm:flex items-center text-slate-500 px-1">+</span>
-          <input
+          <DrugAutocompleteInput
             value={drug2Input}
-            onChange={(event) => setDrug2Input(event.target.value)}
+            onChange={setDrug2Input}
+            onSelect={(val) => setDrug2Input(val)}
             placeholder="Enter a drug name..."
+            ariaLabel="Second drug name"
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
-            aria-label="Second drug name"
+            wrapperClassName="sm:w-1/3"
           />
           <button
             type="button"
