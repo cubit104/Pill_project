@@ -11,6 +11,7 @@ type DrugAutocompleteInputProps = {
   ariaLabel?: string
   disabled?: boolean
   className?: string
+  wrapperClassName?: string
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
@@ -31,6 +32,7 @@ export default function DrugAutocompleteInput({
   ariaLabel,
   disabled = false,
   className = '',
+  wrapperClassName = '',
 }: DrugAutocompleteInputProps) {
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [open, setOpen] = useState(false)
@@ -111,7 +113,7 @@ export default function DrugAutocompleteInput({
   }
 
   return (
-    <div className="relative">
+    <div className={`relative w-full ${wrapperClassName}`}>
       <input
         ref={inputRef}
         id={id}

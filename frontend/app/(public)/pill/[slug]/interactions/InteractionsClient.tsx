@@ -201,12 +201,11 @@ export default function InteractionsClient({
           <DrugAutocompleteInput
             value={drug2Input}
             onChange={setDrug2Input}
-            onSelect={(val) => {
-              setDrug2Input(val)
-            }}
+            onSelect={(val) => setDrug2Input(val)}
             placeholder="Enter a drug name..."
             ariaLabel="Second drug name"
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
+            wrapperClassName="sm:w-1/3"
           />
           <button
             type="button"
