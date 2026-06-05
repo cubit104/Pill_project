@@ -51,12 +51,45 @@ _INSERT_INTERACTION_SQL = """
 
 def classify_severity(text_value: str) -> str:
     text_value = (text_value or "").lower()
-    if any(w in text_value for w in ["contraindicated", "do not use", "life-threatening", "fatal", "serious risk", "avoid combination"]):
+
+    # Major — life-threatening or organ-damaging
+    major_keywords = [
+        "contraindicated", "do not use", "life-threatening", "fatal",
+        "serious risk", "avoid combination",
+        "cardiotoxic", "arrhythmia", "qt-prolonging", "qtc-prolonging",
+        "torsade", "torsades",
+        "neurotoxic", "nephrotoxic", "hepatotoxic", "myelosuppressive",
+        "hemorrhagic", "bleeding risk",
+        "serotonin syndrome", "serotonergic",
+        "malignant hyperthermia", "agranulocytosis",
+        "respiratory depression", "anaphylaxis",
+    ]
+    if any(w in text_value for w in major_keywords):
         return "major"
-    elif any(w in text_value for w in ["avoid", "serious", "significant", "monitor closely", "caution", "reduce dose", "closely monitor"]):
+
+    # Moderate — significant but manageable
+    moderate_keywords = [
+        "avoid", "serious", "significant", "monitor closely", "caution",
+        "reduce dose", "closely monitor",
+        "hypotensive", "hypoglycemic", "sedative", "cns depressant",
+        "anticholinergic", "anticoagulant", "immunosuppressive",
+        "photosensitiz",
+        "adverse", "toxic",
+        "increase the", "decrease the", "may reduce", "may impair",
+        "excretion", "absorption", "metabolism",
+        "additive", "synergistic",
+    ]
+    if any(w in text_value for w in moderate_keywords):
         return "moderate"
-    elif any(w in text_value for w in ["minor", "minimal", "slight", "unlikely"]):
+
+    # Minor — mild or unlikely
+    minor_keywords = [
+        "minor", "minimal", "slight", "unlikely", "weak",
+        "theoretical", "rare",
+    ]
+    if any(w in text_value for w in minor_keywords):
         return "minor"
+
     return "unknown"
 
 
@@ -65,6 +98,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", default=False)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--offset", type=int, default=0)
+    parser.add_argument("--reclassify", action="store_true", default=False,
+                        help="Re-classify severity for all existing rows that have severity=unknown")
     return parser.parse_args(argv)
 
 
@@ -127,7 +162,7 @@ def _resolve_rxcui(conn, client: httpx.Client, drug_name: str, cache: dict[str, 
                     SELECT 1
                     FROM unnest(brand_names) AS bn
                     WHERE LOWER(bn) = LOWER(:name)
-               )
+                )
             LIMIT 1
             """
         ),
@@ -175,6 +210,25 @@ def main(argv: list[str] | None = None) -> None:
 
     if not database.db_engine and not database.connect_to_database():
         raise RuntimeError("Database connection not available")
+
+    # --reclassify mode: fix severity on existing rows only
+    if args.reclassify:
+        logger.info("Reclassifying severity for all unknown rows...")
+        with database.db_engine.begin() as conn:
+            rows = conn.execute(
+                text("SELECT id, description FROM drug_interactions WHERE severity = 'unknown'")
+            ).fetchall()
+            updated = 0
+            for row in rows:
+                new_severity = classify_severity(row[1] or "")
+                if new_severity != "unknown":
+                    conn.execute(
+                        text("UPDATE drug_interactions SET severity = :s, updated_at = NOW() WHERE id = :id"),
+                        {"s": new_severity, "id": row[0]},
+                    )
+                    updated += 1
+        logger.info("Reclassify done: checked=%d updated=%d", len(rows), updated)
+        return
 
     df = _load_dataset_df()
     columns = list(df.columns)
@@ -233,11 +287,12 @@ def main(argv: list[str] | None = None) -> None:
                     logger.warning("Failed to import interaction row: %s", exc)
                 if total_processed % 500 == 0:
                     logger.info(
-                        "Progress: processed=%d inserted=%d skipped=%d errors=%d",
+                        "Progress: processed=%d inserted=%d skipped=%d errors=%d cache_size=%d",
                         total_processed,
                         inserted,
                         skipped_no_rxcui,
                         errors,
+                        len(rxcui_cache),
                     )
     if not args.dry_run and batch:
         inserted += _flush_batch(database.db_engine, batch, args.dry_run)
