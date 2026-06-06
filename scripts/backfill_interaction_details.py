@@ -77,19 +77,26 @@ def main(argv: list[str] | None = None) -> None:
     skipped = 0
     errors = 0
 
-    with database.db_engine.begin() as conn:
-        rows = conn.execute(text(query), params).fetchall()
-        for rxcui, professional_html in rows:
-            processed += 1
-            try:
-                section_html = extract_pro_section_html(professional_html, "drug-interactions")
-                if not section_html:
-                    skipped += 1
-                    continue
+    # Fetch all rows in one read connection
+    with database.db_engine.connect() as read_conn:
+        rows = read_conn.execute(text(query), params).fetchall()
+
+    # Process each row in its own transaction so one failure doesn't abort the rest
+    for rxcui, professional_html in rows:
+        processed += 1
+        try:
+            section_html = extract_pro_section_html(professional_html, "drug-interactions")
+            if not section_html:
+                skipped += 1
+                continue
+
+            with database.db_engine.begin() as conn:
                 if _is_manual_source(conn, str(rxcui)):
                     skipped += 1
                     continue
+
                 drug_name = _lookup_generic_name(conn, str(rxcui))
+
                 if args.dry_run:
                     upserted += 1
                     continue
@@ -104,7 +111,7 @@ def main(argv: list[str] | None = None) -> None:
                             interactions_text = EXCLUDED.interactions_text,
                             source = EXCLUDED.source,
                             updated_at = NOW()
-                        WHERE COALESCE(source, '') <> 'manual'
+                        WHERE COALESCE(drug_interactions_text.source, '') <> 'manual'
                         """
                     ),
                     {
@@ -114,11 +121,12 @@ def main(argv: list[str] | None = None) -> None:
                     },
                 )
                 upserted += 1
-            except Exception as exc:
-                errors += 1
-                logger.warning("Failed interaction detail backfill for rxcui=%s: %s", rxcui, exc)
-            finally:
-                time.sleep(max(args.sleep_ms, 0) / 1000.0)
+
+        except Exception as exc:
+            errors += 1
+            logger.warning("Failed interaction detail backfill for rxcui=%s: %s", rxcui, exc)
+        finally:
+            time.sleep(max(args.sleep_ms, 0) / 1000.0)
 
     logger.info(
         "Backfill complete: processed=%s upserted=%s skipped=%s errors=%s dry_run=%s",
