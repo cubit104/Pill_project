@@ -88,6 +88,9 @@ test('dosage and adverse-reactions tab hrefs use raw encoded slug across tab pag
   assert.ok(adverseReactionsPage.includes('dosageHref={`/pill/${encodedSlug}/dosage`}'))
   assert.ok(adverseReactionsPage.includes('adverseReactionsHref={`/pill/${encodedSlug}/adverse-reactions`}'))
 
-  assert.ok(tabs.includes("type TabId = 'consumer' | 'dosage' | 'adverse' | 'pro'"))
+  assert.ok(tabs.includes("type TabId = 'consumer' | 'dosage' | 'adverse' | 'interactions' | 'pro'"))
   assert.ok(tabs.includes('Side Effects'))
+  assert.ok(tabs.includes('grid grid-cols-6 gap-2 sm:hidden'))
+  assert.ok(tabs.includes('col-span-2'))
+  assert.ok(tabs.includes('col-span-3'))
 })
