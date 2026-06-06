@@ -659,6 +659,18 @@ def get_interaction(
             if should_cache_pair:
                 cache_low_confidence_interaction(conn, r1, r2, drug1, drug2, selected_description)
 
+        selected_description = (selected_description or "").strip() or None
+        kaggle_description = (pair.get("description") or "").strip() or None
+        if kaggle_description and selected_description:
+            desc_lower = kaggle_description.lower()
+            spl_lower = selected_description.lower()
+            if (spl_lower[:200] and spl_lower[:200] in desc_lower) or (
+                desc_lower[:200] and desc_lower[:200] in spl_lower
+            ):
+                kaggle_description = None
+            elif len(kaggle_description) > 800:
+                kaggle_description = None
+
         return InteractionResponse(
             drug1=drug1,
             drug2=drug2,
@@ -669,7 +681,7 @@ def get_interaction(
             drug1_rxcui=r1,
             drug2_rxcui=r2,
             severity=pair.get("severity"),
-            description=pair.get("description") or None,
+            description=kaggle_description,
             spl_text=selected_description,
             confidence=pair.get("confidence"),
             source_kaggle=bool(pair.get("source_kaggle")),

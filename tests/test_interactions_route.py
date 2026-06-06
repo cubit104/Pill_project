@@ -202,10 +202,37 @@ def test_interaction_skips_pair_write_when_openfda_pair_already_current(client, 
     response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
     assert response.status_code == 200
     payload = response.json()
-    assert payload["description"] == "Current OpenFDA text"
+    assert payload["description"] is None
     assert payload["spl_text"] == "Current OpenFDA text"
     assert payload["source_openfda"] is True
     assert cache_calls == []
+
+
+def test_interaction_suppresses_very_long_description_when_spl_text_exists(client, monkeypatch):
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+    long_description = "A" * 850
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {"rxcui": "1191" if name == "aspirin" else "5640"})
+    monkeypatch.setattr(
+        interactions,
+        "get_interaction_pair",
+        lambda conn, r1, r2: {
+            "severity": "major",
+            "description": long_description,
+            "confidence": "high",
+            "source_kaggle": True,
+            "source_openfda": False,
+        },
+    )
+    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: ("Short SPL warning text.", "spl_professional"))
+    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("", ""))
+    monkeypatch.setattr(interactions, "cache_low_confidence_interaction", lambda *args, **kwargs: None)
+
+    response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["description"] is None
+    assert payload["spl_text"] == "Short SPL warning text."
 
 
 def test_fetch_openfda_interaction_text_escapes_generic_quotes(monkeypatch):

@@ -6,6 +6,8 @@ from typing import Optional
 from lxml import etree
 from lxml import html as lxml_html
 
+_MAX_EXTRACT_CHARS = 800
+
 
 def _tag_name(node: etree._Element) -> str:
     if not isinstance(node.tag, str):
@@ -41,6 +43,38 @@ def _candidate_occurrences(text: str, candidate_names: set[str]) -> int:
     return sum(lowered.count(name) for name in candidate_names)
 
 
+def _extract_by_sentence(full_text: str, candidate_names: set[str], max_sentences: int = 5) -> Optional[str]:
+    sentences = re.split(r'(?<=[.!?])\s+', full_text.strip())
+    matching_indices = [
+        idx
+        for idx, sentence in enumerate(sentences)
+        if any(name in sentence.lower() for name in candidate_names)
+    ]
+    if not matching_indices:
+        return None
+
+    start = max(0, matching_indices[0] - 1)
+    end = min(len(sentences), matching_indices[-1] + 2)
+    window = sentences[start:end]
+    if len(window) > max_sentences:
+        window = window[:max_sentences]
+
+    result = " ".join(window).strip()
+    return result or None
+
+
+def _cap_text(text: str, max_chars: int = _MAX_EXTRACT_CHARS) -> str:
+    cleaned = (text or "").strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+
+    clipped = cleaned[:max_chars].rstrip()
+    sentence_end = max(clipped.rfind("."), clipped.rfind("!"), clipped.rfind("?"))
+    if sentence_end > 0:
+        return clipped[: sentence_end + 1].strip()
+    return clipped
+
+
 def extract_targeted_paragraph(section_html: str, candidate_names: set[str]) -> Optional[str]:
     """
     Given the HTML of a drug-interactions SPL section and a set of lowercase
@@ -72,8 +106,9 @@ def extract_targeted_paragraph(section_html: str, candidate_names: set[str]) -> 
     heading_tags = {"h3", "h4"}
     body_tags = {"p", "ul", "li"}
     blocks: list[list[etree._Element]] = []
+    has_heading_structure = any(_tag_name(node) in heading_tags for node in children)
 
-    if any(_tag_name(node) in heading_tags for node in children):
+    if has_heading_structure:
         i = 0
         while i < len(children):
             tag = _tag_name(children[i])
@@ -121,5 +156,12 @@ def extract_targeted_paragraph(section_html: str, candidate_names: set[str]) -> 
             matches.append(block_text)
 
     if not matches:
+        if not has_heading_structure:
+            sentence_match = _extract_by_sentence(
+                _clean_spl_text(_plain_text([container])),
+                normalized_candidates,
+            )
+            if sentence_match:
+                return _cap_text(sentence_match) or None
         return None
-    return "\n".join(matches).strip()
+    return _cap_text("\n".join(matches)) or None
