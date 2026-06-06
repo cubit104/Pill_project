@@ -35,9 +35,10 @@ def _fetch_interactions_text(client: httpx.Client, rxcui: str, generic_name: str
     generic = (generic_name or "").strip()
     if not generic:
         return "", ""
+    escaped_generic = generic.replace('"', '\\"')
     response = client.get(
         OPENFDA_URL,
-        params={"search": f'openfda.generic_name:"{generic}"', "limit": 1},
+        params={"search": f'openfda.generic_name:"{escaped_generic}"', "limit": 1},
         timeout=12,
     )
     if response.status_code != 200:

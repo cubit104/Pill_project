@@ -249,9 +249,10 @@ def fetch_openfda_interaction_text(rxcui: str, generic_name: Optional[str]) -> t
     generic = (generic_name or "").strip()
     if not generic:
         return "", ""
+    escaped_generic = generic.replace('"', '\\"')
     response = httpx.get(
         OPENFDA_URL,
-        params={"search": f'openfda.generic_name:"{generic}"', "limit": 1},
+        params={"search": f'openfda.generic_name:"{escaped_generic}"', "limit": 1},
         timeout=12,
     )
     if response.status_code != 200:
@@ -592,6 +593,8 @@ def get_interaction(
             if matched:
                 selected_description, selected_source = matched
                 break
+        if not selected_description and cached_candidates:
+            selected_description, selected_source = cached_candidates[0]
 
         if not selected_description:
             try:
@@ -648,7 +651,10 @@ def get_interaction(
                 logger.warning("Live OpenFDA fallback failed for (%s, %s): %s", drug1, drug2, exc)
 
         if selected_description and selected_source == "openfda":
-            cache_low_confidence_interaction(conn, r1, r2, drug1, drug2, selected_description)
+            pair_description = (pair.get("description") or "").strip()
+            should_cache_pair = (not bool(pair.get("source_openfda"))) or (pair_description != selected_description)
+            if should_cache_pair:
+                cache_low_confidence_interaction(conn, r1, r2, drug1, drug2, selected_description)
 
         return InteractionResponse(
             drug1=drug1,

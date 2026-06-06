@@ -218,17 +218,20 @@ export default function InteractionsCheckerClient() {
 
   const filterOptions: Array<{ id: SeverityFilter; label: string; count: number; dotClass?: string }> = useMemo(
     () => [
-      { id: 'all', label: 'All', count: foundCount },
+      { id: 'all', label: 'All', count: (results || []).filter((item) => item.error || item.result?.found === true).length },
       { id: 'major', label: 'Major', count: severitySummary.major, dotClass: 'bg-red-500' },
       { id: 'moderate', label: 'Moderate', count: severitySummary.moderate, dotClass: 'bg-orange-400' },
       { id: 'minor', label: 'Minor', count: severitySummary.minor, dotClass: 'bg-yellow-400' },
       { id: 'unknown', label: 'Unknown', count: severitySummary.unknown, dotClass: 'bg-slate-300' },
     ],
-    [foundCount, severitySummary]
+    [results, severitySummary]
   )
 
   const visibleResults = useMemo(() => {
-    if (!results || severityFilter === 'all') return results || []
+    if (!results) return []
+    if (severityFilter === 'all') {
+      return results.filter((item) => item.error || item.result?.found === true)
+    }
     return results.filter(
       (item) => item.result?.found === true && severityKey(item.result?.severity) === severityFilter
     )
@@ -325,7 +328,7 @@ export default function InteractionsCheckerClient() {
             Found {foundCount} interaction(s) across {results.length} pairs checked
           </h2>
 
-          <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 pb-3">
+          <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 pb-3" role="group" aria-label="Filter interactions by severity">
             {filterOptions.map((option) => {
               const active = severityFilter === option.id
               return (
@@ -333,6 +336,7 @@ export default function InteractionsCheckerClient() {
                   key={option.id}
                   type="button"
                   onClick={() => setSeverityFilter(option.id)}
+                  aria-pressed={active}
                   className={`inline-flex items-center gap-2 text-sm ${
                     active ? 'font-semibold text-slate-900 underline underline-offset-4' : 'text-slate-600 hover:text-slate-900'
                   }`}
