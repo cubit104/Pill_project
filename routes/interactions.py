@@ -194,6 +194,11 @@ def get_interaction_pair(conn, rxcui_1: str, rxcui_2: str) -> Optional[dict]:
 
 
 def search_cached_label_text(conn, rxcui: str, counterpart_names: set[str]) -> tuple[Optional[str], Optional[str]]:
+    """Return cached interaction text and source for one RXCUI.
+
+    Returns a tuple of (description_text, source). Both tuple values are None
+    when no matching cached content is found.
+    """
     row = conn.execute(
         text("SELECT interactions_text, source FROM drug_interactions_text WHERE rxcui = :rxcui LIMIT 1"),
         {"rxcui": rxcui},
@@ -232,6 +237,15 @@ def _text_matches_candidates(text_value: str, candidate_names: set[str]) -> bool
 
 
 def fetch_openfda_interaction_text(rxcui: str, generic_name: Optional[str]) -> tuple[str, str]:
+    """Fetch interaction text from OpenFDA by generic name.
+
+    Args:
+        rxcui: Ingredient RXCUI associated with the lookup.
+        generic_name: Resolved generic name used in OpenFDA search query.
+
+    Returns:
+        A tuple of (drug_name, interaction_text). Empty strings indicate no hit.
+    """
     generic = (generic_name or "").strip()
     if not generic:
         return "", ""

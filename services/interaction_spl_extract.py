@@ -26,6 +26,10 @@ def extract_targeted_paragraph(section_html: str, candidate_names: set[str]) -> 
     Given the HTML of a drug-interactions SPL section and a set of lowercase
     candidate names, return the plain text of the paragraph block(s) that
     mention any candidate name.
+
+    Args:
+        section_html: HTML content for the SPL drug-interactions section.
+        candidate_names: Lowercased drug names/synonyms to match.
     """
     if not isinstance(section_html, str) or not section_html.strip():
         return None

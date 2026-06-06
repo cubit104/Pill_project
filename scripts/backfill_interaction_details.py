@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> None:
                             interactions_text = EXCLUDED.interactions_text,
                             source = EXCLUDED.source,
                             updated_at = NOW()
-                        WHERE COALESCE(drug_interactions_text.source, '') <> 'manual'
+                        WHERE COALESCE(source, '') <> 'manual'
                         """
                     ),
                     {

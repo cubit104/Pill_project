@@ -37,6 +37,7 @@ const MAX_DRUGS = 10
 const MIN_DRUGS_ERROR = 'Add at least 2 medications to check interactions.'
 const MAX_DRUGS_ERROR = 'Maximum 10 drugs allowed. Remove one to add another.'
 const INPUT_ID = 'interactions-drug-input'
+const FALLBACK_DESCRIPTION = 'Interaction identified in clinical drug databases.\nConsult your pharmacist or prescriber before use.'
 
 const SEVERITY_RANK: Record<Severity, number> = {
   major: 0,
@@ -372,7 +373,7 @@ export default function InteractionsCheckerClient() {
             const style = SEVERITY_STYLES[severity]
             const displayTitle = `${drugLabel(item.drug1, item.result.drug1_generic)} ⇌ ${drugLabel(item.drug2, item.result.drug2_generic)}`
             const applies = `${appliesLabel(item.result.drug1_brands, item.result.drug1_generic, item.drug1)}, ${appliesLabel(item.result.drug2_brands, item.result.drug2_generic, item.drug2)}`
-            const description = item.result.description || 'Interaction identified in clinical drug databases.\nConsult your pharmacist or prescriber before use.'
+            const description = item.result.description || FALLBACK_DESCRIPTION
 
             return (
               <article key={key} className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
