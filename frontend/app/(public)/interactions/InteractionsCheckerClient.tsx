@@ -392,12 +392,23 @@ export default function InteractionsCheckerClient() {
                     {displayTitle}
                   </h3>
                 </div>
-                <p className={`mt-2 text-sm ${style.text}`}>
-                  <span className="font-medium">Applies to:</span> {applies}
+                <p className={`mt-1.5 text-xs ${style.text} opacity-70`}>
+                  <span className="font-semibold">Applies to:</span> {applies}
                 </p>
-                {description ? <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>{description}</p> : null}
+                {description ? (
+                  <p className={`mt-3 text-sm leading-relaxed font-medium ${style.text}`}>
+                    {description}
+                  </p>
+                ) : null}
                 {splText ? (
-                  <p className={`${description ? 'mt-2' : 'mt-3'} whitespace-pre-line text-sm ${style.text}`}>{splText}</p>
+                  <div className="mt-3 rounded-md border-l-4 border-current/20 bg-white/40 px-3 py-2">
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Clinical Detail
+                    </p>
+                    <p className={`text-sm leading-relaxed ${style.text} opacity-90`}>
+                      {splText}
+                    </p>
+                  </div>
                 ) : null}
                 {!description && !splText ? (
                   <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>{FALLBACK_DESCRIPTION}</p>
