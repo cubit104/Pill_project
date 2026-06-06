@@ -85,12 +85,6 @@ def canonical_pair(rxcui_1: str, rxcui_2: str, drug_1: str, drug_2: str) -> tupl
 
 
 def _resolve_to_ingredient_rxcui(rxcui: str) -> str:
-    """Resolve a brand/product RXCUI to an ingredient-level RXCUI using RxNorm.
-
-    Calls GET rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/related.json?tty=IN and
-    returns the first ingredient RXCUI found.  Falls back to the original
-    ``rxcui`` on any error or empty result.
-    """
     try:
         url = f"https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/related.json"
         response = httpx.get(url, params={"tty": "IN"}, timeout=10)
@@ -195,11 +189,6 @@ def get_interaction_pair(conn, rxcui_1: str, rxcui_2: str) -> Optional[dict]:
 
 
 def search_cached_label_text(conn, rxcui: str, counterpart_names: set[str]) -> tuple[Optional[str], Optional[str]]:
-    """Return cached interaction text and source for one RXCUI.
-
-    Returns a tuple of (description_text, source). Both tuple values are None
-    when no matching cached content is found.
-    """
     row = conn.execute(
         text("SELECT interactions_text, source FROM drug_interactions_text WHERE rxcui = :rxcui LIMIT 1"),
         {"rxcui": rxcui},
@@ -238,15 +227,6 @@ def _text_matches_candidates(text_value: str, candidate_names: set[str]) -> bool
 
 
 def fetch_openfda_interaction_text(rxcui: str, generic_name: Optional[str]) -> tuple[str, str]:
-    """Fetch interaction text from OpenFDA by generic name.
-
-    Args:
-        rxcui: Ingredient RXCUI associated with the lookup.
-        generic_name: Resolved generic name used in OpenFDA search query.
-
-    Returns:
-        A tuple of (drug_name, interaction_text). Empty strings indicate no hit.
-    """
     generic = (generic_name or "").strip()
     if not generic:
         return "", ""
@@ -266,7 +246,8 @@ def fetch_openfda_interaction_text(rxcui: str, generic_name: Optional[str]) -> t
     return str(drug_name).strip(), interaction_text
 
 
-def cache_low_confidence_interaction(conn, rxcui_1: str, rxcui_2: str, drug_1: str, drug_2: str, description: str) -> None:
+def cache_new_pair_only(conn, rxcui_1: str, rxcui_2: str, drug_1: str, drug_2: str, description: str) -> None:
+    """Only insert brand-new pairs. Never update existing rows — Kaggle descriptions are protected."""
     r1, r2, n1, n2 = canonical_pair(rxcui_1, rxcui_2, drug_1, drug_2)
     conn.execute(
         text(
@@ -275,16 +256,7 @@ def cache_low_confidence_interaction(conn, rxcui_1: str, rxcui_2: str, drug_1: s
                 (rxcui_1, rxcui_2, drug_name_1, drug_name_2, description, severity, confidence, source_kaggle, source_openfda, updated_at)
             VALUES
                 (:r1, :r2, :n1, :n2, :description, :severity, 'low', FALSE, TRUE, NOW())
-            ON CONFLICT (rxcui_1, rxcui_2) DO UPDATE
-            SET source_openfda = TRUE,
-                confidence = CASE
-                    WHEN drug_interactions.source_kaggle THEN 'high'
-                    WHEN drug_interactions.source_openfda THEN COALESCE(drug_interactions.confidence, 'low')
-                    ELSE 'low'
-                END,
-                description = EXCLUDED.description,
-                severity = EXCLUDED.severity,
-                updated_at = NOW()
+            ON CONFLICT (rxcui_1, rxcui_2) DO NOTHING
             """
         ),
         {
@@ -305,11 +277,6 @@ def get_interactions_for_drug(
     page: int = 1,
     per_page: int = 20,
 ) -> tuple[int, dict, list[dict]]:
-    """
-    Return (total, severity_summary, interactions) for all pairs involving rxcui.
-    Handles the canonical ordering — the queried drug may live in rxcui_1 or rxcui_2.
-    The severity_summary always reflects the full unfiltered set.
-    """
     base_params: dict = {"rxcui": rxcui}
     has_severity_filter = bool(severity and severity in _VALID_SEVERITIES)
     if has_severity_filter:
@@ -322,13 +289,9 @@ def get_interactions_for_drug(
     """
     if has_severity_filter:
         count_sql += " AND severity = :severity"
-    count_row = conn.execute(
-        text(count_sql),
-        base_params,
-    ).fetchone()
+    count_row = conn.execute(text(count_sql), base_params).fetchone()
     total = int(count_row[0]) if count_row else 0
 
-    # Severity summary always over the full unfiltered set
     summary_rows = conn.execute(
         text(
             """
@@ -372,10 +335,7 @@ def get_interactions_for_drug(
             CASE WHEN rxcui_1 = :rxcui THEN drug_name_2 ELSE drug_name_1 END
         LIMIT :limit OFFSET :offset
     """
-    result_rows = conn.execute(
-        text(interactions_sql),
-        paginated_params,
-    ).fetchall()
+    result_rows = conn.execute(text(interactions_sql), paginated_params).fetchall()
 
     interactions = [
         {
@@ -394,14 +354,9 @@ def get_interactions_for_drug(
 
 @router.get("/api/interactions/suggestions")
 def get_interaction_drug_suggestions(
-    q: str = Query(..., min_length=1, description="Drug name prefix to search (must be at least 2 characters to return results)"),
-    limit: int = Query(10, ge=1, le=20, description="Max suggestions to return"),
+    q: str = Query(..., min_length=1),
+    limit: int = Query(10, ge=1, le=20),
 ):
-    """
-    Autocomplete suggestions for drug names from drug_interactions and drug_synonyms.
-    Queries drug_name_1/drug_name_2 and drug_synonyms brand_names/generic_name for prefix matches.
-    Returns a list of unique drug name strings.
-    """
     norm_q = q.strip()
     if len(norm_q) < 2:
         return []
@@ -456,7 +411,7 @@ def get_interaction_drug_suggestions(
 
 
 @router.get("/api/interactions/resolve")
-def resolve_interaction_name(name: str = Query(..., description="Drug name to resolve")):
+def resolve_interaction_name(name: str = Query(...)):
     if not database.db_engine and not database.connect_to_database():
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -473,23 +428,13 @@ def resolve_interaction_name(name: str = Query(..., description="Drug name to re
 
 @router.get("/api/interactions/{drug}", response_model=DrugInteractionsListResponse)
 def list_interactions_for_drug(
-    drug: str = Path(..., description="Drug name or brand name"),
-    severity: Optional[str] = Query(None, description="Filter by severity: major, moderate, minor, unknown"),
-    page: int = Query(1, ge=1, description="Page number (1-based)"),
-    per_page: int = Query(20, ge=1, le=100, description="Results per page (max 100)"),
+    drug: str = Path(...),
+    severity: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
 ):
-    """
-    List all known drug interactions for a single drug.
-
-    Results are ordered by severity (major → moderate → minor → unknown) then
-    interacting drug name. The `severity_summary` field always reflects the full
-    unfiltered counts regardless of the `severity` query parameter.
-    """
     if severity is not None and severity not in _VALID_SEVERITIES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid severity '{severity}'. Must be one of: {sorted(_VALID_SEVERITIES)}",
-        )
+        raise HTTPException(status_code=422, detail=f"Invalid severity '{severity}'.")
 
     if not database.db_engine and not database.connect_to_database():
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -499,10 +444,7 @@ def list_interactions_for_drug(
         rxcui = resolved.get("rxcui")
 
         if not rxcui:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Could not resolve '{drug}' to a known drug. Check spelling or try the generic name.",
-            )
+            raise HTTPException(status_code=404, detail=f"Could not resolve '{drug}'.")
 
         total, severity_summary, interactions = get_interactions_for_drug(
             conn, rxcui, severity=severity, page=page, per_page=per_page
@@ -523,8 +465,8 @@ def list_interactions_for_drug(
 
 @router.get("/api/interactions", response_model=InteractionResponse)
 def get_interaction(
-    drug1: str = Query(..., description="First drug name"),
-    drug2: str = Query(..., description="Second drug name"),
+    drug1: str = Query(...),
+    drug2: str = Query(...),
 ):
     if not database.db_engine and not database.connect_to_database():
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -541,46 +483,28 @@ def get_interaction(
 
         if not r1 or not r2:
             return InteractionResponse(
-                drug1=drug1,
-                drug2=drug2,
-                drug1_generic=generic_1,
-                drug2_generic=generic_2,
-                drug1_brands=brands_1,
-                drug2_brands=brands_2,
-                drug1_rxcui=r1,
-                drug2_rxcui=r2,
-                severity=None,
-                description=None,
-                spl_text=None,
-                confidence=None,
-                source_kaggle=False,
-                source_openfda=False,
-                found=False,
-                message="No interaction data found",
+                drug1=drug1, drug2=drug2,
+                drug1_generic=generic_1, drug2_generic=generic_2,
+                drug1_brands=brands_1, drug2_brands=brands_2,
+                drug1_rxcui=r1, drug2_rxcui=r2,
+                severity=None, description=None, spl_text=None,
+                confidence=None, source_kaggle=False, source_openfda=False,
+                found=False, message="No interaction data found",
             )
 
         pair = get_interaction_pair(conn, r1, r2)
         if not pair:
             return InteractionResponse(
-                drug1=drug1,
-                drug2=drug2,
-                drug1_generic=generic_1,
-                drug2_generic=generic_2,
-                drug1_brands=brands_1,
-                drug2_brands=brands_2,
-                drug1_rxcui=r1,
-                drug2_rxcui=r2,
-                severity=None,
-                description=None,
-                spl_text=None,
-                confidence=None,
-                source_kaggle=False,
-                source_openfda=False,
-                found=False,
-                message="No interaction data found",
+                drug1=drug1, drug2=drug2,
+                drug1_generic=generic_1, drug2_generic=generic_2,
+                drug1_brands=brands_1, drug2_brands=brands_2,
+                drug1_rxcui=r1, drug2_rxcui=r2,
+                severity=None, description=None, spl_text=None,
+                confidence=None, source_kaggle=False, source_openfda=False,
+                found=False, message="No interaction data found",
             )
 
-        # Kaggle description — always unchanged from DB
+        # Kaggle description — always read straight from DB, never overwritten
         kaggle_description: Optional[str] = (pair.get("description") or "").strip() or None
 
         first_candidates = _candidate_names(resolved_2, drug2)
@@ -588,6 +512,7 @@ def get_interaction(
         selected_spl_text: Optional[str] = None
         selected_source: Optional[str] = None
 
+        # Try cached SPL/OpenFDA text from drug_interactions_text
         cached_candidates: list[tuple[str, str]] = []
         for rx, names in ((r1, first_candidates), (r2, second_candidates)):
             cached_text, cached_source = search_cached_label_text(conn, rx, names)
@@ -602,75 +527,40 @@ def get_interaction(
         if not selected_spl_text and cached_candidates:
             selected_spl_text, selected_source = cached_candidates[0]
 
+        # Live OpenFDA fallback — only writes to drug_interactions_text, NEVER to drug_interactions
         if not selected_spl_text:
-            try:
-                source_name, live_text = fetch_openfda_interaction_text(r1, generic_1)
-                if live_text and _text_matches_candidates(live_text, first_candidates):
-                    conn.execute(
-                        text(
-                            """
-                            INSERT INTO drug_interactions_text (rxcui, drug_name, interactions_text, source, updated_at)
-                            VALUES (:rxcui, :drug_name, :interactions_text, 'openfda', NOW())
-                            ON CONFLICT (rxcui) DO UPDATE
-                            SET drug_name = EXCLUDED.drug_name,
-                                interactions_text = EXCLUDED.interactions_text,
-                                source = EXCLUDED.source,
-                                updated_at = NOW()
-                            """
-                        ),
-                        {
-                            "rxcui": r1,
-                            "drug_name": source_name or drug1,
-                            "interactions_text": live_text,
-                        },
-                    )
-                    selected_spl_text = live_text
-                    selected_source = "openfda"
-            except Exception as exc:
-                logger.warning("Live OpenFDA fallback failed for (%s, %s): %s", drug1, drug2, exc)
-
-        if not selected_spl_text:
-            try:
-                source_name, live_text = fetch_openfda_interaction_text(r2, generic_2)
-                if live_text and _text_matches_candidates(live_text, second_candidates):
-                    conn.execute(
-                        text(
-                            """
-                            INSERT INTO drug_interactions_text (rxcui, drug_name, interactions_text, source, updated_at)
-                            VALUES (:rxcui, :drug_name, :interactions_text, 'openfda', NOW())
-                            ON CONFLICT (rxcui) DO UPDATE
-                            SET drug_name = EXCLUDED.drug_name,
-                                interactions_text = EXCLUDED.interactions_text,
-                                source = EXCLUDED.source,
-                                updated_at = NOW()
-                            """
-                        ),
-                        {
-                            "rxcui": r2,
-                            "drug_name": source_name or drug2,
-                            "interactions_text": live_text,
-                        },
-                    )
-                    selected_spl_text = live_text
-                    selected_source = "openfda"
-            except Exception as exc:
-                logger.warning("Live OpenFDA fallback failed for (%s, %s): %s", drug1, drug2, exc)
-
-        if selected_spl_text and selected_source == "openfda":
-            pair_description = (pair.get("description") or "").strip()
-            should_cache_pair = (not bool(pair.get("source_openfda"))) or (pair_description != selected_spl_text)
-            if should_cache_pair:
-                cache_low_confidence_interaction(conn, r1, r2, drug1, drug2, selected_spl_text)
+            for rx, generic, names, drug_label in (
+                (r1, generic_1, first_candidates, drug1),
+                (r2, generic_2, second_candidates, drug2),
+            ):
+                try:
+                    source_name, live_text = fetch_openfda_interaction_text(rx, generic)
+                    if live_text and _text_matches_candidates(live_text, names):
+                        conn.execute(
+                            text(
+                                """
+                                INSERT INTO drug_interactions_text (rxcui, drug_name, interactions_text, source, updated_at)
+                                VALUES (:rxcui, :drug_name, :interactions_text, 'openfda', NOW())
+                                ON CONFLICT (rxcui) DO UPDATE
+                                SET drug_name = EXCLUDED.drug_name,
+                                    interactions_text = EXCLUDED.interactions_text,
+                                    source = EXCLUDED.source,
+                                    updated_at = NOW()
+                                """
+                            ),
+                            {"rxcui": rx, "drug_name": source_name or drug_label, "interactions_text": live_text},
+                        )
+                        selected_spl_text = live_text
+                        selected_source = "openfda"
+                        break
+                except Exception as exc:
+                    logger.warning("Live OpenFDA fallback failed for (%s, %s): %s", drug1, drug2, exc)
 
         return InteractionResponse(
-            drug1=drug1,
-            drug2=drug2,
-            drug1_generic=generic_1,
-            drug2_generic=generic_2,
-            drug1_brands=brands_1,
-            drug2_brands=brands_2,
-            drug1_rxcui=r1,
-            drug2_rxcui=r2,
+            drug1=drug1, drug2=drug2,
+            drug1_generic=generic_1, drug2_generic=generic_2,
+            drug1_brands=brands_1, drug2_brands=brands_2,
+            drug1_rxcui=r1, drug2_rxcui=r2,
             severity=pair.get("severity"),
             description=kaggle_description,
             spl_text=selected_spl_text,
