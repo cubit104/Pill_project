@@ -47,8 +47,15 @@ def _resolve_rxcui(client: httpx.Client, name: str) -> str | None:
     return None
 
 
-def _fetch_interaction_text_by_rxcui(client: httpx.Client, rxcui: str) -> tuple[str, str]:
-    response = client.get(OPENFDA_URL, params={"search": f"openfda.rxcui:{rxcui}", "limit": 1}, timeout=12)
+def _fetch_interaction_text_by_rxcui(client: httpx.Client, rxcui: str, generic_name: str | None) -> tuple[str, str]:
+    generic = (generic_name or "").strip()
+    if not generic:
+        return "", ""
+    response = client.get(
+        OPENFDA_URL,
+        params={"search": f'openfda.generic_name:"{generic}"', "limit": 1},
+        timeout=12,
+    )
     if response.status_code != 200:
         return "", ""
     payload = response.json() or {}
@@ -127,6 +134,21 @@ def _fetch_recent_label_results(client: httpx.Client, days_back: int) -> list[di
     return (response.json() or {}).get("results") or []
 
 
+def _lookup_generic_name(conn, rxcui: str) -> str:
+    row = conn.execute(
+        text(
+            """
+            SELECT generic_name
+            FROM drug_synonyms
+            WHERE ingredient_rxcui::text = :rxcui
+            LIMIT 1
+            """
+        ),
+        {"rxcui": str(rxcui)},
+    ).fetchone()
+    return str(row[0]).strip() if row and row[0] else ""
+
+
 def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
 
@@ -152,22 +174,34 @@ def main(argv: list[str] | None = None) -> None:
         with httpx.Client(timeout=15) as client:
             recent = _fetch_recent_label_results(client, args.days_back)
             target_rxcuis: set[str] = {str(r[0]).strip() for r in stale_rows if r and r[0]}
+            rxcui_to_generic: dict[str, str] = {}
 
             for item in recent:
                 openfda = item.get("openfda") or {}
+                candidate_generic = (
+                    ((openfda.get("generic_name") or [None])[0])
+                    or ((openfda.get("brand_name") or [None])[0])
+                    or ""
+                )
                 for rxcui in openfda.get("rxcui") or []:
                     if rxcui:
-                        target_rxcuis.add(str(rxcui).strip())
+                        cleaned = str(rxcui).strip()
+                        target_rxcuis.add(cleaned)
+                        if candidate_generic and cleaned not in rxcui_to_generic:
+                            rxcui_to_generic[cleaned] = str(candidate_generic).strip()
                 if not (openfda.get("rxcui") or []):
                     name = ((openfda.get("generic_name") or [None])[0]) or ((openfda.get("brand_name") or [None])[0])
                     resolved = _resolve_rxcui(client, str(name or ""))
                     if resolved:
                         target_rxcuis.add(resolved)
+                        if candidate_generic and resolved not in rxcui_to_generic:
+                            rxcui_to_generic[resolved] = str(candidate_generic).strip()
 
             for rxcui in sorted(target_rxcuis):
                 processed += 1
                 try:
-                    drug_name, interaction_text = _fetch_interaction_text_by_rxcui(client, rxcui)
+                    generic_name = rxcui_to_generic.get(rxcui) or _lookup_generic_name(conn, rxcui)
+                    drug_name, interaction_text = _fetch_interaction_text_by_rxcui(client, rxcui, generic_name)
                     if interaction_text:
                         _upsert_text(conn, rxcui, drug_name, interaction_text, args.dry_run)
                         upserted += 1
