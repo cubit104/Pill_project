@@ -397,7 +397,7 @@ export default function InteractionsCheckerClient() {
                 </p>
                 {description ? <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>{description}</p> : null}
                 {splText ? (
-                  <p className={`${description ? 'mt-2' : 'mt-3'} whitespace-pre-line text-sm ${style.text}`}>{splText}</p>
+                  <p className={`${description ? 'mt-2' : 'mt-3'} whitespace-pre-line text-sm ${style.text} opacity-80`}>{splText}</p>
                 ) : null}
                 {!description && !splText ? (
                   <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>{FALLBACK_DESCRIPTION}</p>
