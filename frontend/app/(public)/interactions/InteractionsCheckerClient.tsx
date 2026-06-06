@@ -401,11 +401,11 @@ export default function InteractionsCheckerClient() {
                   </p>
                 ) : null}
                 {splText ? (
-                  <div className="mt-3 rounded-md border-l-4 border-current/20 bg-white/40 px-3 py-2">
+                  <div className={`mt-3 rounded-md border-l-4 border-current/20 bg-white/40 px-3 py-2 ${style.text}`}>
                     <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Clinical Detail
                     </p>
-                    <p className={`text-sm leading-relaxed ${style.text} opacity-90`}>
+                    <p className={`whitespace-pre-line text-sm leading-relaxed ${style.text} opacity-90`}>
                       {splText}
                     </p>
                   </div>
