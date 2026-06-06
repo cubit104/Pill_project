@@ -6,6 +6,8 @@ from typing import Optional
 from lxml import etree
 from lxml import html as lxml_html
 
+MAX_SHORT_BLOCK_LENGTH = 600
+
 
 def _tag_name(node: etree._Element) -> str:
     if not isinstance(node.tag, str):
@@ -102,13 +104,13 @@ def extract_targeted_paragraph(section_html: str, candidate_names: set[str]) -> 
             blocks = [
                 block
                 for score, block_text, block in scored_blocks
-                if score == densest_score and (score > 1 or len(block_text) < 600)
+                if score == densest_score and (score > 1 or len(block_text) < MAX_SHORT_BLOCK_LENGTH)
             ]
             if not blocks:
                 blocks = [
                     block
                     for score, block_text, block in scored_blocks
-                    if score > 1 or len(block_text) < 600
+                    if score > 1 or len(block_text) < MAX_SHORT_BLOCK_LENGTH
                 ]
         else:
             blocks = []
