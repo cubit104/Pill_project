@@ -17,6 +17,8 @@ router = APIRouter()
 RXNORM_URL = "https://rxnav.nlm.nih.gov/REST/rxcui.json"
 OPENFDA_URL = "https://api.fda.gov/drug/label.json"
 _VALID_SEVERITIES = frozenset({"major", "moderate", "minor", "unknown"})
+_DEDUP_PREFIX_LENGTH = 200
+_MAX_DESCRIPTION_LENGTH = 800
 
 
 class InteractionResponse(BaseModel):
@@ -664,11 +666,11 @@ def get_interaction(
         if kaggle_description and selected_description:
             desc_lower = kaggle_description.lower()
             spl_lower = selected_description.lower()
-            if (spl_lower[:200] and spl_lower[:200] in desc_lower) or (
-                desc_lower[:200] and desc_lower[:200] in spl_lower
-            ):
+            spl_prefix = spl_lower[:_DEDUP_PREFIX_LENGTH]
+            desc_prefix = desc_lower[:_DEDUP_PREFIX_LENGTH]
+            if (spl_prefix and spl_prefix in desc_lower) or (desc_prefix and desc_prefix in spl_lower):
                 kaggle_description = None
-            elif len(kaggle_description) > 800:
+            elif len(kaggle_description) > _MAX_DESCRIPTION_LENGTH:
                 kaggle_description = None
 
         return InteractionResponse(

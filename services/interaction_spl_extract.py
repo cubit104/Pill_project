@@ -7,6 +7,8 @@ from lxml import etree
 from lxml import html as lxml_html
 
 _MAX_EXTRACT_CHARS = 800
+_SENTENCE_ENDINGS = ".!?"
+_SENTENCE_SPLIT_RE = re.compile(rf'(?<=[{re.escape(_SENTENCE_ENDINGS)}])\s+')
 
 
 def _tag_name(node: etree._Element) -> str:
@@ -44,7 +46,7 @@ def _candidate_occurrences(text: str, candidate_names: set[str]) -> int:
 
 
 def _extract_by_sentence(full_text: str, candidate_names: set[str], max_sentences: int = 5) -> Optional[str]:
-    sentences = re.split(r'(?<=[.!?])\s+', full_text.strip())
+    sentences = _SENTENCE_SPLIT_RE.split(full_text.strip())
     matching_indices = [
         idx
         for idx, sentence in enumerate(sentences)
@@ -69,7 +71,7 @@ def _cap_text(text: str, max_chars: int = _MAX_EXTRACT_CHARS) -> str:
         return cleaned
 
     clipped = cleaned[:max_chars].rstrip()
-    sentence_end = max(clipped.rfind("."), clipped.rfind("!"), clipped.rfind("?"))
+    sentence_end = max((clipped.rfind(mark) for mark in _SENTENCE_ENDINGS), default=-1)
     if sentence_end > 0:
         return clipped[: sentence_end + 1].strip()
     return clipped
