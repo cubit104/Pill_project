@@ -29,3 +29,33 @@ def test_extract_targeted_paragraph_returns_none_when_no_match():
     </section>
     """
     assert extract_targeted_paragraph(section_html, {"clopidogrel"}) is None
+
+
+def test_extract_targeted_paragraph_cleans_cross_references_and_section_numbers():
+    section_html = """
+    <section>
+      <h3>7.2 CYP2C19 Inhibitors</h3>
+      <p>( 7.1 ) Avoid concomitant use of omeprazole with clopidogrel [see Warnings and Precautions (5.1)] [see Clinical Pharmacology (12.3)].</p>
+    </section>
+    """
+    result = extract_targeted_paragraph(section_html, {"omeprazole"})
+    assert result is not None
+    assert "7.2" not in result
+    assert "( 7.1 )" not in result
+    assert "[see" not in result.lower()
+    assert "(12.3)" not in result
+    assert "omeprazole" in result.lower()
+
+
+def test_extract_targeted_paragraph_no_heading_prefers_dense_short_block():
+    long_text = " ".join(["Overview text"] * 120) + " omeprazole"
+    section_html = f"""
+    <section>
+      <p>{long_text}</p>
+      <p>Avoid omeprazole with clopidogrel. Omeprazole inhibits CYP2C19.</p>
+    </section>
+    """
+    result = extract_targeted_paragraph(section_html, {"omeprazole"})
+    assert result is not None
+    assert "Avoid omeprazole with clopidogrel" in result
+    assert long_text not in result

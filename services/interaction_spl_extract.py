@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from lxml import etree
@@ -19,6 +20,25 @@ def _plain_text(nodes: list[etree._Element]) -> str:
         if text:
             chunks.append(text)
     return "\n".join(chunks).strip()
+
+
+def _clean_spl_text(text: str) -> str:
+    # Remove [see XYZ (N.N)] cross-references
+    text = re.sub(r'\[see[^\]]*\]', '', text, flags=re.IGNORECASE)
+    # Remove bare parenthetical section numbers like ( 7.1 ) or (12.3)
+    text = re.sub(r'\(\s*\d+\.\d+\s*\)', '', text)
+    # Remove leading section number prefixes like "7.2 " or "7 "
+    text = re.sub(r'^\s*\d+(\.\d+)?\s+', '', text, flags=re.MULTILINE)
+    # Collapse multiple spaces
+    text = re.sub(r' {2,}', ' ', text)
+    # Collapse multiple newlines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
+def _candidate_occurrences(text: str, candidate_names: set[str]) -> int:
+    lowered = text.lower()
+    return sum(lowered.count(name) for name in candidate_names)
 
 
 def extract_targeted_paragraph(section_html: str, candidate_names: set[str]) -> Optional[str]:
@@ -68,11 +88,34 @@ def extract_targeted_paragraph(section_html: str, candidate_names: set[str]) -> 
                 i += 1
             blocks.append(block)
     else:
-        blocks = [[node] for node in children if _tag_name(node) == "p"]
+        fallback_blocks = [[node] for node in children if _tag_name(node) in body_tags]
+        scored_blocks: list[tuple[int, str, list[etree._Element]]] = []
+        for block in fallback_blocks:
+            block_text = _plain_text(block)
+            if not block_text:
+                continue
+            score = _candidate_occurrences(block_text, normalized_candidates)
+            if score > 0:
+                scored_blocks.append((score, block_text, block))
+        if scored_blocks:
+            densest_score = max(score for score, _, _ in scored_blocks)
+            blocks = [
+                block
+                for score, block_text, block in scored_blocks
+                if score == densest_score and (score > 1 or len(block_text) < 600)
+            ]
+            if not blocks:
+                blocks = [
+                    block
+                    for score, block_text, block in scored_blocks
+                    if score > 1 or len(block_text) < 600
+                ]
+        else:
+            blocks = []
 
     matches: list[str] = []
     for block in blocks:
-        block_text = _plain_text(block)
+        block_text = _clean_spl_text(_plain_text(block))
         lowered = block_text.lower()
         if block_text and any(name in lowered for name in normalized_candidates):
             matches.append(block_text)

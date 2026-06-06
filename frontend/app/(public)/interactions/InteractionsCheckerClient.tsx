@@ -15,6 +15,7 @@ type InteractionResponse = {
   drug2_brands: string[] | undefined
   severity: string | null
   description: string | null
+  spl_text: string | null
   found: boolean
 }
 
@@ -377,7 +378,8 @@ export default function InteractionsCheckerClient() {
             const style = SEVERITY_STYLES[severity]
             const displayTitle = `${drugLabel(item.drug1, item.result.drug1_generic)} ⇌ ${drugLabel(item.drug2, item.result.drug2_generic)}`
             const applies = `${appliesLabel(item.result.drug1_brands, item.result.drug1_generic, item.drug1)}, ${appliesLabel(item.result.drug2_brands, item.result.drug2_generic, item.drug2)}`
-            const description = item.result.description || FALLBACK_DESCRIPTION
+            const description = item.result.description
+            const splText = item.result.spl_text
 
             return (
               <article key={key} className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
@@ -393,7 +395,13 @@ export default function InteractionsCheckerClient() {
                 <p className={`mt-2 text-sm ${style.text}`}>
                   <span className="font-medium">Applies to:</span> {applies}
                 </p>
-                <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>{description}</p>
+                {description ? <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>{description}</p> : null}
+                {splText ? (
+                  <p className={`${description ? 'mt-2' : 'mt-3'} whitespace-pre-line text-sm ${style.text}`}>{splText}</p>
+                ) : null}
+                {!description && !splText ? (
+                  <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>{FALLBACK_DESCRIPTION}</p>
+                ) : null}
               </article>
             )
           })}
