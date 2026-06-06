@@ -198,7 +198,7 @@ def search_cached_label_text(conn, rxcui: str, counterpart_names: set[str]) -> t
     text_value = str(row[0])
     source = str(row[1] or "").strip().lower()
 
-    # Always try targeted extraction regardless of source —
+    # Always try targeted extraction regardless of source --
     # openfda and spl_professional store the same FDA label text
     targeted = extract_targeted_paragraph(text_value, counterpart_names)
     if targeted:
