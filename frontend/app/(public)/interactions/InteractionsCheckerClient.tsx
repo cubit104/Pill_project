@@ -11,8 +11,8 @@ type InteractionResponse = {
   drug2: string
   drug1_generic: string | null
   drug2_generic: string | null
-  drug1_brands: string[]
-  drug2_brands: string[]
+  drug1_brands: string[] | undefined
+  drug2_brands: string[] | undefined
   severity: string | null
   description: string | null
   found: boolean
@@ -32,7 +32,7 @@ const SEVERITY_STYLES = {
   unknown: { dot: 'bg-slate-300', bg: 'bg-slate-50', border: 'border-slate-200', badge: 'bg-slate-100 text-slate-600', text: 'text-slate-700' },
 } as const
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || ''
 const MAX_DRUGS = 10
 const MIN_DRUGS_ERROR = 'Add at least 2 medications to check interactions.'
 const MAX_DRUGS_ERROR = 'Maximum 10 drugs allowed. Remove one to add another.'
@@ -58,15 +58,15 @@ function severityKey(value: string | null | undefined): Severity {
   return 'unknown'
 }
 
-function drugLabel(typed: string, generic: string | null): string {
+function drugLabel(typed: string, generic: string | null | undefined): string {
   const g = (generic || '').toLowerCase()
   const t = typed.toLowerCase()
   if (g && g !== t) return `${typed} (${generic})`
   return typed
 }
 
-function appliesLabel(brands: string[], generic: string | null, fallback: string): string {
-  const brand = (brands[0] || '').trim()
+function appliesLabel(brands: string[] | undefined, generic: string | null | undefined, fallback: string): string {
+  const brand = ((brands ?? [])[0] || '').trim()
   const gen = (generic || '').trim()
   if (brand && gen && brand.toLowerCase() !== gen.toLowerCase()) return `${brand} (${gen})`
   if (brand) return brand
