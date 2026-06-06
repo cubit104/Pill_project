@@ -59,3 +59,17 @@ def test_extract_targeted_paragraph_no_heading_prefers_dense_short_block():
     assert result is not None
     assert "Avoid omeprazole with clopidogrel" in result
     assert long_text not in result
+
+
+def test_extract_targeted_paragraph_no_heading_uses_sentence_fallback_for_giant_blob():
+    filler = " ".join(["General interaction overview without counterpart mention."] * 40)
+    section_html = f"""
+    <section>
+      <p>{filler} Omeprazole reduces the antiplatelet effect of clopidogrel. Avoid concomitant use when possible. Continue monitoring for reduced efficacy. {filler}</p>
+    </section>
+    """
+    result = extract_targeted_paragraph(section_html, {"omeprazole"})
+    assert result is not None
+    assert "omeprazole reduces the antiplatelet effect of clopidogrel" in result.lower()
+    assert len(result) <= 800
+    assert result[-1] in ".!?"
