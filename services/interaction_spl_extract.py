@@ -6,7 +6,7 @@ from typing import Optional
 from lxml import etree
 from lxml import html as lxml_html
 
-_MAX_EXTRACT_CHARS = 800
+_MAX_EXTRACT_CHARS = 300
 _SENTENCE_ENDINGS = ".!?"
 _SENTENCE_SPLIT_RE = re.compile(rf'(?<=[{re.escape(_SENTENCE_ENDINGS)}])\s+')
 
@@ -33,6 +33,14 @@ def _clean_spl_text(text: str) -> str:
     text = re.sub(r'\(\s*\d+\.\d+\s*\)', '', text)
     # Remove leading section number prefixes like "7.2 " or "7 "
     text = re.sub(r'^\s*\d+(\.\d+)?\s+', '', text, flags=re.MULTILINE)
+    # Strip section headers like "7 DRUG INTERACTIONS" or "DRUG INTERACTIONS"
+    text = re.sub(r'^\s*\d*\s*DRUG INTERACTIONS\s*', '', text, flags=re.IGNORECASE | re.MULTILINE)
+    # Strip subsection colon-titles like "CYP2C19 Inducers:" or "Opioids:" at start of line
+    text = re.sub(r'^\s*[A-Z][A-Za-z0-9/\s,\-\(\)]{2,50}:\s*', '', text, flags=re.MULTILINE)
+    # Strip comma-separated parenthetical section ref groups like ( 7.4 , 7.5 , 7.6 ) or (7.4, 7.5, 7.6)
+    text = re.sub(r'\(\s*\d+\.?\d*(?:\s*,\s*\d+\.?\d*)+\s*\)', '', text)
+    # Strip standalone integer-only section refs like "( 7 )" not already covered by the decimal pattern above
+    text = re.sub(r'\(\s*\d+\s*\)', '', text)
     # Collapse multiple spaces
     text = re.sub(r' {2,}', ' ', text)
     # Collapse multiple newlines
@@ -45,7 +53,7 @@ def _candidate_occurrences(text: str, candidate_names: set[str]) -> int:
     return sum(lowered.count(name) for name in candidate_names)
 
 
-def _extract_by_sentence(full_text: str, candidate_names: set[str], max_sentences: int = 5) -> Optional[str]:
+def _extract_by_sentence(full_text: str, candidate_names: set[str], max_sentences: int = 2) -> Optional[str]:
     sentences = _SENTENCE_SPLIT_RE.split(full_text.strip())
     matching_indices = [
         idx
