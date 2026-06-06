@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 import database
+from services.interaction_spl_extract import extract_targeted_paragraph
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -21,6 +22,10 @@ _VALID_SEVERITIES = frozenset({"major", "moderate", "minor", "unknown"})
 class InteractionResponse(BaseModel):
     drug1: str
     drug2: str
+    drug1_generic: Optional[str] = None
+    drug2_generic: Optional[str] = None
+    drug1_brands: list[str] = []
+    drug2_brands: list[str] = []
     drug1_rxcui: Optional[str]
     drug2_rxcui: Optional[str]
     severity: Optional[str]
@@ -188,17 +193,30 @@ def get_interaction_pair(conn, rxcui_1: str, rxcui_2: str) -> Optional[dict]:
     }
 
 
-def search_cached_label_text(conn, rxcui: str, counterpart_names: set[str]) -> Optional[str]:
+def search_cached_label_text(conn, rxcui: str, counterpart_names: set[str]) -> tuple[Optional[str], Optional[str]]:
+    """Return cached interaction text and source for one RXCUI.
+
+    Returns a tuple of (description_text, source). Both tuple values are None
+    when no matching cached content is found.
+    """
     row = conn.execute(
-        text("SELECT interactions_text FROM drug_interactions_text WHERE rxcui = :rxcui LIMIT 1"),
+        text("SELECT interactions_text, source FROM drug_interactions_text WHERE rxcui = :rxcui LIMIT 1"),
         {"rxcui": rxcui},
     ).fetchone()
     if not row or not row[0] or not counterpart_names:
-        return None
+        return None, None
     text_value = str(row[0])
+    source = str(row[1] or "").strip().lower()
+
+    if source == "spl_professional":
+        targeted = extract_targeted_paragraph(text_value, counterpart_names)
+        if targeted:
+            return targeted, source
+        return None, None
+
     if _text_matches_candidates(text_value, counterpart_names):
-        return text_value
-    return None
+        return text_value, source
+    return None, None
 
 
 def _candidate_names(resolved: dict, original_name: str) -> set[str]:
@@ -218,8 +236,25 @@ def _text_matches_candidates(text_value: str, candidate_names: set[str]) -> bool
     return any(candidate in lowered_text for candidate in candidate_names)
 
 
-def fetch_openfda_interaction_text(rxcui: str) -> tuple[str, str]:
-    response = httpx.get(OPENFDA_URL, params={"search": f"openfda.rxcui:{rxcui}", "limit": 1}, timeout=12)
+def fetch_openfda_interaction_text(rxcui: str, generic_name: Optional[str]) -> tuple[str, str]:
+    """Fetch interaction text from OpenFDA by generic name.
+
+    Args:
+        rxcui: Ingredient RXCUI associated with the lookup.
+        generic_name: Resolved generic name used in OpenFDA search query.
+
+    Returns:
+        A tuple of (drug_name, interaction_text). Empty strings indicate no hit.
+    """
+    generic = (generic_name or "").strip()
+    if not generic:
+        return "", ""
+    escaped_generic = generic.replace('"', '\\"')
+    response = httpx.get(
+        OPENFDA_URL,
+        params={"search": f'openfda.generic_name:"{escaped_generic}"', "limit": 1},
+        timeout=12,
+    )
     if response.status_code != 200:
         return "", ""
     payload = response.json() or {}
@@ -498,11 +533,19 @@ def get_interaction(
         resolved_2 = resolve_drug_name(conn, drug2)
         r1 = resolved_1.get("rxcui")
         r2 = resolved_2.get("rxcui")
+        generic_1 = resolved_1.get("generic_name")
+        generic_2 = resolved_2.get("generic_name")
+        brands_1 = resolved_1.get("brand_names") or []
+        brands_2 = resolved_2.get("brand_names") or []
 
         if not r1 or not r2:
             return InteractionResponse(
                 drug1=drug1,
                 drug2=drug2,
+                drug1_generic=generic_1,
+                drug2_generic=generic_2,
+                drug1_brands=brands_1,
+                drug2_brands=brands_2,
                 drug1_rxcui=r1,
                 drug2_rxcui=r2,
                 severity=None,
@@ -515,137 +558,118 @@ def get_interaction(
             )
 
         pair = get_interaction_pair(conn, r1, r2)
-        if pair:
+        if not pair:
             return InteractionResponse(
                 drug1=drug1,
                 drug2=drug2,
+                drug1_generic=generic_1,
+                drug2_generic=generic_2,
+                drug1_brands=brands_1,
+                drug2_brands=brands_2,
                 drug1_rxcui=r1,
                 drug2_rxcui=r2,
-                severity=pair.get("severity"),
-                description=pair.get("description"),
-                confidence=pair.get("confidence"),
-                source_kaggle=bool(pair.get("source_kaggle")),
-                source_openfda=bool(pair.get("source_openfda")),
-                found=True,
-                message=None,
+                severity=None,
+                description=None,
+                confidence=None,
+                source_kaggle=False,
+                source_openfda=False,
+                found=False,
+                message="No interaction data found",
             )
 
         first_candidates = _candidate_names(resolved_2, drug2)
         second_candidates = _candidate_names(resolved_1, drug1)
+        selected_description: Optional[str] = None
+        selected_source: Optional[str] = None
 
-        cached_text = search_cached_label_text(conn, r1, first_candidates)
-        if cached_text:
-            return InteractionResponse(
-                drug1=drug1,
-                drug2=drug2,
-                drug1_rxcui=r1,
-                drug2_rxcui=r2,
-                severity=classify_severity(cached_text),
-                description=cached_text,
-                confidence="medium",
-                source_kaggle=False,
-                source_openfda=True,
-                found=True,
-                message=None,
-            )
-        cached_text = search_cached_label_text(conn, r2, second_candidates)
-        if cached_text:
-            return InteractionResponse(
-                drug1=drug1,
-                drug2=drug2,
-                drug1_rxcui=r1,
-                drug2_rxcui=r2,
-                severity=classify_severity(cached_text),
-                description=cached_text,
-                confidence="medium",
-                source_kaggle=False,
-                source_openfda=True,
-                found=True,
-                message=None,
-            )
+        cached_candidates: list[tuple[str, str]] = []
+        for rx, names in ((r1, first_candidates), (r2, second_candidates)):
+            cached_text, cached_source = search_cached_label_text(conn, rx, names)
+            if cached_text and cached_source:
+                cached_candidates.append((cached_text, cached_source))
 
-        try:
-            source_name, live_text = fetch_openfda_interaction_text(r1)
-            if live_text and _text_matches_candidates(live_text, first_candidates):
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO drug_interactions_text (rxcui, drug_name, interactions_text, source, updated_at)
-                        VALUES (:rxcui, :drug_name, :interactions_text, 'openfda', NOW())
-                        ON CONFLICT (rxcui) DO UPDATE
-                        SET drug_name = EXCLUDED.drug_name,
-                            interactions_text = EXCLUDED.interactions_text,
-                            source = EXCLUDED.source,
-                            updated_at = NOW()
-                        """
-                    ),
-                    {
-                        "rxcui": r1,
-                        "drug_name": source_name or drug1,
-                        "interactions_text": live_text,
-                    },
-                )
-                cache_low_confidence_interaction(conn, r1, r2, drug1, drug2, live_text)
-                return InteractionResponse(
-                    drug1=drug1,
-                    drug2=drug2,
-                    drug1_rxcui=r1,
-                    drug2_rxcui=r2,
-                    severity=classify_severity(live_text),
-                    description=live_text,
-                    confidence="low",
-                    source_kaggle=False,
-                    source_openfda=True,
-                    found=True,
-                    message=None,
-                )
-            source_name, live_text = fetch_openfda_interaction_text(r2)
-            if live_text and _text_matches_candidates(live_text, second_candidates):
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO drug_interactions_text (rxcui, drug_name, interactions_text, source, updated_at)
-                        VALUES (:rxcui, :drug_name, :interactions_text, 'openfda', NOW())
-                        ON CONFLICT (rxcui) DO UPDATE
-                        SET drug_name = EXCLUDED.drug_name,
-                            interactions_text = EXCLUDED.interactions_text,
-                            source = EXCLUDED.source,
-                            updated_at = NOW()
-                        """
-                    ),
-                    {
-                        "rxcui": r2,
-                        "drug_name": source_name or drug2,
-                        "interactions_text": live_text,
-                    },
-                )
-                cache_low_confidence_interaction(conn, r1, r2, drug1, drug2, live_text)
-                return InteractionResponse(
-                    drug1=drug1,
-                    drug2=drug2,
-                    drug1_rxcui=r1,
-                    drug2_rxcui=r2,
-                    severity=classify_severity(live_text),
-                    description=live_text,
-                    confidence="low",
-                    source_kaggle=False,
-                    source_openfda=True,
-                    found=True,
-                    message=None,
-                )
-        except Exception as exc:
-            logger.warning("Live OpenFDA fallback failed for (%s, %s): %s", drug1, drug2, exc)
+        for preferred_source in ("spl_professional", "openfda"):
+            matched = next((item for item in cached_candidates if item[1] == preferred_source), None)
+            if matched:
+                selected_description, selected_source = matched
+                break
+        if not selected_description and cached_candidates:
+            selected_description, selected_source = cached_candidates[0]
 
-    return InteractionResponse(
-        drug1=drug1,
-        drug2=drug2,
-        drug1_rxcui=r1,
-        drug2_rxcui=r2,
-        severity=None,
-        description=None,
-        confidence=None,
-        source_kaggle=False,
-        source_openfda=False,
-        found=False,
-        message="No interaction data found",
-    )
+        if not selected_description:
+            try:
+                source_name, live_text = fetch_openfda_interaction_text(r1, generic_1)
+                if live_text and _text_matches_candidates(live_text, first_candidates):
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO drug_interactions_text (rxcui, drug_name, interactions_text, source, updated_at)
+                            VALUES (:rxcui, :drug_name, :interactions_text, 'openfda', NOW())
+                            ON CONFLICT (rxcui) DO UPDATE
+                            SET drug_name = EXCLUDED.drug_name,
+                                interactions_text = EXCLUDED.interactions_text,
+                                source = EXCLUDED.source,
+                                updated_at = NOW()
+                            """
+                        ),
+                        {
+                            "rxcui": r1,
+                            "drug_name": source_name or drug1,
+                            "interactions_text": live_text,
+                        },
+                    )
+                    selected_description = live_text
+                    selected_source = "openfda"
+            except Exception as exc:
+                logger.warning("Live OpenFDA fallback failed for (%s, %s): %s", drug1, drug2, exc)
+
+        if not selected_description:
+            try:
+                source_name, live_text = fetch_openfda_interaction_text(r2, generic_2)
+                if live_text and _text_matches_candidates(live_text, second_candidates):
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO drug_interactions_text (rxcui, drug_name, interactions_text, source, updated_at)
+                            VALUES (:rxcui, :drug_name, :interactions_text, 'openfda', NOW())
+                            ON CONFLICT (rxcui) DO UPDATE
+                            SET drug_name = EXCLUDED.drug_name,
+                                interactions_text = EXCLUDED.interactions_text,
+                                source = EXCLUDED.source,
+                                updated_at = NOW()
+                            """
+                        ),
+                        {
+                            "rxcui": r2,
+                            "drug_name": source_name or drug2,
+                            "interactions_text": live_text,
+                        },
+                    )
+                    selected_description = live_text
+                    selected_source = "openfda"
+            except Exception as exc:
+                logger.warning("Live OpenFDA fallback failed for (%s, %s): %s", drug1, drug2, exc)
+
+        if selected_description and selected_source == "openfda":
+            pair_description = (pair.get("description") or "").strip()
+            should_cache_pair = (not bool(pair.get("source_openfda"))) or (pair_description != selected_description)
+            if should_cache_pair:
+                cache_low_confidence_interaction(conn, r1, r2, drug1, drug2, selected_description)
+
+        return InteractionResponse(
+            drug1=drug1,
+            drug2=drug2,
+            drug1_generic=generic_1,
+            drug2_generic=generic_2,
+            drug1_brands=brands_1,
+            drug2_brands=brands_2,
+            drug1_rxcui=r1,
+            drug2_rxcui=r2,
+            severity=pair.get("severity"),
+            description=selected_description,
+            confidence=pair.get("confidence"),
+            source_kaggle=bool(pair.get("source_kaggle")),
+            source_openfda=bool(pair.get("source_openfda") or selected_source == "openfda"),
+            found=True,
+            message=None,
+        )

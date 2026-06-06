@@ -49,6 +49,9 @@ def test_interaction_returns_db_pair(client, monkeypatch):
             "source_openfda": True,
         },
     )
+    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: (None, None))
+    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("", ""))
+    monkeypatch.setattr(interactions, "cache_low_confidence_interaction", lambda *args, **kwargs: None)
 
     response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
     assert response.status_code == 200
@@ -56,6 +59,11 @@ def test_interaction_returns_db_pair(client, monkeypatch):
     assert payload["found"] is True
     assert payload["confidence"] == "high"
     assert payload["severity"] == "major"
+    assert payload["description"] is None
+    assert payload["drug1_generic"] is None
+    assert payload["drug2_generic"] is None
+    assert payload["drug1_brands"] == []
+    assert payload["drug2_brands"] == []
 
 
 def test_interaction_falls_back_to_live_openfda(client, monkeypatch):
@@ -63,9 +71,19 @@ def test_interaction_falls_back_to_live_openfda(client, monkeypatch):
     calls = []
 
     monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {"rxcui": "1191" if name == "aspirin" else "5640"})
-    monkeypatch.setattr(interactions, "get_interaction_pair", lambda conn, r1, r2: None)
-    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: None)
-    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r: ("Aspirin", "Do not use with ibuprofen"))
+    monkeypatch.setattr(
+        interactions,
+        "get_interaction_pair",
+        lambda conn, r1, r2: {
+            "severity": "major",
+            "description": "template text",
+            "confidence": "high",
+            "source_kaggle": True,
+            "source_openfda": False,
+        },
+    )
+    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: (None, None))
+    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("Aspirin", "Do not use with ibuprofen"))
     monkeypatch.setattr(
         interactions,
         "cache_low_confidence_interaction",
@@ -76,7 +94,8 @@ def test_interaction_falls_back_to_live_openfda(client, monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["found"] is True
-    assert payload["confidence"] == "low"
+    assert payload["confidence"] == "high"
+    assert payload["description"] == "Do not use with ibuprofen"
     assert payload["source_openfda"] is True
     assert calls, "expected low-confidence cache helper to be called"
 
@@ -91,10 +110,20 @@ def test_interaction_fallback_checks_other_label_with_synonyms(client, monkeypat
         return {"rxcui": "5640", "generic_name": "Ibuprofen", "brand_names": ["Advil"]}
 
     monkeypatch.setattr(interactions, "resolve_drug_name", _resolve)
-    monkeypatch.setattr(interactions, "get_interaction_pair", lambda conn, r1, r2: None)
-    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: None)
+    monkeypatch.setattr(
+        interactions,
+        "get_interaction_pair",
+        lambda conn, r1, r2: {
+            "severity": "major",
+            "description": "template text",
+            "confidence": "high",
+            "source_kaggle": True,
+            "source_openfda": False,
+        },
+    )
+    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: (None, None))
 
-    def _fetch(rxcui):
+    def _fetch(rxcui, generic_name):
         if rxcui == "1191":
             return "Aspirin", "No interaction listed here."
         return "Ibuprofen", "Avoid combining with Bayer products."
@@ -110,9 +139,91 @@ def test_interaction_fallback_checks_other_label_with_synonyms(client, monkeypat
     assert response.status_code == 200
     payload = response.json()
     assert payload["found"] is True
-    assert payload["confidence"] == "low"
+    assert payload["confidence"] == "high"
     assert "Bayer" in payload["description"]
     assert calls, "expected low-confidence cache helper to be called"
+
+
+def test_interaction_uses_first_cached_text_when_source_is_unrecognized(client, monkeypatch):
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {"rxcui": "1191" if name == "aspirin" else "5640"})
+    monkeypatch.setattr(
+        interactions,
+        "get_interaction_pair",
+        lambda conn, r1, r2: {
+            "severity": "major",
+            "description": "template text",
+            "confidence": "high",
+            "source_kaggle": True,
+            "source_openfda": False,
+        },
+    )
+    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: ("Curated warning text", "manual"))
+    fetch_calls = []
+    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: fetch_calls.append((r, g)) or ("", ""))
+    monkeypatch.setattr(interactions, "cache_low_confidence_interaction", lambda *args, **kwargs: None)
+
+    response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["description"] == "Curated warning text"
+    assert fetch_calls == []
+
+
+def test_interaction_skips_pair_write_when_openfda_pair_already_current(client, monkeypatch):
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+    cache_calls = []
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {"rxcui": "1191" if name == "aspirin" else "5640"})
+    monkeypatch.setattr(
+        interactions,
+        "get_interaction_pair",
+        lambda conn, r1, r2: {
+            "severity": "major",
+            "description": "Current OpenFDA text",
+            "confidence": "low",
+            "source_kaggle": False,
+            "source_openfda": True,
+        },
+    )
+    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: ("Current OpenFDA text", "openfda"))
+    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("", ""))
+    monkeypatch.setattr(
+        interactions,
+        "cache_low_confidence_interaction",
+        lambda conn, r1, r2, d1, d2, desc: cache_calls.append((r1, r2, d1, d2, desc)),
+    )
+
+    response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["description"] == "Current OpenFDA text"
+    assert payload["source_openfda"] is True
+    assert cache_calls == []
+
+
+def test_fetch_openfda_interaction_text_escapes_generic_quotes(monkeypatch):
+    import routes.interactions as interactions
+
+    calls = []
+
+    class _MockResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"results": [{"drug_interactions": ["Use caution"], "openfda": {"generic_name": ["Drug"]}}]}
+
+    def _mock_get(url, params, timeout):
+        calls.append((url, params, timeout))
+        return _MockResponse()
+
+    monkeypatch.setattr(interactions.httpx, "get", _mock_get)
+    interactions.fetch_openfda_interaction_text("123", 'alpha "beta"')
+
+    assert calls
+    assert calls[0][1]["search"] == 'openfda.generic_name:"alpha \\"beta\\""'
 
 
 def test_resolve_endpoint_returns_resolution_shape(client, monkeypatch):

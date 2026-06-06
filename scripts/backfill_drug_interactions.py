@@ -31,10 +31,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _fetch_interactions_text(client: httpx.Client, rxcui: str) -> tuple[str, str]:
+def _fetch_interactions_text(client: httpx.Client, rxcui: str, generic_name: str | None) -> tuple[str, str]:
+    generic = (generic_name or "").strip()
+    if not generic:
+        return "", ""
+    escaped_generic = generic.replace('"', '\\"')
     response = client.get(
         OPENFDA_URL,
-        params={"search": f"openfda.rxcui:{rxcui}", "limit": 1},
+        params={"search": f'openfda.generic_name:"{escaped_generic}"', "limit": 1},
         timeout=12,
     )
     if response.status_code != 200:
@@ -129,7 +133,7 @@ def main(argv: list[str] | None = None) -> None:
             for rxcui, generic_name in rows:
                 processed += 1
                 try:
-                    drug_name, interaction_text = _fetch_interactions_text(client, str(rxcui))
+                    drug_name, interaction_text = _fetch_interactions_text(client, str(rxcui), str(generic_name or ""))
                     if interaction_text and not args.dry_run:
                         conn.execute(
                             text(
