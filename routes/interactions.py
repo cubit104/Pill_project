@@ -17,8 +17,6 @@ router = APIRouter()
 RXNORM_URL = "https://rxnav.nlm.nih.gov/REST/rxcui.json"
 OPENFDA_URL = "https://api.fda.gov/drug/label.json"
 _VALID_SEVERITIES = frozenset({"major", "moderate", "minor", "unknown"})
-_DEDUP_PREFIX_LENGTH = 200
-_MAX_DESCRIPTION_LENGTH = 800
 
 
 class InteractionResponse(BaseModel):
@@ -143,7 +141,7 @@ def resolve_drug_name(conn, name: str) -> dict:
                     SELECT 1
                     FROM unnest(brand_names) AS bn
                     WHERE LOWER(bn) = LOWER(:name)
-               )
+                )
             LIMIT 1
             """
         ),
@@ -582,9 +580,12 @@ def get_interaction(
                 message="No interaction data found",
             )
 
+        # Kaggle description — always unchanged from DB
+        kaggle_description: Optional[str] = (pair.get("description") or "").strip() or None
+
         first_candidates = _candidate_names(resolved_2, drug2)
         second_candidates = _candidate_names(resolved_1, drug1)
-        selected_description: Optional[str] = None
+        selected_spl_text: Optional[str] = None
         selected_source: Optional[str] = None
 
         cached_candidates: list[tuple[str, str]] = []
@@ -596,12 +597,12 @@ def get_interaction(
         for preferred_source in ("spl_professional", "openfda"):
             matched = next((item for item in cached_candidates if item[1] == preferred_source), None)
             if matched:
-                selected_description, selected_source = matched
+                selected_spl_text, selected_source = matched
                 break
-        if not selected_description and cached_candidates:
-            selected_description, selected_source = cached_candidates[0]
+        if not selected_spl_text and cached_candidates:
+            selected_spl_text, selected_source = cached_candidates[0]
 
-        if not selected_description:
+        if not selected_spl_text:
             try:
                 source_name, live_text = fetch_openfda_interaction_text(r1, generic_1)
                 if live_text and _text_matches_candidates(live_text, first_candidates):
@@ -623,12 +624,12 @@ def get_interaction(
                             "interactions_text": live_text,
                         },
                     )
-                    selected_description = live_text
+                    selected_spl_text = live_text
                     selected_source = "openfda"
             except Exception as exc:
                 logger.warning("Live OpenFDA fallback failed for (%s, %s): %s", drug1, drug2, exc)
 
-        if not selected_description:
+        if not selected_spl_text:
             try:
                 source_name, live_text = fetch_openfda_interaction_text(r2, generic_2)
                 if live_text and _text_matches_candidates(live_text, second_candidates):
@@ -650,28 +651,16 @@ def get_interaction(
                             "interactions_text": live_text,
                         },
                     )
-                    selected_description = live_text
+                    selected_spl_text = live_text
                     selected_source = "openfda"
             except Exception as exc:
                 logger.warning("Live OpenFDA fallback failed for (%s, %s): %s", drug1, drug2, exc)
 
-        if selected_description and selected_source == "openfda":
+        if selected_spl_text and selected_source == "openfda":
             pair_description = (pair.get("description") or "").strip()
-            should_cache_pair = (not bool(pair.get("source_openfda"))) or (pair_description != selected_description)
+            should_cache_pair = (not bool(pair.get("source_openfda"))) or (pair_description != selected_spl_text)
             if should_cache_pair:
-                cache_low_confidence_interaction(conn, r1, r2, drug1, drug2, selected_description)
-
-        selected_description = (selected_description or "").strip() or None
-        kaggle_description = (pair.get("description") or "").strip() or None
-        if kaggle_description and selected_description:
-            desc_lower = kaggle_description.lower()
-            spl_lower = selected_description.lower()
-            spl_prefix = spl_lower[:_DEDUP_PREFIX_LENGTH]
-            desc_prefix = desc_lower[:_DEDUP_PREFIX_LENGTH]
-            if (spl_prefix and spl_prefix in desc_lower) or (desc_prefix and desc_prefix in spl_lower):
-                kaggle_description = None
-            elif len(kaggle_description) > _MAX_DESCRIPTION_LENGTH:
-                kaggle_description = None
+                cache_low_confidence_interaction(conn, r1, r2, drug1, drug2, selected_spl_text)
 
         return InteractionResponse(
             drug1=drug1,
@@ -684,7 +673,7 @@ def get_interaction(
             drug2_rxcui=r2,
             severity=pair.get("severity"),
             description=kaggle_description,
-            spl_text=selected_description,
+            spl_text=selected_spl_text,
             confidence=pair.get("confidence"),
             source_kaggle=bool(pair.get("source_kaggle")),
             source_openfda=bool(pair.get("source_openfda") or selected_source == "openfda"),
