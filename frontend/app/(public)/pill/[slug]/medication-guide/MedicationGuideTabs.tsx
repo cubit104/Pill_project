@@ -19,6 +19,21 @@ function tabClasses(active: boolean): string {
   ].join(' ')
 }
 
+/**
+ * Returns the grid column-span class for a tab in the mobile 2-row layout.
+ *
+ * With 5 tabs we use a 6-column grid:
+ *   Row 1 – first 3 tabs each span 2 cols  → [Med Guide][Dosage][Side Fx]
+ *   Row 2 – last  2 tabs each span 3 cols  → [Interact.][Pro Info]
+ *
+ * With ≤ 4 tabs we use the same 6-column grid but every tab spans 3 cols
+ * so we always get at most 2 per row.
+ */
+function mobileColSpan(index: number, total: number): string {
+  if (total <= 4) return 'col-span-3'
+  return index < 3 ? 'col-span-2' : 'col-span-3'
+}
+
 export default function MedicationGuideTabs({
   activeTab,
   medicationGuideHref,
@@ -47,61 +62,36 @@ export default function MedicationGuideTabs({
     { id: 'pro' as const, label: 'Professional Information', mobileLabel: 'Pro Info', href: professionalHref },
   ]
 
-  const mobileTabs = tabs.slice(0, 4)
-  const overflowTabs = tabs.slice(4)
-
   return (
     <div className="no-print bg-white border border-slate-200 rounded-xl shadow-sm p-3 sm:px-6 sm:py-0">
-      <div className="space-y-2 sm:hidden">
-        <nav
-          role="navigation"
-          className="grid grid-cols-2 gap-2"
-          aria-label="Medication content tabs"
-        >
-          {mobileTabs.map((tab) => {
-            const isActive = activeTab === tab.id
-            const label = tab.mobileLabel ?? tab.label
+      {/* Mobile: 2-row grid — 3 tabs in row 1, 2 tabs in row 2 */}
+      <nav
+        role="navigation"
+        className="grid grid-cols-6 gap-2 sm:hidden"
+        aria-label="Medication content tabs"
+      >
+        {tabs.map((tab, idx) => {
+          const isActive = activeTab === tab.id
+          const label = tab.mobileLabel ?? tab.label
+          const colClass = mobileColSpan(idx, tabs.length)
 
-            if (isActive) {
-              return (
-                <span key={tab.id} className={tabClasses(true)} aria-current="page">
-                  {label}
-                </span>
-              )
-            }
-
+          if (isActive) {
             return (
-              <Link key={tab.id} href={tab.href} className={tabClasses(false)}>
+              <span key={tab.id} className={`${tabClasses(true)} ${colClass}`} aria-current="page">
                 {label}
-              </Link>
+              </span>
             )
-          })}
-        </nav>
+          }
 
-        {overflowTabs.length > 0 && (
-          <div className="flex justify-center">
-            {overflowTabs.map((tab) => {
-              const isActive = activeTab === tab.id
-              const label = tab.mobileLabel ?? tab.label
+          return (
+            <Link key={tab.id} href={tab.href} className={`${tabClasses(false)} ${colClass}`}>
+              {label}
+            </Link>
+          )
+        })}
+      </nav>
 
-              if (isActive) {
-                return (
-                  <span key={tab.id} className={`${tabClasses(true)} min-w-[9rem]`} aria-current="page">
-                    {label}
-                  </span>
-                )
-              }
-
-              return (
-                <Link key={tab.id} href={tab.href} className={`${tabClasses(false)} min-w-[9rem]`}>
-                  {label}
-                </Link>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
+      {/* Desktop: horizontal tab bar */}
       <nav
         role="navigation"
         className="hidden sm:flex sm:flex-wrap sm:gap-6 sm:border-b sm:border-slate-200"

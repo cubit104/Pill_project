@@ -90,7 +90,7 @@ test('dosage and adverse-reactions tab hrefs use raw encoded slug across tab pag
 
   assert.ok(tabs.includes("type TabId = 'consumer' | 'dosage' | 'adverse' | 'interactions' | 'pro'"))
   assert.ok(tabs.includes('Side Effects'))
-  assert.ok(tabs.includes('overflow-x-auto border-b border-slate-200'))
-  assert.ok(tabs.includes('flex min-w-max gap-4 sm:gap-6'))
-  assert.ok(tabs.includes('inline-flex shrink-0 items-center whitespace-nowrap'))
+  assert.ok(tabs.includes('grid grid-cols-6 gap-2 sm:hidden'))
+  assert.ok(tabs.includes('col-span-2'))
+  assert.ok(tabs.includes('col-span-3'))
 })
