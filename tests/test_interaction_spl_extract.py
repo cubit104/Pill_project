@@ -1,4 +1,8 @@
-from services.interaction_spl_extract import extract_targeted_paragraph
+from services.interaction_spl_extract import (
+    extract_targeted_paragraph,
+    _clean_spl_text,
+    _extract_by_sentence,
+)
 
 
 def test_extract_targeted_paragraph_returns_only_matching_block():
@@ -71,5 +75,66 @@ def test_extract_targeted_paragraph_no_heading_uses_sentence_fallback_for_giant_
     result = extract_targeted_paragraph(section_html, {"omeprazole"})
     assert result is not None
     assert "omeprazole reduces the antiplatelet effect of clopidogrel" in result.lower()
-    assert len(result) <= 800
+    assert len(result) <= 300
     assert result[-1] in ".!?"
+
+
+# ── New tests for tighter extraction rules ────────────────────────────────────
+
+def test_cap_text_truncates_at_300_chars():
+    """Text longer than 300 chars is capped at a sentence boundary ≤ 300 chars."""
+    section_html = """
+    <section>
+      <p>Avoid concomitant use of clopidogrel with omeprazole or esomeprazole. In clinical studies, omeprazole was shown to reduce significantly the antiplatelet activity of clopidogrel when given concomitantly or 12 hours apart. This has been shown in multiple randomised trials with large patient populations across different dosing regimens and formulations.</p>
+    </section>
+    """
+    result = extract_targeted_paragraph(section_html, {"omeprazole"})
+    assert result is not None
+    assert len(result) <= 300
+    assert result[-1] in ".!?"
+
+
+def test_extract_by_sentence_uses_2_sentence_window():
+    """_extract_by_sentence default window is 2 sentences."""
+    text = (
+        "Sentence one about general stuff. "
+        "Sentence two about omeprazole specifically. "
+        "Sentence three as extra context. "
+        "Sentence four unrelated. "
+        "Sentence five unrelated."
+    )
+    result = _extract_by_sentence(text, {"omeprazole"})
+    assert result is not None
+    sentences = [s.strip() for s in result.split(".") if s.strip()]
+    assert len(sentences) <= 2
+
+
+def test_clean_spl_text_strips_drug_interactions_header():
+    text = "7 DRUG INTERACTIONS\nAvoid omeprazole with clopidogrel."
+    cleaned = _clean_spl_text(text)
+    assert "DRUG INTERACTIONS" not in cleaned
+    assert cleaned.startswith("Avoid")
+    assert "omeprazole" in cleaned
+
+
+def test_clean_spl_text_strips_subsection_colon_titles():
+    text = "CYP2C19 Inducers:\nAvoid omeprazole with clopidogrel."
+    cleaned = _clean_spl_text(text)
+    assert "CYP2C19 Inducers:" not in cleaned
+    assert "omeprazole" in cleaned
+
+
+def test_clean_spl_text_strips_comma_separated_ref_groups():
+    text = "Avoid concomitant use ( 7.4 , 7.5 , 7.6 ) of omeprazole with clopidogrel."
+    cleaned = _clean_spl_text(text)
+    assert "7.4" not in cleaned
+    assert "7.5" not in cleaned
+    assert "7.6" not in cleaned
+    assert "omeprazole" in cleaned
+
+
+def test_clean_spl_text_strips_standalone_section_refs():
+    text = "Avoid use ( 7 ) of omeprazole with clopidogrel."
+    cleaned = _clean_spl_text(text)
+    assert "( 7 )" not in cleaned
+    assert "omeprazole" in cleaned
