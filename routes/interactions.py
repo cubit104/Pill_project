@@ -30,6 +30,7 @@ class InteractionResponse(BaseModel):
     drug2_rxcui: Optional[str]
     severity: Optional[str]
     description: Optional[str]
+    spl_text: Optional[str] = None
     confidence: Optional[str]
     source_kaggle: bool = False
     source_openfda: bool = False
@@ -550,6 +551,7 @@ def get_interaction(
                 drug2_rxcui=r2,
                 severity=None,
                 description=None,
+                spl_text=None,
                 confidence=None,
                 source_kaggle=False,
                 source_openfda=False,
@@ -570,6 +572,7 @@ def get_interaction(
                 drug2_rxcui=r2,
                 severity=None,
                 description=None,
+                spl_text=None,
                 confidence=None,
                 source_kaggle=False,
                 source_openfda=False,
@@ -666,7 +669,8 @@ def get_interaction(
             drug1_rxcui=r1,
             drug2_rxcui=r2,
             severity=pair.get("severity"),
-            description=selected_description,
+            description=pair.get("description") or None,
+            spl_text=selected_description,
             confidence=pair.get("confidence"),
             source_kaggle=bool(pair.get("source_kaggle")),
             source_openfda=bool(pair.get("source_openfda") or selected_source == "openfda"),

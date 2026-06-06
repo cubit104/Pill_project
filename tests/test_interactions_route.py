@@ -59,7 +59,8 @@ def test_interaction_returns_db_pair(client, monkeypatch):
     assert payload["found"] is True
     assert payload["confidence"] == "high"
     assert payload["severity"] == "major"
-    assert payload["description"] is None
+    assert payload["description"] == "Avoid combination."
+    assert payload["spl_text"] is None
     assert payload["drug1_generic"] is None
     assert payload["drug2_generic"] is None
     assert payload["drug1_brands"] == []
@@ -95,7 +96,8 @@ def test_interaction_falls_back_to_live_openfda(client, monkeypatch):
     payload = response.json()
     assert payload["found"] is True
     assert payload["confidence"] == "high"
-    assert payload["description"] == "Do not use with ibuprofen"
+    assert payload["description"] == "template text"
+    assert payload["spl_text"] == "Do not use with ibuprofen"
     assert payload["source_openfda"] is True
     assert calls, "expected low-confidence cache helper to be called"
 
@@ -140,7 +142,8 @@ def test_interaction_fallback_checks_other_label_with_synonyms(client, monkeypat
     payload = response.json()
     assert payload["found"] is True
     assert payload["confidence"] == "high"
-    assert "Bayer" in payload["description"]
+    assert payload["description"] == "template text"
+    assert "Bayer" in payload["spl_text"]
     assert calls, "expected low-confidence cache helper to be called"
 
 
@@ -167,7 +170,8 @@ def test_interaction_uses_first_cached_text_when_source_is_unrecognized(client, 
     response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
     assert response.status_code == 200
     payload = response.json()
-    assert payload["description"] == "Curated warning text"
+    assert payload["description"] == "template text"
+    assert payload["spl_text"] == "Curated warning text"
     assert fetch_calls == []
 
 
@@ -199,6 +203,7 @@ def test_interaction_skips_pair_write_when_openfda_pair_already_current(client, 
     assert response.status_code == 200
     payload = response.json()
     assert payload["description"] == "Current OpenFDA text"
+    assert payload["spl_text"] == "Current OpenFDA text"
     assert payload["source_openfda"] is True
     assert cache_calls == []
 
