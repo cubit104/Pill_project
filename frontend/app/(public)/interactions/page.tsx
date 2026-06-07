@@ -40,7 +40,7 @@ const faqs = [
     answer:
       'No — do not stop or change any medication without consulting your doctor or pharmacist first. Many drug interactions are manageable with proper monitoring or dosage adjustments. This tool is for informational purposes only and is not a substitute for professional medical advice.',
   },
-] as const
+]
 
 export default function InteractionsPage() {
   const breadcrumbs = breadcrumbSchema([
