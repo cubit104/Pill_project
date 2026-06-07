@@ -267,7 +267,7 @@ def cache_new_pair_only(conn, rxcui_1: str, rxcui_2: str, drug_1: str, drug_2: s
     )
 
 
-# Backward-compatible alias for callers/tests still using the old helper name.
+# Compatibility shim for the old helper name; behavior follows cache_new_pair_only.
 cache_low_confidence_interaction = cache_new_pair_only
 
 
