@@ -379,6 +379,7 @@ export default function InteractionsCheckerClient() {
             const displayTitle = `${drugLabel(item.drug1, item.result.drug1_generic)} ⇌ ${drugLabel(item.drug2, item.result.drug2_generic)}`
             const applies = `${appliesLabel(item.result.drug1_brands, item.result.drug1_generic, item.drug1)}, ${appliesLabel(item.result.drug2_brands, item.result.drug2_generic, item.drug2)}`
             const description = item.result.description
+            const splText = item.result.spl_text
 
             return (
               <article key={key} className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
@@ -394,9 +395,13 @@ export default function InteractionsCheckerClient() {
                 <p className={`mt-2 text-sm ${style.text}`}>
                   <span className="font-medium">Applies to:</span> {applies}
                 </p>
-                <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>
-                  {description || FALLBACK_DESCRIPTION}
-                </p>
+                {description ? <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>{description}</p> : null}
+                {splText ? (
+                  <p className={`${description ? 'mt-2' : 'mt-3'} whitespace-pre-line text-sm ${style.text}`}>{splText}</p>
+                ) : null}
+                {!description && !splText ? (
+                  <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>{FALLBACK_DESCRIPTION}</p>
+                ) : null}
               </article>
             )
           })}
