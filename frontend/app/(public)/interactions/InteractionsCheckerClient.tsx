@@ -33,7 +33,7 @@ const SEVERITY_STYLES = {
   unknown: { dot: 'bg-slate-300', bg: 'bg-slate-50', border: 'border-slate-200', badge: 'bg-slate-100 text-slate-600', text: 'text-slate-700' },
 } as const
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || ''
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 const MAX_DRUGS = 10
 const MIN_DRUGS_ERROR = 'Add at least 2 medications to check interactions.'
 const MAX_DRUGS_ERROR = 'Maximum 10 drugs allowed. Remove one to add another.'
@@ -397,7 +397,7 @@ export default function InteractionsCheckerClient() {
                 </p>
                 {description ? <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>{description}</p> : null}
                 {splText ? (
-                  <p className={`${description ? 'mt-2' : 'mt-3'} whitespace-pre-line text-sm ${style.text}`}>{splText}</p>
+                  <p className={`${description ? 'mt-2' : 'mt-3'} whitespace-pre-line text-sm ${style.text} opacity-80`}>{splText}</p>
                 ) : null}
                 {!description && !splText ? (
                   <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>{FALLBACK_DESCRIPTION}</p>
