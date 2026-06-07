@@ -267,6 +267,9 @@ def cache_new_pair_only(conn, rxcui_1: str, rxcui_2: str, drug_1: str, drug_2: s
     )
 
 
+cache_low_confidence_interaction = cache_new_pair_only
+
+
 def get_interactions_for_drug(
     conn,
     rxcui: str,
@@ -553,13 +556,18 @@ def get_interaction(
                 except Exception as exc:
                     logger.warning("Live OpenFDA fallback failed for (%s, %s): %s", drug1, drug2, exc)
 
+        description_out = kaggle_description
+        if selected_spl_text and description_out:
+            if (not bool(pair.get("source_kaggle"))) or len(description_out) > 800:
+                description_out = None
+
         return InteractionResponse(
             drug1=drug1, drug2=drug2,
             drug1_generic=generic_1, drug2_generic=generic_2,
             drug1_brands=brands_1, drug2_brands=brands_2,
             drug1_rxcui=r1, drug2_rxcui=r2,
             severity=pair.get("severity"),
-            description=kaggle_description,
+            description=description_out,
             spl_text=selected_spl_text,
             confidence=pair.get("confidence"),
             source_kaggle=bool(pair.get("source_kaggle")),

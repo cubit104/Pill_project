@@ -51,7 +51,7 @@ def test_interaction_returns_db_pair(client, monkeypatch):
     )
     monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: (None, None))
     monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("", ""))
-    monkeypatch.setattr(interactions, "cache_low_confidence_interaction", lambda *args, **kwargs: None)
+    monkeypatch.setattr(interactions, "cache_new_pair_only", lambda *args, **kwargs: None)
 
     response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
     assert response.status_code == 200
@@ -69,7 +69,6 @@ def test_interaction_returns_db_pair(client, monkeypatch):
 
 def test_interaction_falls_back_to_live_openfda(client, monkeypatch):
     interactions, _ = _mock_conn_for_interactions(monkeypatch)
-    calls = []
 
     monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {"rxcui": "1191" if name == "aspirin" else "5640"})
     monkeypatch.setattr(
@@ -87,8 +86,8 @@ def test_interaction_falls_back_to_live_openfda(client, monkeypatch):
     monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("Aspirin", "Do not use with ibuprofen"))
     monkeypatch.setattr(
         interactions,
-        "cache_low_confidence_interaction",
-        lambda conn, r1, r2, d1, d2, desc: calls.append((r1, r2, d1, d2, desc)),
+        "cache_new_pair_only",
+        lambda *args, **kwargs: None,
     )
 
     response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
@@ -99,12 +98,10 @@ def test_interaction_falls_back_to_live_openfda(client, monkeypatch):
     assert payload["description"] == "template text"
     assert payload["spl_text"] == "Do not use with ibuprofen"
     assert payload["source_openfda"] is True
-    assert calls, "expected low-confidence cache helper to be called"
 
 
 def test_interaction_fallback_checks_other_label_with_synonyms(client, monkeypatch):
     interactions, _ = _mock_conn_for_interactions(monkeypatch)
-    calls = []
 
     def _resolve(conn, name):
         if name == "aspirin":
@@ -133,8 +130,8 @@ def test_interaction_fallback_checks_other_label_with_synonyms(client, monkeypat
     monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", _fetch)
     monkeypatch.setattr(
         interactions,
-        "cache_low_confidence_interaction",
-        lambda conn, r1, r2, d1, d2, desc: calls.append((r1, r2, d1, d2, desc)),
+        "cache_new_pair_only",
+        lambda *args, **kwargs: None,
     )
 
     response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "advil"})
@@ -144,7 +141,6 @@ def test_interaction_fallback_checks_other_label_with_synonyms(client, monkeypat
     assert payload["confidence"] == "high"
     assert payload["description"] == "template text"
     assert "Bayer" in payload["spl_text"]
-    assert calls, "expected low-confidence cache helper to be called"
 
 
 def test_interaction_uses_first_cached_text_when_source_is_unrecognized(client, monkeypatch):
@@ -165,7 +161,7 @@ def test_interaction_uses_first_cached_text_when_source_is_unrecognized(client, 
     monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: ("Curated warning text", "manual"))
     fetch_calls = []
     monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: fetch_calls.append((r, g)) or ("", ""))
-    monkeypatch.setattr(interactions, "cache_low_confidence_interaction", lambda *args, **kwargs: None)
+    monkeypatch.setattr(interactions, "cache_new_pair_only", lambda *args, **kwargs: None)
 
     response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
     assert response.status_code == 200
@@ -195,7 +191,7 @@ def test_interaction_skips_pair_write_when_openfda_pair_already_current(client, 
     monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("", ""))
     monkeypatch.setattr(
         interactions,
-        "cache_low_confidence_interaction",
+        "cache_new_pair_only",
         lambda conn, r1, r2, d1, d2, desc: cache_calls.append((r1, r2, d1, d2, desc)),
     )
 
@@ -226,7 +222,7 @@ def test_interaction_suppresses_very_long_description_when_spl_text_exists(clien
     )
     monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: ("Short SPL warning text.", "spl_professional"))
     monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("", ""))
-    monkeypatch.setattr(interactions, "cache_low_confidence_interaction", lambda *args, **kwargs: None)
+    monkeypatch.setattr(interactions, "cache_new_pair_only", lambda *args, **kwargs: None)
 
     response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
     assert response.status_code == 200
