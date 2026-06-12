@@ -334,7 +334,7 @@ def main(argv=None) -> None:
     batch: list[dict] = []
 
     def _flush_batch(batch_rows: list[dict]) -> int:
-        if not batch_rows or args.dry_run:
+        if not batch_rows:
             return 0
         count = 0
         with database.db_engine.begin() as txn:
@@ -414,7 +414,7 @@ def main(argv=None) -> None:
         resolved_via_synonyms,
         resolved_via_rxnorm,
         len(unresolved_names),
-        rows_updated if not args.dry_run else 0,
+        rows_updated,
         skipped_unresolved,
         skipped_collision,
         skipped_self_pair,
