@@ -894,7 +894,7 @@ def get_interaction(
     with database.db_engine.begin() as conn:
         resolved_1 = resolve_drug_name(conn, drug1)
         resolved_2 = resolve_drug_name(conn, drug2)
-        return _pair_interaction_from_resolved(conn, drug1, drug2, resolved_1, resolved_2)
+        return _pair_interaction_from_resolved(conn, drug1, drug2, resolved_1, resolved_2, allow_live_openfda=False)
 
 
 @router.post("/api/interactions/check", response_model=InteractionCheckResponse)

@@ -426,7 +426,7 @@ export default function InteractionsCheckerClient() {
                       <p className={`mt-3 text-base ${style.text}`}>
                         <span className="font-medium">Applies to:</span> {applies}
                       </p>
-                      {item.interaction_text ? (
+                      {item.interaction_text && item.interaction_text !== item.description ? (
                         <p className={`mt-4 whitespace-pre-line text-base leading-7 ${style.text}`}>
                           <span className="font-bold">Interaction: </span>{item.interaction_text}
                         </p>
