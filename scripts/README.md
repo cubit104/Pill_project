@@ -487,11 +487,11 @@ python scripts/backfill_ddinter_rxcuis.py --limit 5000 --offset 5000
    6. Any RxNorm hit is converted to ingredient level before use.
 4. **Skips rows** where either name cannot be resolved, or where both names resolve
    to the same rxcui (self-pair).
-5. **Collision-safe pair selection**: preloads all existing non-empty
-   `(rxcui_1, rxcui_2)` pairs.  For each resolved pair (a, b) in name order:
-   - (a, b) free → write (a, b)
-   - (a, b) taken, (b, a) free → write (b, a)
-   - both taken → skip (logged as `skipped_collision`)
+5. **Canonical pair ordering**: pairs are always written as `(min(rxcui_a, rxcui_b), max(rxcui_a, rxcui_b))`
+   so they match the sorted-rxcui lookup in `routes/interactions.py`.
+   Preloads all existing non-empty `(rxcui_1, rxcui_2)` pairs. For each resolved pair:
+   - Neither ordering present → write canonical `(min, max)`
+   - Either ordering already present → skip (logged as `skipped_collision`)
    - Both orderings are marked as "taken" after each write to prevent intra-run
      duplicates.
 6. **Commits in batches of 1,000 rows**, each in its own transaction.

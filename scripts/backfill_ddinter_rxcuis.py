@@ -519,12 +519,11 @@ def main(argv=None) -> None:
             skipped_self_pair += 1
             continue
 
-        # Collision-safe pair selection: use name order (a, b) first
-        if (rxcui_a, rxcui_b) not in existing_pairs:
-            chosen_1, chosen_2 = rxcui_a, rxcui_b
-        elif (rxcui_b, rxcui_a) not in existing_pairs:
-            chosen_1, chosen_2 = rxcui_b, rxcui_a
-        else:
+        # Canonical pair ordering: always write (min, max) so pairs match
+        # the sorted-rxcui lookup in routes/interactions.py get_interaction_pair.
+        chosen_1, chosen_2 = min(rxcui_a, rxcui_b), max(rxcui_a, rxcui_b)
+        # Skip if either ordering already exists (collision in either direction)
+        if (chosen_1, chosen_2) in existing_pairs or (chosen_2, chosen_1) in existing_pairs:
             skipped_collision += 1
             continue
 

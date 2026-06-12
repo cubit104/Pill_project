@@ -320,10 +320,10 @@ def _run_main(monkeypatch, target_rows, existing_pairs, synonym_map, extra_args=
     return written_rows
 
 
-class TestMainBothNamesResolveNameOrder:
-    """Both names resolve, (a,b) slot free → written in name order."""
+class TestMainBothNamesResolveCanonical:
+    """Both names resolve → pair written in canonical min/max rxcui order."""
 
-    def test_written_in_name_order(self, monkeypatch):
+    def test_written_in_canonical_order(self, monkeypatch):
         target_rows = [_make_row(1, "Omeprazole", "Clopidogrel")]
         synonym_map = {"omeprazole": "7646", "clopidogrel": "32968"}
 
@@ -336,18 +336,18 @@ class TestMainBothNamesResolveNameOrder:
         assert len(written) == 1
         row_id, r1, r2 = written[0]
         assert row_id == 1
-        # name order: omeprazole=7646 → rxcui_1, clopidogrel=32968 → rxcui_2
-        assert r1 == "7646"
-        assert r2 == "32968"
+        # Canonical: min("32968","7646")="32968", max="7646"
+        assert r1 == "32968"
+        assert r2 == "7646"
 
 
-class TestMainCollisionReversed:
-    """(a,b) taken, (b,a) free → written reversed."""
+class TestMainCollisionAnyOrder:
+    """Either ordering already present → skipped as collision, no write."""
 
-    def test_reversed_when_forward_taken(self, monkeypatch):
+    def test_skipped_when_non_canonical_ordering_exists(self, monkeypatch):
         target_rows = [_make_row(2, "Omeprazole", "Clopidogrel")]
         synonym_map = {"omeprazole": "7646", "clopidogrel": "32968"}
-        # Forward pair already exists
+        # Non-canonical ordering in DB; canonical check still detects collision
         existing_pairs = {("7646", "32968")}
 
         written = _run_main(
@@ -356,10 +356,21 @@ class TestMainCollisionReversed:
             existing_pairs=existing_pairs,
             synonym_map=synonym_map,
         )
-        assert len(written) == 1
-        _, r1, r2 = written[0]
-        assert r1 == "32968"
-        assert r2 == "7646"
+        assert written == []
+
+    def test_skipped_when_canonical_ordering_exists(self, monkeypatch):
+        target_rows = [_make_row(2, "Omeprazole", "Clopidogrel")]
+        synonym_map = {"omeprazole": "7646", "clopidogrel": "32968"}
+        # Canonical ordering already present
+        existing_pairs = {("32968", "7646")}
+
+        written = _run_main(
+            monkeypatch,
+            target_rows=target_rows,
+            existing_pairs=existing_pairs,
+            synonym_map=synonym_map,
+        )
+        assert written == []
 
 
 class TestMainBothOrdersTaken:
