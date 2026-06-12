@@ -78,14 +78,6 @@ function buildApiUrl(path: string): string {
   return API_BASE ? `${API_BASE}${path}` : path
 }
 
-function sourceBadges(item: { source_ddinter?: boolean; source_kaggle?: boolean; source_openfda?: boolean }): string[] {
-  const badges: string[] = []
-  if (item.source_ddinter) badges.push('DDInter')
-  if (item.source_kaggle) badges.push('Kaggle')
-  if (item.source_openfda) badges.push('OpenFDA/FDA')
-  return badges
-}
-
 export default function InteractionsClient({
   drugName,
   genericName,
@@ -166,8 +158,8 @@ export default function InteractionsClient({
     void loadInteractions(1, false)
   }, [filter, loadInteractions])
 
-  const handleCheck = async () => {
-    const drug2 = drug2Input.trim()
+  const handleCheck = async (drug2Override?: string): Promise<void> => {
+    const drug2 = (drug2Override ?? drug2Input).trim()
     if (!drug2 || checking) return
     setChecking(true)
     setCheckError(null)
@@ -216,7 +208,7 @@ export default function InteractionsClient({
           <DrugAutocompleteInput
             value={drug2Input}
             onChange={setDrug2Input}
-            onSelect={(val) => setDrug2Input(val)}
+            onSelect={(val) => { setDrug2Input(val); void handleCheck(val) }}
             placeholder="Enter a drug name..."
             ariaLabel="Second drug name"
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
@@ -224,7 +216,7 @@ export default function InteractionsClient({
           />
           <button
             type="button"
-            onClick={handleCheck}
+            onClick={() => void handleCheck()}
             disabled={checking || !drug2Input.trim()}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
           >
@@ -246,11 +238,6 @@ export default function InteractionsClient({
                   >
                     {severityKey(checkResult.severity)}
                   </span>
-                  {sourceBadges(checkResult).map((badge) => (
-                    <span key={badge} className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium bg-white border border-slate-200 text-slate-600">
-                      {badge}
-                    </span>
-                  ))}
                 </div>
                 <p>{checkResult.description || 'Interaction found in our database.'}</p>
                 {checkResult.management ? (
@@ -315,11 +302,6 @@ export default function InteractionsClient({
                       <span className={`text-xs font-semibold uppercase ${SEVERITY_TEXT_COLORS[itemSeverity]}`}>
                         {itemSeverity}
                       </span>
-                      {sourceBadges(item).map((badge) => (
-                        <span key={badge} className="rounded-full px-2 py-0.5 text-[11px] font-medium bg-slate-100 text-slate-600">
-                          {badge}
-                        </span>
-                      ))}
                     </div>
                     <p className="mt-1 text-sm text-slate-600">{truncate(item.description, 120)}</p>
                     {item.management ? (

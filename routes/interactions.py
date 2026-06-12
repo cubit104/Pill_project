@@ -31,6 +31,7 @@ class InteractionResponse(BaseModel):
     drug2_rxcui: Optional[str]
     severity: Optional[str]
     description: Optional[str]
+    interaction_text: Optional[str] = None
     spl_text: Optional[str] = None
     reference_text: Optional[str] = None
     management: Optional[str] = None
@@ -427,6 +428,7 @@ def _pair_interaction_from_resolved(
             drug2_rxcui=r2,
             severity=None,
             description=None,
+            interaction_text=None,
             spl_text=None,
             reference_text=None,
             management=None,
@@ -451,6 +453,7 @@ def _pair_interaction_from_resolved(
             drug2_rxcui=r2,
             severity=None,
             description=None,
+            interaction_text=None,
             spl_text=None,
             reference_text=None,
             management=None,
@@ -528,6 +531,7 @@ def _pair_interaction_from_resolved(
         drug2_rxcui=r2,
         severity=severity,
         description=description_out,
+        interaction_text=selected_spl_text,
         spl_text=selected_spl_text,
         reference_text=selected_spl_text,
         management=management,
@@ -809,31 +813,7 @@ def get_interaction_drug_suggestions(
     with database.db_engine.connect() as conn:
         rows = conn.execute(
             text(
-                """
-                SELECT name FROM (
-                    SELECT DISTINCT drug_name_1 AS name
-                    FROM drug_interactions
-                    WHERE LOWER(drug_name_1) LIKE :prefix
-                      AND drug_name_1 IS NOT NULL AND drug_name_1 <> ''
-                    UNION
-                    SELECT DISTINCT drug_name_2 AS name
-                    FROM drug_interactions
-                    WHERE LOWER(drug_name_2) LIKE :prefix
-                      AND drug_name_2 IS NOT NULL AND drug_name_2 <> ''
-                    UNION
-                    SELECT DISTINCT bn AS name
-                    FROM drug_synonyms, unnest(brand_names) AS bn
-                    WHERE LOWER(bn) LIKE :prefix
-                      AND bn IS NOT NULL AND bn <> ''
-                    UNION
-                    SELECT DISTINCT generic_name AS name
-                    FROM drug_synonyms
-                    WHERE LOWER(generic_name) LIKE :prefix
-                      AND generic_name IS NOT NULL AND generic_name <> ''
-                ) combined
-                ORDER BY name
-                LIMIT :lim
-                """
+                "SELECT name FROM drug_name_suggestions WHERE lower_name LIKE :prefix ORDER BY name LIMIT :lim"
             ),
             {"prefix": f"{lower_q}%", "lim": limit},
         ).fetchall()
@@ -914,7 +894,7 @@ def get_interaction(
     with database.db_engine.begin() as conn:
         resolved_1 = resolve_drug_name(conn, drug1)
         resolved_2 = resolve_drug_name(conn, drug2)
-        return _pair_interaction_from_resolved(conn, drug1, drug2, resolved_1, resolved_2)
+        return _pair_interaction_from_resolved(conn, drug1, drug2, resolved_1, resolved_2, allow_live_openfda=False)
 
 
 @router.post("/api/interactions/check", response_model=InteractionCheckResponse)
