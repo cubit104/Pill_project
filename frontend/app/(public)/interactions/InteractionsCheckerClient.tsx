@@ -511,7 +511,7 @@ export default function InteractionsCheckerClient() {
                         {item.source_ddinter ? (
                           <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-slate-700 border border-slate-200">DDInter</span>
                         ) : null}
-                        <h3 className={`text-sm font-semibold ${style.text}`}>If taking {item.selected_drug} with {item.disease_name}</h3>
+                        <h3 className={`text-sm font-semibold ${style.text}`}>{item.selected_drug} ⇌ {item.disease_name}</h3>
                       </div>
                       <p className={`mt-3 text-sm ${style.text}`}>{item.text || FALLBACK_DESCRIPTION}</p>
                       {item.ref_text ? (

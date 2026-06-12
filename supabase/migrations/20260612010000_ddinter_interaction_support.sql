@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS public.drug_disease_interactions (
 
 CREATE INDEX IF NOT EXISTS idx_drug_interactions_source_ddinter
     ON public.drug_interactions (source_ddinter)
-    WHERE source_ddinter IS TRUE;
+    WHERE source_ddinter;
 
 CREATE INDEX IF NOT EXISTS idx_drug_food_interactions_drug_name_lower
     ON public.drug_food_interactions (LOWER(drug_name));

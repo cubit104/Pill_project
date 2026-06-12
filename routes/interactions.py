@@ -816,7 +816,8 @@ def check_interactions_batch(payload: InteractionCheckRequest = Body(...)):
     for item in pairs:
         if item.found:
             pair_found_count += 1
-            severity_summary[normalize_severity(item.severity)] += 1
+            severity_key = normalize_severity(item.severity if item.severity is not None else "unknown")
+            severity_summary[severity_key] += 1
 
     return InteractionCheckResponse(
         drugs=drugs,
