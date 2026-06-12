@@ -363,7 +363,7 @@ export default function InteractionsCheckerClient() {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3" role="tablist" aria-label="Interaction sections">
+          <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
             {([
               { id: 'drug-drug', label: 'Drug-Drug' },
               { id: 'drug-food', label: 'Drug-Food' },
@@ -371,9 +371,8 @@ export default function InteractionsCheckerClient() {
             ] as Array<{ id: TabId; label: string }>).map((tab) => (
               <button
                 key={tab.id}
-                role="tab"
-                aria-selected={activeTab === tab.id}
                 type="button"
+                aria-pressed={activeTab === tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`rounded-full px-3 py-1.5 text-sm ${
                   activeTab === tab.id ? 'bg-emerald-100 text-emerald-800 font-semibold' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'

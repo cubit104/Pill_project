@@ -209,7 +209,7 @@ def test_interaction_skips_pair_write_when_openfda_pair_already_current(client, 
     assert cache_calls == []
 
 
-def test_interaction_suppresses_very_long_description_when_spl_text_exists(client, monkeypatch):
+def test_interaction_returns_long_description_with_spl_text_present(client, monkeypatch):
     interactions, _ = _mock_conn_for_interactions(monkeypatch)
     long_description = "A" * 850
 
@@ -274,7 +274,7 @@ def test_batch_interactions_returns_pairs_food_disease_and_summary(client, monke
     monkeypatch.setattr(
         interactions,
         "_pair_interaction_from_resolved",
-        lambda conn, d1, d2, r1, r2: interactions.InteractionResponse(
+        lambda conn, d1, d2, r1, r2, allow_live_openfda=True: interactions.InteractionResponse(
             drug1=d1,
             drug2=d2,
             drug1_generic=r1.get("generic_name"),

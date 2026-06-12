@@ -312,6 +312,7 @@ def _pair_interaction_from_resolved(
     drug2: str,
     resolved_1: dict,
     resolved_2: dict,
+    allow_live_openfda: bool = True,
 ) -> InteractionResponse:
     r1 = resolved_1.get("rxcui")
     r2 = resolved_2.get("rxcui")
@@ -388,7 +389,7 @@ def _pair_interaction_from_resolved(
     if not selected_spl_text and cached_candidates:
         selected_spl_text, selected_source = cached_candidates[0]
 
-    if not selected_spl_text:
+    if not selected_spl_text and allow_live_openfda:
         for rx, generic, names, drug_label in (
             (r1, generic_1, first_candidates, drug1),
             (r2, generic_2, second_candidates, drug2),
@@ -438,7 +439,7 @@ def _pair_interaction_from_resolved(
         management=management,
         confidence=confidence,
         source_kaggle=bool(pair.get("source_kaggle")),
-        source_openfda=bool(pair.get("source_openfda") or selected_source == "openfda"),
+        source_openfda=bool(pair.get("source_openfda") or selected_source in ("openfda", "spl_professional")),
         source_ddinter=source_ddinter,
         found=True,
         message=None,
@@ -805,6 +806,7 @@ def check_interactions_batch(payload: InteractionCheckRequest = Body(...)):
                         drug2,
                         resolved_map.get(drug1) or {},
                         resolved_map.get(drug2) or {},
+                        allow_live_openfda=False,
                     )
                 )
 
