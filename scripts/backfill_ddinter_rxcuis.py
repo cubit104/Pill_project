@@ -386,13 +386,15 @@ def main(argv=None) -> None:
         batch.append({"id": row.id, "rxcui_1": chosen_1, "rxcui_2": chosen_2})
 
         if len(batch) >= BATCH_SIZE:
-            rows_updated += _flush_batch(batch)
-            logger.info("Batch committed: %d rows updated so far", rows_updated)
+            if not args.dry_run:
+                rows_updated += _flush_batch(batch)
+                logger.info("Batch committed: %d rows updated so far", rows_updated)
             batch.clear()
 
     # Flush remaining
     if batch:
-        rows_updated += _flush_batch(batch)
+        if not args.dry_run:
+            rows_updated += _flush_batch(batch)
         batch.clear()
 
     # --- Summary ---
@@ -426,13 +428,11 @@ def main(argv=None) -> None:
         )
 
     if args.dry_run:
-        would_update = sum(
-            1 for r in target_rows
-            if (
-                rxcui_a := rxcui_cache.get((r.drug_name_1 or "").strip().lower())
-            ) and (
-                rxcui_b := rxcui_cache.get((r.drug_name_2 or "").strip().lower())
-            ) and rxcui_a != rxcui_b
+        would_update = (
+            len(target_rows)
+            - skipped_unresolved
+            - skipped_collision
+            - skipped_self_pair
         )
         logger.info(
             "DRY-RUN summary: would update %d rows, skip %d unresolved, "

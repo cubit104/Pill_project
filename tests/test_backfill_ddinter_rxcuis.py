@@ -2,9 +2,7 @@
 
 import os
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/testdb")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://testserver")
@@ -19,41 +17,6 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-key")
 
 def _make_row(row_id: int, name1: str, name2: str) -> SimpleNamespace:
     return SimpleNamespace(id=row_id, drug_name_1=name1, drug_name_2=name2)
-
-
-def _build_mock_engine(existing_pairs=None, target_rows=None):
-    """Return a mock db_engine and its underlying connection mock."""
-    if existing_pairs is None:
-        existing_pairs = []
-    if target_rows is None:
-        target_rows = []
-
-    mock_conn = MagicMock()
-    mock_engine = MagicMock()
-
-    # connect() context manager → mock_conn
-    mock_cm_connect = MagicMock()
-    mock_cm_connect.__enter__.return_value = mock_conn
-    mock_cm_connect.__exit__.return_value = False
-    mock_engine.connect.return_value = mock_cm_connect
-
-    # begin() context manager (for batch writes)
-    mock_cm_begin = MagicMock()
-    mock_cm_begin.__enter__.return_value = mock_conn
-    mock_cm_begin.__exit__.return_value = False
-    mock_engine.begin.return_value = mock_cm_begin
-
-    # conn.execute side_effect: first call returns target rows, rest return existing pairs
-    pair_rows = [SimpleNamespace(**{"0": p[0], "1": p[1]}) for p in existing_pairs]
-    # We use a list-based side_effect keyed by the SQL text pattern
-    call_results = {
-        "target": MagicMock(fetchall=lambda: target_rows),
-        "existing": MagicMock(fetchall=lambda: pair_rows),
-        "synonym_omeprazole": MagicMock(fetchone=lambda: SimpleNamespace(**{"0": "7646"})),
-        "synonym_clopidogrel": MagicMock(fetchone=lambda: SimpleNamespace(**{"0": "32968"})),
-        "synonym_none": MagicMock(fetchone=lambda: None),
-    }
-    return mock_engine, mock_conn, call_results
 
 
 # ---------------------------------------------------------------------------
@@ -161,12 +124,7 @@ def _run_main(monkeypatch, target_rows, existing_pairs, synonym_map, extra_args=
     monkeypatch.setattr(mod.database, "db_engine", mock_engine)
     monkeypatch.setattr(mod.database, "connect_to_database", lambda: True)
 
-    argv = ["--dry-run"] if extra_args is None else list(extra_args)
-    # If not dry-run, empty list
-    if extra_args is not None:
-        argv = list(extra_args)
-    else:
-        argv = []
+    argv = [] if extra_args is None else list(extra_args)
 
     mod.main(argv)
     return written_rows
