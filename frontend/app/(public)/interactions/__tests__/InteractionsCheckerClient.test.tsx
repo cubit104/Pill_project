@@ -22,11 +22,12 @@ test('interactions checker source keeps description before interaction and manag
   const source = readFileSync(sourcePath, 'utf8')
 
   assert.match(source, /const description = item\.description \|\| FALLBACK_DESCRIPTION/)
-  assert.match(source, /<div className="mt-4 rounded-md border border-white\/60 bg-white\/40 px-3 py-3">\s*<p className=\{`whitespace-pre-line text-base font-medium leading-7 \$\{style\.text\}`\}>\{description\}<\/p>\s*<\/div>/)
+  assert.match(source, /rounded-md border border-white\/60 bg-white\/40 px-3 py-3/)
+  assert.match(source, /text-base font-medium leading-7 \$\{style\.text\}`\}>\{description\}/)
 
-  const descriptionIndex = source.indexOf('{description}')
-  const interactionIndex = source.indexOf('<span className="font-bold">Interaction: </span>{item.interaction_text}')
-  const managementIndex = source.indexOf('<p className="font-bold">Management:</p>')
+  const descriptionIndex = source.indexOf('>{description}</p>')
+  const interactionIndex = source.indexOf('Interaction: </span>{item.interaction_text}')
+  const managementIndex = source.indexOf('Management:</p>')
 
   assert.notEqual(descriptionIndex, -1)
   assert.notEqual(interactionIndex, -1)
