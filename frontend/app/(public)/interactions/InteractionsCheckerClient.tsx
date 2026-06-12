@@ -534,7 +534,7 @@ export default function InteractionsCheckerClient() {
                   })}
                   {results.summary.sections.disease_truncated && (
                     <p className="text-sm text-slate-500 text-center pt-1">
-                      Showing the 100 most severe of {results.summary.sections.drug_disease} results.
+                      Showing the {results.disease_interactions.length} most severe of {results.summary.sections.drug_disease} results.
                     </p>
                   )}
                 </>
