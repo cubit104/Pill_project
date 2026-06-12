@@ -58,6 +58,8 @@ type InteractionCheckResponse = {
       drug_drug: number
       drug_food: number
       drug_disease: number
+      food_truncated: boolean
+      disease_truncated: boolean
     }
   }
 }
@@ -463,34 +465,41 @@ export default function InteractionsCheckerClient() {
               {results.food_interactions.length === 0 ? (
                 <p className="text-sm text-slate-500">No drug-food interactions found for these medications.</p>
               ) : (
-                results.food_interactions.map((item, idx) => {
-                  const severity = severityKey(item.level)
-                  const style = SEVERITY_STYLES[severity]
-                  return (
-                    <article key={`${item.selected_drug}-${item.food_name}-${idx}`} className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${style.badge}`}>{severity}</span>
-                        {item.source_ddinter ? (
-                          <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-slate-700 border border-slate-200">DDInter</span>
-                        ) : null}
-                        <h3 className={`text-sm font-semibold ${style.text}`}>{item.selected_drug} ⇌ {item.food_name}</h3>
-                      </div>
-                      <p className={`mt-3 text-sm ${style.text}`}>{item.interaction || FALLBACK_DESCRIPTION}</p>
-                      {item.management ? (
-                        <div className="mt-3 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                          <p className="font-semibold">Management</p>
-                          <p className="mt-1 whitespace-pre-line">{item.management}</p>
+                <>
+                  {results.food_interactions.map((item, idx) => {
+                    const severity = severityKey(item.level)
+                    const style = SEVERITY_STYLES[severity]
+                    return (
+                      <article key={`${item.selected_drug}-${item.food_name}-${idx}`} className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${style.badge}`}>{severity}</span>
+                          {item.source_ddinter ? (
+                            <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-slate-700 border border-slate-200">DDInter</span>
+                          ) : null}
+                          <h3 className={`text-sm font-semibold ${style.text}`}>{item.selected_drug} ⇌ {item.food_name}</h3>
                         </div>
-                      ) : null}
-                      {item.ref_text ? (
-                        <details className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-                          <summary className="cursor-pointer font-semibold text-slate-700">Reference text</summary>
-                          <p className="mt-2 whitespace-pre-line">{item.ref_text}</p>
-                        </details>
-                      ) : null}
-                    </article>
-                  )
-                })
+                        <p className={`mt-3 text-sm ${style.text}`}>{item.interaction || FALLBACK_DESCRIPTION}</p>
+                        {item.management ? (
+                          <div className="mt-3 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                            <p className="font-semibold">Management</p>
+                            <p className="mt-1 whitespace-pre-line">{item.management}</p>
+                          </div>
+                        ) : null}
+                        {item.ref_text ? (
+                          <details className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                            <summary className="cursor-pointer font-semibold text-slate-700">Reference text</summary>
+                            <p className="mt-2 whitespace-pre-line">{item.ref_text}</p>
+                          </details>
+                        ) : null}
+                      </article>
+                    )
+                  })}
+                  {results.summary.sections.food_truncated && (
+                    <p className="text-sm text-slate-500 text-center pt-1">
+                      Showing the {results.food_interactions.length} most severe of {results.summary.sections.drug_food} results.
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -500,28 +509,35 @@ export default function InteractionsCheckerClient() {
               {results.disease_interactions.length === 0 ? (
                 <p className="text-sm text-slate-500">No drug-disease interactions found for these medications.</p>
               ) : (
-                results.disease_interactions.map((item, idx) => {
-                  const severity = severityKey(item.level)
-                  const style = SEVERITY_STYLES[severity]
-                  return (
-                    <article key={`${item.selected_drug}-${item.disease_name}-${idx}`} className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${style.badge}`}>{severity}</span>
-                        {item.source_ddinter ? (
-                          <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-slate-700 border border-slate-200">DDInter</span>
+                <>
+                  {results.disease_interactions.map((item, idx) => {
+                    const severity = severityKey(item.level)
+                    const style = SEVERITY_STYLES[severity]
+                    return (
+                      <article key={`${item.selected_drug}-${item.disease_name}-${idx}`} className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${style.badge}`}>{severity}</span>
+                          {item.source_ddinter ? (
+                            <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-slate-700 border border-slate-200">DDInter</span>
+                          ) : null}
+                          <h3 className={`text-sm font-semibold ${style.text}`}>{item.selected_drug} ⇌ {item.disease_name}</h3>
+                        </div>
+                        <p className={`mt-3 text-sm ${style.text}`}>{item.text || FALLBACK_DESCRIPTION}</p>
+                        {item.ref_text ? (
+                          <details className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                            <summary className="cursor-pointer font-semibold text-slate-700">Reference text</summary>
+                            <p className="mt-2 whitespace-pre-line">{item.ref_text}</p>
+                          </details>
                         ) : null}
-                        <h3 className={`text-sm font-semibold ${style.text}`}>{item.selected_drug} ⇌ {item.disease_name}</h3>
-                      </div>
-                      <p className={`mt-3 text-sm ${style.text}`}>{item.text || FALLBACK_DESCRIPTION}</p>
-                      {item.ref_text ? (
-                        <details className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-                          <summary className="cursor-pointer font-semibold text-slate-700">Reference text</summary>
-                          <p className="mt-2 whitespace-pre-line">{item.ref_text}</p>
-                        </details>
-                      ) : null}
-                    </article>
-                  )
-                })
+                      </article>
+                    )
+                  })}
+                  {results.summary.sections.disease_truncated && (
+                    <p className="text-sm text-slate-500 text-center pt-1">
+                      Showing the {results.disease_interactions.length} most severe of {results.summary.sections.drug_disease} results.
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )}

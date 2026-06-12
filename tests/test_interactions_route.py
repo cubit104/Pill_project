@@ -333,7 +333,12 @@ def test_batch_interactions_returns_pairs_food_disease_and_summary(client, monke
     assert response.status_code == 200
     payload = response.json()
     assert payload["drugs"] == ["aspirin", "warfarin"]
-    assert payload["summary"]["sections"] == {"drug_drug": 1, "drug_food": 1, "drug_disease": 1}
+    sections = payload["summary"]["sections"]
+    assert sections["drug_drug"] == 1
+    assert sections["drug_food"] == 1
+    assert sections["drug_disease"] == 1
+    assert sections["food_truncated"] is False
+    assert sections["disease_truncated"] is False
     assert payload["summary"]["severity"]["major"] == 1
     assert len(payload["pairs"]) == 1
     assert payload["food_interactions"][0]["food_name"] == "Alcohol"
@@ -725,3 +730,281 @@ def test_resolve_rxcui_from_rxnorm_resolves_to_ingredient():
         result = interactions.resolve_rxcui_from_rxnorm("prilosec")
 
     assert result == "7646"
+
+
+# ---------------------------------------------------------------------------
+# Tests for normalize_severity numeric levels (Requirement 1)
+# ---------------------------------------------------------------------------
+
+def test_normalize_severity_numeric_3_is_major():
+    from routes.interactions import normalize_severity
+    assert normalize_severity("3") == "major"
+
+
+def test_normalize_severity_numeric_2_is_moderate():
+    from routes.interactions import normalize_severity
+    assert normalize_severity("2") == "moderate"
+
+
+def test_normalize_severity_numeric_1_is_minor():
+    from routes.interactions import normalize_severity
+    assert normalize_severity("1") == "minor"
+
+
+def test_normalize_severity_numeric_with_whitespace():
+    from routes.interactions import normalize_severity
+    assert normalize_severity(" 3 ") == "major"
+
+
+def test_normalize_severity_unknown_value_returns_unknown():
+    from routes.interactions import normalize_severity
+    assert normalize_severity("99") == "unknown"
+    assert normalize_severity("serious") == "unknown"
+    assert normalize_severity("") == "unknown"
+    assert normalize_severity(None) == "unknown"
+
+
+def test_normalize_severity_existing_word_mappings_unchanged():
+    from routes.interactions import normalize_severity
+    assert normalize_severity("major") == "major"
+    assert normalize_severity("moderate") == "moderate"
+    assert normalize_severity("minor") == "minor"
+    assert normalize_severity("unknown") == "unknown"
+    assert normalize_severity("contraindicated") == "major"
+    assert normalize_severity("high") == "major"
+    assert normalize_severity("medium") == "moderate"
+    assert normalize_severity("low") == "minor"
+
+
+# ---------------------------------------------------------------------------
+# Tests for get_interaction_pair both-order merge (Requirement 2)
+# ---------------------------------------------------------------------------
+
+def test_get_interaction_pair_merges_two_rows():
+    """Two rows — Kaggle canonical (moderate, no management) + DDInter reversed
+    (major, with management) — must be merged: severity=major, management set,
+    both source flags true, confidence=high."""
+    from routes.interactions import get_interaction_pair
+    from unittest.mock import MagicMock
+
+    # Simulate two DB rows returned by the OR query
+    row_kaggle = ("100", "200", "Clopidogrel", "Omeprazole",
+                  "Kaggle description text", "moderate", "medium",
+                  True, False, False, None)  # source_kaggle, no management
+    row_ddinter = ("200", "100", "Omeprazole", "Clopidogrel",
+                   None, "major", None,
+                   False, False, True, "Avoid concurrent use.")  # source_ddinter, with management
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = [row_kaggle, row_ddinter]
+
+    result = get_interaction_pair(mock_conn, "100", "200")
+    assert result is not None
+    assert result["severity"] == "major"
+    assert result["description"] == "Kaggle description text"
+    assert result["management"] == "Avoid concurrent use."
+    assert result["source_kaggle"] is True
+    assert result["source_ddinter"] is True
+    assert result["confidence"] == "high"
+
+
+def test_get_interaction_pair_single_row_passthrough():
+    """Single row must behave identically to old code."""
+    from routes.interactions import get_interaction_pair
+    from unittest.mock import MagicMock
+
+    row = ("100", "200", "DrugA", "DrugB", "Some description", "moderate", "medium",
+           True, False, False, None)
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = [row]
+
+    result = get_interaction_pair(mock_conn, "100", "200")
+    assert result is not None
+    assert result["severity"] == "moderate"
+    assert result["description"] == "Some description"
+    assert result["source_kaggle"] is True
+    assert result["source_ddinter"] is False
+    assert result["management"] is None
+
+
+def test_get_interaction_pair_returns_none_when_no_rows():
+    from routes.interactions import get_interaction_pair
+    from unittest.mock import MagicMock
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = []
+
+    result = get_interaction_pair(mock_conn, "100", "200")
+    assert result is None
+
+
+def test_get_interaction_pair_ddinter_unknown_falls_back_to_kaggle_severity():
+    """If DDInter row has unknown severity, use Kaggle row's severity."""
+    from routes.interactions import get_interaction_pair
+    from unittest.mock import MagicMock
+
+    row_kaggle = ("100", "200", "DrugA", "DrugB", "Kaggle text", "moderate", "medium",
+                  True, False, False, None)
+    row_ddinter = ("200", "100", "DrugB", "DrugA", None, "unknown", None,
+                   False, False, True, "Take care.")
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = [row_kaggle, row_ddinter]
+
+    result = get_interaction_pair(mock_conn, "100", "200")
+    assert result["severity"] == "moderate"
+    assert result["management"] == "Take care."
+    assert result["source_kaggle"] is True
+    assert result["source_ddinter"] is True
+
+
+# ---------------------------------------------------------------------------
+# Tests for food dedup (Requirement 3)
+# ---------------------------------------------------------------------------
+
+def test_fetch_drug_food_interactions_deduplicates():
+    """Multiple rows for the same (selected_drug, food_name_lower) must be
+    collapsed into one, keeping the row with the highest severity."""
+    from routes.interactions import _fetch_drug_food_interactions
+    from unittest.mock import MagicMock
+
+    # Five duplicate rows for Dolutegravir/food (level 1 = minor)
+    dup_rows = [
+        ("Dolutegravir", "food", "1", "Take with food.", None, None),
+        ("Dolutegravir", "food", "1", "Take with food.", None, None),
+        ("Dolutegravir", "food", "1", "Take with food.", None, None),
+        ("Dolutegravir", "food", "1", "Take with food.", None, None),
+        ("Dolutegravir", "food", "1", "Take with food.", None, None),
+    ]
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = dup_rows
+
+    resolved_map = {
+        "dolutegravir": {
+            "rxcui": "1234",
+            "generic_name": "Dolutegravir",
+            "brand_names": [],
+        }
+    }
+
+    result = _fetch_drug_food_interactions(mock_conn, resolved_map)
+    assert len(result) == 1
+    assert result[0]["level"] == "minor"
+    assert result[0]["food_name"] == "food"
+
+
+def test_fetch_drug_food_interactions_keeps_highest_severity():
+    """When duplicates have different severity, keep the highest."""
+    from routes.interactions import _fetch_drug_food_interactions
+    from unittest.mock import MagicMock
+
+    rows = [
+        ("Warfarin", "Grapefruit", "1", "Minor note.", None, None),       # minor
+        ("Warfarin", "Grapefruit", "3", "Major warning.", None, None),     # major
+        ("Warfarin", "grapefruit", "2", "Moderate warning.", None, None),  # moderate (same food, lowercase)
+    ]
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = rows
+
+    resolved_map = {
+        "warfarin": {
+            "rxcui": "11289",
+            "generic_name": "Warfarin",
+            "brand_names": [],
+        }
+    }
+
+    result = _fetch_drug_food_interactions(mock_conn, resolved_map)
+    assert len(result) == 1
+    assert result[0]["level"] == "major"
+    assert result[0]["interaction"] == "Major warning."
+
+
+# ---------------------------------------------------------------------------
+# Tests for disease cap and true totals (Requirement 4)
+# ---------------------------------------------------------------------------
+
+def test_batch_interactions_disease_cap_and_true_total(client, monkeypatch):
+    """More than 100 disease rows → response capped at 100, summary reports true total
+    and disease_truncated=True."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {
+        "rxcui": "9999", "generic_name": "Dexamethasone", "brand_names": []
+    })
+    monkeypatch.setattr(interactions, "_pair_interaction_from_resolved", lambda *a, **kw:
+        interactions.InteractionResponse(
+            drug1=a[1], drug2=a[2],
+            drug1_generic=None, drug2_generic=None, drug1_brands=[], drug2_brands=[],
+            drug1_rxcui=None, drug2_rxcui=None,
+            severity=None, description=None, spl_text=None, reference_text=None,
+            management=None, confidence=None,
+            source_kaggle=False, source_openfda=False, source_ddinter=False,
+            found=False, message="No interaction data found",
+        )
+    )
+    monkeypatch.setattr(interactions, "_fetch_drug_food_interactions", lambda conn, rm: [])
+
+    # Build 150 unique disease rows
+    disease_rows = [
+        {
+            "selected_drug": "dexamethasone",
+            "matched_drug_name": "Dexamethasone",
+            "disease_name": f"Disease {i:03d}",
+            "level": "minor",
+            "text": "Some text.",
+            "ref_text": None,
+            "source_ddinter": True,
+        }
+        for i in range(150)
+    ]
+    monkeypatch.setattr(interactions, "_fetch_drug_disease_interactions", lambda conn, rm: disease_rows)
+
+    response = client.post("/api/interactions/check", json={"drugs": ["dexamethasone", "prednisone"]})
+    assert response.status_code == 200
+    payload = response.json()
+
+    # True total in summary
+    assert payload["summary"]["sections"]["drug_disease"] == 150
+    # Cap applied in returned list
+    assert len(payload["disease_interactions"]) == 100
+    # Truncation flag
+    assert payload["summary"]["sections"]["disease_truncated"] is True
+    # Food not truncated
+    assert payload["summary"]["sections"]["food_truncated"] is False
+
+
+def test_batch_interactions_no_truncation_when_under_cap(client, monkeypatch):
+    """Fewer than 100 results → truncation flags are False."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {
+        "rxcui": "9999", "generic_name": "Aspirin", "brand_names": []
+    })
+    monkeypatch.setattr(interactions, "_pair_interaction_from_resolved", lambda *a, **kw:
+        interactions.InteractionResponse(
+            drug1=a[1], drug2=a[2],
+            drug1_generic=None, drug2_generic=None, drug1_brands=[], drug2_brands=[],
+            drug1_rxcui=None, drug2_rxcui=None,
+            severity=None, description=None, spl_text=None, reference_text=None,
+            management=None, confidence=None,
+            source_kaggle=False, source_openfda=False, source_ddinter=False,
+            found=False, message="No interaction data found",
+        )
+    )
+    monkeypatch.setattr(interactions, "_fetch_drug_food_interactions", lambda conn, rm: [
+        {"selected_drug": "aspirin", "matched_drug_name": "Aspirin",
+         "food_name": "Alcohol", "level": "moderate",
+         "interaction": "Risk.", "management": None, "ref_text": None, "source_ddinter": True}
+    ])
+    monkeypatch.setattr(interactions, "_fetch_drug_disease_interactions", lambda conn, rm: [])
+
+    response = client.post("/api/interactions/check", json={"drugs": ["aspirin", "warfarin"]})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["sections"]["food_truncated"] is False
+    assert payload["summary"]["sections"]["disease_truncated"] is False
+    assert payload["summary"]["sections"]["drug_food"] == 1

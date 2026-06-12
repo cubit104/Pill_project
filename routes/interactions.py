@@ -102,6 +102,8 @@ class InteractionBatchSections(BaseModel):
     drug_drug: int = 0
     drug_food: int = 0
     drug_disease: int = 0
+    food_truncated: bool = False
+    disease_truncated: bool = False
 
 
 class InteractionBatchSummary(BaseModel):
@@ -137,6 +139,13 @@ def normalize_severity(value: Optional[str]) -> str:
     if lowered in {"medium"}:
         return "moderate"
     if lowered in {"low"}:
+        return "minor"
+    # Numeric text levels from drug_food_interactions / drug_disease_interactions
+    if lowered == "3":
+        return "major"
+    if lowered == "2":
+        return "moderate"
+    if lowered == "1":
         return "minor"
     return "unknown"
 
@@ -221,36 +230,121 @@ def resolve_drug_name(conn, name: str) -> dict:
     }
 
 
+_SEVERITY_RANK: dict[str, int] = {"major": 0, "moderate": 1, "minor": 2, "unknown": 3}
+
+
 def get_interaction_pair(conn, rxcui_1: str, rxcui_2: str) -> Optional[dict]:
     if not rxcui_1 or not rxcui_2:
         return None
-    left, right = sorted([str(rxcui_1), str(rxcui_2)])
-    row = conn.execute(
+    r1, r2 = str(rxcui_1), str(rxcui_2)
+    rows = conn.execute(
         text(
             """
             SELECT rxcui_1, rxcui_2, drug_name_1, drug_name_2, description, severity, confidence,
                    source_kaggle, source_openfda, source_ddinter, management
             FROM drug_interactions
-            WHERE rxcui_1 = :r1 AND rxcui_2 = :r2
-            LIMIT 1
+            WHERE (rxcui_1 = :r1 AND rxcui_2 = :r2)
+               OR (rxcui_1 = :r2 AND rxcui_2 = :r1)
             """
         ),
-        {"r1": left, "r2": right},
-    ).fetchone()
-    if not row:
+        {"r1": r1, "r2": r2},
+    ).fetchall()
+    if not rows:
         return None
+
+    # Single-row fast path — identical to old behaviour
+    if len(rows) == 1:
+        row = rows[0]
+        return {
+            "rxcui_1": row[0],
+            "rxcui_2": row[1],
+            "drug_name_1": row[2],
+            "drug_name_2": row[3],
+            "description": row[4],
+            "severity": row[5],
+            "confidence": row[6],
+            "source_kaggle": bool(row[7]),
+            "source_openfda": bool(row[8]),
+            "source_ddinter": bool(row[9]),
+            "management": row[10],
+        }
+
+    # Multi-row merge with field-level precedence
+    parsed: list[dict] = []
+    for row in rows:
+        parsed.append(
+            {
+                "rxcui_1": row[0],
+                "rxcui_2": row[1],
+                "drug_name_1": row[2],
+                "drug_name_2": row[3],
+                "description": (row[4] or "").strip() or None,
+                "severity": normalize_severity(row[5]),
+                "confidence": row[6],
+                "source_kaggle": bool(row[7]),
+                "source_openfda": bool(row[8]),
+                "source_ddinter": bool(row[9]),
+                "management": (row[10] or "").strip() or None,
+            }
+        )
+
+    ddinter_rows = [p for p in parsed if p["source_ddinter"]]
+    kaggle_rows = [p for p in parsed if p["source_kaggle"]]
+
+    # Pick the best DDInter severity (most severe non-unknown)
+    best_severity = "unknown"
+    for p in ddinter_rows:
+        sev = p["severity"]
+        if _SEVERITY_RANK.get(sev, 3) < _SEVERITY_RANK.get(best_severity, 3):
+            best_severity = sev
+    if best_severity == "unknown":
+        # Fall back to Kaggle severity
+        for p in kaggle_rows:
+            sev = p["severity"]
+            if _SEVERITY_RANK.get(sev, 3) < _SEVERITY_RANK.get(best_severity, 3):
+                best_severity = sev
+    if best_severity == "unknown":
+        # Last resort: any row
+        for p in parsed:
+            sev = p["severity"]
+            if _SEVERITY_RANK.get(sev, 3) < _SEVERITY_RANK.get(best_severity, 3):
+                best_severity = sev
+
+    # description: prefer Kaggle non-empty; fallback to any non-empty
+    description: Optional[str] = None
+    for p in kaggle_rows:
+        if p["description"]:
+            description = p["description"]
+            break
+    if not description:
+        for p in parsed:
+            if p["description"]:
+                description = p["description"]
+                break
+
+    # management: from DDInter row
+    management: Optional[str] = None
+    for p in ddinter_rows:
+        if p["management"]:
+            management = p["management"]
+            break
+
+    any_ddinter = any(p["source_ddinter"] for p in parsed)
+    confidence = "high" if any_ddinter else (parsed[0]["confidence"] if parsed else None)
+
+    base = parsed[0]
     return {
-        "rxcui_1": row[0],
-        "rxcui_2": row[1],
-        "drug_name_1": row[2],
-        "drug_name_2": row[3],
-        "description": row[4],
-        "severity": row[5],
-        "confidence": row[6],
-        "source_kaggle": bool(row[7]),
-        "source_openfda": bool(row[8]),
-        "source_ddinter": bool(row[9]),
-        "management": row[10],
+        "rxcui_1": base["rxcui_1"],
+        "rxcui_2": base["rxcui_2"],
+        "drug_name_1": base["drug_name_1"],
+        "drug_name_2": base["drug_name_2"],
+        "description": description,
+        "severity": best_severity,
+        "confidence": confidence,
+        "source_kaggle": any(p["source_kaggle"] for p in parsed),
+        "source_openfda": any(p["source_openfda"] for p in parsed),
+        "source_ddinter": any_ddinter,
+        "management": management,
     }
 
 
@@ -447,6 +541,9 @@ def _pair_interaction_from_resolved(
     )
 
 
+_FOOD_DISEASE_CAP = 100
+
+
 def _fetch_drug_food_interactions(conn, resolved_map: dict[str, dict]) -> list[dict]:
     candidate_map = {drug: _candidate_names(resolved, drug) for drug, resolved in resolved_map.items()}
     all_candidates = sorted({name for values in candidate_map.values() for name in values})
@@ -463,26 +560,45 @@ def _fetch_drug_food_interactions(conn, resolved_map: dict[str, dict]) -> list[d
     ).bindparams(bindparam("candidate_names", expanding=True))
     rows = conn.execute(sql, {"candidate_names": all_candidates}).fetchall()
 
-    items: list[dict] = []
+    # Collect raw items with (selected_drug, food_name_lower) grouping
+    best: dict[tuple[str, str], dict] = {}
     for row in rows:
         matched_name = (row[0] or "").strip()
         if not matched_name:
             continue
         lowered = matched_name.lower()
+        food_name = row[1] or ""
+        food_key = food_name.lower()
+        level = normalize_severity(row[2])
+        interaction = row[3]
         for selected_drug, names in candidate_map.items():
             if lowered in names:
-                items.append(
-                    {
-                        "selected_drug": selected_drug,
-                        "matched_drug_name": matched_name,
-                        "food_name": row[1] or "",
-                        "level": normalize_severity(row[2]),
-                        "interaction": row[3],
-                        "management": row[4],
-                        "ref_text": row[5],
-                        "source_ddinter": True,
-                    }
-                )
+                key = (selected_drug, food_key)
+                candidate = {
+                    "selected_drug": selected_drug,
+                    "matched_drug_name": matched_name,
+                    "food_name": food_name,
+                    "level": level,
+                    "interaction": interaction,
+                    "management": row[4],
+                    "ref_text": row[5],
+                    "source_ddinter": True,
+                }
+                existing = best.get(key)
+                if existing is None:
+                    best[key] = candidate
+                else:
+                    existing_rank = _SEVERITY_RANK.get(existing["level"], 3)
+                    new_rank = _SEVERITY_RANK.get(level, 3)
+                    if new_rank < existing_rank or (
+                        new_rank == existing_rank
+                        and len(interaction or "") > len(existing["interaction"] or "")
+                    ):
+                        best[key] = candidate
+
+    items = list(best.values())
+    # Sort by severity rank, then food name
+    items.sort(key=lambda x: (_SEVERITY_RANK.get(x["level"], 3), x["food_name"].lower()))
     return items
 
 
@@ -502,25 +618,43 @@ def _fetch_drug_disease_interactions(conn, resolved_map: dict[str, dict]) -> lis
     ).bindparams(bindparam("candidate_names", expanding=True))
     rows = conn.execute(sql, {"candidate_names": all_candidates}).fetchall()
 
-    items: list[dict] = []
+    best: dict[tuple[str, str], dict] = {}
     for row in rows:
         matched_name = (row[0] or "").strip()
         if not matched_name:
             continue
         lowered = matched_name.lower()
+        disease_name = row[1] or ""
+        disease_key = disease_name.lower()
+        level = normalize_severity(row[2])
+        text_val = row[3]
         for selected_drug, names in candidate_map.items():
             if lowered in names:
-                items.append(
-                    {
-                        "selected_drug": selected_drug,
-                        "matched_drug_name": matched_name,
-                        "disease_name": row[1] or "",
-                        "level": normalize_severity(row[2]),
-                        "text": row[3],
-                        "ref_text": row[4],
-                        "source_ddinter": True,
-                    }
-                )
+                key = (selected_drug, disease_key)
+                candidate = {
+                    "selected_drug": selected_drug,
+                    "matched_drug_name": matched_name,
+                    "disease_name": disease_name,
+                    "level": level,
+                    "text": text_val,
+                    "ref_text": row[4],
+                    "source_ddinter": True,
+                }
+                existing = best.get(key)
+                if existing is None:
+                    best[key] = candidate
+                else:
+                    existing_rank = _SEVERITY_RANK.get(existing["level"], 3)
+                    new_rank = _SEVERITY_RANK.get(level, 3)
+                    if new_rank < existing_rank or (
+                        new_rank == existing_rank
+                        and len(text_val or "") > len(existing["text"] or "")
+                    ):
+                        best[key] = candidate
+
+    items = list(best.values())
+    # Sort by severity rank, then disease name
+    items.sort(key=lambda x: (_SEVERITY_RANK.get(x["level"], 3), x["disease_name"].lower()))
     return items
 
 
@@ -822,17 +956,24 @@ def check_interactions_batch(payload: InteractionCheckRequest = Body(...)):
             severity_key = normalize_severity(item.severity if item.severity is not None else "unknown")
             severity_summary[severity_key] += 1
 
+    true_food_total = len(food_items)
+    true_disease_total = len(disease_items)
+    food_truncated = true_food_total > _FOOD_DISEASE_CAP
+    disease_truncated = true_disease_total > _FOOD_DISEASE_CAP
+
     return InteractionCheckResponse(
         drugs=drugs,
         pairs=pairs,
-        food_interactions=[DrugFoodInteractionItem(**item) for item in food_items],
-        disease_interactions=[DrugDiseaseInteractionItem(**item) for item in disease_items],
+        food_interactions=[DrugFoodInteractionItem(**item) for item in food_items[:_FOOD_DISEASE_CAP]],
+        disease_interactions=[DrugDiseaseInteractionItem(**item) for item in disease_items[:_FOOD_DISEASE_CAP]],
         summary=InteractionBatchSummary(
             severity=SeveritySummary(**severity_summary),
             sections=InteractionBatchSections(
                 drug_drug=pair_found_count,
-                drug_food=len(food_items),
-                drug_disease=len(disease_items),
+                drug_food=true_food_total,
+                drug_disease=true_disease_total,
+                food_truncated=food_truncated,
+                disease_truncated=disease_truncated,
             ),
         ),
     )
