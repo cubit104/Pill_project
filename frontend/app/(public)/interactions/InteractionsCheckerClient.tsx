@@ -384,7 +384,7 @@ export default function InteractionsCheckerClient() {
                     />
                     <div className="flex items-baseline gap-1.5">
                       <span className="text-lg font-semibold leading-none">{item.count}</span>
-                      <span className={`text-xs leading-none ${muted ? 'text-slate-500' : 'text-slate-600'}`}>{item.label}</span>
+                      <span className={`text-sm leading-none ${muted ? 'text-slate-500' : 'text-slate-600'}`}>{item.label}</span>
                     </div>
                   </div>
                 )
