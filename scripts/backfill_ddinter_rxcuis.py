@@ -426,14 +426,18 @@ def main(argv=None) -> None:
         )
 
     if args.dry_run:
+        would_update = sum(
+            1 for r in target_rows
+            if (
+                rxcui_a := rxcui_cache.get((r.drug_name_1 or "").strip().lower())
+            ) and (
+                rxcui_b := rxcui_cache.get((r.drug_name_2 or "").strip().lower())
+            ) and rxcui_a != rxcui_b
+        )
         logger.info(
             "DRY-RUN summary: would update %d rows, skip %d unresolved, "
             "%d collision, %d self-pair.",
-            len([r for r in target_rows
-                 if rxcui_cache.get((r.drug_name_1 or "").strip().lower())
-                 and rxcui_cache.get((r.drug_name_2 or "").strip().lower())
-                 and rxcui_cache.get((r.drug_name_1 or "").strip().lower())
-                    != rxcui_cache.get((r.drug_name_2 or "").strip().lower())]),
+            would_update,
             skipped_unresolved,
             skipped_collision,
             skipped_self_pair,
