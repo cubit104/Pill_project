@@ -619,9 +619,8 @@ def test_suggestions_route_not_captured_by_drug_path_param(client, monkeypatch):
     assert payload == ["Aspirin"]
 
 
-def test_suggestions_sql_includes_brand_names_and_generic(client, monkeypatch):
-    """The suggestions SQL must query drug_synonyms brand_names and generic_name
-    in addition to drug_interactions drug_name_1/2."""
+def test_suggestions_sql_uses_drug_name_suggestions_table(client, monkeypatch):
+    """The suggestions endpoint must query drug_name_suggestions for fast prefix lookup."""
     _, mock_conn = _mock_conn_for_interactions(monkeypatch)
     mock_conn.execute.return_value.fetchall.return_value = [("Lipitor",)]
 
@@ -629,11 +628,154 @@ def test_suggestions_sql_includes_brand_names_and_generic(client, monkeypatch):
     assert response.status_code == 200
     assert response.json() == ["Lipitor"]
 
-    # Inspect the SQL that was executed
+    # Inspect the SQL that was executed — must use the pre-computed table
     executed_sql = str(mock_conn.execute.call_args[0][0])
-    assert "drug_synonyms" in executed_sql
-    assert "unnest(brand_names)" in executed_sql
-    assert "generic_name" in executed_sql
+    assert "drug_name_suggestions" in executed_sql
+    assert "lower_name" in executed_sql
+
+
+# ---------------------------------------------------------------------------
+# Tests for interaction_text field
+# ---------------------------------------------------------------------------
+
+def test_single_pair_includes_interaction_text_from_cache(client, monkeypatch):
+    """interaction_text must be populated from cached label text in the single-pair endpoint."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {"rxcui": "1191" if name == "aspirin" else "5640"})
+    monkeypatch.setattr(
+        interactions,
+        "get_interaction_pair",
+        lambda conn, r1, r2: {
+            "severity": "moderate",
+            "description": "May increase bleeding.",
+            "confidence": "high",
+            "source_kaggle": True,
+            "source_openfda": False,
+            "source_ddinter": False,
+            "management": None,
+        },
+    )
+    monkeypatch.setattr(
+        interactions,
+        "search_cached_label_text",
+        lambda conn, r, n: ("FDA label paragraph about anticoagulants.", "spl_professional"),
+    )
+    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("", ""))
+    monkeypatch.setattr(interactions, "cache_new_pair_only", lambda *args, **kwargs: None)
+
+    response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["found"] is True
+    assert payload["interaction_text"] == "FDA label paragraph about anticoagulants."
+    assert payload["spl_text"] == "FDA label paragraph about anticoagulants."
+    assert payload["reference_text"] == "FDA label paragraph about anticoagulants."
+
+
+def test_single_pair_interaction_text_none_when_no_cache(client, monkeypatch):
+    """interaction_text must be None when no cached label text is available."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {"rxcui": "1191" if name == "aspirin" else "5640"})
+    monkeypatch.setattr(
+        interactions,
+        "get_interaction_pair",
+        lambda conn, r1, r2: {
+            "severity": "minor",
+            "description": "Minor interaction.",
+            "confidence": "medium",
+            "source_kaggle": True,
+            "source_openfda": False,
+            "source_ddinter": False,
+            "management": None,
+        },
+    )
+    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: (None, None))
+    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("", ""))
+    monkeypatch.setattr(interactions, "cache_new_pair_only", lambda *args, **kwargs: None)
+
+    response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["found"] is True
+    assert payload["interaction_text"] is None
+    assert payload["spl_text"] is None
+
+
+def test_batch_pair_includes_interaction_text_from_cache(client, monkeypatch):
+    """interaction_text must be present in batch pair responses when cached label text matches."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    def _resolve(conn, name):
+        return {"rxcui": name.upper(), "generic_name": name.title(), "brand_names": []}
+
+    def _pair(conn, d1, d2, r1, r2, allow_live_openfda=True):
+        return interactions.InteractionResponse(
+            drug1=d1, drug2=d2,
+            drug1_generic=r1.get("generic_name"), drug2_generic=r2.get("generic_name"),
+            drug1_brands=[], drug2_brands=[],
+            drug1_rxcui=r1.get("rxcui"), drug2_rxcui=r2.get("rxcui"),
+            severity="moderate",
+            description="Kaggle description text.",
+            interaction_text="Cached FDA interaction paragraph.",
+            spl_text="Cached FDA interaction paragraph.",
+            reference_text="Cached FDA interaction paragraph.",
+            management=None,
+            confidence="high",
+            source_kaggle=True, source_openfda=False, source_ddinter=False,
+            found=True, message=None,
+        )
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", _resolve)
+    monkeypatch.setattr(interactions, "_pair_interaction_from_resolved", _pair)
+    monkeypatch.setattr(interactions, "_fetch_drug_food_interactions", lambda conn, rm: [])
+    monkeypatch.setattr(interactions, "_fetch_drug_disease_interactions", lambda conn, rm: [])
+
+    response = client.post("/api/interactions/check", json={"drugs": ["aspirin", "warfarin"]})
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["pairs"]) == 1
+    pair = payload["pairs"][0]
+    assert pair["interaction_text"] == "Cached FDA interaction paragraph."
+    assert pair["description"] == "Kaggle description text."
+
+
+def test_batch_pair_interaction_text_field_present_when_none(client, monkeypatch):
+    """interaction_text field must always be present in batch pair responses (None when missing)."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    def _resolve(conn, name):
+        return {"rxcui": name.upper(), "generic_name": name.title(), "brand_names": []}
+
+    def _pair(conn, d1, d2, r1, r2, allow_live_openfda=True):
+        return interactions.InteractionResponse(
+            drug1=d1, drug2=d2,
+            drug1_generic=None, drug2_generic=None,
+            drug1_brands=[], drug2_brands=[],
+            drug1_rxcui=r1.get("rxcui"), drug2_rxcui=r2.get("rxcui"),
+            severity=None,
+            description=None,
+            interaction_text=None,
+            spl_text=None,
+            reference_text=None,
+            management=None,
+            confidence=None,
+            source_kaggle=False, source_openfda=False, source_ddinter=False,
+            found=False, message="No interaction data found",
+        )
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", _resolve)
+    monkeypatch.setattr(interactions, "_pair_interaction_from_resolved", _pair)
+    monkeypatch.setattr(interactions, "_fetch_drug_food_interactions", lambda conn, rm: [])
+    monkeypatch.setattr(interactions, "_fetch_drug_disease_interactions", lambda conn, rm: [])
+
+    response = client.post("/api/interactions/check", json={"drugs": ["aspirin", "warfarin"]})
+    assert response.status_code == 200
+    payload = response.json()
+    pair = payload["pairs"][0]
+    assert "interaction_text" in pair
+    assert pair["interaction_text"] is None
 
 
 # ---------------------------------------------------------------------------

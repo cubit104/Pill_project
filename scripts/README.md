@@ -8,6 +8,38 @@ See [ADMIN.md](../ADMIN.md) for full NDC backfill documentation.
 
 ---
 
+## Drug Name Suggestions Refresh
+
+The `drug_name_suggestions` table (created by migration `20260612020000_drug_name_suggestions.sql`)
+powers the fast prefix-search autocomplete at `GET /api/interactions/suggestions`. It is populated
+once at migration time from `drug_interactions` and `drug_synonyms`.
+
+After future data imports that add new rows to either source table, refresh it with:
+
+```sql
+INSERT INTO public.drug_name_suggestions (name, lower_name)
+SELECT DISTINCT name, LOWER(name) AS lower_name
+FROM (
+    SELECT drug_name_1 AS name FROM public.drug_interactions
+        WHERE drug_name_1 IS NOT NULL AND drug_name_1 <> ''
+    UNION
+    SELECT drug_name_2 AS name FROM public.drug_interactions
+        WHERE drug_name_2 IS NOT NULL AND drug_name_2 <> ''
+    UNION
+    SELECT generic_name AS name FROM public.drug_synonyms
+        WHERE generic_name IS NOT NULL AND generic_name <> ''
+    UNION
+    SELECT bn AS name FROM public.drug_synonyms, unnest(brand_names) AS bn
+        WHERE bn IS NOT NULL AND bn <> ''
+) combined
+ON CONFLICT (name) DO NOTHING;
+```
+
+This query is idempotent (uses `ON CONFLICT … DO NOTHING`) and safe to run at any time.
+It only inserts net-new names; existing rows are untouched.
+
+---
+
 ## Price Cache Prewarm
 
 Pre-warms `/api/prices/{ndc}` for the most-viewed pill slugs so repeat visits are served from `drug_prices` cache.
