@@ -47,6 +47,8 @@ def test_interaction_returns_db_pair(client, monkeypatch):
             "confidence": "high",
             "source_kaggle": True,
             "source_openfda": True,
+            "source_ddinter": True,
+            "management": "Avoid co-administration unless directed by a clinician.",
         },
     )
     monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: (None, None))
@@ -61,6 +63,9 @@ def test_interaction_returns_db_pair(client, monkeypatch):
     assert payload["severity"] == "major"
     assert payload["description"] == "Avoid combination."
     assert payload["spl_text"] is None
+    assert payload["reference_text"] is None
+    assert payload["management"] == "Avoid co-administration unless directed by a clinician."
+    assert payload["source_ddinter"] is True
     assert payload["drug1_generic"] is None
     assert payload["drug2_generic"] is None
     assert payload["drug1_brands"] == []
@@ -198,7 +203,7 @@ def test_interaction_skips_pair_write_when_openfda_pair_already_current(client, 
     response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
     assert response.status_code == 200
     payload = response.json()
-    assert payload["description"] is None
+    assert payload["description"] == "Current OpenFDA text"
     assert payload["spl_text"] == "Current OpenFDA text"
     assert payload["source_openfda"] is True
     assert cache_calls == []
@@ -227,8 +232,118 @@ def test_interaction_suppresses_very_long_description_when_spl_text_exists(clien
     response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
     assert response.status_code == 200
     payload = response.json()
-    assert payload["description"] is None
+    assert payload["description"] == long_description
     assert payload["spl_text"] == "Short SPL warning text."
+
+
+def test_interaction_uses_spl_text_as_description_when_pair_description_missing(client, monkeypatch):
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {"rxcui": "1191" if name == "aspirin" else "5640"})
+    monkeypatch.setattr(
+        interactions,
+        "get_interaction_pair",
+        lambda conn, r1, r2: {
+            "severity": "major",
+            "description": None,
+            "confidence": "medium",
+            "source_kaggle": False,
+            "source_openfda": False,
+        },
+    )
+    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: ("Targeted SPL text", "spl_professional"))
+    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("", ""))
+
+    response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["description"] == "Targeted SPL text"
+    assert payload["reference_text"] == "Targeted SPL text"
+
+
+def test_batch_interactions_returns_pairs_food_disease_and_summary(client, monkeypatch):
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    resolve_calls = []
+
+    def _resolve(conn, name):
+        resolve_calls.append(name)
+        return {"rxcui": name.upper(), "generic_name": name.title(), "brand_names": []}
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", _resolve)
+    monkeypatch.setattr(
+        interactions,
+        "_pair_interaction_from_resolved",
+        lambda conn, d1, d2, r1, r2: interactions.InteractionResponse(
+            drug1=d1,
+            drug2=d2,
+            drug1_generic=r1.get("generic_name"),
+            drug2_generic=r2.get("generic_name"),
+            drug1_brands=[],
+            drug2_brands=[],
+            drug1_rxcui=r1.get("rxcui"),
+            drug2_rxcui=r2.get("rxcui"),
+            severity="major" if {d1, d2} == {"aspirin", "warfarin"} else None,
+            description="Avoid together." if {d1, d2} == {"aspirin", "warfarin"} else None,
+            spl_text=None,
+            reference_text=None,
+            management="Use alternative therapy." if {d1, d2} == {"aspirin", "warfarin"} else None,
+            confidence="high" if {d1, d2} == {"aspirin", "warfarin"} else None,
+            source_kaggle=False,
+            source_openfda=False,
+            source_ddinter={d1, d2} == {"aspirin", "warfarin"},
+            found={d1, d2} == {"aspirin", "warfarin"},
+            message=None if {d1, d2} == {"aspirin", "warfarin"} else "No interaction data found",
+        ),
+    )
+    monkeypatch.setattr(
+        interactions,
+        "_fetch_drug_food_interactions",
+        lambda conn, resolved_map: [
+            {
+                "selected_drug": "aspirin",
+                "matched_drug_name": "Aspirin",
+                "food_name": "Alcohol",
+                "level": "moderate",
+                "interaction": "May increase bleeding risk.",
+                "management": "Limit alcohol intake.",
+                "ref_text": "DDInter ref",
+                "source_ddinter": True,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        interactions,
+        "_fetch_drug_disease_interactions",
+        lambda conn, resolved_map: [
+            {
+                "selected_drug": "warfarin",
+                "matched_drug_name": "Warfarin",
+                "disease_name": "Liver disease",
+                "level": "major",
+                "text": "Requires strict monitoring.",
+                "ref_text": "DDInter disease ref",
+                "source_ddinter": True,
+            }
+        ],
+    )
+
+    response = client.post("/api/interactions/check", json={"drugs": ["aspirin", "warfarin", "aspirin"]})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["drugs"] == ["aspirin", "warfarin"]
+    assert payload["summary"]["sections"] == {"drug_drug": 1, "drug_food": 1, "drug_disease": 1}
+    assert payload["summary"]["severity"]["major"] == 1
+    assert len(payload["pairs"]) == 1
+    assert payload["food_interactions"][0]["food_name"] == "Alcohol"
+    assert payload["disease_interactions"][0]["disease_name"] == "Liver disease"
+    assert sorted(resolve_calls) == ["aspirin", "warfarin"]
+
+
+def test_batch_interactions_requires_at_least_two_unique_drugs(client, monkeypatch):
+    _mock_conn_for_interactions(monkeypatch)
+    response = client.post("/api/interactions/check", json={"drugs": ["aspirin", "aspirin"]})
+    assert response.status_code == 422
 
 
 def test_fetch_openfda_interaction_text_escapes_generic_quotes(monkeypatch):

@@ -14,9 +14,11 @@ type DrugInteractionItem = {
   rxcui: string | null
   severity: Severity | null
   description: string | null
+  management?: string | null
   confidence: 'high' | 'medium' | 'low' | null
   source_kaggle: boolean
   source_openfda: boolean
+  source_ddinter?: boolean
 }
 
 type DrugInteractionsListResponse = {
@@ -30,6 +32,11 @@ type InteractionResponse = {
   drug2: string
   severity: string | null
   description: string | null
+  reference_text?: string | null
+  management?: string | null
+  source_kaggle?: boolean
+  source_openfda?: boolean
+  source_ddinter?: boolean
   found: boolean
 }
 
@@ -69,6 +76,14 @@ function truncate(value: string | null | undefined, maxLength: number): string {
 
 function buildApiUrl(path: string): string {
   return API_BASE ? `${API_BASE}${path}` : path
+}
+
+function sourceBadges(item: { source_ddinter?: boolean; source_kaggle?: boolean; source_openfda?: boolean }): string[] {
+  const badges: string[] = []
+  if (item.source_ddinter) badges.push('DDInter')
+  if (item.source_kaggle) badges.push('Kaggle')
+  if (item.source_openfda) badges.push('OpenFDA/FDA')
+  return badges
 }
 
 export default function InteractionsClient({
@@ -231,8 +246,25 @@ export default function InteractionsClient({
                   >
                     {severityKey(checkResult.severity)}
                   </span>
+                  {sourceBadges(checkResult).map((badge) => (
+                    <span key={badge} className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium bg-white border border-slate-200 text-slate-600">
+                      {badge}
+                    </span>
+                  ))}
                 </div>
                 <p>{checkResult.description || 'Interaction found in our database.'}</p>
+                {checkResult.management ? (
+                  <div className="rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                    <p className="font-semibold">Management</p>
+                    <p className="mt-1 whitespace-pre-line">{checkResult.management}</p>
+                  </div>
+                ) : null}
+                {checkResult.reference_text ? (
+                  <details className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                    <summary className="cursor-pointer font-semibold text-slate-700">Reference text</summary>
+                    <p className="mt-2 whitespace-pre-line">{checkResult.reference_text}</p>
+                  </details>
+                ) : null}
               </div>
             ) : (
               <p>
@@ -283,8 +315,18 @@ export default function InteractionsClient({
                       <span className={`text-xs font-semibold uppercase ${SEVERITY_TEXT_COLORS[itemSeverity]}`}>
                         {itemSeverity}
                       </span>
+                      {sourceBadges(item).map((badge) => (
+                        <span key={badge} className="rounded-full px-2 py-0.5 text-[11px] font-medium bg-slate-100 text-slate-600">
+                          {badge}
+                        </span>
+                      ))}
                     </div>
                     <p className="mt-1 text-sm text-slate-600">{truncate(item.description, 120)}</p>
+                    {item.management ? (
+                      <p className="mt-2 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                        <span className="font-semibold">Management:</span> {truncate(item.management, 180)}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </article>
