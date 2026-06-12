@@ -422,3 +422,94 @@ WHERE outcome = 'error'
 ORDER BY created_at DESC
 LIMIT 50;
 ```
+
+---
+
+## DDInter RxCUI Backfill
+
+Resolves `drug_name_1` / `drug_name_2` on DDInter rows in `drug_interactions`
+to ingredient-level rxcuis and writes them back to `rxcui_1` / `rxcui_2`.
+
+Without this backfill, the 160,235 DDInter-sourced rows are invisible to the
+rxcui-based pair lookup in `routes/interactions.py` because their `rxcui_1`
+and `rxcui_2` columns are NULL.
+
+### Prerequisites
+
+The `drug_synonyms` table must be populated before running this script
+(run `backfill_drug_synonyms.py` first if it is not).
+
+### CLI usage examples (Render Web Shell)
+
+```bash
+# Step 1 — always dry-run first (resolves names, prints summary, writes nothing)
+python scripts/backfill_ddinter_rxcuis.py --dry-run
+
+# Step 2 — live run (all rows, batches of 1,000)
+python scripts/backfill_ddinter_rxcuis.py
+
+# Step 3 — optional RxNorm pass to fill names not found in drug_synonyms
+python scripts/backfill_ddinter_rxcuis.py --use-rxnorm --sleep-ms 300
+
+# Final cleanup pass in a detached shell session
+nohup python scripts/backfill_ddinter_rxcuis.py --use-rxnorm --sleep-ms 250 > backfill.log 2>&1 &
+
+# Resumable batches / testing
+python scripts/backfill_ddinter_rxcuis.py --limit 5000 --offset 0 --dry-run
+python scripts/backfill_ddinter_rxcuis.py --limit 5000 --offset 0
+python scripts/backfill_ddinter_rxcuis.py --limit 5000 --offset 5000
+```
+
+### Flag reference
+
+| Flag | Default | Description |
+|---|---|---|
+| `--dry-run` | off | Resolve and compute everything; print summary; write nothing. |
+| `--limit N` | 0 (unlimited) | Process at most N target rows. |
+| `--offset N` | 0 | Skip the first N target rows (for resuming in batches). |
+| `--use-rxnorm` | off | For names not in drug_synonyms, fall back to the free RxNorm API. |
+| `--sleep-ms N` | 250 | Milliseconds between RxNorm API calls (only with `--use-rxnorm`). |
+| `--min-fuzzy-score N` | 50 | Minimum RxNorm `approximateTerm` score accepted for fuzzy fallback. |
+
+### What it does (step by step)
+
+1. **Selects target rows** from `drug_interactions` where `source_ddinter = TRUE`
+   and at least one of `rxcui_1`, `rxcui_2` is NULL or empty.
+2. **Collects distinct drug names** from `drug_name_1` / `drug_name_2` of those rows.
+3. **Resolves each name** in this order (stops on first success):
+   1. `drug_synonyms` exact match on original name.
+   2. `drug_synonyms` exact match on a stripped name (trailing parenthetical
+      suffix removed, e.g. `Doxepin (topical)` → `Doxepin`).
+   3. With `--use-rxnorm`: RxNorm exact `rxcui.json` on original name.
+   4. With `--use-rxnorm`: RxNorm exact `rxcui.json` on stripped name.
+   5. With `--use-rxnorm`: RxNorm fuzzy `approximateTerm` on original name,
+      then stripped name if needed, requiring `score >= --min-fuzzy-score`.
+   6. Any RxNorm hit is converted to ingredient level before use.
+4. **Skips rows** where either name cannot be resolved, or where both names resolve
+   to the same rxcui (self-pair).
+5. **Collision-safe pair selection**: preloads all existing non-empty
+   `(rxcui_1, rxcui_2)` pairs.  For each resolved pair (a, b) in name order:
+   - (a, b) free → write (a, b)
+   - (a, b) taken, (b, a) free → write (b, a)
+   - both taken → skip (logged as `skipped_collision`)
+   - Both orderings are marked as "taken" after each write to prevent intra-run
+     duplicates.
+6. **Commits in batches of 1,000 rows**, each in its own transaction.
+7. **Idempotent**: re-runs only target rows that still have NULL rxcuis.
+8. **Never** DELETEs rows; never modifies severity, description, management, or
+   any source flag; never touches non-DDInter rows.
+
+Insulin/formulation variants can collapse to the same ingredient rxcui after
+normalization. That expected behavior may increase `skipped_collision` counts;
+it is not data loss.
+
+### Verification query
+
+```sql
+SELECT COUNT(*) FILTER (WHERE rxcui_1 IS NOT NULL AND rxcui_2 IS NOT NULL) AS with_rxcuis,
+       COUNT(*) AS total
+FROM drug_interactions WHERE source_ddinter;
+```
+
+After a successful live run `with_rxcuis` should equal `total` (minus any rows
+whose drug names could not be resolved).
