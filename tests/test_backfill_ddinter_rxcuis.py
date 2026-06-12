@@ -111,8 +111,7 @@ def _run_main(monkeypatch, target_rows, existing_pairs, synonym_map, extra_args=
     monkeypatch.setattr(mod, "_fetch_target_rows", lambda conn, limit, offset: target_rows)
 
     # _load_existing_pairs → return our existing pairs
-    existing_set = set(existing_pairs)
-    monkeypatch.setattr(mod, "_load_existing_pairs", lambda conn: set(existing_set))
+    monkeypatch.setattr(mod, "_load_existing_pairs", lambda conn: set(existing_pairs))
 
     # _resolve_via_synonyms → use synonym_map
     def fake_resolve_synonyms(conn, name):
