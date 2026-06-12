@@ -422,3 +422,89 @@ WHERE outcome = 'error'
 ORDER BY created_at DESC
 LIMIT 50;
 ```
+
+---
+
+## DDInter RxCUI Backfill
+
+Populates the missing `rxcui_1` / `rxcui_2` columns on the 160,235 DDInter
+rows in `drug_interactions` (all rows where `source_ddinter = TRUE` that were
+imported with NULL rxcuis).  Once filled, the read-time both-order merge in
+the interaction checker can find and surface DDInter severity + management text
+for these pairs.
+
+### Prerequisites
+
+`drug_synonyms` must already be populated (run
+`scripts/backfill_drug_synonyms.py` first).  The script resolves names via
+that table; the optional `--use-rxnorm` flag adds a live RxNorm API fallback
+for names that synonym lookup cannot resolve.
+
+### CLI usage examples (Render Web Shell)
+
+```bash
+# Always dry-run first — resolves everything, prints summary, writes nothing
+python scripts/backfill_ddinter_rxcuis.py --dry-run
+
+# Live run — process all target rows
+python scripts/backfill_ddinter_rxcuis.py
+
+# Resumable batches (e.g. 10 000 rows at a time)
+python scripts/backfill_ddinter_rxcuis.py --limit 10000
+python scripts/backfill_ddinter_rxcuis.py --limit 10000 --offset 10000
+
+# Optional second pass: use RxNorm API for names not found in drug_synonyms
+python scripts/backfill_ddinter_rxcuis.py --use-rxnorm --sleep-ms 250 --dry-run
+python scripts/backfill_ddinter_rxcuis.py --use-rxnorm --sleep-ms 250
+```
+
+### Flag reference
+
+| Flag | Default | Description |
+|---|---|---|
+| `--dry-run` | off | Resolve and compute everything, print summary, write nothing. |
+| `--limit N` | all | Process at most N target rows. |
+| `--offset N` | 0 | Skip the first N target rows (for resuming in batches). |
+| `--sleep-ms N` | 250 | Milliseconds between RxNorm API calls (only with `--use-rxnorm`). |
+| `--use-rxnorm` | off | For names not found in drug_synonyms, fall back to the live RxNorm API. |
+
+### Idempotent / safe to re-run
+
+Target rows are selected by `WHERE source_ddinter = TRUE AND (rxcui_1 IS NULL
+OR … OR rxcui_2 IS NULL OR …)`, so rows already updated are automatically
+excluded on a re-run.
+
+### Collision safety
+
+Before writing, the script loads all existing non-empty `(rxcui_1, rxcui_2)`
+pairs into a set.  For each resolved pair `(a, b)`:
+
+- `(a, b)` free → written as `(a, b)`.
+- `(a, b)` taken, `(b, a)` free → written as `(b, a)` (the read-time merge
+  handles either order).
+- Both orders taken → `skipped_collision`.
+- `a == b` (brand and generic of the same drug) → `skipped_self_pair`.
+
+Newly written pairs are tracked in-memory during the run so intra-run
+duplicates (two DDInter rows for the same drug pair) are also caught.
+
+### Verification query
+
+After a live run, confirm progress in the Supabase SQL Editor or Render Web
+Shell:
+
+```sql
+SELECT COUNT(*) FILTER (WHERE rxcui_1 IS NOT NULL AND rxcui_2 IS NOT NULL) AS with_rxcuis,
+       COUNT(*) AS total
+FROM drug_interactions WHERE source_ddinter;
+```
+
+`with_rxcuis` should approach `total` (160,235) after a full run.  Any
+remaining zeros are pairs whose drug names could not be resolved via
+`drug_synonyms` — run with `--use-rxnorm` for a best-effort second pass.
+
+### Never modifies
+
+The script only writes `rxcui_1` and `rxcui_2`.  It never touches
+`severity`, `description`, `management`, any `source_*` flag, or any
+non-DDInter rows.
