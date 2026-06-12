@@ -65,6 +65,197 @@ class TestLoadExistingPairs:
         assert len(result) == 2
 
 
+class TestStripParenthetical:
+    def test_trailing_parenthetical_removed(self):
+        from scripts.backfill_ddinter_rxcuis import _strip_parenthetical
+
+        assert _strip_parenthetical("Doxepin (topical)") == "Doxepin"
+
+    def test_multi_word_parenthetical_removed(self):
+        from scripts.backfill_ddinter_rxcuis import _strip_parenthetical
+
+        assert _strip_parenthetical("Insulin human (inhalation, rapid acting)") == "Insulin human"
+
+    def test_name_without_parenthetical_unchanged(self):
+        from scripts.backfill_ddinter_rxcuis import _strip_parenthetical
+
+        assert _strip_parenthetical("Methotrexate") == "Methotrexate"
+
+    def test_whitespace_collapsed(self):
+        from scripts.backfill_ddinter_rxcuis import _strip_parenthetical
+
+        assert _strip_parenthetical("  Polyethylene   glycol   (3350 with electrolytes)  ") == "Polyethylene glycol"
+
+    def test_empty_after_strip_can_fall_back_to_original(self):
+        from scripts.backfill_ddinter_rxcuis import _resolve_name_to_rxcui
+
+        conn = MagicMock()
+        conn.execute.return_value.fetchone.return_value = ("1234",)
+        resolved, path = _resolve_name_to_rxcui(
+            conn,
+            http_client=None,
+            name="(topical)",
+            use_rxnorm=False,
+            sleep_s=0.0,
+            min_fuzzy_score=50,
+        )
+        assert resolved == "1234"
+        assert path == "synonyms"
+
+
+class TestResolveNameOrder:
+    def test_original_synonym_hit_wins(self, monkeypatch):
+        import scripts.backfill_ddinter_rxcuis as mod
+
+        seen = []
+
+        def fake_syn(conn, name):
+            seen.append(name)
+            if name == "Doxepin (topical)":
+                return "3158"
+            return None
+
+        monkeypatch.setattr(mod, "_resolve_via_synonyms", fake_syn)
+        exact_mock = MagicMock(return_value="should-not-be-used")
+        fuzzy_mock = MagicMock(return_value=("also-not-used", 99))
+        monkeypatch.setattr(mod, "_resolve_rxcui_from_rxnorm", exact_mock)
+        monkeypatch.setattr(mod, "_resolve_rxcui_from_rxnorm_fuzzy", fuzzy_mock)
+
+        resolved, path = mod._resolve_name_to_rxcui(
+            MagicMock(),
+            http_client=MagicMock(),
+            name="Doxepin (topical)",
+            use_rxnorm=True,
+            sleep_s=0.0,
+            min_fuzzy_score=50,
+        )
+        assert resolved == "3158"
+        assert path == "synonyms"
+        assert seen == ["Doxepin (topical)"]
+        exact_mock.assert_not_called()
+        fuzzy_mock.assert_not_called()
+
+    def test_stripped_synonym_used_when_original_misses(self, monkeypatch):
+        import scripts.backfill_ddinter_rxcuis as mod
+
+        seen = []
+
+        def fake_syn(conn, name):
+            seen.append(name)
+            if name == "Doxepin":
+                return "3158"
+            return None
+
+        monkeypatch.setattr(mod, "_resolve_via_synonyms", fake_syn)
+        monkeypatch.setattr(mod, "_resolve_rxcui_from_rxnorm", MagicMock(return_value=None))
+        monkeypatch.setattr(mod, "_resolve_rxcui_from_rxnorm_fuzzy", MagicMock(return_value=(None, None)))
+
+        resolved, path = mod._resolve_name_to_rxcui(
+            MagicMock(),
+            http_client=MagicMock(),
+            name="Doxepin (topical)",
+            use_rxnorm=True,
+            sleep_s=0.0,
+            min_fuzzy_score=50,
+        )
+        assert resolved == "3158"
+        assert path == "synonyms_stripped"
+        assert seen == ["Doxepin (topical)", "Doxepin"]
+
+    def test_fuzzy_used_only_after_exact_paths_miss(self, monkeypatch):
+        import scripts.backfill_ddinter_rxcuis as mod
+
+        monkeypatch.setattr(mod, "_resolve_via_synonyms", MagicMock(return_value=None))
+        exact_mock = MagicMock(return_value=None)
+        fuzzy_mock = MagicMock(return_value=("3158", 88))
+        monkeypatch.setattr(mod, "_resolve_rxcui_from_rxnorm", exact_mock)
+        monkeypatch.setattr(mod, "_resolve_rxcui_from_rxnorm_fuzzy", fuzzy_mock)
+
+        resolved, path = mod._resolve_name_to_rxcui(
+            MagicMock(),
+            http_client=MagicMock(),
+            name="Doxepin (topical)",
+            use_rxnorm=True,
+            sleep_s=0.0,
+            min_fuzzy_score=50,
+        )
+        assert resolved == "3158"
+        assert path == "fuzzy"
+        assert exact_mock.call_count == 2
+        assert fuzzy_mock.call_count == 1
+
+    def test_fuzzy_below_min_score_rejected(self):
+        from scripts.backfill_ddinter_rxcuis import _resolve_rxcui_from_rxnorm_fuzzy
+
+        client = MagicMock()
+        approx_resp = MagicMock()
+        approx_resp.status_code = 200
+        approx_resp.json.return_value = {
+            "approximateGroup": {"candidate": [{"rxcui": "1234", "score": "40", "rank": "1"}]}
+        }
+        client.get.return_value = approx_resp
+
+        resolved, score = _resolve_rxcui_from_rxnorm_fuzzy(
+            client,
+            "Doxepin (topical)",
+            sleep_s=0.0,
+            min_score=50,
+        )
+        assert resolved is None
+        assert score == 40
+
+
+class TestApproximateTermHelper:
+    def test_parses_top_candidate_and_resolves_to_ingredient(self, monkeypatch):
+        import scripts.backfill_ddinter_rxcuis as mod
+
+        client = MagicMock()
+        approx_resp = MagicMock()
+        approx_resp.status_code = 200
+        approx_resp.json.return_value = {
+            "approximateGroup": {"candidate": [{"rxcui": "1234", "score": "91", "rank": "1"}]}
+        }
+        client.get.return_value = approx_resp
+        ingredient_mock = MagicMock(return_value="5678")
+        monkeypatch.setattr(mod, "_resolve_to_ingredient_rxcui", ingredient_mock)
+
+        resolved, score = mod._resolve_rxcui_from_rxnorm_fuzzy(
+            client,
+            "Salbutamol",
+            sleep_s=0.0,
+            min_score=50,
+        )
+        assert resolved == "5678"
+        assert score == 91
+        ingredient_mock.assert_called_once_with(client, "1234", 0.0)
+
+    def test_returns_none_for_empty_candidates(self):
+        from scripts.backfill_ddinter_rxcuis import _resolve_rxcui_from_rxnorm_fuzzy
+
+        client = MagicMock()
+        approx_resp = MagicMock()
+        approx_resp.status_code = 200
+        approx_resp.json.return_value = {"approximateGroup": {"candidate": []}}
+        client.get.return_value = approx_resp
+
+        resolved, score = _resolve_rxcui_from_rxnorm_fuzzy(client, "X", sleep_s=0.0, min_score=50)
+        assert resolved is None
+        assert score is None
+
+    def test_returns_none_for_non_200(self):
+        from scripts.backfill_ddinter_rxcuis import _resolve_rxcui_from_rxnorm_fuzzy
+
+        client = MagicMock()
+        approx_resp = MagicMock()
+        approx_resp.status_code = 500
+        approx_resp.json.return_value = {}
+        client.get.return_value = approx_resp
+
+        resolved, score = _resolve_rxcui_from_rxnorm_fuzzy(client, "X", sleep_s=0.0, min_score=50)
+        assert resolved is None
+        assert score is None
+
+
 # ---------------------------------------------------------------------------
 # Integration-style tests using main() with mocked database
 # ---------------------------------------------------------------------------
@@ -129,10 +320,10 @@ def _run_main(monkeypatch, target_rows, existing_pairs, synonym_map, extra_args=
     return written_rows
 
 
-class TestMainBothNamesResolveNameOrder:
-    """Both names resolve, (a,b) slot free → written in name order."""
+class TestMainBothNamesResolveCanonical:
+    """Both names resolve → pair written in canonical min/max rxcui order."""
 
-    def test_written_in_name_order(self, monkeypatch):
+    def test_written_in_canonical_order(self, monkeypatch):
         target_rows = [_make_row(1, "Omeprazole", "Clopidogrel")]
         synonym_map = {"omeprazole": "7646", "clopidogrel": "32968"}
 
@@ -145,18 +336,18 @@ class TestMainBothNamesResolveNameOrder:
         assert len(written) == 1
         row_id, r1, r2 = written[0]
         assert row_id == 1
-        # name order: omeprazole=7646 → rxcui_1, clopidogrel=32968 → rxcui_2
-        assert r1 == "7646"
-        assert r2 == "32968"
+        # Canonical: min("32968","7646")="32968", max="7646"
+        assert r1 == "32968"
+        assert r2 == "7646"
 
 
-class TestMainCollisionReversed:
-    """(a,b) taken, (b,a) free → written reversed."""
+class TestMainCollisionAnyOrder:
+    """Either ordering already present → skipped as collision, no write."""
 
-    def test_reversed_when_forward_taken(self, monkeypatch):
+    def test_skipped_when_non_canonical_ordering_exists(self, monkeypatch):
         target_rows = [_make_row(2, "Omeprazole", "Clopidogrel")]
         synonym_map = {"omeprazole": "7646", "clopidogrel": "32968"}
-        # Forward pair already exists
+        # Non-canonical ordering in DB; canonical check still detects collision
         existing_pairs = {("7646", "32968")}
 
         written = _run_main(
@@ -165,10 +356,21 @@ class TestMainCollisionReversed:
             existing_pairs=existing_pairs,
             synonym_map=synonym_map,
         )
-        assert len(written) == 1
-        _, r1, r2 = written[0]
-        assert r1 == "32968"
-        assert r2 == "7646"
+        assert written == []
+
+    def test_skipped_when_canonical_ordering_exists(self, monkeypatch):
+        target_rows = [_make_row(2, "Omeprazole", "Clopidogrel")]
+        synonym_map = {"omeprazole": "7646", "clopidogrel": "32968"}
+        # Canonical ordering already present
+        existing_pairs = {("32968", "7646")}
+
+        written = _run_main(
+            monkeypatch,
+            target_rows=target_rows,
+            existing_pairs=existing_pairs,
+            synonym_map=synonym_map,
+        )
+        assert written == []
 
 
 class TestMainBothOrdersTaken:
@@ -265,3 +467,20 @@ class TestMainIntraRunDeduplication:
         # Only the first row should be written
         assert len(written) == 1
         assert written[0][0] == 10
+
+
+class TestMainStrippedSynonymIntegration:
+    def test_parenthetical_name_resolves_via_stripped_synonym(self, monkeypatch):
+        target_rows = [_make_row(12, "Doxepin (topical)", "Ibuprofen")]
+        synonym_map = {"doxepin": "3158", "ibuprofen": "5640"}
+
+        written = _run_main(
+            monkeypatch,
+            target_rows=target_rows,
+            existing_pairs=set(),
+            synonym_map=synonym_map,
+        )
+        assert len(written) == 1
+        _, r1, r2 = written[0]
+        assert r1 == "3158"
+        assert r2 == "5640"

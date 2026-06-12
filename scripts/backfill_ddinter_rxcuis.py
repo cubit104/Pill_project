@@ -28,6 +28,7 @@ Flags
 --offset N         Skip first N target rows (default: 0).
 --use-rxnorm       For names not found in drug_synonyms, fall back to RxNorm API.
 --sleep-ms N       Milliseconds between RxNorm API calls (default: 250, only with --use-rxnorm).
+--min-fuzzy-score  Minimum score for RxNorm approximateTerm fallback (default: 50).
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ import argparse
 import collections
 import logging
 import os
+import re
 import sys
 import time
 from typing import Dict, Optional, Set, Tuple
@@ -56,6 +58,7 @@ logger = logging.getLogger("backfill_ddinter_rxcuis")
 BATCH_SIZE = 1_000
 
 _RXNORM_NAME_URL = "https://rxnav.nlm.nih.gov/REST/rxcui.json"
+_RXNORM_APPROX_URL = "https://rxnav.nlm.nih.gov/REST/approximateTerm.json"
 _RXNORM_INGREDIENT_URL = "https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/related.json"
 
 
@@ -107,18 +110,42 @@ def _parse_args(argv=None) -> argparse.Namespace:
         dest="sleep_ms",
         help="Milliseconds between RxNorm API calls (default: 250).",
     )
+    parser.add_argument(
+        "--min-fuzzy-score",
+        type=int,
+        default=50,
+        metavar="N",
+        dest="min_fuzzy_score",
+        help="Minimum RxNorm approximateTerm score to accept (default: 50).",
+    )
     return parser.parse_args(argv)
 
 
 # ---------------------------------------------------------------------------
-# RxNorm helpers (same approach as routes/interactions.py)
+# Name normalization + RxNorm helpers (same approach as routes/interactions.py)
 # ---------------------------------------------------------------------------
 
 
-def _resolve_to_ingredient_rxcui(client: httpx.Client, rxcui: str) -> str:
+def _strip_parenthetical(name: str) -> str:
+    """Strip trailing parenthetical segment(s) and collapse whitespace."""
+    cleaned = " ".join((name or "").strip().split())
+    if not cleaned:
+        return ""
+
+    stripped = cleaned
+    while True:
+        next_value = re.sub(r"\s*\([^()]*\)\s*$", "", stripped).strip()
+        if next_value == stripped:
+            break
+        stripped = " ".join(next_value.split())
+    return stripped
+
+
+def _resolve_to_ingredient_rxcui(client: httpx.Client, rxcui: str, sleep_s: float) -> str:
     """Given any rxcui, return its ingredient-level rxcui (IN tty), or the original."""
     try:
         url = _RXNORM_INGREDIENT_URL.format(rxcui=rxcui)
+        time.sleep(sleep_s)
         response = client.get(url, params={"tty": "IN"}, timeout=10)
         if response.status_code != 200:
             return rxcui
@@ -148,10 +175,48 @@ def _resolve_rxcui_from_rxnorm(client: httpx.Client, name: str, sleep_s: float) 
         rxnorm_ids = (((response.json() or {}).get("idGroup") or {}).get("rxnormId") or [])
         if rxnorm_ids:
             raw_rxcui = str(rxnorm_ids[0]).strip()
-            return _resolve_to_ingredient_rxcui(client, raw_rxcui)
+            return _resolve_to_ingredient_rxcui(client, raw_rxcui, sleep_s)
     except Exception as exc:
         logger.warning("RxNorm lookup failed for %s: %s", cleaned, exc)
     return None
+
+
+def _resolve_rxcui_from_rxnorm_fuzzy(
+    client: httpx.Client,
+    name: str,
+    sleep_s: float,
+    min_score: int,
+) -> tuple[Optional[str], Optional[int]]:
+    """Resolve via RxNorm approximateTerm and return (ingredient_rxcui, score)."""
+    cleaned = (name or "").strip()
+    if not cleaned:
+        return None, None
+    try:
+        time.sleep(sleep_s)
+        response = client.get(
+            _RXNORM_APPROX_URL,
+            params={"term": cleaned, "maxEntries": 1, "option": 1},
+            timeout=10,
+        )
+        if response.status_code != 200:
+            return None, None
+        candidates = (((response.json() or {}).get("approximateGroup") or {}).get("candidate") or [])
+        if not candidates:
+            return None, None
+        top = candidates[0] if isinstance(candidates, list) else candidates
+        raw_rxcui = str(top.get("rxcui") or "").strip()
+        if not raw_rxcui:
+            return None, None
+        try:
+            score = int(str(top.get("score") or "").strip())
+        except ValueError:
+            score = 0
+        if score < min_score:
+            return None, score
+        return _resolve_to_ingredient_rxcui(client, raw_rxcui, sleep_s), score
+    except Exception as exc:
+        logger.warning("RxNorm fuzzy lookup failed for %s: %s", cleaned, exc)
+    return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +287,78 @@ def _fetch_target_rows(conn, limit: int, offset: int) -> list:
     return conn.execute(text(query), params).fetchall()
 
 
+def _resolve_name_to_rxcui(
+    conn,
+    http_client: Optional[httpx.Client],
+    name: str,
+    *,
+    use_rxnorm: bool,
+    sleep_s: float,
+    min_fuzzy_score: int,
+) -> tuple[Optional[str], str]:
+    """Resolve one name to ingredient-level rxcui and report the resolution path."""
+    original = " ".join((name or "").strip().split())
+    if not original:
+        return None, "unresolved"
+
+    stripped = _strip_parenthetical(original)
+    if not stripped:
+        stripped = original
+    use_stripped = stripped.lower() != original.lower()
+
+    rxcui = _resolve_via_synonyms(conn, original)
+    if rxcui:
+        return rxcui, "synonyms"
+
+    if use_stripped:
+        rxcui = _resolve_via_synonyms(conn, stripped)
+        if rxcui:
+            return rxcui, "synonyms_stripped"
+
+    if use_rxnorm and http_client is not None:
+        rxcui = _resolve_rxcui_from_rxnorm(http_client, original, sleep_s)
+        if rxcui:
+            return rxcui, "rxnorm"
+
+        if use_stripped:
+            rxcui = _resolve_rxcui_from_rxnorm(http_client, stripped, sleep_s)
+            if rxcui:
+                return rxcui, "rxnorm_stripped"
+
+        fuzzy_rxcui, fuzzy_score = _resolve_rxcui_from_rxnorm_fuzzy(
+            http_client,
+            original,
+            sleep_s,
+            min_fuzzy_score,
+        )
+        if fuzzy_rxcui:
+            logger.info(
+                "RxNorm fuzzy resolved %r -> rxcui=%s score=%s",
+                original,
+                fuzzy_rxcui,
+                fuzzy_score,
+            )
+            return fuzzy_rxcui, "fuzzy"
+
+        if use_stripped:
+            fuzzy_rxcui, fuzzy_score = _resolve_rxcui_from_rxnorm_fuzzy(
+                http_client,
+                stripped,
+                sleep_s,
+                min_fuzzy_score,
+            )
+            if fuzzy_rxcui:
+                logger.info(
+                    "RxNorm fuzzy resolved %r -> rxcui=%s score=%s",
+                    original,
+                    fuzzy_rxcui,
+                    fuzzy_score,
+                )
+                return fuzzy_rxcui, "fuzzy"
+
+    return None, "unresolved"
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -240,12 +377,13 @@ def main(argv=None) -> None:
 
     logger.info(
         "Starting DDInter rxcui backfill: dry_run=%s limit=%s offset=%d "
-        "use_rxnorm=%s sleep_ms=%d",
+        "use_rxnorm=%s sleep_ms=%d min_fuzzy_score=%d",
         args.dry_run,
         args.limit or "unlimited",
         args.offset,
         args.use_rxnorm,
         args.sleep_ms,
+        args.min_fuzzy_score,
     )
 
     if not database.db_engine:
@@ -277,7 +415,10 @@ def main(argv=None) -> None:
         # --- Resolve names → rxcui cache ---
         rxcui_cache: Dict[str, Optional[str]] = {}
         resolved_via_synonyms = 0
+        resolved_via_synonyms_stripped = 0
         resolved_via_rxnorm = 0
+        resolved_via_rxnorm_stripped = 0
+        resolved_via_fuzzy = 0
 
         # Count rows per unresolved name for the summary
         name_row_count: Dict[str, int] = collections.Counter()
@@ -294,31 +435,38 @@ def main(argv=None) -> None:
         try:
             for name in sorted(distinct_names):
                 cache_key = name.lower()
-                # Try drug_synonyms first
-                rxcui = _resolve_via_synonyms(conn, name)
-                if rxcui:
-                    rxcui_cache[cache_key] = rxcui
+                rxcui, resolution_path = _resolve_name_to_rxcui(
+                    conn,
+                    http_client,
+                    name,
+                    use_rxnorm=args.use_rxnorm,
+                    sleep_s=sleep_s,
+                    min_fuzzy_score=args.min_fuzzy_score,
+                )
+                rxcui_cache[cache_key] = rxcui
+                if resolution_path == "synonyms":
                     resolved_via_synonyms += 1
-                    continue
-
-                # Optionally fall back to RxNorm
-                if args.use_rxnorm and http_client is not None:
-                    rxcui = _resolve_rxcui_from_rxnorm(http_client, name, sleep_s)
-                    if rxcui:
-                        rxcui_cache[cache_key] = rxcui
-                        resolved_via_rxnorm += 1
-                        continue
-
-                rxcui_cache[cache_key] = None
+                elif resolution_path == "synonyms_stripped":
+                    resolved_via_synonyms_stripped += 1
+                elif resolution_path == "rxnorm":
+                    resolved_via_rxnorm += 1
+                elif resolution_path == "rxnorm_stripped":
+                    resolved_via_rxnorm_stripped += 1
+                elif resolution_path == "fuzzy":
+                    resolved_via_fuzzy += 1
         finally:
             if http_client is not None:
                 http_client.close()
 
         unresolved_names = {n for n in distinct_names if not rxcui_cache.get(n.lower())}
         logger.info(
-            "Resolution complete: via_synonyms=%d via_rxnorm=%d unresolved=%d",
+            "Resolution complete: via_synonyms=%d via_synonyms_stripped=%d "
+            "via_rxnorm=%d via_rxnorm_stripped=%d via_fuzzy=%d unresolved=%d",
             resolved_via_synonyms,
+            resolved_via_synonyms_stripped,
             resolved_via_rxnorm,
+            resolved_via_rxnorm_stripped,
+            resolved_via_fuzzy,
             len(unresolved_names),
         )
 
@@ -371,12 +519,11 @@ def main(argv=None) -> None:
             skipped_self_pair += 1
             continue
 
-        # Collision-safe pair selection: use name order (a, b) first
-        if (rxcui_a, rxcui_b) not in existing_pairs:
-            chosen_1, chosen_2 = rxcui_a, rxcui_b
-        elif (rxcui_b, rxcui_a) not in existing_pairs:
-            chosen_1, chosen_2 = rxcui_b, rxcui_a
-        else:
+        # Canonical pair ordering: always write (min, max) so pairs match
+        # the sorted-rxcui lookup in routes/interactions.py get_interaction_pair.
+        chosen_1, chosen_2 = min(rxcui_a, rxcui_b), max(rxcui_a, rxcui_b)
+        # Skip if either ordering already exists (collision in either direction)
+        if (chosen_1, chosen_2) in existing_pairs or (chosen_2, chosen_1) in existing_pairs:
             skipped_collision += 1
             continue
 
@@ -406,13 +553,18 @@ def main(argv=None) -> None:
 
     logger.info(
         "DDInter rxcui backfill done: "
-        "target_rows=%d distinct_names=%d resolved_synonyms=%d resolved_rxnorm=%d "
-        "unresolved=%d rows_updated=%d skipped_unresolved=%d "
+        "target_rows=%d distinct_names=%d resolved_synonyms=%d "
+        "resolved_synonyms_stripped=%d resolved_rxnorm=%d "
+        "resolved_rxnorm_stripped=%d resolved_fuzzy=%d unresolved=%d "
+        "rows_updated=%d skipped_unresolved=%d "
         "skipped_collision=%d skipped_self_pair=%d dry_run=%s",
         len(target_rows),
         len(distinct_names),
         resolved_via_synonyms,
+        resolved_via_synonyms_stripped,
         resolved_via_rxnorm,
+        resolved_via_rxnorm_stripped,
+        resolved_via_fuzzy,
         len(unresolved_names),
         rows_updated,
         skipped_unresolved,

@@ -451,6 +451,9 @@ python scripts/backfill_ddinter_rxcuis.py
 # Step 3 — optional RxNorm pass to fill names not found in drug_synonyms
 python scripts/backfill_ddinter_rxcuis.py --use-rxnorm --sleep-ms 300
 
+# Final cleanup pass in a detached shell session
+nohup python scripts/backfill_ddinter_rxcuis.py --use-rxnorm --sleep-ms 250 > backfill.log 2>&1 &
+
 # Resumable batches / testing
 python scripts/backfill_ddinter_rxcuis.py --limit 5000 --offset 0 --dry-run
 python scripts/backfill_ddinter_rxcuis.py --limit 5000 --offset 0
@@ -466,29 +469,39 @@ python scripts/backfill_ddinter_rxcuis.py --limit 5000 --offset 5000
 | `--offset N` | 0 | Skip the first N target rows (for resuming in batches). |
 | `--use-rxnorm` | off | For names not in drug_synonyms, fall back to the free RxNorm API. |
 | `--sleep-ms N` | 250 | Milliseconds between RxNorm API calls (only with `--use-rxnorm`). |
+| `--min-fuzzy-score N` | 50 | Minimum RxNorm `approximateTerm` score accepted for fuzzy fallback. |
 
 ### What it does (step by step)
 
 1. **Selects target rows** from `drug_interactions` where `source_ddinter = TRUE`
    and at least one of `rxcui_1`, `rxcui_2` is NULL or empty.
 2. **Collects distinct drug names** from `drug_name_1` / `drug_name_2` of those rows.
-3. **Resolves each name** via `drug_synonyms` (LOWER generic_name match OR brand_names
-   array element match).  With `--use-rxnorm`, names still unresolved after the
-   synonym lookup fall back to the free RxNorm `rxcui.json` API followed by an
-   ingredient-level resolution.
+3. **Resolves each name** in this order (stops on first success):
+   1. `drug_synonyms` exact match on original name.
+   2. `drug_synonyms` exact match on a stripped name (trailing parenthetical
+      suffix removed, e.g. `Doxepin (topical)` → `Doxepin`).
+   3. With `--use-rxnorm`: RxNorm exact `rxcui.json` on original name.
+   4. With `--use-rxnorm`: RxNorm exact `rxcui.json` on stripped name.
+   5. With `--use-rxnorm`: RxNorm fuzzy `approximateTerm` on original name,
+      then stripped name if needed, requiring `score >= --min-fuzzy-score`.
+   6. Any RxNorm hit is converted to ingredient level before use.
 4. **Skips rows** where either name cannot be resolved, or where both names resolve
    to the same rxcui (self-pair).
-5. **Collision-safe pair selection**: preloads all existing non-empty
-   `(rxcui_1, rxcui_2)` pairs.  For each resolved pair (a, b) in name order:
-   - (a, b) free → write (a, b)
-   - (a, b) taken, (b, a) free → write (b, a)
-   - both taken → skip (logged as `skipped_collision`)
+5. **Canonical pair ordering**: pairs are always written as `(min(rxcui_a, rxcui_b), max(rxcui_a, rxcui_b))`
+   so they match the sorted-rxcui lookup in `routes/interactions.py`.
+   Preloads all existing non-empty `(rxcui_1, rxcui_2)` pairs. For each resolved pair:
+   - Neither ordering present → write canonical `(min, max)`
+   - Either ordering already present → skip (logged as `skipped_collision`)
    - Both orderings are marked as "taken" after each write to prevent intra-run
      duplicates.
 6. **Commits in batches of 1,000 rows**, each in its own transaction.
 7. **Idempotent**: re-runs only target rows that still have NULL rxcuis.
 8. **Never** DELETEs rows; never modifies severity, description, management, or
    any source flag; never touches non-DDInter rows.
+
+Insulin/formulation variants can collapse to the same ingredient rxcui after
+normalization. That expected behavior may increase `skipped_collision` counts;
+it is not data loss.
 
 ### Verification query
 
