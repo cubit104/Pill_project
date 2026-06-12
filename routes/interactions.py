@@ -439,6 +439,7 @@ def _pair_interaction_from_resolved(
         management=management,
         confidence=confidence,
         source_kaggle=bool(pair.get("source_kaggle")),
+        # spl_professional stores the same FDA label text as openfda, so treat both as an OpenFDA source
         source_openfda=bool(pair.get("source_openfda") or selected_source in ("openfda", "spl_professional")),
         source_ddinter=source_ddinter,
         found=True,

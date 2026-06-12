@@ -265,16 +265,15 @@ def test_batch_interactions_returns_pairs_food_disease_and_summary(client, monke
     interactions, _ = _mock_conn_for_interactions(monkeypatch)
 
     resolve_calls = []
+    pair_call_kwargs = []
 
     def _resolve(conn, name):
         resolve_calls.append(name)
         return {"rxcui": name.upper(), "generic_name": name.title(), "brand_names": []}
 
-    monkeypatch.setattr(interactions, "resolve_drug_name", _resolve)
-    monkeypatch.setattr(
-        interactions,
-        "_pair_interaction_from_resolved",
-        lambda conn, d1, d2, r1, r2, allow_live_openfda=True: interactions.InteractionResponse(
+    def _pair(conn, d1, d2, r1, r2, allow_live_openfda=True):
+        pair_call_kwargs.append(allow_live_openfda)
+        return interactions.InteractionResponse(
             drug1=d1,
             drug2=d2,
             drug1_generic=r1.get("generic_name"),
@@ -294,8 +293,10 @@ def test_batch_interactions_returns_pairs_food_disease_and_summary(client, monke
             source_ddinter={d1, d2} == {"aspirin", "warfarin"},
             found={d1, d2} == {"aspirin", "warfarin"},
             message=None if {d1, d2} == {"aspirin", "warfarin"} else "No interaction data found",
-        ),
-    )
+        )
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", _resolve)
+    monkeypatch.setattr(interactions, "_pair_interaction_from_resolved", _pair)
     monkeypatch.setattr(
         interactions,
         "_fetch_drug_food_interactions",
@@ -338,6 +339,7 @@ def test_batch_interactions_returns_pairs_food_disease_and_summary(client, monke
     assert payload["food_interactions"][0]["food_name"] == "Alcohol"
     assert payload["disease_interactions"][0]["disease_name"] == "Liver disease"
     assert sorted(resolve_calls) == ["aspirin", "warfarin"]
+    assert all(v is False for v in pair_call_kwargs), "batch endpoint must pass allow_live_openfda=False"
 
 
 def test_batch_interactions_requires_at_least_two_unique_drugs(client, monkeypatch):
