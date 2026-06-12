@@ -72,6 +72,14 @@ const SEVERITY_STYLES = {
   unknown: { dot: 'bg-slate-300', bg: 'bg-slate-50', border: 'border-slate-200', badge: 'bg-slate-100 text-slate-600', text: 'text-slate-700' },
 } as const
 
+const SUMMARY_CHIP_STYLES = {
+  major: { dot: SEVERITY_STYLES.major.dot, active: 'border-red-200 bg-red-50 text-red-900', muted: 'border-red-100 bg-white text-red-500' },
+  moderate: { dot: SEVERITY_STYLES.moderate.dot, active: 'border-orange-200 bg-orange-50 text-orange-900', muted: 'border-orange-100 bg-white text-orange-500' },
+  minor: { dot: SEVERITY_STYLES.minor.dot, active: 'border-yellow-200 bg-yellow-50 text-yellow-700', muted: 'border-yellow-100 bg-white text-yellow-700' },
+  food: { dot: 'bg-slate-400', active: 'border-slate-200 bg-slate-100 text-slate-900', muted: 'border-slate-200 bg-white text-slate-500' },
+  disease: { dot: 'bg-emerald-500', active: 'border-emerald-200 bg-emerald-50 text-emerald-900', muted: 'border-emerald-100 bg-white text-emerald-600' },
+} as const
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 const MAX_DRUGS = 10
 const MIN_DRUGS_ERROR = 'Add at least 2 medications to check interactions.'
@@ -351,11 +359,37 @@ export default function InteractionsCheckerClient() {
 
       {results && (
         <section className="space-y-4" aria-live="polite">
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-base text-slate-700">
+          <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-emerald-50/60 p-4 shadow-sm">
             <p className="font-semibold text-slate-900">Summary</p>
-            <p className="mt-1">
-              {results.summary.severity.major} major · {results.summary.severity.moderate} moderate · {results.summary.severity.minor} minor · {results.summary.sections.drug_food} food interaction(s) · {results.summary.sections.drug_disease} condition warning(s)
-            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {([
+                { id: 'major', count: results.summary.severity.major, label: 'major' },
+                { id: 'moderate', count: results.summary.severity.moderate, label: 'moderate' },
+                { id: 'minor', count: results.summary.severity.minor, label: 'minor' },
+                { id: 'food', count: results.summary.sections.drug_food, label: 'food interactions' },
+                { id: 'disease', count: results.summary.sections.drug_disease, label: 'condition warnings' },
+              ] as const).map((item) => {
+                const chipStyle = SUMMARY_CHIP_STYLES[item.id]
+                const muted = item.count === 0
+                return (
+                  <div
+                    key={item.id}
+                    className={`inline-flex min-w-[9.5rem] items-center gap-3 rounded-full border px-3 py-2 transition-colors ${
+                      muted ? chipStyle.muted : chipStyle.active
+                    }`}
+                  >
+                    <span
+                      className={`h-2.5 w-2.5 rounded-full ${chipStyle.dot} ${muted ? 'opacity-35' : ''}`}
+                      aria-hidden="true"
+                    />
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-lg font-semibold leading-none">{item.count}</span>
+                      <span className={`text-sm leading-none ${muted ? 'text-slate-500' : 'text-slate-600'}`}>{item.label}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
@@ -414,6 +448,7 @@ export default function InteractionsCheckerClient() {
                   const style = SEVERITY_STYLES[severity]
                   const displayTitle = `${drugLabel(item.drug1, item.drug1_generic)} ⇄ ${drugLabel(item.drug2, item.drug2_generic)}`
                   const applies = `${appliesLabel(item.drug1_brands, item.drug1_generic, item.drug1)}, ${appliesLabel(item.drug2_brands, item.drug2_generic, item.drug2)}`
+                  const description = item.description || FALLBACK_DESCRIPTION
 
                   return (
                     <article key={key} className={`rounded-lg border p-5 ${style.bg} ${style.border}`}>
@@ -426,12 +461,14 @@ export default function InteractionsCheckerClient() {
                       <p className={`mt-3 text-base ${style.text}`}>
                         <span className="font-medium">Applies to:</span> {applies}
                       </p>
+                      <div className="mt-4 rounded-md border border-white/60 bg-white/40 px-3 py-3">
+                        <p className={`whitespace-pre-line text-base font-medium leading-7 ${style.text}`}>{description}</p>
+                      </div>
                       {item.interaction_text && item.interaction_text !== item.description ? (
                         <p className={`mt-4 whitespace-pre-line text-base leading-7 ${style.text}`}>
                           <span className="font-bold">Interaction: </span>{item.interaction_text}
                         </p>
                       ) : null}
-                      <p className={`mt-4 whitespace-pre-line text-base leading-7 ${style.text}`}>{item.description || FALLBACK_DESCRIPTION}</p>
                       {item.management ? (
                         <div className="mt-4 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-base text-emerald-900">
                           <p className="font-bold">Management:</p>
