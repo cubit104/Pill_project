@@ -73,11 +73,11 @@ const SEVERITY_STYLES = {
 } as const
 
 const SUMMARY_CHIP_STYLES = {
-  major: { dot: SEVERITY_STYLES.major.dot, active: 'border-red-200 bg-red-50 text-red-900', muted: 'border-red-100 bg-white text-red-300' },
-  moderate: { dot: SEVERITY_STYLES.moderate.dot, active: 'border-orange-200 bg-orange-50 text-orange-900', muted: 'border-orange-100 bg-white text-orange-300' },
-  minor: { dot: SEVERITY_STYLES.minor.dot, active: 'border-yellow-200 bg-yellow-50 text-yellow-900', muted: 'border-yellow-100 bg-white text-yellow-400' },
-  food: { dot: 'bg-slate-400', active: 'border-slate-200 bg-slate-100 text-slate-900', muted: 'border-slate-200 bg-white text-slate-400' },
-  disease: { dot: 'bg-emerald-500', active: 'border-emerald-200 bg-emerald-50 text-emerald-900', muted: 'border-emerald-100 bg-white text-emerald-300' },
+  major: { dot: SEVERITY_STYLES.major.dot, active: 'border-red-200 bg-red-50 text-red-900', muted: 'border-red-100 bg-white text-red-500' },
+  moderate: { dot: SEVERITY_STYLES.moderate.dot, active: 'border-orange-200 bg-orange-50 text-orange-900', muted: 'border-orange-100 bg-white text-orange-500' },
+  minor: { dot: SEVERITY_STYLES.minor.dot, active: 'border-yellow-200 bg-yellow-50 text-yellow-700', muted: 'border-yellow-100 bg-white text-yellow-700' },
+  food: { dot: 'bg-slate-400', active: 'border-slate-200 bg-slate-100 text-slate-900', muted: 'border-slate-200 bg-white text-slate-500' },
+  disease: { dot: 'bg-emerald-500', active: 'border-emerald-200 bg-emerald-50 text-emerald-900', muted: 'border-emerald-100 bg-white text-emerald-600' },
 } as const
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
@@ -384,7 +384,7 @@ export default function InteractionsCheckerClient() {
                     />
                     <div className="flex items-baseline gap-1.5">
                       <span className="text-lg font-semibold leading-none">{item.count}</span>
-                      <span className={`text-xs leading-none ${muted ? 'text-slate-400' : 'text-slate-600'}`}>{item.label}</span>
+                      <span className={`text-xs leading-none ${muted ? 'text-slate-500' : 'text-slate-600'}`}>{item.label}</span>
                     </div>
                   </div>
                 )

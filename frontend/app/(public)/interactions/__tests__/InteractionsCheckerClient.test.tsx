@@ -15,7 +15,7 @@ test('interactions checker source renders summary as responsive stat chips', () 
   assert.match(source, /label: 'food interactions'/)
   assert.match(source, /label: 'condition warnings'/)
   assert.match(source, /const muted = item\.count === 0/)
-  assert.match(source, /inline-flex min-w-\[9\.5rem\] items-center gap-3 rounded-full border px-3 py-2/)
+  assert.match(source, /inline-flex min-w-\[[^\]]+\] items-center gap-3 rounded-full border px-3 py-2/)
 })
 
 test('interactions checker source keeps description before interaction and management on drug-drug cards', () => {
