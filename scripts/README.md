@@ -449,7 +449,7 @@ python scripts/backfill_ddinter_rxcuis.py --dry-run
 # Live run — process all target rows
 python scripts/backfill_ddinter_rxcuis.py
 
-# Resumable batches (e.g. 10 000 rows at a time)
+# Resumable batches (e.g. 10,000 rows at a time)
 python scripts/backfill_ddinter_rxcuis.py --limit 10000
 python scripts/backfill_ddinter_rxcuis.py --limit 10000 --offset 10000
 
