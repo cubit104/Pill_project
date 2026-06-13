@@ -5,7 +5,7 @@ import { breadcrumbSchema, faqSchema, safeJsonLd } from '../../lib/structured-da
 export const metadata: Metadata = {
   title: 'Drug Interaction Checker — Check Multiple Medications | PillSeek',
   description:
-    'Free drug interaction checker. Add multiple medications to instantly see known interactions across all drug pairs, including severity and details from 178,000+ pairs.',
+    'Free drug interaction checker for drug-drug, drug-food, and drug-disease interactions. Add multiple medications to see severity, management guidance, and references from curated clinical sources.',
   alternates: { canonical: '/interactions' },
 }
 
@@ -18,7 +18,7 @@ const faqs = [
   {
     question: 'How does PillSeek check drug interactions?',
     answer:
-      'PillSeek cross-references your medications against a database of over 178,000 known drug-drug interaction pairs. Our data is sourced from clinically curated pharmaceutical databases including DrugBank and the FDA.',
+      'PillSeek cross-references your medications across drug-drug, drug-food, and drug-disease interaction datasets. Results combine DDInter-curated guidance with additional clinically curated data and FDA label text where available.',
   },
   {
     question: 'What do major, moderate, and minor interactions mean?',
@@ -28,12 +28,12 @@ const faqs = [
   {
     question: 'Can I check more than two drugs at once?',
     answer:
-      'Yes. Add up to 10 medications to your drug list and click Check Interactions. PillSeek will automatically check every possible pair and display all found interactions sorted by severity.',
+      'Yes. Add up to 10 medications and click Check Interactions. PillSeek checks all drug pairs in one run and also returns related food and condition warnings for those medications.',
   },
   {
     question: 'Where does PillSeek get its drug interaction data?',
     answer:
-      'Our interaction data comes from clinically curated pharmaceutical databases, including DrugBank and the U.S. Food and Drug Administration (FDA). Each interaction includes a severity rating and a description of the potential clinical effect.',
+      'Our interaction data comes from DDInter-curated interaction datasets, existing pairwise interaction records, and FDA-backed label text. Source badges on each card indicate whether details came from DDInter, pairwise database records, or OpenFDA-backed references.',
   },
   {
     question: 'Should I stop taking my medication if an interaction is found?',
@@ -57,9 +57,9 @@ export default function InteractionsPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-slate-900 mb-2">Drug Interaction Checker</h1>
           <p className="text-slate-600">
-            Add multiple medications to check all interactions between them at once.
-            Sourced from <strong>178,000+</strong> drug-drug interaction pairs. Enter
-            each drug name and click <strong>Check Interactions</strong>.
+            Add multiple medications to check drug-drug, drug-food, and drug-disease interactions at once.
+            Results include severity, source badges, management guidance, and reference text where available.
+            Enter each drug name and click <strong>Check Interactions</strong>.
           </p>
         </div>
         <InteractionsCheckerClient />

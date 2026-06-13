@@ -47,6 +47,8 @@ def test_interaction_returns_db_pair(client, monkeypatch):
             "confidence": "high",
             "source_kaggle": True,
             "source_openfda": True,
+            "source_ddinter": True,
+            "management": "Avoid co-administration unless directed by a clinician.",
         },
     )
     monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: (None, None))
@@ -61,6 +63,9 @@ def test_interaction_returns_db_pair(client, monkeypatch):
     assert payload["severity"] == "major"
     assert payload["description"] == "Avoid combination."
     assert payload["spl_text"] is None
+    assert payload["reference_text"] is None
+    assert payload["management"] == "Avoid co-administration unless directed by a clinician."
+    assert payload["source_ddinter"] is True
     assert payload["drug1_generic"] is None
     assert payload["drug2_generic"] is None
     assert payload["drug1_brands"] == []
@@ -198,13 +203,13 @@ def test_interaction_skips_pair_write_when_openfda_pair_already_current(client, 
     response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
     assert response.status_code == 200
     payload = response.json()
-    assert payload["description"] is None
+    assert payload["description"] == "Current OpenFDA text"
     assert payload["spl_text"] == "Current OpenFDA text"
     assert payload["source_openfda"] is True
     assert cache_calls == []
 
 
-def test_interaction_suppresses_very_long_description_when_spl_text_exists(client, monkeypatch):
+def test_interaction_returns_long_description_with_spl_text_present(client, monkeypatch):
     interactions, _ = _mock_conn_for_interactions(monkeypatch)
     long_description = "A" * 850
 
@@ -227,8 +232,125 @@ def test_interaction_suppresses_very_long_description_when_spl_text_exists(clien
     response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
     assert response.status_code == 200
     payload = response.json()
-    assert payload["description"] is None
+    assert payload["description"] == long_description
     assert payload["spl_text"] == "Short SPL warning text."
+
+
+def test_interaction_uses_spl_text_as_description_when_pair_description_missing(client, monkeypatch):
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {"rxcui": "1191" if name == "aspirin" else "5640"})
+    monkeypatch.setattr(
+        interactions,
+        "get_interaction_pair",
+        lambda conn, r1, r2: {
+            "severity": "major",
+            "description": None,
+            "confidence": "medium",
+            "source_kaggle": False,
+            "source_openfda": False,
+        },
+    )
+    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: ("Targeted SPL text", "spl_professional"))
+    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("", ""))
+
+    response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["description"] == "Targeted SPL text"
+    assert payload["reference_text"] == "Targeted SPL text"
+
+
+def test_batch_interactions_returns_pairs_food_disease_and_summary(client, monkeypatch):
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    resolve_calls = []
+    pair_call_kwargs = []
+
+    def _resolve(conn, name):
+        resolve_calls.append(name)
+        return {"rxcui": name.upper(), "generic_name": name.title(), "brand_names": []}
+
+    def _pair(conn, d1, d2, r1, r2, allow_live_openfda=True):
+        pair_call_kwargs.append(allow_live_openfda)
+        return interactions.InteractionResponse(
+            drug1=d1,
+            drug2=d2,
+            drug1_generic=r1.get("generic_name"),
+            drug2_generic=r2.get("generic_name"),
+            drug1_brands=[],
+            drug2_brands=[],
+            drug1_rxcui=r1.get("rxcui"),
+            drug2_rxcui=r2.get("rxcui"),
+            severity="major" if {d1, d2} == {"aspirin", "warfarin"} else None,
+            description="Avoid together." if {d1, d2} == {"aspirin", "warfarin"} else None,
+            spl_text=None,
+            reference_text=None,
+            management="Use alternative therapy." if {d1, d2} == {"aspirin", "warfarin"} else None,
+            confidence="high" if {d1, d2} == {"aspirin", "warfarin"} else None,
+            source_kaggle=False,
+            source_openfda=False,
+            source_ddinter={d1, d2} == {"aspirin", "warfarin"},
+            found={d1, d2} == {"aspirin", "warfarin"},
+            message=None if {d1, d2} == {"aspirin", "warfarin"} else "No interaction data found",
+        )
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", _resolve)
+    monkeypatch.setattr(interactions, "_pair_interaction_from_resolved", _pair)
+    monkeypatch.setattr(
+        interactions,
+        "_fetch_drug_food_interactions",
+        lambda conn, resolved_map: [
+            {
+                "selected_drug": "aspirin",
+                "matched_drug_name": "Aspirin",
+                "food_name": "Alcohol",
+                "level": "moderate",
+                "interaction": "May increase bleeding risk.",
+                "management": "Limit alcohol intake.",
+                "ref_text": "DDInter ref",
+                "source_ddinter": True,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        interactions,
+        "_fetch_drug_disease_interactions",
+        lambda conn, resolved_map: [
+            {
+                "selected_drug": "warfarin",
+                "matched_drug_name": "Warfarin",
+                "disease_name": "Liver disease",
+                "level": "major",
+                "text": "Requires strict monitoring.",
+                "ref_text": "DDInter disease ref",
+                "source_ddinter": True,
+            }
+        ],
+    )
+
+    response = client.post("/api/interactions/check", json={"drugs": ["aspirin", "warfarin", "aspirin"]})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["drugs"] == ["aspirin", "warfarin"]
+    sections = payload["summary"]["sections"]
+    assert sections["drug_drug"] == 1
+    assert sections["drug_food"] == 1
+    assert sections["drug_disease"] == 1
+    assert sections["food_truncated"] is False
+    assert sections["disease_truncated"] is False
+    assert payload["summary"]["severity"]["major"] == 1
+    assert len(payload["pairs"]) == 1
+    assert payload["food_interactions"][0]["food_name"] == "Alcohol"
+    assert payload["disease_interactions"][0]["disease_name"] == "Liver disease"
+    assert sorted(resolve_calls) == ["aspirin", "warfarin"]
+    assert all(v is False for v in pair_call_kwargs), "batch endpoint must pass allow_live_openfda=False"
+
+
+def test_batch_interactions_requires_at_least_two_unique_drugs(client, monkeypatch):
+    _mock_conn_for_interactions(monkeypatch)
+    response = client.post("/api/interactions/check", json={"drugs": ["aspirin", "aspirin"]})
+    assert response.status_code == 422
 
 
 def test_fetch_openfda_interaction_text_escapes_generic_quotes(monkeypatch):
@@ -497,9 +619,8 @@ def test_suggestions_route_not_captured_by_drug_path_param(client, monkeypatch):
     assert payload == ["Aspirin"]
 
 
-def test_suggestions_sql_includes_brand_names_and_generic(client, monkeypatch):
-    """The suggestions SQL must query drug_synonyms brand_names and generic_name
-    in addition to drug_interactions drug_name_1/2."""
+def test_suggestions_sql_uses_drug_name_suggestions_table(client, monkeypatch):
+    """The suggestions endpoint must query drug_name_suggestions for fast prefix lookup."""
     _, mock_conn = _mock_conn_for_interactions(monkeypatch)
     mock_conn.execute.return_value.fetchall.return_value = [("Lipitor",)]
 
@@ -507,11 +628,154 @@ def test_suggestions_sql_includes_brand_names_and_generic(client, monkeypatch):
     assert response.status_code == 200
     assert response.json() == ["Lipitor"]
 
-    # Inspect the SQL that was executed
+    # Inspect the SQL that was executed — must use the pre-computed table
     executed_sql = str(mock_conn.execute.call_args[0][0])
-    assert "drug_synonyms" in executed_sql
-    assert "unnest(brand_names)" in executed_sql
-    assert "generic_name" in executed_sql
+    assert "drug_name_suggestions" in executed_sql
+    assert "lower_name" in executed_sql
+
+
+# ---------------------------------------------------------------------------
+# Tests for interaction_text field
+# ---------------------------------------------------------------------------
+
+def test_single_pair_includes_interaction_text_from_cache(client, monkeypatch):
+    """interaction_text must be populated from cached label text in the single-pair endpoint."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {"rxcui": "1191" if name == "aspirin" else "5640"})
+    monkeypatch.setattr(
+        interactions,
+        "get_interaction_pair",
+        lambda conn, r1, r2: {
+            "severity": "moderate",
+            "description": "May increase bleeding.",
+            "confidence": "high",
+            "source_kaggle": True,
+            "source_openfda": False,
+            "source_ddinter": False,
+            "management": None,
+        },
+    )
+    monkeypatch.setattr(
+        interactions,
+        "search_cached_label_text",
+        lambda conn, r, n: ("FDA label paragraph about anticoagulants.", "spl_professional"),
+    )
+    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("", ""))
+    monkeypatch.setattr(interactions, "cache_new_pair_only", lambda *args, **kwargs: None)
+
+    response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["found"] is True
+    assert payload["interaction_text"] == "FDA label paragraph about anticoagulants."
+    assert payload["spl_text"] == "FDA label paragraph about anticoagulants."
+    assert payload["reference_text"] == "FDA label paragraph about anticoagulants."
+
+
+def test_single_pair_interaction_text_none_when_no_cache(client, monkeypatch):
+    """interaction_text must be None when no cached label text is available."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {"rxcui": "1191" if name == "aspirin" else "5640"})
+    monkeypatch.setattr(
+        interactions,
+        "get_interaction_pair",
+        lambda conn, r1, r2: {
+            "severity": "minor",
+            "description": "Minor interaction.",
+            "confidence": "medium",
+            "source_kaggle": True,
+            "source_openfda": False,
+            "source_ddinter": False,
+            "management": None,
+        },
+    )
+    monkeypatch.setattr(interactions, "search_cached_label_text", lambda conn, r, n: (None, None))
+    monkeypatch.setattr(interactions, "fetch_openfda_interaction_text", lambda r, g: ("", ""))
+    monkeypatch.setattr(interactions, "cache_new_pair_only", lambda *args, **kwargs: None)
+
+    response = client.get("/api/interactions", params={"drug1": "aspirin", "drug2": "ibuprofen"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["found"] is True
+    assert payload["interaction_text"] is None
+    assert payload["spl_text"] is None
+
+
+def test_batch_pair_includes_interaction_text_from_cache(client, monkeypatch):
+    """interaction_text must be present in batch pair responses when cached label text matches."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    def _resolve(conn, name):
+        return {"rxcui": name.upper(), "generic_name": name.title(), "brand_names": []}
+
+    def _pair(conn, d1, d2, r1, r2, allow_live_openfda=True):
+        return interactions.InteractionResponse(
+            drug1=d1, drug2=d2,
+            drug1_generic=r1.get("generic_name"), drug2_generic=r2.get("generic_name"),
+            drug1_brands=[], drug2_brands=[],
+            drug1_rxcui=r1.get("rxcui"), drug2_rxcui=r2.get("rxcui"),
+            severity="moderate",
+            description="Kaggle description text.",
+            interaction_text="Cached FDA interaction paragraph.",
+            spl_text="Cached FDA interaction paragraph.",
+            reference_text="Cached FDA interaction paragraph.",
+            management=None,
+            confidence="high",
+            source_kaggle=True, source_openfda=False, source_ddinter=False,
+            found=True, message=None,
+        )
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", _resolve)
+    monkeypatch.setattr(interactions, "_pair_interaction_from_resolved", _pair)
+    monkeypatch.setattr(interactions, "_fetch_drug_food_interactions", lambda conn, rm: [])
+    monkeypatch.setattr(interactions, "_fetch_drug_disease_interactions", lambda conn, rm: [])
+
+    response = client.post("/api/interactions/check", json={"drugs": ["aspirin", "warfarin"]})
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["pairs"]) == 1
+    pair = payload["pairs"][0]
+    assert pair["interaction_text"] == "Cached FDA interaction paragraph."
+    assert pair["description"] == "Kaggle description text."
+
+
+def test_batch_pair_interaction_text_field_present_when_none(client, monkeypatch):
+    """interaction_text field must always be present in batch pair responses (None when missing)."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    def _resolve(conn, name):
+        return {"rxcui": name.upper(), "generic_name": name.title(), "brand_names": []}
+
+    def _pair(conn, d1, d2, r1, r2, allow_live_openfda=True):
+        return interactions.InteractionResponse(
+            drug1=d1, drug2=d2,
+            drug1_generic=None, drug2_generic=None,
+            drug1_brands=[], drug2_brands=[],
+            drug1_rxcui=r1.get("rxcui"), drug2_rxcui=r2.get("rxcui"),
+            severity=None,
+            description=None,
+            interaction_text=None,
+            spl_text=None,
+            reference_text=None,
+            management=None,
+            confidence=None,
+            source_kaggle=False, source_openfda=False, source_ddinter=False,
+            found=False, message="No interaction data found",
+        )
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", _resolve)
+    monkeypatch.setattr(interactions, "_pair_interaction_from_resolved", _pair)
+    monkeypatch.setattr(interactions, "_fetch_drug_food_interactions", lambda conn, rm: [])
+    monkeypatch.setattr(interactions, "_fetch_drug_disease_interactions", lambda conn, rm: [])
+
+    response = client.post("/api/interactions/check", json={"drugs": ["aspirin", "warfarin"]})
+    assert response.status_code == 200
+    payload = response.json()
+    pair = payload["pairs"][0]
+    assert "interaction_text" in pair
+    assert pair["interaction_text"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -608,3 +872,281 @@ def test_resolve_rxcui_from_rxnorm_resolves_to_ingredient():
         result = interactions.resolve_rxcui_from_rxnorm("prilosec")
 
     assert result == "7646"
+
+
+# ---------------------------------------------------------------------------
+# Tests for normalize_severity numeric levels (Requirement 1)
+# ---------------------------------------------------------------------------
+
+def test_normalize_severity_numeric_3_is_major():
+    from routes.interactions import normalize_severity
+    assert normalize_severity("3") == "major"
+
+
+def test_normalize_severity_numeric_2_is_moderate():
+    from routes.interactions import normalize_severity
+    assert normalize_severity("2") == "moderate"
+
+
+def test_normalize_severity_numeric_1_is_minor():
+    from routes.interactions import normalize_severity
+    assert normalize_severity("1") == "minor"
+
+
+def test_normalize_severity_numeric_with_whitespace():
+    from routes.interactions import normalize_severity
+    assert normalize_severity(" 3 ") == "major"
+
+
+def test_normalize_severity_unknown_value_returns_unknown():
+    from routes.interactions import normalize_severity
+    assert normalize_severity("99") == "unknown"
+    assert normalize_severity("serious") == "unknown"
+    assert normalize_severity("") == "unknown"
+    assert normalize_severity(None) == "unknown"
+
+
+def test_normalize_severity_existing_word_mappings_unchanged():
+    from routes.interactions import normalize_severity
+    assert normalize_severity("major") == "major"
+    assert normalize_severity("moderate") == "moderate"
+    assert normalize_severity("minor") == "minor"
+    assert normalize_severity("unknown") == "unknown"
+    assert normalize_severity("contraindicated") == "major"
+    assert normalize_severity("high") == "major"
+    assert normalize_severity("medium") == "moderate"
+    assert normalize_severity("low") == "minor"
+
+
+# ---------------------------------------------------------------------------
+# Tests for get_interaction_pair both-order merge (Requirement 2)
+# ---------------------------------------------------------------------------
+
+def test_get_interaction_pair_merges_two_rows():
+    """Two rows — Kaggle canonical (moderate, no management) + DDInter reversed
+    (major, with management) — must be merged: severity=major, management set,
+    both source flags true, confidence=high."""
+    from routes.interactions import get_interaction_pair
+    from unittest.mock import MagicMock
+
+    # Simulate two DB rows returned by the OR query
+    row_kaggle = ("100", "200", "Clopidogrel", "Omeprazole",
+                  "Kaggle description text", "moderate", "medium",
+                  True, False, False, None)  # source_kaggle, no management
+    row_ddinter = ("200", "100", "Omeprazole", "Clopidogrel",
+                   None, "major", None,
+                   False, False, True, "Avoid concurrent use.")  # source_ddinter, with management
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = [row_kaggle, row_ddinter]
+
+    result = get_interaction_pair(mock_conn, "100", "200")
+    assert result is not None
+    assert result["severity"] == "major"
+    assert result["description"] == "Kaggle description text"
+    assert result["management"] == "Avoid concurrent use."
+    assert result["source_kaggle"] is True
+    assert result["source_ddinter"] is True
+    assert result["confidence"] == "high"
+
+
+def test_get_interaction_pair_single_row_passthrough():
+    """Single row must behave identically to old code."""
+    from routes.interactions import get_interaction_pair
+    from unittest.mock import MagicMock
+
+    row = ("100", "200", "DrugA", "DrugB", "Some description", "moderate", "medium",
+           True, False, False, None)
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = [row]
+
+    result = get_interaction_pair(mock_conn, "100", "200")
+    assert result is not None
+    assert result["severity"] == "moderate"
+    assert result["description"] == "Some description"
+    assert result["source_kaggle"] is True
+    assert result["source_ddinter"] is False
+    assert result["management"] is None
+
+
+def test_get_interaction_pair_returns_none_when_no_rows():
+    from routes.interactions import get_interaction_pair
+    from unittest.mock import MagicMock
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = []
+
+    result = get_interaction_pair(mock_conn, "100", "200")
+    assert result is None
+
+
+def test_get_interaction_pair_ddinter_unknown_falls_back_to_kaggle_severity():
+    """If DDInter row has unknown severity, use Kaggle row's severity."""
+    from routes.interactions import get_interaction_pair
+    from unittest.mock import MagicMock
+
+    row_kaggle = ("100", "200", "DrugA", "DrugB", "Kaggle text", "moderate", "medium",
+                  True, False, False, None)
+    row_ddinter = ("200", "100", "DrugB", "DrugA", None, "unknown", None,
+                   False, False, True, "Take care.")
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = [row_kaggle, row_ddinter]
+
+    result = get_interaction_pair(mock_conn, "100", "200")
+    assert result["severity"] == "moderate"
+    assert result["management"] == "Take care."
+    assert result["source_kaggle"] is True
+    assert result["source_ddinter"] is True
+
+
+# ---------------------------------------------------------------------------
+# Tests for food dedup (Requirement 3)
+# ---------------------------------------------------------------------------
+
+def test_fetch_drug_food_interactions_deduplicates():
+    """Multiple rows for the same (selected_drug, food_name_lower) must be
+    collapsed into one, keeping the row with the highest severity."""
+    from routes.interactions import _fetch_drug_food_interactions
+    from unittest.mock import MagicMock
+
+    # Five duplicate rows for Dolutegravir/food (level 1 = minor)
+    dup_rows = [
+        ("Dolutegravir", "food", "1", "Take with food.", None, None),
+        ("Dolutegravir", "food", "1", "Take with food.", None, None),
+        ("Dolutegravir", "food", "1", "Take with food.", None, None),
+        ("Dolutegravir", "food", "1", "Take with food.", None, None),
+        ("Dolutegravir", "food", "1", "Take with food.", None, None),
+    ]
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = dup_rows
+
+    resolved_map = {
+        "dolutegravir": {
+            "rxcui": "1234",
+            "generic_name": "Dolutegravir",
+            "brand_names": [],
+        }
+    }
+
+    result = _fetch_drug_food_interactions(mock_conn, resolved_map)
+    assert len(result) == 1
+    assert result[0]["level"] == "minor"
+    assert result[0]["food_name"] == "food"
+
+
+def test_fetch_drug_food_interactions_keeps_highest_severity():
+    """When duplicates have different severity, keep the highest."""
+    from routes.interactions import _fetch_drug_food_interactions
+    from unittest.mock import MagicMock
+
+    rows = [
+        ("Warfarin", "Grapefruit", "1", "Minor note.", None, None),       # minor
+        ("Warfarin", "Grapefruit", "3", "Major warning.", None, None),     # major
+        ("Warfarin", "grapefruit", "2", "Moderate warning.", None, None),  # moderate (same food, lowercase)
+    ]
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = rows
+
+    resolved_map = {
+        "warfarin": {
+            "rxcui": "11289",
+            "generic_name": "Warfarin",
+            "brand_names": [],
+        }
+    }
+
+    result = _fetch_drug_food_interactions(mock_conn, resolved_map)
+    assert len(result) == 1
+    assert result[0]["level"] == "major"
+    assert result[0]["interaction"] == "Major warning."
+
+
+# ---------------------------------------------------------------------------
+# Tests for disease cap and true totals (Requirement 4)
+# ---------------------------------------------------------------------------
+
+def test_batch_interactions_disease_cap_and_true_total(client, monkeypatch):
+    """More than 100 disease rows → response capped at 100, summary reports true total
+    and disease_truncated=True."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {
+        "rxcui": "9999", "generic_name": "Dexamethasone", "brand_names": []
+    })
+    monkeypatch.setattr(interactions, "_pair_interaction_from_resolved", lambda *a, **kw:
+        interactions.InteractionResponse(
+            drug1=a[1], drug2=a[2],
+            drug1_generic=None, drug2_generic=None, drug1_brands=[], drug2_brands=[],
+            drug1_rxcui=None, drug2_rxcui=None,
+            severity=None, description=None, spl_text=None, reference_text=None,
+            management=None, confidence=None,
+            source_kaggle=False, source_openfda=False, source_ddinter=False,
+            found=False, message="No interaction data found",
+        )
+    )
+    monkeypatch.setattr(interactions, "_fetch_drug_food_interactions", lambda conn, rm: [])
+
+    # Build 150 unique disease rows
+    disease_rows = [
+        {
+            "selected_drug": "dexamethasone",
+            "matched_drug_name": "Dexamethasone",
+            "disease_name": f"Disease {i:03d}",
+            "level": "minor",
+            "text": "Some text.",
+            "ref_text": None,
+            "source_ddinter": True,
+        }
+        for i in range(150)
+    ]
+    monkeypatch.setattr(interactions, "_fetch_drug_disease_interactions", lambda conn, rm: disease_rows)
+
+    response = client.post("/api/interactions/check", json={"drugs": ["dexamethasone", "prednisone"]})
+    assert response.status_code == 200
+    payload = response.json()
+
+    # True total in summary
+    assert payload["summary"]["sections"]["drug_disease"] == 150
+    # Cap applied in returned list
+    assert len(payload["disease_interactions"]) == 100
+    # Truncation flag
+    assert payload["summary"]["sections"]["disease_truncated"] is True
+    # Food not truncated
+    assert payload["summary"]["sections"]["food_truncated"] is False
+
+
+def test_batch_interactions_no_truncation_when_under_cap(client, monkeypatch):
+    """Fewer than 100 results → truncation flags are False."""
+    interactions, _ = _mock_conn_for_interactions(monkeypatch)
+
+    monkeypatch.setattr(interactions, "resolve_drug_name", lambda conn, name: {
+        "rxcui": "9999", "generic_name": "Aspirin", "brand_names": []
+    })
+    monkeypatch.setattr(interactions, "_pair_interaction_from_resolved", lambda *a, **kw:
+        interactions.InteractionResponse(
+            drug1=a[1], drug2=a[2],
+            drug1_generic=None, drug2_generic=None, drug1_brands=[], drug2_brands=[],
+            drug1_rxcui=None, drug2_rxcui=None,
+            severity=None, description=None, spl_text=None, reference_text=None,
+            management=None, confidence=None,
+            source_kaggle=False, source_openfda=False, source_ddinter=False,
+            found=False, message="No interaction data found",
+        )
+    )
+    monkeypatch.setattr(interactions, "_fetch_drug_food_interactions", lambda conn, rm: [
+        {"selected_drug": "aspirin", "matched_drug_name": "Aspirin",
+         "food_name": "Alcohol", "level": "moderate",
+         "interaction": "Risk.", "management": None, "ref_text": None, "source_ddinter": True}
+    ])
+    monkeypatch.setattr(interactions, "_fetch_drug_disease_interactions", lambda conn, rm: [])
+
+    response = client.post("/api/interactions/check", json={"drugs": ["aspirin", "warfarin"]})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["sections"]["food_truncated"] is False
+    assert payload["summary"]["sections"]["disease_truncated"] is False
+    assert payload["summary"]["sections"]["drug_food"] == 1
