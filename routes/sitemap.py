@@ -48,6 +48,14 @@ class SlugImages(BaseModel):
     images: List[str]
 
 
+class InteractionPageSlug(BaseModel):
+    slug: str
+    drug_name: str
+    has_drug_interactions: bool
+    has_food_interactions: bool
+    has_disease_interactions: bool
+
+
 _GUIDE_LATERAL_JOIN = """\
         FROM pillfinder p
         LEFT JOIN LATERAL (
@@ -190,6 +198,99 @@ def _fetch_slugs_with_images(conn) -> List[SlugImages]:
     return entries
 
 
+def _fetch_interaction_slugs(conn) -> List[InteractionPageSlug]:
+    result = conn.execute(
+        text(
+            """
+            WITH synonym_candidates AS (
+                SELECT DISTINCT
+                    LOWER(TRIM(generic_name)) AS drug_key,
+                    TRIM(generic_name) AS drug_name,
+                    TRIM(ingredient_rxcui::text) AS ingredient_rxcui
+                FROM drug_synonyms
+                WHERE NULLIF(TRIM(generic_name), '') IS NOT NULL
+                  AND NULLIF(TRIM(ingredient_rxcui::text), '') IS NOT NULL
+            ),
+            interaction_flags AS (
+                SELECT
+                    s.drug_key,
+                    s.drug_name,
+                    s.ingredient_rxcui,
+                    EXISTS (
+                        SELECT 1
+                        FROM drug_interactions di
+                        WHERE di.rxcui_1 = s.ingredient_rxcui
+                           OR di.rxcui_2 = s.ingredient_rxcui
+                    ) AS has_drug_interactions,
+                    EXISTS (
+                        SELECT 1
+                        FROM drug_food_interactions dfi
+                        WHERE LOWER(TRIM(COALESCE(dfi.drug_name, ''))) = s.drug_key
+                    ) AS has_food_interactions,
+                    EXISTS (
+                        SELECT 1
+                        FROM drug_disease_interactions ddi
+                        WHERE LOWER(TRIM(COALESCE(ddi.drug_name, ''))) = s.drug_key
+                    ) AS has_disease_interactions
+                FROM synonym_candidates s
+            ),
+            eligible_drugs AS (
+                SELECT *
+                FROM interaction_flags
+                WHERE has_drug_interactions
+                   OR has_food_interactions
+                   OR has_disease_interactions
+            ),
+            ranked_slugs AS (
+                SELECT
+                    e.drug_key,
+                    e.drug_name,
+                    e.has_drug_interactions,
+                    e.has_food_interactions,
+                    e.has_disease_interactions,
+                    p.slug,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY e.drug_key
+                        ORDER BY
+                            CASE WHEN NULLIF(TRIM(COALESCE(p.rxcui, '')), '') = e.ingredient_rxcui THEN 0 ELSE 1 END,
+                            LENGTH(p.slug),
+                            p.slug
+                    ) AS row_num
+                FROM eligible_drugs e
+                JOIN pillfinder p
+                  ON p.deleted_at IS NULL
+                 AND p.published = true
+                 AND NULLIF(TRIM(COALESCE(p.slug, '')), '') IS NOT NULL
+                 AND (
+                    NULLIF(TRIM(COALESCE(p.rxcui, '')), '') = e.ingredient_rxcui
+                    OR LOWER(TRIM(COALESCE(p.medicine_name, ''))) = e.drug_key
+                 )
+            )
+            SELECT
+                slug,
+                drug_name,
+                has_drug_interactions,
+                has_food_interactions,
+                has_disease_interactions
+            FROM ranked_slugs
+            WHERE row_num = 1
+            ORDER BY LOWER(drug_name), slug
+            """
+        )
+    ).fetchall()
+    return [
+        InteractionPageSlug(
+            slug=row[0],
+            drug_name=row[1],
+            has_drug_interactions=bool(row[2]),
+            has_food_interactions=bool(row[3]),
+            has_disease_interactions=bool(row[4]),
+        )
+        for row in result
+        if row[0] and row[1]
+    ]
+
+
 @router.get("/api/slugs", response_model=List[str])
 def get_slugs():
     """Return a JSON array of all pill slugs (used by Next.js sitemap)"""
@@ -206,6 +307,26 @@ def get_slugs():
         raise HTTPException(status_code=500, detail="Database error")
     except Exception as e:
         logger.error(f"Error in /api/slugs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/api/slugs/interactions", response_model=List[InteractionPageSlug])
+def get_interaction_page_slugs(response: Response):
+    """Return deduplicated published slugs for drugs that have interaction content."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = _fetch_interaction_slugs(conn)
+        response.headers["Cache-Control"] = "public, max-age=86400, s-maxage=86400"
+        return rows
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in /api/slugs/interactions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in /api/slugs/interactions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -420,4 +541,36 @@ def sitemap_adverse_reactions():
         raise HTTPException(status_code=500, detail="Database error")
     except Exception as e:
         logger.error(f"Error generating sitemap-adverse-reactions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/sitemap-interactions.xml")
+def sitemap_interactions():
+    """Generate XML sitemap for all published interaction pages with unique drug content."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            interaction_slugs = _fetch_interaction_slugs(conn)
+
+        base_url = os.getenv("SITE_URL", "https://pillseek.com").rstrip("/")
+        urls = [
+            f"  <url><loc>{base_url}/pill/{xml_escape(row.slug)}/interactions</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>"
+            for row in interaction_slugs
+        ]
+        xml_content = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            + "\n".join(urls)
+            + "\n</urlset>"
+        )
+        return Response(content=xml_content, media_type="application/xml")
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in sitemap-interactions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error generating sitemap-interactions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")

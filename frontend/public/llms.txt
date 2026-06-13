@@ -41,6 +41,7 @@ It provides pill identification by imprint, color, shape, and NDC code, along wi
 - Professional Information: https://pillseek.com/pill/{slug}/professional-information
 - Dosage page: https://pillseek.com/pill/{slug}/dosage
 - Adverse Reactions page: https://pillseek.com/pill/{slug}/adverse-reactions
+- Interactions page: https://pillseek.com/pill/{slug}/interactions
 
 ## Primary Data Sources
 
@@ -63,6 +64,7 @@ before starting, stopping, or changing any medication.
 - XML Sitemap: https://pillseek.com/sitemap.xml
 - Dosage sitemap: https://pillseek.com/sitemap-dosage.xml
 - Adverse reactions sitemap: https://pillseek.com/sitemap-adverse-reactions.xml
+- Interactions sitemap: https://pillseek.com/sitemap-interactions.xml
 - The sitemap includes all pill detail pages, medication guide pages, and professional information pages
   where content is available, as well as drug class pages.
 - robots.txt: https://pillseek.com/robots.txt
