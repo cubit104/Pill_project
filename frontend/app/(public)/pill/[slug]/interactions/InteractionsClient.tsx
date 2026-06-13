@@ -101,7 +101,7 @@ export default function InteractionsClient({
 
   const showingCount = items.length
   const hasMore = showingCount < total
-  const allCount = severitySummary.major + severitySummary.moderate + severitySummary.minor + severitySummary.unknown
+  const allCount = severitySummary.major + severitySummary.moderate + severitySummary.minor
   const genericSuffix = genericName?.trim() ? ` (${genericName.trim()})` : ''
   const backHref = `/pill/${encodeURIComponent(slug)}`
 
@@ -111,7 +111,6 @@ export default function InteractionsClient({
       { id: 'major', label: 'Major', count: severitySummary.major, dotClass: 'bg-red-500' },
       { id: 'moderate', label: 'Moderate', count: severitySummary.moderate, dotClass: 'bg-orange-400' },
       { id: 'minor', label: 'Minor', count: severitySummary.minor, dotClass: 'bg-yellow-400' },
-      { id: 'unknown', label: 'Unknown', count: severitySummary.unknown, dotClass: 'bg-slate-300' },
     ],
     [allCount, severitySummary]
   )
@@ -290,6 +289,7 @@ export default function InteractionsClient({
         <div className="mt-4 space-y-3">
           {items.map((item, index) => {
             const itemSeverity = severityKey(item.severity)
+            if (itemSeverity === 'unknown') return null
             return (
               <article key={`${item.drug_name}-${item.rxcui || 'na'}-${index}`} className="rounded-lg border border-slate-200 p-4">
                 <div className="flex items-start gap-3">
@@ -303,7 +303,9 @@ export default function InteractionsClient({
                         {itemSeverity}
                       </span>
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">{truncate(item.description, 120)}</p>
+                    {item.description && item.description.trim() !== '-' && (
+                      <p className="mt-1 text-sm text-slate-600">{truncate(item.description, 120)}</p>
+                    )}
                     {item.management ? (
                       <p className="mt-2 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                         <span className="font-semibold">Management:</span> {truncate(item.management, 180)}
