@@ -22,7 +22,8 @@ test('interactions checker source trims description and keeps it before interact
   const source = readFileSync(sourcePath, 'utf8')
 
   assert.match(source, /const trimmedDescription = item\.description\?\.trim\(\)/)
-  assert.match(source, /const description = trimmedDescription/)
+  assert.match(source, /let description: string \| null = trimmedDescription \|\| null/)
+  assert.match(source, /if \(!description && \(severity === 'major' \|\| severity === 'moderate'\)\)/)
   assert.match(source, /severity === 'major' \|\| severity === 'moderate'/)
   assert.match(source, /\{description && \(/)
   assert.match(source, /rounded-md border border-white\/60 bg-white\/40 px-3 py-3/)

@@ -105,18 +105,20 @@ export default function InteractionsClient({
   )
   const showingCount = visibleItems.length
   const hasMore = showingCount < total
-  const allCount = severitySummary.major + severitySummary.moderate + severitySummary.minor
   const genericSuffix = genericName?.trim() ? ` (${genericName.trim()})` : ''
   const backHref = `/pill/${encodeURIComponent(slug)}`
 
   const filterOptions: Array<{ id: SeverityFilter; label: string; count?: number; dotClass?: string }> = useMemo(
-    () => [
-      { id: 'all', label: 'All', count: allCount },
-      { id: 'major', label: 'Major', count: severitySummary.major, dotClass: 'bg-red-500' },
-      { id: 'moderate', label: 'Moderate', count: severitySummary.moderate, dotClass: 'bg-orange-400' },
-      { id: 'minor', label: 'Minor', count: severitySummary.minor, dotClass: 'bg-yellow-400' },
-    ],
-    [allCount, severitySummary]
+    () => {
+      const allCount = severitySummary.major + severitySummary.moderate + severitySummary.minor
+      return [
+        { id: 'all', label: 'All', count: allCount },
+        { id: 'major', label: 'Major', count: severitySummary.major, dotClass: 'bg-red-500' },
+        { id: 'moderate', label: 'Moderate', count: severitySummary.moderate, dotClass: 'bg-orange-400' },
+        { id: 'minor', label: 'Minor', count: severitySummary.minor, dotClass: 'bg-yellow-400' },
+      ]
+    },
+    [severitySummary]
   )
 
   const loadInteractions = useCallback(async (nextPage: number, append: boolean) => {
@@ -145,7 +147,12 @@ export default function InteractionsClient({
       }
       const summary = payload.severity_summary || { major: 0, moderate: 0, minor: 0, unknown: 0 }
       const allVisibleTotal = (summary.major ?? 0) + (summary.moderate ?? 0) + (summary.minor ?? 0)
-      setTotal(filter === 'all' ? allVisibleTotal : (typeof payload.total === 'number' ? payload.total : 0))
+      const filteredTotal = (() => {
+        if (filter === 'all') return allVisibleTotal
+        if (filter === 'major' || filter === 'moderate' || filter === 'minor') return summary[filter] ?? 0
+        return typeof payload.total === 'number' ? payload.total : 0
+      })()
+      setTotal(filteredTotal)
       setPage(nextPage)
       const nextItems = (payload.interactions || []).filter((item) => severityKey(item.severity) !== 'unknown')
       setItems((prev) => (append ? [...prev, ...nextItems] : nextItems))
