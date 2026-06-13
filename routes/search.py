@@ -430,7 +430,7 @@ def api_search(
                     FROM pillfinder
                     WHERE deleted_at IS NULL
                       AND published = true
-                      AND (medicine_name, splimprint) = ANY(
+                      AND (medicine_name, splimprint) IN (
                           SELECT * FROM unnest(:names::text[], :imprints::text[])
                       )
                 """)
