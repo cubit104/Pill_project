@@ -45,10 +45,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ]
 
   try {
-    const [slugRes, classRes, guideSlugRes] = await Promise.all([
+    const [slugRes, classRes, guideSlugRes, interactionSlugRes] = await Promise.all([
       fetch(`${API_BASE}/api/slugs`, { next: { revalidate: 86400 } }),
       fetch(`${API_BASE}/api/classes`, { next: { revalidate: 86400 } }),
       fetch(`${API_BASE}/api/slugs/guide-pages`, { next: { revalidate: 86400 } }),
+      fetch(`${API_BASE}/api/slugs/interactions`, { next: { revalidate: 86400 } }),
     ])
 
     if (!slugRes.ok) {
@@ -67,8 +68,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       has_dosage?: boolean
       has_adverse_reactions?: boolean
     }
+    type InteractionSlugEntry = {
+      slug: string
+      drug_name: string
+      has_drug_interactions: boolean
+      has_food_interactions: boolean
+      has_disease_interactions: boolean
+    }
     const guideSlugs: GuideSlugEntry[] = guideSlugRes.ok
       ? await guideSlugRes.json()
+      : []
+    const interactionSlugs: InteractionSlugEntry[] = interactionSlugRes.ok
+      ? await interactionSlugRes.json()
       : []
 
     let classes: Array<{ slug: string }> = []
@@ -133,6 +144,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.7,
       }))
 
+    const interactionPages: MetadataRoute.Sitemap = interactionSlugs
+      .filter((entry) => entry.slug)
+      .map((entry) => ({
+        url: `${SITE_URL}/pill/${encodeURIComponent(entry.slug)}/interactions`,
+        changeFrequency: 'monthly' as const,
+        priority: 0.7,
+      }))
+
     return [
       ...staticPages,
       ...pillPages,
@@ -141,6 +160,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       ...medicationSummaryPages,
       ...dosagePages,
       ...adverseReactionsPages,
+      ...interactionPages,
       ...classPages,
     ]
   } catch (err) {
