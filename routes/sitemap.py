@@ -199,82 +199,53 @@ def _fetch_slugs_with_images(conn) -> List[SlugImages]:
 
 
 def _fetch_interaction_slugs(conn) -> List[InteractionPageSlug]:
+    """Return one slug per unique medicine_name that has interactions.
+
+    Uses pillfinder.rxcui directly against drug_interactions — the same
+    rxcui the actual /pill/[slug]/interactions page resolves at runtime.
+    Also checks drug_food_interactions and drug_disease_interactions by
+    medicine_name.  Deduplicates by LOWER(medicine_name) and picks the
+    shortest slug per drug.
+    """
     result = conn.execute(
         text(
             """
-            WITH synonym_candidates AS (
-                SELECT DISTINCT
-                    LOWER(TRIM(generic_name)) AS drug_key,
-                    TRIM(generic_name) AS drug_name,
-                    TRIM(ingredient_rxcui::text) AS ingredient_rxcui
-                FROM drug_synonyms
-                WHERE NULLIF(TRIM(generic_name), '') IS NOT NULL
-                  AND NULLIF(TRIM(ingredient_rxcui::text), '') IS NOT NULL
-            ),
-            interaction_flags AS (
-                SELECT
-                    s.drug_key,
-                    s.drug_name,
-                    s.ingredient_rxcui,
-                    EXISTS (
-                        SELECT 1
-                        FROM drug_interactions di
-                        WHERE di.rxcui_1 = s.ingredient_rxcui
-                           OR di.rxcui_2 = s.ingredient_rxcui
-                    ) AS has_drug_interactions,
-                    EXISTS (
-                        SELECT 1
-                        FROM drug_food_interactions dfi
-                        WHERE LOWER(TRIM(COALESCE(dfi.drug_name, ''))) = s.drug_key
-                    ) AS has_food_interactions,
-                    EXISTS (
-                        SELECT 1
-                        FROM drug_disease_interactions ddi
-                        WHERE LOWER(TRIM(COALESCE(ddi.drug_name, ''))) = s.drug_key
-                    ) AS has_disease_interactions
-                FROM synonym_candidates s
-            ),
-            eligible_drugs AS (
-                SELECT *
-                FROM interaction_flags
-                WHERE has_drug_interactions
-                   OR has_food_interactions
-                   OR has_disease_interactions
-            ),
-            ranked_slugs AS (
-                SELECT
-                    e.drug_key,
-                    e.drug_name,
-                    e.has_drug_interactions,
-                    e.has_food_interactions,
-                    e.has_disease_interactions,
-                    p.slug,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY e.drug_key
-                        ORDER BY
-                            CASE WHEN NULLIF(TRIM(COALESCE(p.rxcui, '')), '') = e.ingredient_rxcui THEN 0 ELSE 1 END,
-                            LENGTH(p.slug),
-                            p.slug
-                    ) AS row_num
-                FROM eligible_drugs e
-                JOIN pillfinder p
-                  ON p.deleted_at IS NULL
-                 AND p.published = true
-                 AND NULLIF(TRIM(COALESCE(p.slug, '')), '') IS NOT NULL
-                 AND (
-                    NULLIF(TRIM(COALESCE(p.rxcui, '')), '') = e.ingredient_rxcui
-                    OR LOWER(TRIM(COALESCE(p.medicine_name, ''))) = e.drug_key
-                 )
-            )
-            SELECT
-                slug,
-                drug_name,
-                has_drug_interactions,
-                has_food_interactions,
-                has_disease_interactions
-            FROM ranked_slugs
-            WHERE row_num = 1
-            ORDER BY LOWER(drug_name), slug
+            SELECT DISTINCT ON (LOWER(TRIM(p.medicine_name)))
+                p.slug,
+                p.medicine_name AS drug_name,
+                EXISTS (
+                    SELECT 1 FROM drug_interactions di
+                    WHERE di.rxcui_1 = p.rxcui OR di.rxcui_2 = p.rxcui
+                ) AS has_drug_interactions,
+                EXISTS (
+                    SELECT 1 FROM drug_food_interactions dfi
+                    WHERE LOWER(TRIM(dfi.drug_name)) = LOWER(TRIM(p.medicine_name))
+                ) AS has_food_interactions,
+                EXISTS (
+                    SELECT 1 FROM drug_disease_interactions ddi
+                    WHERE LOWER(TRIM(ddi.drug_name)) = LOWER(TRIM(p.medicine_name))
+                ) AS has_disease_interactions
+            FROM pillfinder p
+            WHERE p.deleted_at IS NULL
+              AND p.published = true
+              AND NULLIF(TRIM(p.slug), '') IS NOT NULL
+              AND NULLIF(TRIM(p.medicine_name), '') IS NOT NULL
+              AND NULLIF(TRIM(p.rxcui), '') IS NOT NULL
+              AND (
+                  EXISTS (
+                      SELECT 1 FROM drug_interactions di
+                      WHERE di.rxcui_1 = p.rxcui OR di.rxcui_2 = p.rxcui
+                  )
+                  OR EXISTS (
+                      SELECT 1 FROM drug_food_interactions dfi
+                      WHERE LOWER(TRIM(dfi.drug_name)) = LOWER(TRIM(p.medicine_name))
+                  )
+                  OR EXISTS (
+                      SELECT 1 FROM drug_disease_interactions ddi
+                      WHERE LOWER(TRIM(ddi.drug_name)) = LOWER(TRIM(p.medicine_name))
+                  )
+              )
+            ORDER BY LOWER(TRIM(p.medicine_name)), LENGTH(p.slug), p.slug
             """
         )
     ).fetchall()
