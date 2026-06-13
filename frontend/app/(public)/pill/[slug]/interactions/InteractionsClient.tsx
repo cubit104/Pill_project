@@ -78,6 +78,12 @@ function buildApiUrl(path: string): string {
   return API_BASE ? `${API_BASE}${path}` : path
 }
 
+function hasRealContent(value: string | null | undefined): boolean {
+  if (!value) return false
+  const trimmed = value.trim()
+  return trimmed !== '' && trimmed !== '-' && trimmed !== '–' && trimmed !== 'N/A' && trimmed !== 'n/a'
+}
+
 export default function InteractionsClient({
   drugName,
   genericName,
@@ -253,7 +259,7 @@ export default function InteractionsClient({
                   </span>
                 </div>
                 <p>{checkResult.description || 'Interaction found in our database.'}</p>
-                {checkResult.management ? (
+                {hasRealContent(checkResult.management) ? (
                   <div className="rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                     <p className="font-semibold">Management</p>
                     <p className="mt-1 whitespace-pre-line">{checkResult.management}</p>
@@ -316,10 +322,10 @@ export default function InteractionsClient({
                         {itemSeverity}
                       </span>
                     </div>
-                    {item.description && item.description !== '-' && (
+                    {hasRealContent(item.description) && (
                       <p className="mt-1 text-sm text-slate-600">{truncate(item.description, 120)}</p>
                     )}
-                    {item.management ? (
+                    {hasRealContent(item.management) ? (
                       <p className="mt-2 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                         <span className="font-semibold">Management:</span> {truncate(item.management, 180)}
                       </p>
