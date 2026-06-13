@@ -420,34 +420,42 @@ def api_search(
                             grouped[key]["image_filenames"].append(fname)
                             grouped[key]["image_filenames_seen"].add(fname)
 
-            # Second pass: fetch ALL image_filenames for each (medicine_name, splimprint) group
+            # Second pass: fetch ALL image_filenames for all groups in ONE query
             # to capture images from rows that were not included in the paginated results.
-            for key, data in grouped.items():
-                image_q = text("""
-                    SELECT image_filename FROM pillfinder
+            if grouped:
+                names_list = [data["medicine_name"] for data in grouped.values()]
+                imprints_list = [data["splimprint"] for data in grouped.values()]
+                bulk_image_q = text("""
+                    SELECT medicine_name, splimprint, image_filename
+                    FROM pillfinder
                     WHERE deleted_at IS NULL
                       AND published = true
-                      AND medicine_name = :medicine_name
-                      AND splimprint = :splimprint
+                      AND (medicine_name, splimprint) IN (
+                          SELECT * FROM unnest(:names::text[], :imprints::text[])
+                      )
                 """)
-                img_rows = conn.execute(image_q, {
-                    "medicine_name": data["medicine_name"],
-                    "splimprint": data["splimprint"],
+                bulk_img_rows = conn.execute(bulk_image_q, {
+                    "names": names_list,
+                    "imprints": imprints_list,
                 })
-                # Replace first-pass (partial) images with the authoritative
-                # complete set from ALL matching rows.  Keep first-pass as a
-                # fallback in case the second-pass unexpectedly returns nothing.
-                first_pass_images = list(data["image_filenames"])
-                data["image_filenames"] = []
-                data["image_filenames_seen"] = set()
-                for r in img_rows:
-                    if r[0]:
-                        for fname in split_image_filenames(r[0]):
-                            if fname and fname not in data["image_filenames_seen"]:
-                                data["image_filenames"].append(fname)
-                                data["image_filenames_seen"].add(fname)
-                if not data["image_filenames"]:
-                    data["image_filenames"] = first_pass_images
+
+                # Build a lookup: (norm_name, norm_imprint) -> [filenames]
+                bulk_images: dict[tuple[str, str], list[str]] = {}
+                for r in bulk_img_rows:
+                    gk = (normalize_name(r[0] or ""), normalize_imprint(r[1] or ""))
+                    if gk not in bulk_images:
+                        bulk_images[gk] = []
+                    if r[2]:
+                        for fname in split_image_filenames(r[2]):
+                            if fname and fname not in bulk_images[gk]:
+                                bulk_images[gk].append(fname)
+
+                # Distribute bulk results back into groups, fall back to first-pass if empty
+                for key, data in grouped.items():
+                    first_pass_images = list(data["image_filenames"])
+                    fetched = bulk_images.get(key, [])
+                    data["image_filenames"] = fetched if fetched else first_pass_images
+                    data["image_filenames_seen"] = set(data["image_filenames"])
 
             records = []
             for data in grouped.values():
