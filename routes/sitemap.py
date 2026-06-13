@@ -201,51 +201,55 @@ def _fetch_slugs_with_images(conn) -> List[SlugImages]:
 def _fetch_interaction_slugs(conn) -> List[InteractionPageSlug]:
     """Return one slug per unique medicine_name that has interactions.
 
-    Uses pillfinder.rxcui directly against drug_interactions — the same
-    rxcui the actual /pill/[slug]/interactions page resolves at runtime.
-    Also checks drug_food_interactions and drug_disease_interactions by
-    medicine_name.  Deduplicates by LOWER(medicine_name) and picks the
-    shortest slug per drug.
+    Step 1: collect the set of rxcuis that appear in drug_interactions.
+    Step 2: collect the set of drug_names in drug_food/disease tables.
+    Step 3: find pillfinder rows that match, deduplicate by medicine_name.
+
+    This avoids correlated EXISTS subqueries that time out on 178K rows.
     """
     result = conn.execute(
         text(
             """
-            SELECT DISTINCT ON (LOWER(TRIM(p.medicine_name)))
-                p.slug,
-                p.medicine_name AS drug_name,
-                EXISTS (
-                    SELECT 1 FROM drug_interactions di
-                    WHERE di.rxcui_1 = p.rxcui OR di.rxcui_2 = p.rxcui
-                ) AS has_drug_interactions,
-                EXISTS (
-                    SELECT 1 FROM drug_food_interactions dfi
-                    WHERE LOWER(TRIM(dfi.drug_name)) = LOWER(TRIM(p.medicine_name))
-                ) AS has_food_interactions,
-                EXISTS (
-                    SELECT 1 FROM drug_disease_interactions ddi
-                    WHERE LOWER(TRIM(ddi.drug_name)) = LOWER(TRIM(p.medicine_name))
-                ) AS has_disease_interactions
-            FROM pillfinder p
-            WHERE p.deleted_at IS NULL
-              AND p.published = true
-              AND NULLIF(TRIM(p.slug), '') IS NOT NULL
-              AND NULLIF(TRIM(p.medicine_name), '') IS NOT NULL
-              AND NULLIF(TRIM(p.rxcui), '') IS NOT NULL
-              AND (
-                  EXISTS (
-                      SELECT 1 FROM drug_interactions di
-                      WHERE di.rxcui_1 = p.rxcui OR di.rxcui_2 = p.rxcui
-                  )
-                  OR EXISTS (
-                      SELECT 1 FROM drug_food_interactions dfi
-                      WHERE LOWER(TRIM(dfi.drug_name)) = LOWER(TRIM(p.medicine_name))
-                  )
-                  OR EXISTS (
-                      SELECT 1 FROM drug_disease_interactions ddi
-                      WHERE LOWER(TRIM(ddi.drug_name)) = LOWER(TRIM(p.medicine_name))
-                  )
-              )
-            ORDER BY LOWER(TRIM(p.medicine_name)), LENGTH(p.slug), p.slug
+            WITH drug_rxcuis AS (
+                SELECT DISTINCT rxcui_1 AS rxcui FROM drug_interactions
+                UNION
+                SELECT DISTINCT rxcui_2 FROM drug_interactions
+            ),
+            food_drugs AS (
+                SELECT DISTINCT LOWER(TRIM(drug_name)) AS drug_key
+                FROM drug_food_interactions
+                WHERE drug_name IS NOT NULL AND TRIM(drug_name) != ''
+            ),
+            disease_drugs AS (
+                SELECT DISTINCT LOWER(TRIM(drug_name)) AS drug_key
+                FROM drug_disease_interactions
+                WHERE drug_name IS NOT NULL AND TRIM(drug_name) != ''
+            ),
+            matched_pills AS (
+                SELECT
+                    p.slug,
+                    p.medicine_name AS drug_name,
+                    (dr.rxcui IS NOT NULL) AS has_drug_interactions,
+                    (fd.drug_key IS NOT NULL) AS has_food_interactions,
+                    (dd.drug_key IS NOT NULL) AS has_disease_interactions,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY LOWER(TRIM(p.medicine_name))
+                        ORDER BY LENGTH(p.slug), p.slug
+                    ) AS rn
+                FROM pillfinder p
+                LEFT JOIN drug_rxcuis dr ON dr.rxcui = p.rxcui
+                LEFT JOIN food_drugs fd ON fd.drug_key = LOWER(TRIM(p.medicine_name))
+                LEFT JOIN disease_drugs dd ON dd.drug_key = LOWER(TRIM(p.medicine_name))
+                WHERE p.deleted_at IS NULL
+                  AND p.published = true
+                  AND NULLIF(TRIM(p.slug), '') IS NOT NULL
+                  AND NULLIF(TRIM(p.medicine_name), '') IS NOT NULL
+                  AND (dr.rxcui IS NOT NULL OR fd.drug_key IS NOT NULL OR dd.drug_key IS NOT NULL)
+            )
+            SELECT slug, drug_name, has_drug_interactions, has_food_interactions, has_disease_interactions
+            FROM matched_pills
+            WHERE rn = 1
+            ORDER BY LOWER(drug_name), slug
             """
         )
     ).fetchall()
