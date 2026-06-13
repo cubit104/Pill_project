@@ -303,7 +303,7 @@ export default function InteractionsClient({
         <div className="mt-4 space-y-3">
           {visibleItems.map((item, index) => {
             const itemSeverity = severityKey(item.severity)
-            const description = item.description?.trim()
+            const trimmedDescription = item.description?.trim()
             return (
               <article key={`${item.drug_name}-${item.rxcui || 'na'}-${index}`} className="rounded-lg border border-slate-200 p-4">
                 <div className="flex items-start gap-3">
@@ -317,8 +317,8 @@ export default function InteractionsClient({
                         {itemSeverity}
                       </span>
                     </div>
-                    {description && description !== '-' && (
-                      <p className="mt-1 text-sm text-slate-600">{truncate(description, 120)}</p>
+                    {trimmedDescription && trimmedDescription !== '-' && (
+                      <p className="mt-1 text-sm text-slate-600">{truncate(trimmedDescription, 120)}</p>
                     )}
                     {item.management ? (
                       <p className="mt-2 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">

@@ -449,7 +449,7 @@ export default function InteractionsCheckerClient() {
                   const displayTitle = `${drugLabel(item.drug1, item.drug1_generic)} ⇄ ${drugLabel(item.drug2, item.drug2_generic)}`
                   const applies = `${appliesLabel(item.drug1_brands, item.drug1_generic, item.drug1)}, ${appliesLabel(item.drug2_brands, item.drug2_generic, item.drug2)}`
                   const trimmedDescription = item.description?.trim()
-                  let description: string | null = trimmedDescription || null
+                  let description: string | null = trimmedDescription ?? null
                   if (!description && (severity === 'major' || severity === 'moderate')) {
                     description = FALLBACK_DESCRIPTION
                   }
