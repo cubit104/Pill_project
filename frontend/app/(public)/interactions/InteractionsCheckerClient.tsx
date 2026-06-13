@@ -246,19 +246,19 @@ export default function InteractionsCheckerClient() {
   const filterOptions: Array<{ id: SeverityFilter; label: string; count: number; dotClass?: string }> = useMemo(
     () => {
       const base = results?.summary?.severity || { major: 0, moderate: 0, minor: 0, unknown: 0 }
+      const allVisibleCount = (base.major ?? 0) + (base.moderate ?? 0) + (base.minor ?? 0)
       return [
-        { id: 'all', label: 'All', count: results?.summary?.sections?.drug_drug ?? 0 },
+        { id: 'all', label: 'All', count: allVisibleCount },
         { id: 'major', label: 'Major', count: base.major ?? 0, dotClass: 'bg-red-500' },
         { id: 'moderate', label: 'Moderate', count: base.moderate ?? 0, dotClass: 'bg-orange-400' },
         { id: 'minor', label: 'Minor', count: base.minor ?? 0, dotClass: 'bg-yellow-400' },
-        { id: 'unknown', label: 'Unknown', count: base.unknown ?? 0, dotClass: 'bg-slate-300' },
       ]
     },
     [results]
   )
 
   const visiblePairs = useMemo(() => {
-    const pairs = (results?.pairs || []).filter((item) => item.found === true)
+    const pairs = (results?.pairs || []).filter((item) => item.found === true && severityKey(item.severity) !== 'unknown')
     if (severityFilter === 'all') return pairs
     return pairs.filter((item) => severityKey(item.severity) === severityFilter)
   }, [results, severityFilter])
@@ -448,7 +448,11 @@ export default function InteractionsCheckerClient() {
                   const style = SEVERITY_STYLES[severity]
                   const displayTitle = `${drugLabel(item.drug1, item.drug1_generic)} ⇄ ${drugLabel(item.drug2, item.drug2_generic)}`
                   const applies = `${appliesLabel(item.drug1_brands, item.drug1_generic, item.drug1)}, ${appliesLabel(item.drug2_brands, item.drug2_generic, item.drug2)}`
-                  const description = item.description || FALLBACK_DESCRIPTION
+                  const trimmedDescription = item.description?.trim()
+                  let description = trimmedDescription
+                  if (!description && (severity === 'major' || severity === 'moderate')) {
+                    description = FALLBACK_DESCRIPTION
+                  }
 
                   return (
                     <article key={key} className={`rounded-lg border p-5 ${style.bg} ${style.border}`}>
@@ -461,9 +465,11 @@ export default function InteractionsCheckerClient() {
                       <p className={`mt-3 text-base ${style.text}`}>
                         <span className="font-medium">Applies to:</span> {applies}
                       </p>
-                      <div className="mt-4 rounded-md border border-white/60 bg-white/40 px-3 py-3">
-                        <p className={`whitespace-pre-line text-base font-medium leading-7 ${style.text}`}>{description}</p>
-                      </div>
+                      {description && (
+                        <div className="mt-4 rounded-md border border-white/60 bg-white/40 px-3 py-3">
+                          <p className={`whitespace-pre-line text-base font-medium leading-7 ${style.text}`}>{description}</p>
+                        </div>
+                      )}
                       {item.interaction_text && item.interaction_text !== item.description ? (
                         <p className={`mt-4 whitespace-pre-line text-base leading-7 ${style.text}`}>
                           <span className="font-bold">Interaction: </span>{item.interaction_text}

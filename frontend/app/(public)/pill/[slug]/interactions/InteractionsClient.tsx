@@ -99,21 +99,26 @@ export default function InteractionsClient({
   const [checkError, setCheckError] = useState<string | null>(null)
   const [checkResult, setCheckResult] = useState<InteractionResponse | null>(null)
 
-  const showingCount = items.length
+  const visibleItems = useMemo(
+    () => items.map((item) => ({ ...item, description: item.description?.trim() ?? null })),
+    [items]
+  )
+  const showingCount = visibleItems.length
   const hasMore = showingCount < total
-  const allCount = severitySummary.major + severitySummary.moderate + severitySummary.minor + severitySummary.unknown
   const genericSuffix = genericName?.trim() ? ` (${genericName.trim()})` : ''
   const backHref = `/pill/${encodeURIComponent(slug)}`
 
   const filterOptions: Array<{ id: SeverityFilter; label: string; count?: number; dotClass?: string }> = useMemo(
-    () => [
-      { id: 'all', label: 'All', count: allCount },
-      { id: 'major', label: 'Major', count: severitySummary.major, dotClass: 'bg-red-500' },
-      { id: 'moderate', label: 'Moderate', count: severitySummary.moderate, dotClass: 'bg-orange-400' },
-      { id: 'minor', label: 'Minor', count: severitySummary.minor, dotClass: 'bg-yellow-400' },
-      { id: 'unknown', label: 'Unknown', count: severitySummary.unknown, dotClass: 'bg-slate-300' },
-    ],
-    [allCount, severitySummary]
+    () => {
+      const allCount = severitySummary.major + severitySummary.moderate + severitySummary.minor
+      return [
+        { id: 'all', label: 'All', count: allCount },
+        { id: 'major', label: 'Major', count: severitySummary.major, dotClass: 'bg-red-500' },
+        { id: 'moderate', label: 'Moderate', count: severitySummary.moderate, dotClass: 'bg-orange-400' },
+        { id: 'minor', label: 'Minor', count: severitySummary.minor, dotClass: 'bg-yellow-400' },
+      ]
+    },
+    [severitySummary]
   )
 
   const loadInteractions = useCallback(async (nextPage: number, append: boolean) => {
@@ -140,9 +145,17 @@ export default function InteractionsClient({
           unknown: payload.severity_summary?.unknown ?? 0,
         })
       }
-      setTotal(typeof payload.total === 'number' ? payload.total : 0)
+      const summary = payload.severity_summary || { major: 0, moderate: 0, minor: 0, unknown: 0 }
+      const allVisibleTotal = (summary.major ?? 0) + (summary.moderate ?? 0) + (summary.minor ?? 0)
+      const filteredTotal = (() => {
+        if (filter === 'all') return allVisibleTotal
+        if (filter === 'major' || filter === 'moderate' || filter === 'minor') return summary[filter] ?? 0
+        return typeof payload.total === 'number' ? payload.total : 0
+      })()
+      setTotal(filteredTotal)
       setPage(nextPage)
-      setItems((prev) => (append ? [...prev, ...(payload.interactions || [])] : (payload.interactions || [])))
+      const nextItems = (payload.interactions || []).filter((item) => severityKey(item.severity) !== 'unknown')
+      setItems((prev) => (append ? [...prev, ...nextItems] : nextItems))
     } catch {
       setListError('Unable to load interactions right now.')
       if (!append) setItems([])
@@ -288,7 +301,7 @@ export default function InteractionsClient({
         </div>
 
         <div className="mt-4 space-y-3">
-          {items.map((item, index) => {
+          {visibleItems.map((item, index) => {
             const itemSeverity = severityKey(item.severity)
             return (
               <article key={`${item.drug_name}-${item.rxcui || 'na'}-${index}`} className="rounded-lg border border-slate-200 p-4">
@@ -303,7 +316,9 @@ export default function InteractionsClient({
                         {itemSeverity}
                       </span>
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">{truncate(item.description, 120)}</p>
+                    {item.description && item.description !== '-' && (
+                      <p className="mt-1 text-sm text-slate-600">{truncate(item.description, 120)}</p>
+                    )}
                     {item.management ? (
                       <p className="mt-2 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                         <span className="font-semibold">Management:</span> {truncate(item.management, 180)}
@@ -317,7 +332,7 @@ export default function InteractionsClient({
 
           {listError && <p className="text-sm text-red-600">{listError}</p>}
 
-          {!loadingList && !listError && items.length === 0 && (
+          {!loadingList && !listError && visibleItems.length === 0 && (
             <p className="text-sm text-slate-500">
               {filter === 'all'
                 ? `No interactions found for ${drugName}.`

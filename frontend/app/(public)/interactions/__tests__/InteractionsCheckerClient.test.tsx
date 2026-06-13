@@ -18,10 +18,14 @@ test('interactions checker source renders summary as responsive stat chips', () 
   assert.ok(source.includes('inline-flex min-w-[9.5rem] items-center gap-3 rounded-full border px-3 py-2'))
 })
 
-test('interactions checker source keeps description before interaction and management on drug-drug cards', () => {
+test('interactions checker source trims description and keeps it before interaction and management', () => {
   const source = readFileSync(sourcePath, 'utf8')
 
-  assert.match(source, /const description = item\.description \|\| FALLBACK_DESCRIPTION/)
+  assert.match(source, /const trimmedDescription = item\.description\?\.trim\(\)/)
+  assert.match(source, /let description = trimmedDescription/)
+  assert.match(source, /if \(!description && \(severity === 'major' \|\| severity === 'moderate'\)\)/)
+  assert.match(source, /severity === 'major' \|\| severity === 'moderate'/)
+  assert.match(source, /\{description && \(/)
   assert.match(source, /rounded-md border border-white\/60 bg-white\/40 px-3 py-3/)
   assert.match(source, /text-base font-medium leading-7 \$\{style\.text\}`\}>\{description\}/)
 
