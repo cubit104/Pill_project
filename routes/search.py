@@ -440,7 +440,7 @@ def api_search(
                 })
 
                 # Build a lookup: (norm_name, norm_imprint) -> [filenames]
-                bulk_images: dict = {}
+                bulk_images: dict[tuple[str, str], list[str]] = {}
                 for r in bulk_img_rows:
                     gk = (normalize_name(r[0] or ""), normalize_imprint(r[1] or ""))
                     if gk not in bulk_images:
