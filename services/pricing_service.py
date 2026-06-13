@@ -161,6 +161,8 @@ class NADACPricingService:
     def _parse_date(value: Any) -> date | None:
         if value in (None, ""):
             return None
+        if isinstance(value, datetime):
+            return value.date()
         if isinstance(value, date):
             return value
         s = str(value).strip()
@@ -957,7 +959,7 @@ class NADACPricingService:
             logger.warning("Failed resolving sibling NDCs for rxcui=%s ndc=%s: %s", rxcui, ndc_digits, exc)
             return []
 
-        unique = sorted({s for s in siblings if s and s != ndc_digits})
+        unique = sorted({s for s in siblings if s})
         return unique[:MAX_EQUIVALENT_NDCS]
 
     async def _bulk_query_nadac_for_ndcs(
@@ -1396,7 +1398,7 @@ class NADACPricingService:
                     "price_per_unit": price["price_per_unit"],
                     "unit": price["unit"],
                     "effective_date": price["effective_date"],
-                    "source": "NADAC",
+                    "source": NADAC_SOURCE,
                     "raw_payload": json.dumps(payload_json),
                 },
             )
@@ -1626,6 +1628,16 @@ class NADACPricingService:
         except Exception:
             logger.exception("Failed to resolve latest NADAC metadata for RxCUI lookup")
 
+        if cached and self._cache_fresh(cached, latest_week) and self._is_effective_date_within_threshold(cached):
+            total_duration_ms = (perf_counter() - request_started) * 1000
+            logger.info("[price-cache] %s - hit-after-metadata - %.2fms", cache_key, total_duration_ms)
+            payload = self._payload_from_cached_row(cached, latest_week)
+            result = self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
+            result["cache_status"] = "hit"
+            result["cache_duration_ms"] = round(cache_duration_ms, 2)
+            result["fetch_duration_ms"] = 0.0
+            return result
+
         fetch_started = perf_counter()
         siblings = await self._ndcs_for_rxcui(rxcui_digits)
         if not siblings:
@@ -1722,6 +1734,16 @@ class NADACPricingService:
             latest_week = self._parse_date(metadata.get("as_of_week"))
         except Exception:
             logger.exception("Failed to resolve latest NADAC metadata for name lookup")
+
+        if cached and self._cache_fresh(cached, latest_week) and self._is_effective_date_within_threshold(cached):
+            total_duration_ms = (perf_counter() - request_started) * 1000
+            logger.info("[price-cache] %s - hit-after-metadata - %.2fms", cache_key, total_duration_ms)
+            payload = self._payload_from_cached_row(cached, latest_week)
+            result = self._add_totals(payload, days_supply=days_supply, units_per_day=units_per_day)
+            result["cache_status"] = "hit"
+            result["cache_duration_ms"] = round(cache_duration_ms, 2)
+            result["fetch_duration_ms"] = 0.0
+            return result
 
         fetch_started = perf_counter()
         ingredient = await self._resolve_ingredient(clean_name)
@@ -1934,7 +1956,8 @@ class NADACPricingService:
 
         if not rows and last_error is not None:
             refreshed_columns = await self._get_dataset_columns(dataset_id, bypass_cache=True)
-            column_map["all_columns"] = refreshed_columns
+            local_column_map = dict(column_map)
+            local_column_map["all_columns"] = refreshed_columns
             retry_column = self._pick_column(refreshed_columns, ndc_column_candidates, contains="ndc")
             retry_column = self._normalize_ndc_column_choice(retry_column, refreshed_columns, dataset_id=dataset_id)
             if retry_column and retry_column.lower() not in attempted_candidates:
@@ -1953,6 +1976,7 @@ class NADACPricingService:
                     last_error = exc
                 else:
                     rows = self._rows_from_payload(retry_payload)
+            column_map = local_column_map
 
         parsed_rows: list[dict[str, Any]] = []
         for row in rows:
