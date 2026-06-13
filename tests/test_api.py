@@ -826,6 +826,58 @@ def test_sitemap_adverse_reactions_returns_200_and_adverse_urls(client):
     assert b"/pill/no-ar-slug/adverse-reactions" not in response.content
 
 
+def test_api_interaction_slugs_returns_deduplicated_rows_and_cache_headers(client):
+    import database as db_module
+    interaction_rows = MagicMock()
+    interaction_rows.fetchall.return_value = [
+        ("plavix-75-mg", "Clopidogrel", True, True, False),
+        ("warfarin-5-mg", "Warfarin", True, False, True),
+    ]
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = interaction_rows
+
+    response = client.get("/api/slugs/interactions")
+
+    assert response.status_code == 200
+    assert response.headers.get("cache-control") == "public, max-age=86400, s-maxage=86400"
+    assert response.json() == [
+        {
+            "slug": "plavix-75-mg",
+            "drug_name": "Clopidogrel",
+            "has_drug_interactions": True,
+            "has_food_interactions": True,
+            "has_disease_interactions": False,
+        },
+        {
+            "slug": "warfarin-5-mg",
+            "drug_name": "Warfarin",
+            "has_drug_interactions": True,
+            "has_food_interactions": False,
+            "has_disease_interactions": True,
+        },
+    ]
+
+
+def test_sitemap_interactions_returns_200_and_interaction_urls(client):
+    import database as db_module
+    interaction_rows = MagicMock()
+    interaction_rows.fetchall.return_value = [
+        ("plavix-75-mg", "Clopidogrel", True, True, False),
+        ("warfarin-5-mg", "Warfarin", True, False, True),
+    ]
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = interaction_rows
+
+    response = client.get("/sitemap-interactions.xml")
+
+    assert response.status_code == 200
+    assert "xml" in response.headers.get("content-type", "")
+    assert b"/pill/plavix-75-mg/interactions" in response.content
+    assert b"/pill/warfarin-5-mg/interactions" in response.content
+
+
 def test_fetch_guide_page_slugs_falls_back_on_missing_columns(client):
     """_fetch_guide_page_slugs retries with a compat query when dosage columns are absent."""
     from sqlalchemy.exc import SQLAlchemyError as _SA
