@@ -246,8 +246,9 @@ export default function InteractionsCheckerClient() {
   const filterOptions: Array<{ id: SeverityFilter; label: string; count: number; dotClass?: string }> = useMemo(
     () => {
       const base = results?.summary?.severity || { major: 0, moderate: 0, minor: 0, unknown: 0 }
+      const allVisibleCount = (base.major ?? 0) + (base.moderate ?? 0) + (base.minor ?? 0)
       return [
-        { id: 'all', label: 'All', count: results?.summary?.sections?.drug_drug ?? 0 },
+        { id: 'all', label: 'All', count: allVisibleCount },
         { id: 'major', label: 'Major', count: base.major ?? 0, dotClass: 'bg-red-500' },
         { id: 'moderate', label: 'Moderate', count: base.moderate ?? 0, dotClass: 'bg-orange-400' },
         { id: 'minor', label: 'Minor', count: base.minor ?? 0, dotClass: 'bg-yellow-400' },
@@ -447,7 +448,10 @@ export default function InteractionsCheckerClient() {
                   const style = SEVERITY_STYLES[severity]
                   const displayTitle = `${drugLabel(item.drug1, item.drug1_generic)} ⇄ ${drugLabel(item.drug2, item.drug2_generic)}`
                   const applies = `${appliesLabel(item.drug1_brands, item.drug1_generic, item.drug1)}, ${appliesLabel(item.drug2_brands, item.drug2_generic, item.drug2)}`
-                  const description = item.description || ((severity === 'major' || severity === 'moderate') ? FALLBACK_DESCRIPTION : null)
+                  const trimmedDescription = item.description?.trim()
+                  const description = trimmedDescription
+                    ? trimmedDescription
+                    : ((severity === 'major' || severity === 'moderate') ? FALLBACK_DESCRIPTION : null)
 
                   return (
                     <article key={key} className={`rounded-lg border p-5 ${style.bg} ${style.border}`}>

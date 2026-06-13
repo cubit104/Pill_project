@@ -99,7 +99,11 @@ export default function InteractionsClient({
   const [checkError, setCheckError] = useState<string | null>(null)
   const [checkResult, setCheckResult] = useState<InteractionResponse | null>(null)
 
-  const showingCount = items.length
+  const visibleItems = useMemo(
+    () => items.filter((item) => severityKey(item.severity) !== 'unknown'),
+    [items]
+  )
+  const showingCount = visibleItems.length
   const hasMore = showingCount < total
   const allCount = severitySummary.major + severitySummary.moderate + severitySummary.minor
   const genericSuffix = genericName?.trim() ? ` (${genericName.trim()})` : ''
@@ -139,9 +143,12 @@ export default function InteractionsClient({
           unknown: payload.severity_summary?.unknown ?? 0,
         })
       }
-      setTotal(typeof payload.total === 'number' ? payload.total : 0)
+      const summary = payload.severity_summary || { major: 0, moderate: 0, minor: 0, unknown: 0 }
+      const allVisibleTotal = (summary.major ?? 0) + (summary.moderate ?? 0) + (summary.minor ?? 0)
+      setTotal(filter === 'all' ? allVisibleTotal : (typeof payload.total === 'number' ? payload.total : 0))
       setPage(nextPage)
-      setItems((prev) => (append ? [...prev, ...(payload.interactions || [])] : (payload.interactions || [])))
+      const nextItems = (payload.interactions || []).filter((item) => severityKey(item.severity) !== 'unknown')
+      setItems((prev) => (append ? [...prev, ...nextItems] : nextItems))
     } catch {
       setListError('Unable to load interactions right now.')
       if (!append) setItems([])
@@ -287,9 +294,9 @@ export default function InteractionsClient({
         </div>
 
         <div className="mt-4 space-y-3">
-          {items.map((item, index) => {
+          {visibleItems.map((item, index) => {
             const itemSeverity = severityKey(item.severity)
-            if (itemSeverity === 'unknown') return null
+            const description = item.description?.trim()
             return (
               <article key={`${item.drug_name}-${item.rxcui || 'na'}-${index}`} className="rounded-lg border border-slate-200 p-4">
                 <div className="flex items-start gap-3">
@@ -303,8 +310,8 @@ export default function InteractionsClient({
                         {itemSeverity}
                       </span>
                     </div>
-                    {item.description && item.description.trim() !== '-' && (
-                      <p className="mt-1 text-sm text-slate-600">{truncate(item.description, 120)}</p>
+                    {description && description !== '-' && (
+                      <p className="mt-1 text-sm text-slate-600">{truncate(description, 120)}</p>
                     )}
                     {item.management ? (
                       <p className="mt-2 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
@@ -319,7 +326,7 @@ export default function InteractionsClient({
 
           {listError && <p className="text-sm text-red-600">{listError}</p>}
 
-          {!loadingList && !listError && items.length === 0 && (
+          {!loadingList && !listError && visibleItems.length === 0 && (
             <p className="text-sm text-slate-500">
               {filter === 'all'
                 ? `No interactions found for ${drugName}.`
