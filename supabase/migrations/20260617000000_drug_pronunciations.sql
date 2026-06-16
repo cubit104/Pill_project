@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS public.drug_pronunciations (
 );
 
 COMMENT ON TABLE public.drug_pronunciations IS
-    'Drug pronunciation lookup keyed by lowercased drug name; populated from MedlinePlus or Gemini fallback.';
+    'Drug pronunciation lookup keyed by lowercased drug name; populated from MedlinePlus or Gemini fallback. Source g2p is retained for backward compatibility with existing rows.';
 
 CREATE OR REPLACE FUNCTION public.trg_drug_pronunciations_touch_updated_at()
 RETURNS TRIGGER AS $$
