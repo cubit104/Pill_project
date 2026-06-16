@@ -21,6 +21,14 @@ _GEMINI_ENDPOINT = (
     "/gemini-2.5-flash:generateContent"
 )
 
+# Regex to strip trailing dose/strength patterns like "10mg", "0.15mg tablet"
+_DOSE_SUFFIX_RE = re.compile(
+    r"\s+\d[\d./]*\s*(?:mg|mcg|ml|g|%|units?|iu|meq)\b.*$",
+    re.IGNORECASE,
+)
+# Regex to detect imprint-like tokens: uppercase letter followed by digits (E101, IP204, DP331)
+_IMPRINT_TOKEN_RE = re.compile(r"\s+([A-Z][A-Z0-9]*\d[A-Z0-9]*)(?=\s|$)")
+
 
 def get_pronunciation(
     conn,
@@ -35,8 +43,11 @@ def get_pronunciation(
        ``brand_names`` from ``drug_synonyms`` via the
        ``rxcui_to_ingredient`` mapping.  Try generic_name first, then
        each brand name.
-    2. Fall back to a direct match on ``drug_name`` lowered (for drugs
-       that have no synonym mapping yet).
+    2. Fall back to normalized variants of ``drug_name``:
+       a. Exact lowered match
+       b. Strip trailing dose/strength (e.g. "10mg", "0.15mg tablet")
+       c. Strip imprint suffix (e.g. "E101", "IP204")
+       d. First word only (e.g. "lisinopril" from "Lisinopril E101 Tab")
 
     All lookups hit ``drug_pronunciations.drug_name_lower``.
     """
@@ -77,13 +88,39 @@ def get_pronunciation(
                         _add(brand)
             except SQLAlchemyError as exc:
                 err_msg = str(exc).lower()
-                if "drug_synonyms" not in err_msg and "rxcui_to_ingredient" not in err_msg:
+                if (
+                    ("drug_synonyms" in err_msg or "rxcui_to_ingredient" in err_msg)
+                    and ("does not exist" in err_msg or "no such table" in err_msg)
+                ):
+                    logger.debug(
+                        "drug_synonyms/rxcui_to_ingredient tables not yet created: %s", exc
+                    )
+                else:
                     logger.warning(
                         "drug_synonyms lookup failed for rxcui=%s: %s", rxcui, exc
                     )
 
-    # --- Strategy 2: direct medicine_name fallback ---
-    _add(drug_name)
+    # --- Strategy 2: normalized variants of drug_name ---
+    if drug_name:
+        original = drug_name.strip()
+        lowered = original.lower()
+
+        # 2a. Exact lowered match
+        _add(lowered)
+
+        # 2b. Strip trailing dose/strength pattern
+        dose_stripped = _DOSE_SUFFIX_RE.sub("", lowered).strip()
+        _add(dose_stripped)
+
+        # 2c. Strip from the first imprint-like token onward
+        imprint_m = _IMPRINT_TOKEN_RE.search(original)
+        if imprint_m:
+            _add(original[: imprint_m.start()])
+
+        # 2d. First word only (catches "Lisinopril E101" → "lisinopril")
+        words = lowered.split()
+        if len(words) > 1:
+            _add(words[0])
 
     # --- Try each candidate against drug_pronunciations ---
     for candidate in candidates:
