@@ -52,10 +52,7 @@ def get_pronunciation(conn, drug_name: str | None) -> str | None:
     if not row:
         return None
 
-    pronunciation = row[0]
-    if not pronunciation:
-        return None
-    return str(pronunciation).strip() or None
+    return str(row[0]).strip() or None
 
 
 def fetch_pronunciation_from_medlineplus(rxcui: str) -> dict | None:
