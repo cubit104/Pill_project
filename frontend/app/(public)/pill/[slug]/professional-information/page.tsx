@@ -28,6 +28,7 @@ const GUIDE_REVALIDATE_SECONDS = 86400
 type PageParams = Promise<{ slug: string }>
 
 type PillInfo = {
+  pronunciation?: string | null
   spl_set_id?: string
   rxcui?: string
   ndc11?: string
@@ -299,6 +300,7 @@ export default async function ProfessionalInformationPage({
         <DrugPageHeader
           pageLabel="Full FDA Prescribing Details"
           drugName={headerDrugName}
+          pronunciation={pill?.pronunciation}
           genericName={headerMeta.genericName}
           brandName={headerMeta.brandName}
           drugClass={headerMeta.drugClass}

@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 
 type DrugPageHeaderProps = {
   drugName: string
+  pronunciation?: string | null
   genericName?: string | null
   brandName?: string | null
   drugClass?: string | null
@@ -120,6 +121,7 @@ function BrandNamesList({ brands }: { brands: string[] }) {
 
 export default function DrugPageHeader({
   drugName,
+  pronunciation,
   genericName,
   brandName,
   drugClass,
@@ -154,6 +156,12 @@ export default function DrugPageHeader({
       <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
         {headerDrugName}
       </h1>
+
+      {pronunciation && (
+        <p className="text-base text-slate-500 italic mt-1">
+          Pronounced as: {pronunciation}
+        </p>
+      )}
 
       {/* Meta lines: generic/brand, class, dosage form */}
       {hasMetaLines && (
