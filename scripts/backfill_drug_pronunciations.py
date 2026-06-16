@@ -1,4 +1,4 @@
-"""CLI script: backfill drug pronunciations from MedlinePlus + g2p fallback."""
+"""CLI script: backfill drug pronunciations from MedlinePlus + Gemini fallback."""
 
 import argparse
 import logging
@@ -33,7 +33,7 @@ _DEF_SELECT_DRUGS_NO_LIMIT = """
 
 def _parse_args(argv=None):
     parser = argparse.ArgumentParser(
-        description="Backfill drug pronunciations from MedlinePlus and g2p into drug_pronunciations table."
+        description="Backfill drug pronunciations from MedlinePlus and Gemini into drug_pronunciations table."
     )
     parser.add_argument("--dry-run", action="store_true", default=False, help="Fetch and print results without writing to the DB.")
     parser.add_argument("--limit", type=int, default=None, metavar="N", help="Only process the first N drug names.")
@@ -41,6 +41,7 @@ def _parse_args(argv=None):
     parser.add_argument("--drug", type=str, default=None, metavar="NAME", help="Process a single named drug.")
     parser.add_argument("--force", action="store_true", default=False, help="Re-process even if pronunciation already exists.")
     parser.add_argument("--sleep-ms", type=int, default=300, metavar="MS", help="Sleep between MedlinePlus calls in milliseconds.")
+    parser.add_argument("--sleep-gemini-ms", type=int, default=200, metavar="MS", help="Sleep between Gemini API calls in milliseconds.")
     return parser.parse_args(argv)
 
 
@@ -50,7 +51,7 @@ def main(argv=None):
 
     from services.drug_pronunciation import (
         fetch_pronunciation_from_medlineplus,
-        generate_pronunciation_g2p,
+        generate_pronunciation_gemini,
         resolve_rxcui_for_drug_name,
         upsert_pronunciation,
     )
@@ -89,10 +90,11 @@ def main(argv=None):
         sys.exit(0)
 
     sleep_s = max(0, args.sleep_ms) / 1000.0
+    sleep_gemini_s = max(0, args.sleep_gemini_ms) / 1000.0
 
     total = 0
     medlineplus_count = 0
-    g2p_count = 0
+    gemini_count = 0
     skipped = 0
     not_found = 0
     errors = 0
@@ -155,25 +157,26 @@ def main(argv=None):
                 medlineplus_count += 1
                 continue
 
-            g2p_text = generate_pronunciation_g2p(drug_name)
-            if g2p_text:
+            gemini_text = generate_pronunciation_gemini(drug_name)
+            time.sleep(sleep_gemini_s)
+            if gemini_text:
                 if args.dry_run:
-                    print(f"✓ {drug_name} — g2p: {g2p_text} (dry-run)")
+                    print(f"✓ {drug_name} — Gemini: {gemini_text} (dry-run)")
                 else:
                     with db.db_engine.begin() as conn:
                         outcome = upsert_pronunciation(
                             conn,
                             drug_name=drug_name,
-                            pronunciation_text=g2p_text,
-                            source="g2p",
+                            pronunciation_text=gemini_text,
+                            source="gemini",
                             needs_review=True,
                         )
                     if outcome == "skipped_manual":
                         skipped += 1
                         print(f"↷ {drug_name} — manual override, skipped")
                         continue
-                    print(f"✓ {drug_name} — g2p ({outcome})")
-                g2p_count += 1
+                    print(f"✓ {drug_name} — Gemini ({outcome})")
+                gemini_count += 1
                 continue
 
             not_found += 1
@@ -186,7 +189,7 @@ def main(argv=None):
     print(
         f"\nProcessed: {total} | "
         f"MedlinePlus: {medlineplus_count} | "
-        f"g2p: {g2p_count} | "
+        f"Gemini: {gemini_count} | "
         f"Skipped: {skipped} | "
         f"Not found: {not_found} | "
         f"Errors: {errors}"

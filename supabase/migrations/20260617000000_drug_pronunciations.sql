@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS public.drug_pronunciations (
     pronunciation_text TEXT,
     mp3_path           TEXT,
     source             TEXT NOT NULL DEFAULT 'medlineplus'
-                       CHECK (source IN ('medlineplus', 'g2p', 'google_tts', 'manual')),
+                       CHECK (source IN ('medlineplus', 'gemini', 'g2p', 'google_tts', 'manual')),
     medlineplus_url    TEXT,
     needs_review       BOOLEAN NOT NULL DEFAULT FALSE,
     created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS public.drug_pronunciations (
 );
 
 COMMENT ON TABLE public.drug_pronunciations IS
-    'Drug pronunciation lookup keyed by lowercased drug name; populated from MedlinePlus or g2p fallback.';
+    'Drug pronunciation lookup keyed by lowercased drug name; populated from MedlinePlus or Gemini fallback. Source g2p is retained for backward compatibility with existing rows.';
 
 CREATE OR REPLACE FUNCTION public.trg_drug_pronunciations_touch_updated_at()
 RETURNS TRIGGER AS $$

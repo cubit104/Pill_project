@@ -1,9 +1,8 @@
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from services.drug_pronunciation import (
     fetch_pronunciation_from_medlineplus,
-    generate_pronunciation_g2p,
+    generate_pronunciation_gemini,
     resolve_rxcui_for_drug_name,
     upsert_pronunciation,
 )
@@ -57,11 +56,49 @@ def test_fetch_pronunciation_skips_non_medlineplus_links():
     assert mock_get.call_count == 1
 
 
-def test_generate_pronunciation_g2p_renders_tokens():
-    fake_module = SimpleNamespace(G2p=lambda: (lambda _: ["M", "AE1", "P"]))
-    with patch.dict("sys.modules", {"g2p_en": fake_module}):
-        rendered = generate_pronunciation_g2p("map")
-    assert rendered == "MAp"
+def test_generate_pronunciation_gemini_success():
+    """Test Gemini returns pronunciation text when API call succeeds."""
+    gemini_response = {
+        "candidates": [{"content": {"parts": [{"text": "uh bem uh sye' klib"}]}}]
+    }
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key-123"}):
+        with patch("services.drug_pronunciation.requests.post") as mock_post:
+            mock_post.return_value = _mock_response(json_data=gemini_response)
+            result = generate_pronunciation_gemini("Abemaciclib")
+
+    assert result == "uh bem uh sye' klib"
+    mock_post.assert_called_once()
+
+
+def test_generate_pronunciation_gemini_no_api_key():
+    """Test Gemini returns None when GEMINI_API_KEY is not set."""
+    with patch.dict("os.environ", {}, clear=True):
+        result = generate_pronunciation_gemini("Abemaciclib")
+
+    assert result is None
+
+
+def test_generate_pronunciation_gemini_api_error():
+    """Test Gemini returns None on API failure."""
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key-123"}):
+        with patch("services.drug_pronunciation.requests.post") as mock_post:
+            mock_post.side_effect = Exception("API timeout")
+            result = generate_pronunciation_gemini("Abemaciclib")
+
+    assert result is None
+
+
+def test_generate_pronunciation_gemini_strips_quotes():
+    """Test Gemini strips surrounding quotes from response."""
+    gemini_response = {
+        "candidates": [{"content": {"parts": [{"text": '"met for\' min"'}]}}]
+    }
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key-123"}):
+        with patch("services.drug_pronunciation.requests.post") as mock_post:
+            mock_post.return_value = _mock_response(json_data=gemini_response)
+            result = generate_pronunciation_gemini("Metformin")
+
+    assert result == "met for' min"
 
 
 def test_resolve_rxcui_for_brand_name_case_insensitive_match():
