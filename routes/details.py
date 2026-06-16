@@ -20,7 +20,7 @@ from services.medication_guide import (
     build_guide,
 )
 from services.openfda_client import OpenFDAUpstreamError
-from services.pronunciation import get_pronunciation
+from services.drug_pronunciation import get_pronunciation
 from services.synonym_resolver import get_synonyms_for_rxcui, filter_self_from_brands
 from ndc_normalize import normalize_ndc_to_11
 from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames, slugify_class
