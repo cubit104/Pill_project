@@ -21,38 +21,137 @@ _GEMINI_ENDPOINT = (
     "/gemini-2.5-flash:generateContent"
 )
 
+# Regex to strip trailing dose/strength patterns like "10mg", "0.15mg tablet"
+_DOSE_SUFFIX_RE = re.compile(
+    r"\s+\d[\d./]*\s*(?:mg|mcg|ml|g|%|units?|iu|meq)\b.*$",
+    re.IGNORECASE,
+)
+# Regex to detect imprint-like tokens: uppercase letter followed by digits (E101, IP204, DP331)
+_IMPRINT_TOKEN_RE = re.compile(r"\s+([A-Z][A-Z0-9]*\d[A-Z0-9]*)(?=\s|$)")
 
-def get_pronunciation(conn, drug_name: str | None) -> str | None:
-    """Return pronunciation text for a drug name, or None if unavailable."""
-    lookup_name = (drug_name or "").strip().lower()
-    if not lookup_name:
-        return None
 
-    try:
-        row = conn.execute(
-            text(
-                """
-                SELECT pronunciation_text
-                FROM drug_pronunciations
-                WHERE drug_name_lower = :drug_name_lower
-                  AND pronunciation_text IS NOT NULL
-                LIMIT 1
-                """
-            ),
-            {"drug_name_lower": lookup_name},
-        ).fetchone()
-    except SQLAlchemyError as exc:
-        err_msg = str(exc).lower()
-        if "drug_pronunciations" in err_msg and ("does not exist" in err_msg or "no such table" in err_msg):
-            logger.debug("drug_pronunciations table not yet created: %s", exc)
-        else:
-            logger.warning("drug_pronunciations lookup failed for %r: %s", drug_name, exc)
-        return None
+def get_pronunciation(
+    conn,
+    drug_name: str | None,
+    rxcui: str | None = None,
+) -> str | None:
+    """Return pronunciation text for a drug, or None if unavailable.
 
-    if not row:
-        return None
+    Uses the clean DB path rather than parsing the messy medicine_name:
 
-    return str(row[0]).strip() or None
+    1. If *rxcui* is provided, resolve the clean ``generic_name`` and
+       ``brand_names`` from ``drug_synonyms`` via the
+       ``rxcui_to_ingredient`` mapping.  Try generic_name first, then
+       each brand name.
+    2. Fall back to normalized variants of ``drug_name``:
+       a. Exact lowered match
+       b. Strip trailing dose/strength (e.g. "10mg", "0.15mg tablet")
+       c. Strip imprint suffix (e.g. "E101", "IP204")
+       d. First word only (e.g. "lisinopril" from "Lisinopril E101 Tab")
+
+    All lookups hit ``drug_pronunciations.drug_name_lower``.
+    """
+    # Build an ordered, deduplicated list of candidate names to try.
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _add(name: str | None) -> None:
+        if not name:
+            return
+        n = name.strip().lower()
+        if n and n not in seen:
+            seen.add(n)
+            candidates.append(n)
+
+    # --- Strategy 1: resolve clean names via rxcui → drug_synonyms ---
+    if rxcui:
+        rxcui_clean = str(rxcui).strip()
+        if rxcui_clean:
+            try:
+                syn_row = conn.execute(
+                    text(
+                        """
+                        SELECT s.generic_name, s.brand_names
+                        FROM rxcui_to_ingredient r
+                        JOIN drug_synonyms s ON s.ingredient_rxcui = r.ingredient_rxcui
+                        WHERE r.product_rxcui = :rxcui
+                        LIMIT 1
+                        """
+                    ),
+                    {"rxcui": rxcui_clean},
+                ).fetchone()
+                if syn_row:
+                    # generic_name first (highest confidence)
+                    _add(syn_row[0])
+                    # then each brand name
+                    for brand in syn_row[1] or []:
+                        _add(brand)
+            except SQLAlchemyError as exc:
+                err_msg = str(exc).lower()
+                if (
+                    ("drug_synonyms" in err_msg or "rxcui_to_ingredient" in err_msg)
+                    and ("does not exist" in err_msg or "no such table" in err_msg)
+                ):
+                    logger.debug(
+                        "drug_synonyms/rxcui_to_ingredient tables not yet created: %s", exc
+                    )
+                else:
+                    logger.warning(
+                        "drug_synonyms lookup failed for rxcui=%s: %s", rxcui, exc
+                    )
+
+    # --- Strategy 2: normalized variants of drug_name ---
+    if drug_name:
+        original = drug_name.strip()
+        lowered = original.lower()
+
+        # 2a. Exact lowered match
+        _add(lowered)
+
+        # 2b. Strip trailing dose/strength pattern
+        dose_stripped = _DOSE_SUFFIX_RE.sub("", lowered).strip()
+        _add(dose_stripped)
+
+        # 2c. Strip from the first imprint-like token onward
+        imprint_m = _IMPRINT_TOKEN_RE.search(original)
+        if imprint_m:
+            _add(original[: imprint_m.start()])
+
+        # 2d. First word only (catches "Lisinopril E101" → "lisinopril")
+        words = lowered.split()
+        if len(words) > 1:
+            _add(words[0])
+
+    # --- Try each candidate against drug_pronunciations ---
+    for candidate in candidates:
+        try:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT pronunciation_text
+                    FROM drug_pronunciations
+                    WHERE drug_name_lower = :drug_name_lower
+                      AND pronunciation_text IS NOT NULL
+                    LIMIT 1
+                    """
+                ),
+                {"drug_name_lower": candidate},
+            ).fetchone()
+            if row:
+                return str(row[0]).strip() or None
+        except SQLAlchemyError as exc:
+            err_msg = str(exc).lower()
+            if "drug_pronunciations" in err_msg and (
+                "does not exist" in err_msg or "no such table" in err_msg
+            ):
+                logger.debug("drug_pronunciations table not yet created: %s", exc)
+            else:
+                logger.warning(
+                    "drug_pronunciations lookup failed for %r: %s", drug_name, exc
+                )
+            return None
+
+    return None
 
 
 def fetch_pronunciation_from_medlineplus(rxcui: str) -> dict | None:
