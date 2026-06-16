@@ -135,7 +135,10 @@ test('DrugPageHeader renders pronunciation text when provided', () => {
     />
   )
 
-  assert.match(html, /Pronounced as: lye sin(?:'|&#x27;) oh pril/)
+  assert.match(
+    html,
+    /Pronounced as:<\/span> <span[^>]*>lye sin(?:'|&#x27;) oh pril<\/span>/,
+  )
 })
 
 test('DrugPageHeader hides pronunciation text when missing', () => {
@@ -149,4 +152,18 @@ test('DrugPageHeader hides pronunciation text when missing', () => {
   )
 
   assert.doesNotMatch(html, /Pronounced as:/)
+})
+
+test('DrugPageHeader shows meta section when only pronunciation is provided', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Lisinopril"
+      pronunciation="lye sin' oh pril"
+      isBrandPrimary={false}
+    />
+  )
+
+  assert.match(html, /border-t border-emerald-100/)
+  assert.match(html, /Pronounced as:/)
 })

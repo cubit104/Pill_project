@@ -143,7 +143,7 @@ export default function DrugPageHeader({
   const showGeneric = isBrandPrimary && !!generic && !genericIsDuplicate
   const showBrands = shouldShowBrands && brandList.length > 0 && !brandsIsDuplicate
 
-  const hasMetaLines = showGeneric || showBrands || !!classDisplay || !!formDisplay
+  const hasMetaLines = showGeneric || showBrands || !!classDisplay || !!formDisplay || !!pronunciation
 
   return (
     <header className="space-y-2">
@@ -157,15 +157,17 @@ export default function DrugPageHeader({
         {headerDrugName}
       </h1>
 
-      {pronunciation && (
-        <p className="text-base text-slate-500 italic mt-1">
-          Pronounced as: {pronunciation}
-        </p>
-      )}
-
-      {/* Meta lines: generic/brand, class, dosage form */}
+      {/* Meta lines: pronunciation, generic/brand, class, dosage form */}
       {hasMetaLines && (
         <div className="border-t border-emerald-100 pt-3 space-y-1.5">
+          {/* Pronunciation */}
+          {pronunciation && (
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold text-emerald-700">Pronounced as:</span>{' '}
+              <span className="text-slate-600 italic">{pronunciation}</span>
+            </p>
+          )}
+
           {/* Generic (shown when H1 is a brand name, e.g. Plavix → Generic: Clopidogrel) */}
           {showGeneric && (
             <p className="text-sm text-slate-700">

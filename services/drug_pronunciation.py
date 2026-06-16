@@ -23,36 +23,89 @@ _GEMINI_ENDPOINT = (
 
 
 def get_pronunciation(conn, drug_name: str | None) -> str | None:
-    """Return pronunciation text for a drug name, or None if unavailable."""
-    lookup_name = (drug_name or "").strip().lower()
+    """Return pronunciation text for a drug name, or None if unavailable.
+
+    Tries multiple fallback lookup strategies in order:
+    1. Exact match on the full lowered name.
+    2. Strip trailing dose/strength (e.g. ``10mg``, ``0.15mg tablet``).
+    3. Strip everything from the first imprint-like token onward
+       (uppercase-letter-prefixed alphanumeric token containing a digit,
+       e.g. ``E101``, ``IP204``).
+    4. First word of the drug name only.
+    """
+    if not drug_name:
+        return None
+
+    original = drug_name.strip()
+    lookup_name = original.lower()
+
     if not lookup_name:
         return None
 
-    try:
-        row = conn.execute(
-            text(
-                """
-                SELECT pronunciation_text
-                FROM drug_pronunciations
-                WHERE drug_name_lower = :drug_name_lower
-                  AND pronunciation_text IS NOT NULL
-                LIMIT 1
-                """
-            ),
-            {"drug_name_lower": lookup_name},
-        ).fetchone()
-    except SQLAlchemyError as exc:
-        err_msg = str(exc).lower()
-        if "drug_pronunciations" in err_msg and ("does not exist" in err_msg or "no such table" in err_msg):
-            logger.debug("drug_pronunciations table not yet created: %s", exc)
-        else:
-            logger.warning("drug_pronunciations lookup failed for %r: %s", drug_name, exc)
-        return None
+    # Build an ordered, deduplicated list of candidate names to try.
+    candidates: list[str] = []
+    seen: set[str] = set()
 
-    if not row:
-        return None
+    def _add(name: str) -> None:
+        n = name.strip().lower()
+        if n and n not in seen:
+            seen.add(n)
+            candidates.append(n)
 
-    return str(row[0]).strip() or None
+    # Strategy 1: exact match
+    _add(lookup_name)
+
+    # Strategy 2: strip trailing dose/strength pattern
+    dose_stripped = re.sub(
+        r"\s+\d[\d./]*\s*(?:mg|mcg|ml|g|%|units?|iu|meq)\b.*$",
+        "",
+        lookup_name,
+        flags=re.IGNORECASE,
+    ).strip()
+    _add(dose_stripped)
+
+    # Strategy 3: strip from the first imprint-like token in the original name.
+    # An imprint token starts with an uppercase letter, consists of uppercase
+    # letters and digits only, and contains at least one digit (e.g. 'E101').
+    imprint_m = re.search(r"\s+([A-Z][A-Z0-9]*\d[A-Z0-9]*)(?=\s|$)", original)
+    if imprint_m:
+        _add(original[: imprint_m.start()])
+
+    # Strategy 4: first word only (only adds something new when name is multi-word)
+    words = lookup_name.split()
+    if len(words) > 1:
+        _add(words[0])
+
+    # Try each candidate in order, stopping at the first match.
+    for candidate in candidates:
+        try:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT pronunciation_text
+                    FROM drug_pronunciations
+                    WHERE drug_name_lower = :drug_name_lower
+                      AND pronunciation_text IS NOT NULL
+                    LIMIT 1
+                    """
+                ),
+                {"drug_name_lower": candidate},
+            ).fetchone()
+            if row:
+                return str(row[0]).strip() or None
+        except SQLAlchemyError as exc:
+            err_msg = str(exc).lower()
+            if "drug_pronunciations" in err_msg and (
+                "does not exist" in err_msg or "no such table" in err_msg
+            ):
+                logger.debug("drug_pronunciations table not yet created: %s", exc)
+            else:
+                logger.warning(
+                    "drug_pronunciations lookup failed for %r: %s", drug_name, exc
+                )
+            return None
+
+    return None
 
 
 def fetch_pronunciation_from_medlineplus(rxcui: str) -> dict | None:
