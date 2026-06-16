@@ -2,6 +2,7 @@
 
 import html
 import logging
+import os
 import re
 from urllib.parse import urlparse
 
@@ -13,18 +14,10 @@ logger = logging.getLogger(__name__)
 _MEDLINEPLUS_CONNECT_URL = "https://connect.medlineplus.gov/service"
 _PRONUNCIATION_REGEX = re.compile(r"pronounced as \(([^)]+)\)", re.IGNORECASE)
 _ALLOWED_MEDLINEPLUS_HOSTS = {"medlineplus.gov", "www.medlineplus.gov"}
-
-ARPABET_TO_TEXT = {
-    'AA': 'ah', 'AE': 'a', 'AH': 'uh', 'AO': 'aw', 'AW': 'ow',
-    'AY': 'eye', 'B': 'b', 'CH': 'ch', 'D': 'd', 'DH': 'th',
-    'EH': 'eh', 'ER': 'er', 'EY': 'ay', 'F': 'f', 'G': 'g',
-    'HH': 'h', 'IH': 'ih', 'IY': 'ee', 'JH': 'j', 'K': 'k',
-    'L': 'l', 'M': 'm', 'N': 'n', 'NG': 'ng', 'OW': 'oh',
-    'OY': 'oy', 'P': 'p', 'R': 'r', 'S': 's', 'SH': 'sh',
-    'T': 't', 'TH': 'th', 'UH': 'uh', 'UW': 'oo', 'V': 'v',
-    'W': 'w', 'Y': 'y', 'Z': 'z', 'ZH': 'zh'
-}
-_VOWELS = {'AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'EH', 'ER', 'EY', 'IH', 'IY', 'OW', 'OY', 'UH', 'UW'}
+_GEMINI_ENDPOINT = (
+    "https://generativelanguage.googleapis.com/v1beta/models"
+    "/gemini-2.5-flash:generateContent"
+)
 
 
 def fetch_pronunciation_from_medlineplus(rxcui: str) -> dict | None:
@@ -83,67 +76,34 @@ def fetch_pronunciation_from_medlineplus(rxcui: str) -> dict | None:
     return None
 
 
-def generate_pronunciation_g2p(drug_name: str) -> str | None:
-    """Generate a best-effort pronunciation using g2p_en phonemes."""
-    try:
-        from g2p_en import G2p
-    except Exception:
-        logger.warning("g2p_en is not installed; skipping g2p pronunciation for %r", drug_name)
+def generate_pronunciation_gemini(drug_name: str) -> str | None:
+    """Generate a pronunciation using the Google Gemini 2.5 Flash API."""
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        logger.warning("GEMINI_API_KEY not set; skipping Gemini pronunciation for %r", drug_name)
         return None
 
+    prompt = (
+        f'Give the phonetic pronunciation of the drug name "{drug_name}" in the same style that MedlinePlus uses.\n'
+        "Example: clopidogrel = kloh pid' oh grel\n"
+        "Example: metformin = met for' min\n"
+        "Example: lisinopril = lyse in' oh pril\n"
+        "Return ONLY the pronunciation text, nothing else. No quotes, no drug name, no explanation."
+    )
+
     try:
-        g2p = G2p()
-        phonemes = [token for token in g2p(drug_name) if isinstance(token, str)]
-
-        words: list[list[str]] = []
-        current: list[str] = []
-        for token in phonemes:
-            base = re.sub(r"\d", "", token).upper()
-            if base in ARPABET_TO_TEXT:
-                current.append(token)
-                continue
-            if current:
-                words.append(current)
-                current = []
-        if current:
-            words.append(current)
-
-        rendered_words = []
-        for word in words:
-            syllables: list[str] = []
-            onset: list[str] = []
-            for token in word:
-                base = re.sub(r"\d", "", token).upper()
-                rendered = ARPABET_TO_TEXT.get(base)
-                if not rendered:
-                    continue
-                stressed = token.endswith("1")
-                if base in _VOWELS:
-                    syllable = "".join(onset + [rendered])
-                    onset = []
-                    if stressed:
-                        syllable = syllable.upper()
-                    syllables.append(syllable)
-                elif syllables:
-                    syllables[-1] = syllables[-1] + rendered
-                else:
-                    onset.append(rendered)
-
-            if onset:
-                if syllables:
-                    syllables[-1] = syllables[-1] + "".join(onset)
-                else:
-                    syllables.append("".join(onset))
-
-            if syllables:
-                rendered_words.append("-".join(syllables))
-
-        if not rendered_words:
-            return None
-
-        return " ".join(rendered_words)
+        response = requests.post(
+            _GEMINI_ENDPOINT,
+            params={"key": api_key},
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+            timeout=15,
+        )
+        response.raise_for_status()
+        result = response.json()
+        text_value = result["candidates"][0]["content"]["parts"][0]["text"]
+        return text_value.strip().strip('"\'')
     except Exception as exc:
-        logger.warning("g2p pronunciation generation failed for %r: %s", drug_name, exc)
+        logger.warning("Gemini pronunciation generation failed for %r: %s", drug_name, exc)
         return None
 
 
