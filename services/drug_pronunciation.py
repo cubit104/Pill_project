@@ -4,6 +4,7 @@ import html
 import logging
 import os
 import re
+import time
 from urllib.parse import urlparse
 
 import requests
@@ -76,8 +77,12 @@ def fetch_pronunciation_from_medlineplus(rxcui: str) -> dict | None:
     return None
 
 
-def generate_pronunciation_gemini(drug_name: str) -> str | None:
-    """Generate a pronunciation using the Google Gemini 2.5 Flash API."""
+def generate_pronunciation_gemini(drug_name: str, max_retries: int = 2) -> str | None:
+    """Generate a pronunciation using the Google Gemini 2.5 Flash API.
+
+    Retries up to *max_retries* times on timeout / transient errors with
+    exponential back-off (2s, 4s).
+    """
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         logger.warning("GEMINI_API_KEY not set; skipping Gemini pronunciation for %r", drug_name)
@@ -91,20 +96,28 @@ def generate_pronunciation_gemini(drug_name: str) -> str | None:
         "Return ONLY the pronunciation text, nothing else. No quotes, no drug name, no explanation."
     )
 
-    try:
-        response = requests.post(
-            _GEMINI_ENDPOINT,
-            params={"key": api_key},
-            json={"contents": [{"parts": [{"text": prompt}]}]},
-            timeout=15,
-        )
-        response.raise_for_status()
-        result = response.json()
-        text_value = result["candidates"][0]["content"]["parts"][0]["text"]
-        return text_value.strip().strip('"\'')
-    except Exception as exc:
-        logger.warning("Gemini pronunciation generation failed for %r: %s", drug_name, exc)
-        return None
+    last_exc = None
+    for attempt in range(1 + max_retries):
+        try:
+            response = requests.post(
+                _GEMINI_ENDPOINT,
+                params={"key": api_key},
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+                timeout=30,
+            )
+            response.raise_for_status()
+            result = response.json()
+            text_value = result["candidates"][0]["content"]["parts"][0]["text"]
+            return text_value.strip().strip('"\'')
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                wait = 2 ** (attempt + 1)
+                logger.info("Gemini attempt %d failed for %r, retrying in %ds...", attempt + 1, drug_name, wait)
+                time.sleep(wait)
+
+    logger.warning("Gemini pronunciation generation failed for %r after %d attempts: %s", drug_name, 1 + max_retries, last_exc)
+    return None
 
 
 def upsert_pronunciation(
