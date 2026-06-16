@@ -22,61 +22,70 @@ _GEMINI_ENDPOINT = (
 )
 
 
-def get_pronunciation(conn, drug_name: str | None) -> str | None:
-    """Return pronunciation text for a drug name, or None if unavailable.
+def get_pronunciation(
+    conn,
+    drug_name: str | None,
+    rxcui: str | None = None,
+) -> str | None:
+    """Return pronunciation text for a drug, or None if unavailable.
 
-    Tries multiple fallback lookup strategies in order:
-    1. Exact match on the full lowered name.
-    2. Strip trailing dose/strength (e.g. ``10mg``, ``0.15mg tablet``).
-    3. Strip everything from the first imprint-like token onward
-       (uppercase-letter-prefixed alphanumeric token containing a digit,
-       e.g. ``E101``, ``IP204``).
-    4. First word of the drug name only.
+    Uses the clean DB path rather than parsing the messy medicine_name:
+
+    1. If *rxcui* is provided, resolve the clean ``generic_name`` and
+       ``brand_names`` from ``drug_synonyms`` via the
+       ``rxcui_to_ingredient`` mapping.  Try generic_name first, then
+       each brand name.
+    2. Fall back to a direct match on ``drug_name`` lowered (for drugs
+       that have no synonym mapping yet).
+
+    All lookups hit ``drug_pronunciations.drug_name_lower``.
     """
-    if not drug_name:
-        return None
-
-    original = drug_name.strip()
-    lookup_name = original.lower()
-
-    if not lookup_name:
-        return None
-
     # Build an ordered, deduplicated list of candidate names to try.
     candidates: list[str] = []
     seen: set[str] = set()
 
-    def _add(name: str) -> None:
+    def _add(name: str | None) -> None:
+        if not name:
+            return
         n = name.strip().lower()
         if n and n not in seen:
             seen.add(n)
             candidates.append(n)
 
-    # Strategy 1: exact match
-    _add(lookup_name)
+    # --- Strategy 1: resolve clean names via rxcui → drug_synonyms ---
+    if rxcui:
+        rxcui_clean = str(rxcui).strip()
+        if rxcui_clean:
+            try:
+                syn_row = conn.execute(
+                    text(
+                        """
+                        SELECT s.generic_name, s.brand_names
+                        FROM rxcui_to_ingredient r
+                        JOIN drug_synonyms s ON s.ingredient_rxcui = r.ingredient_rxcui
+                        WHERE r.product_rxcui = :rxcui
+                        LIMIT 1
+                        """
+                    ),
+                    {"rxcui": rxcui_clean},
+                ).fetchone()
+                if syn_row:
+                    # generic_name first (highest confidence)
+                    _add(syn_row[0])
+                    # then each brand name
+                    for brand in syn_row[1] or []:
+                        _add(brand)
+            except SQLAlchemyError as exc:
+                err_msg = str(exc).lower()
+                if "drug_synonyms" not in err_msg and "rxcui_to_ingredient" not in err_msg:
+                    logger.warning(
+                        "drug_synonyms lookup failed for rxcui=%s: %s", rxcui, exc
+                    )
 
-    # Strategy 2: strip trailing dose/strength pattern
-    dose_stripped = re.sub(
-        r"\s+\d[\d./]*\s*(?:mg|mcg|ml|g|%|units?|iu|meq)\b.*$",
-        "",
-        lookup_name,
-        flags=re.IGNORECASE,
-    ).strip()
-    _add(dose_stripped)
+    # --- Strategy 2: direct medicine_name fallback ---
+    _add(drug_name)
 
-    # Strategy 3: strip from the first imprint-like token in the original name.
-    # An imprint token starts with an uppercase letter, consists of uppercase
-    # letters and digits only, and contains at least one digit (e.g. 'E101').
-    imprint_m = re.search(r"\s+([A-Z][A-Z0-9]*\d[A-Z0-9]*)(?=\s|$)", original)
-    if imprint_m:
-        _add(original[: imprint_m.start()])
-
-    # Strategy 4: first word only (only adds something new when name is multi-word)
-    words = lookup_name.split()
-    if len(words) > 1:
-        _add(words[0])
-
-    # Try each candidate in order, stopping at the first match.
+    # --- Try each candidate against drug_pronunciations ---
     for candidate in candidates:
         try:
             row = conn.execute(
