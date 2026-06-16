@@ -3,6 +3,7 @@
 import html
 import logging
 import re
+from urllib.parse import urlparse
 
 import requests
 from sqlalchemy import text
@@ -11,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 _MEDLINEPLUS_CONNECT_URL = "https://connect.medlineplus.gov/service"
 _PRONUNCIATION_REGEX = re.compile(r"pronounced as \(([^)]+)\)", re.IGNORECASE)
+_ALLOWED_MEDLINEPLUS_HOSTS = {"medlineplus.gov", "www.medlineplus.gov"}
 
 ARPABET_TO_TEXT = {
     'AA': 'ah', 'AE': 'a', 'AH': 'uh', 'AO': 'aw', 'AW': 'ow',
@@ -50,14 +52,19 @@ def fetch_pronunciation_from_medlineplus(rxcui: str) -> dict | None:
                 links = [links]
             for link in links:
                 href = html.unescape((link.get("href") or "").strip())
-                if "/druginfo/meds/" not in href:
+                parsed = urlparse(href)
+                if (
+                    parsed.scheme != "https"
+                    or parsed.hostname not in _ALLOWED_MEDLINEPLUS_HOSTS
+                    or "/druginfo/meds/" not in parsed.path
+                ):
                     continue
 
                 page_resp = requests.get(href, timeout=10)
                 page_resp.raise_for_status()
                 match = _PRONUNCIATION_REGEX.search(page_resp.text)
                 if not match:
-                    return None
+                    continue
 
                 title_raw = entry.get("title") or {}
                 if isinstance(title_raw, dict):
@@ -201,8 +208,12 @@ def resolve_rxcui_for_drug_name(conn, drug_name: str) -> str | None:
         text(
             """
             SELECT ingredient_rxcui
-            FROM drug_synonyms
-            WHERE :drug_name = ANY(brand_names)
+            FROM drug_synonyms ds
+            WHERE EXISTS (
+                SELECT 1
+                FROM unnest(ds.brand_names) AS brand_name
+                WHERE LOWER(brand_name) = LOWER(:drug_name)
+            )
               AND ingredient_rxcui IS NOT NULL
             LIMIT 1
             """

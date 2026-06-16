@@ -17,14 +17,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 _DEF_SELECT_DRUGS = """
-    SELECT DISTINCT name
+    SELECT name
     FROM drug_name_suggestions
     ORDER BY lower_name
     LIMIT :limit OFFSET :offset
 """
 
 _DEF_SELECT_DRUGS_NO_LIMIT = """
-    SELECT DISTINCT name
+    SELECT name
     FROM drug_name_suggestions
     ORDER BY lower_name
     OFFSET :offset
@@ -55,23 +55,33 @@ def main(argv=None):
         upsert_pronunciation,
     )
 
-    try:
-        import database
+    database = None
 
+    def _get_database():
+        nonlocal database
+        if database is None:
+            try:
+                import database as database_module
+            except Exception as exc:
+                logger.error("DB setup failed: %s", exc)
+                sys.exit(1)
+            database = database_module
         if not database.db_engine:
             if not database.connect_to_database():
                 logger.error("Cannot connect to database. Aborting.")
                 sys.exit(1)
-    except Exception as exc:
-        logger.error("DB setup failed: %s", exc)
-        sys.exit(1)
+        return database
 
-    with database.db_engine.connect() as conn:
-        if args.drug:
-            drugs = [args.drug]
-        else:
+    if args.drug:
+        drugs = [args.drug]
+    else:
+        db = _get_database()
+        with db.db_engine.connect() as conn:
             sql = _DEF_SELECT_DRUGS if args.limit is not None else _DEF_SELECT_DRUGS_NO_LIMIT
-            rows = conn.execute(text(sql), {"limit": args.limit, "offset": args.offset}).fetchall()
+            params = {"offset": args.offset}
+            if args.limit is not None:
+                params["limit"] = args.limit
+            rows = conn.execute(text(sql), params).fetchall()
             drugs = [(row[0] or "").strip() for row in rows if (row[0] or "").strip()]
 
     if not drugs:
@@ -99,7 +109,8 @@ def main(argv=None):
         processed_lowers.add(lower_name)
 
         try:
-            with database.db_engine.connect() as conn:
+            db = _get_database()
+            with db.db_engine.connect() as conn:
                 existing = conn.execute(
                     text("SELECT source FROM drug_pronunciations WHERE drug_name_lower = LOWER(:name) LIMIT 1"),
                     {"name": drug_name},
@@ -115,7 +126,7 @@ def main(argv=None):
                 continue
 
             rxcui = None
-            with database.db_engine.connect() as conn:
+            with db.db_engine.connect() as conn:
                 rxcui = resolve_rxcui_for_drug_name(conn, drug_name)
 
             medline_payload = None
@@ -127,7 +138,7 @@ def main(argv=None):
                 if args.dry_run:
                     print(f"✓ {drug_name} — MedlinePlus: {medline_payload['pronunciation_text']} (dry-run)")
                 else:
-                    with database.db_engine.begin() as conn:
+                    with db.db_engine.begin() as conn:
                         outcome = upsert_pronunciation(
                             conn,
                             drug_name=drug_name,
@@ -149,7 +160,7 @@ def main(argv=None):
                 if args.dry_run:
                     print(f"✓ {drug_name} — g2p: {g2p_text} (dry-run)")
                 else:
-                    with database.db_engine.begin() as conn:
+                    with db.db_engine.begin() as conn:
                         outcome = upsert_pronunciation(
                             conn,
                             drug_name=drug_name,
