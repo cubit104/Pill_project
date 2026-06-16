@@ -20,6 +20,7 @@ from services.medication_guide import (
     build_guide,
 )
 from services.openfda_client import OpenFDAUpstreamError
+from services.drug_pronunciation import get_pronunciation
 from services.synonym_resolver import get_synonyms_for_rxcui, filter_self_from_brands
 from ndc_normalize import normalize_ndc_to_11
 from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames, slugify_class
@@ -695,6 +696,7 @@ def get_pill_by_slug(slug: str):
                 "additional_ndcs": additional_ndcs,
                 "meta_description": pill_info.get("meta_description") or None,
                 "indication": None,
+                "pronunciation": None,
                 "generic_name": None,
                 "brand_names_all": [],
                 "is_brand_row": False,
@@ -752,6 +754,8 @@ def get_pill_by_slug(slug: str):
                         logger.debug("drug_indications table not yet created: %s", _e)
                     else:
                         logger.warning("drug_indications lookup failed for rxcui=%s: %s", rxcui_val, _e)
+
+            mapped["pronunciation"] = get_pronunciation(conn, pill_info.get("medicine_name"))
 
         return mapped
 

@@ -124,3 +124,29 @@ test('DrugPageHeader keeps names where numbers are not imprint-like suffixes', (
 
   assert.match(html, />Vitamin B 12 Complex<\/h1>/)
 })
+
+test('DrugPageHeader renders pronunciation text when provided', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Lisinopril"
+      pronunciation="lye sin' oh pril"
+      isBrandPrimary={false}
+    />
+  )
+
+  assert.match(html, /Pronounced as: lye sin(?:'|&#x27;) oh pril/)
+})
+
+test('DrugPageHeader hides pronunciation text when missing', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Lisinopril"
+      pronunciation={null}
+      isBrandPrimary={false}
+    />
+  )
+
+  assert.doesNotMatch(html, /Pronounced as:/)
+})
