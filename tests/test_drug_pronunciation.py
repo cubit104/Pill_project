@@ -135,6 +135,17 @@ def test_get_pronunciation_returns_text_and_audio_url():
     }
 
 
+def test_get_pronunciation_returns_audio_url_even_when_text_is_null():
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.return_value = (None, "https://cdn.example/lisinopril.mp3")
+
+    result = get_pronunciation(conn, "Lisinopril")
+
+    assert result == {
+        "pronunciation_text": None,
+        "audio_url": "https://cdn.example/lisinopril.mp3",
+    }
+
 def test_get_pronunciation_returns_none_when_no_match():
     conn = MagicMock()
     conn.execute.return_value.fetchone.return_value = None
