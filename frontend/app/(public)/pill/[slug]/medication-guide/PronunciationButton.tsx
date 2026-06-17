@@ -25,7 +25,15 @@ export default function PronunciationButton({ slug, drugName }: Props) {
   useEffect(() => {
     if (!slug) return
     fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}/pronunciation`)
-      .then((r) => r.ok ? r.json() : null)
+      .then((r) => {
+        if (!r.ok) {
+          if (r.status !== 404) {
+            console.error(`Pronunciation fetch failed: ${r.status}`)
+          }
+          return null
+        }
+        return r.json()
+      })
       .then((d) => {
         setData(d)
         setLoaded(true)
@@ -39,10 +47,24 @@ export default function PronunciationButton({ slug, drugName }: Props) {
     // If we have an audio_url, play the MP3
     if (data?.audio_url) {
       if (playing) {
-        audioRef.current?.pause()
-        if (audioRef.current) audioRef.current.currentTime = 0
+        if (audioRef.current) {
+          audioRef.current.pause()
+          audioRef.current.onplay = null
+          audioRef.current.onended = null
+          audioRef.current.onerror = null
+          audioRef.current.currentTime = 0
+          audioRef.current = null
+        }
         setPlaying(false)
         return
+      }
+      // Dispose of any previous audio element before creating a new one
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.onplay = null
+        audioRef.current.onended = null
+        audioRef.current.onerror = null
+        audioRef.current = null
       }
       const audio = new Audio(data.audio_url)
       audioRef.current = audio
