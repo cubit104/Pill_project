@@ -20,6 +20,7 @@ from services.medication_guide import (
     build_guide,
 )
 from services.openfda_client import OpenFDAUpstreamError
+from services.drug_pronunciation import get_pronunciation
 from services.synonym_resolver import get_synonyms_for_rxcui, filter_self_from_brands
 from ndc_normalize import normalize_ndc_to_11
 from utils import normalize_imprint, normalize_name, normalize_fields, process_image_filenames, slugify_class
@@ -695,6 +696,7 @@ def get_pill_by_slug(slug: str):
                 "additional_ndcs": additional_ndcs,
                 "meta_description": pill_info.get("meta_description") or None,
                 "indication": None,
+                "pronunciation": None,
                 "generic_name": None,
                 "brand_names_all": [],
                 "is_brand_row": False,
@@ -752,6 +754,8 @@ def get_pill_by_slug(slug: str):
                         logger.debug("drug_indications table not yet created: %s", _e)
                     else:
                         logger.warning("drug_indications lookup failed for rxcui=%s: %s", rxcui_val, _e)
+
+            mapped["pronunciation"] = get_pronunciation(conn, pill_info.get("medicine_name"))
 
         return mapped
 
@@ -1387,11 +1391,13 @@ def get_pill_pronunciation(slug: str):
             raise HTTPException(status_code=500, detail="Database connection not available")
     try:
         with database.db_engine.connect() as conn:
-            # First resolve the medicine_name from pillfinder
+            # First resolve the medicine_name from pillfinder (exact slug, with
+            # _MEDICINE_SLUG_EXPR fallback to match normalised slugs as other endpoints do)
             pill_row = conn.execute(
-                text("""
+                text(f"""
                     SELECT medicine_name FROM pillfinder
-                    WHERE deleted_at IS NULL AND published = true AND slug = :slug
+                    WHERE deleted_at IS NULL AND published = true
+                      AND (slug = :slug OR {_MEDICINE_SLUG_EXPR} = :slug)
                     LIMIT 1
                 """),
                 {"slug": slug},
@@ -1420,14 +1426,14 @@ def get_pill_pronunciation(slug: str):
                     "pronunciation_text": None,
                     "audio_url": None,
                     "has_audio": False,
-                }, headers={"Cache-Control": "public, max-age=86400"})
+                }, headers={"Cache-Control": CACHE_CONTROL_HEADER})
 
             return JSONResponse(content={
                 "drug_name": pron_row[0] or medicine_name,
                 "pronunciation_text": pron_row[1],
                 "audio_url": pron_row[2],
                 "has_audio": bool(pron_row[2]),
-            }, headers={"Cache-Control": "public, max-age=86400"})
+            }, headers={"Cache-Control": CACHE_CONTROL_HEADER})
 
     except HTTPException:
         raise

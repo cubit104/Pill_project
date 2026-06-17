@@ -5,6 +5,7 @@ import PronunciationButton from './PronunciationButton'
 
 type DrugPageHeaderProps = {
   drugName: string
+  pronunciation?: string | null
   genericName?: string | null
   brandName?: string | null
   drugClass?: string | null
@@ -122,6 +123,7 @@ function BrandNamesList({ brands }: { brands: string[] }) {
 
 export default function DrugPageHeader({
   drugName,
+  pronunciation,
   genericName,
   brandName,
   drugClass,
@@ -144,7 +146,7 @@ export default function DrugPageHeader({
   const showGeneric = isBrandPrimary && !!generic && !genericIsDuplicate
   const showBrands = shouldShowBrands && brandList.length > 0 && !brandsIsDuplicate
 
-  const hasMetaLines = showGeneric || showBrands || !!classDisplay || !!formDisplay
+  const hasMetaLines = showGeneric || showBrands || !!classDisplay || !!formDisplay || !!pronunciation
 
   return (
     <header className="space-y-2">
@@ -161,14 +163,18 @@ export default function DrugPageHeader({
         <PronunciationButton slug={slug} drugName={headerDrugName} speakerOnly />
       </div>
 
-      {/* Pronunciation text line + divider */}
-      <PronunciationButton slug={slug} drugName={headerDrugName} textOnly />
-
-      <div className="border-t border-emerald-100" />
-
-      {/* Meta lines */}
+      {/* Meta lines: pronunciation, generic/brand, class, dosage form */}
       {hasMetaLines && (
-        <div className="pt-1 space-y-1.5">
+        <div className="border-t border-emerald-100 pt-3 space-y-1.5">
+          {/* Pronunciation */}
+          {pronunciation && (
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold text-emerald-700">Pronounced as:</span>{' '}
+              <span className="text-slate-600 italic">{pronunciation}</span>
+            </p>
+          )}
+
+          {/* Generic (shown when H1 is a brand name, e.g. Plavix → Generic: Clopidogrel) */}
           {showGeneric && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Generic:</span>{' '}

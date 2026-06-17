@@ -48,6 +48,14 @@ class SlugImages(BaseModel):
     images: List[str]
 
 
+class InteractionPageSlug(BaseModel):
+    slug: str
+    drug_name: str
+    has_drug_interactions: bool
+    has_food_interactions: bool
+    has_disease_interactions: bool
+
+
 _GUIDE_LATERAL_JOIN = """\
         FROM pillfinder p
         LEFT JOIN LATERAL (
@@ -190,6 +198,74 @@ def _fetch_slugs_with_images(conn) -> List[SlugImages]:
     return entries
 
 
+def _fetch_interaction_slugs(conn) -> List[InteractionPageSlug]:
+    """Return one slug per unique medicine_name that has interactions.
+
+    Step 1: collect the set of rxcuis that appear in drug_interactions.
+    Step 2: collect the set of drug_names in drug_food/disease tables.
+    Step 3: find pillfinder rows that match, deduplicate by medicine_name.
+
+    This avoids correlated EXISTS subqueries that time out on 178K rows.
+    """
+    result = conn.execute(
+        text(
+            """
+            WITH drug_rxcuis AS (
+                SELECT DISTINCT rxcui_1 AS rxcui FROM drug_interactions
+                UNION
+                SELECT DISTINCT rxcui_2 FROM drug_interactions
+            ),
+            food_drugs AS (
+                SELECT DISTINCT LOWER(TRIM(drug_name)) AS drug_key
+                FROM drug_food_interactions
+                WHERE drug_name IS NOT NULL AND TRIM(drug_name) != ''
+            ),
+            disease_drugs AS (
+                SELECT DISTINCT LOWER(TRIM(drug_name)) AS drug_key
+                FROM drug_disease_interactions
+                WHERE drug_name IS NOT NULL AND TRIM(drug_name) != ''
+            ),
+            matched_pills AS (
+                SELECT
+                    p.slug,
+                    p.medicine_name AS drug_name,
+                    (dr.rxcui IS NOT NULL) AS has_drug_interactions,
+                    (fd.drug_key IS NOT NULL) AS has_food_interactions,
+                    (dd.drug_key IS NOT NULL) AS has_disease_interactions,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY LOWER(TRIM(p.medicine_name))
+                        ORDER BY LENGTH(p.slug), p.slug
+                    ) AS rn
+                FROM pillfinder p
+                LEFT JOIN drug_rxcuis dr ON dr.rxcui = p.rxcui
+                LEFT JOIN food_drugs fd ON fd.drug_key = LOWER(TRIM(p.medicine_name))
+                LEFT JOIN disease_drugs dd ON dd.drug_key = LOWER(TRIM(p.medicine_name))
+                WHERE p.deleted_at IS NULL
+                  AND p.published = true
+                  AND NULLIF(TRIM(p.slug), '') IS NOT NULL
+                  AND NULLIF(TRIM(p.medicine_name), '') IS NOT NULL
+                  AND (dr.rxcui IS NOT NULL OR fd.drug_key IS NOT NULL OR dd.drug_key IS NOT NULL)
+            )
+            SELECT slug, drug_name, has_drug_interactions, has_food_interactions, has_disease_interactions
+            FROM matched_pills
+            WHERE rn = 1
+            ORDER BY LOWER(drug_name), slug
+            """
+        )
+    ).fetchall()
+    return [
+        InteractionPageSlug(
+            slug=row[0],
+            drug_name=row[1],
+            has_drug_interactions=bool(row[2]),
+            has_food_interactions=bool(row[3]),
+            has_disease_interactions=bool(row[4]),
+        )
+        for row in result
+        if row[0] and row[1]
+    ]
+
+
 @router.get("/api/slugs", response_model=List[str])
 def get_slugs():
     """Return a JSON array of all pill slugs (used by Next.js sitemap)"""
@@ -206,6 +282,26 @@ def get_slugs():
         raise HTTPException(status_code=500, detail="Database error")
     except Exception as e:
         logger.error(f"Error in /api/slugs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/api/slugs/interactions", response_model=List[InteractionPageSlug])
+def get_interaction_page_slugs(response: Response):
+    """Return deduplicated published slugs for drugs that have interaction content."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = _fetch_interaction_slugs(conn)
+        response.headers["Cache-Control"] = "public, max-age=86400, s-maxage=86400"
+        return rows
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in /api/slugs/interactions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in /api/slugs/interactions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -420,4 +516,36 @@ def sitemap_adverse_reactions():
         raise HTTPException(status_code=500, detail="Database error")
     except Exception as e:
         logger.error(f"Error generating sitemap-adverse-reactions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/sitemap-interactions.xml")
+def sitemap_interactions():
+    """Generate XML sitemap for all published interaction pages with unique drug content."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            interaction_slugs = _fetch_interaction_slugs(conn)
+
+        base_url = os.getenv("SITE_URL", "https://pillseek.com").rstrip("/")
+        urls = [
+            f"  <url><loc>{base_url}/pill/{xml_escape(row.slug)}/interactions</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>"
+            for row in interaction_slugs
+        ]
+        xml_content = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            + "\n".join(urls)
+            + "\n</urlset>"
+        )
+        return Response(content=xml_content, media_type="application/xml")
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in sitemap-interactions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error generating sitemap-interactions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")

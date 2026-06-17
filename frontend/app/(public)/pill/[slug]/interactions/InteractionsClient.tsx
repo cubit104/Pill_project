@@ -78,12 +78,10 @@ function buildApiUrl(path: string): string {
   return API_BASE ? `${API_BASE}${path}` : path
 }
 
-function sourceBadges(item: { source_ddinter?: boolean; source_kaggle?: boolean; source_openfda?: boolean }): string[] {
-  const badges: string[] = []
-  if (item.source_ddinter) badges.push('DDInter')
-  if (item.source_kaggle) badges.push('Kaggle')
-  if (item.source_openfda) badges.push('OpenFDA/FDA')
-  return badges
+function hasRealContent(value: string | null | undefined): boolean {
+  if (!value) return false
+  const trimmed = value.trim()
+  return trimmed !== '' && trimmed !== '-' && trimmed !== '–' && trimmed !== 'N/A' && trimmed !== 'n/a'
 }
 
 export default function InteractionsClient({
@@ -107,21 +105,26 @@ export default function InteractionsClient({
   const [checkError, setCheckError] = useState<string | null>(null)
   const [checkResult, setCheckResult] = useState<InteractionResponse | null>(null)
 
-  const showingCount = items.length
+  const visibleItems = useMemo(
+    () => items.map((item) => ({ ...item, description: item.description?.trim() ?? null })),
+    [items]
+  )
+  const showingCount = visibleItems.length
   const hasMore = showingCount < total
-  const allCount = severitySummary.major + severitySummary.moderate + severitySummary.minor + severitySummary.unknown
   const genericSuffix = genericName?.trim() ? ` (${genericName.trim()})` : ''
   const backHref = `/pill/${encodeURIComponent(slug)}`
 
   const filterOptions: Array<{ id: SeverityFilter; label: string; count?: number; dotClass?: string }> = useMemo(
-    () => [
-      { id: 'all', label: 'All', count: allCount },
-      { id: 'major', label: 'Major', count: severitySummary.major, dotClass: 'bg-red-500' },
-      { id: 'moderate', label: 'Moderate', count: severitySummary.moderate, dotClass: 'bg-orange-400' },
-      { id: 'minor', label: 'Minor', count: severitySummary.minor, dotClass: 'bg-yellow-400' },
-      { id: 'unknown', label: 'Unknown', count: severitySummary.unknown, dotClass: 'bg-slate-300' },
-    ],
-    [allCount, severitySummary]
+    () => {
+      const allCount = severitySummary.major + severitySummary.moderate + severitySummary.minor
+      return [
+        { id: 'all', label: 'All', count: allCount },
+        { id: 'major', label: 'Major', count: severitySummary.major, dotClass: 'bg-red-500' },
+        { id: 'moderate', label: 'Moderate', count: severitySummary.moderate, dotClass: 'bg-orange-400' },
+        { id: 'minor', label: 'Minor', count: severitySummary.minor, dotClass: 'bg-yellow-400' },
+      ]
+    },
+    [severitySummary]
   )
 
   const loadInteractions = useCallback(async (nextPage: number, append: boolean) => {
@@ -148,9 +151,17 @@ export default function InteractionsClient({
           unknown: payload.severity_summary?.unknown ?? 0,
         })
       }
-      setTotal(typeof payload.total === 'number' ? payload.total : 0)
+      const summary = payload.severity_summary || { major: 0, moderate: 0, minor: 0, unknown: 0 }
+      const allVisibleTotal = (summary.major ?? 0) + (summary.moderate ?? 0) + (summary.minor ?? 0)
+      const filteredTotal = (() => {
+        if (filter === 'all') return allVisibleTotal
+        if (filter === 'major' || filter === 'moderate' || filter === 'minor') return summary[filter] ?? 0
+        return typeof payload.total === 'number' ? payload.total : 0
+      })()
+      setTotal(filteredTotal)
       setPage(nextPage)
-      setItems((prev) => (append ? [...prev, ...(payload.interactions || [])] : (payload.interactions || [])))
+      const nextItems = (payload.interactions || []).filter((item) => severityKey(item.severity) !== 'unknown')
+      setItems((prev) => (append ? [...prev, ...nextItems] : nextItems))
     } catch {
       setListError('Unable to load interactions right now.')
       if (!append) setItems([])
@@ -166,8 +177,8 @@ export default function InteractionsClient({
     void loadInteractions(1, false)
   }, [filter, loadInteractions])
 
-  const handleCheck = async () => {
-    const drug2 = drug2Input.trim()
+  const handleCheck = async (drug2Override?: string): Promise<void> => {
+    const drug2 = (drug2Override ?? drug2Input).trim()
     if (!drug2 || checking) return
     setChecking(true)
     setCheckError(null)
@@ -216,7 +227,7 @@ export default function InteractionsClient({
           <DrugAutocompleteInput
             value={drug2Input}
             onChange={setDrug2Input}
-            onSelect={(val) => setDrug2Input(val)}
+            onSelect={(val) => { setDrug2Input(val); void handleCheck(val) }}
             placeholder="Enter a drug name..."
             ariaLabel="Second drug name"
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
@@ -224,7 +235,7 @@ export default function InteractionsClient({
           />
           <button
             type="button"
-            onClick={handleCheck}
+            onClick={() => void handleCheck()}
             disabled={checking || !drug2Input.trim()}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
           >
@@ -246,14 +257,9 @@ export default function InteractionsClient({
                   >
                     {severityKey(checkResult.severity)}
                   </span>
-                  {sourceBadges(checkResult).map((badge) => (
-                    <span key={badge} className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium bg-white border border-slate-200 text-slate-600">
-                      {badge}
-                    </span>
-                  ))}
                 </div>
                 <p>{checkResult.description || 'Interaction found in our database.'}</p>
-                {checkResult.management ? (
+                {hasRealContent(checkResult.management) ? (
                   <div className="rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                     <p className="font-semibold">Management</p>
                     <p className="mt-1 whitespace-pre-line">{checkResult.management}</p>
@@ -301,7 +307,7 @@ export default function InteractionsClient({
         </div>
 
         <div className="mt-4 space-y-3">
-          {items.map((item, index) => {
+          {visibleItems.map((item, index) => {
             const itemSeverity = severityKey(item.severity)
             return (
               <article key={`${item.drug_name}-${item.rxcui || 'na'}-${index}`} className="rounded-lg border border-slate-200 p-4">
@@ -315,14 +321,11 @@ export default function InteractionsClient({
                       <span className={`text-xs font-semibold uppercase ${SEVERITY_TEXT_COLORS[itemSeverity]}`}>
                         {itemSeverity}
                       </span>
-                      {sourceBadges(item).map((badge) => (
-                        <span key={badge} className="rounded-full px-2 py-0.5 text-[11px] font-medium bg-slate-100 text-slate-600">
-                          {badge}
-                        </span>
-                      ))}
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">{truncate(item.description, 120)}</p>
-                    {item.management ? (
+                    {hasRealContent(item.description) && (
+                      <p className="mt-1 text-sm text-slate-600">{truncate(item.description, 120)}</p>
+                    )}
+                    {hasRealContent(item.management) ? (
                       <p className="mt-2 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                         <span className="font-semibold">Management:</span> {truncate(item.management, 180)}
                       </p>
@@ -335,7 +338,7 @@ export default function InteractionsClient({
 
           {listError && <p className="text-sm text-red-600">{listError}</p>}
 
-          {!loadingList && !listError && items.length === 0 && (
+          {!loadingList && !listError && visibleItems.length === 0 && (
             <p className="text-sm text-slate-500">
               {filter === 'all'
                 ? `No interactions found for ${drugName}.`

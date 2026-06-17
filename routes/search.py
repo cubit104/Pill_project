@@ -420,34 +420,42 @@ def api_search(
                             grouped[key]["image_filenames"].append(fname)
                             grouped[key]["image_filenames_seen"].add(fname)
 
-            # Second pass: fetch ALL image_filenames for each (medicine_name, splimprint) group
-            # to capture images from rows that were not included in the paginated results.
-            for key, data in grouped.items():
-                image_q = text("""
-                    SELECT image_filename FROM pillfinder
+            # Second pass: fetch image_filenames for each group individually
+            # to capture images from rows not included in the paginated results.
+            # Loop is bounded by per_page (max 25) so performance is fine.
+            if grouped:
+                single_image_q = text("""
+                    SELECT image_filename
+                    FROM pillfinder
                     WHERE deleted_at IS NULL
                       AND published = true
-                      AND medicine_name = :medicine_name
-                      AND splimprint = :splimprint
+                      AND medicine_name = :name
+                      AND splimprint = :imprint
                 """)
-                img_rows = conn.execute(image_q, {
-                    "medicine_name": data["medicine_name"],
-                    "splimprint": data["splimprint"],
-                })
-                # Replace first-pass (partial) images with the authoritative
-                # complete set from ALL matching rows.  Keep first-pass as a
-                # fallback in case the second-pass unexpectedly returns nothing.
-                first_pass_images = list(data["image_filenames"])
-                data["image_filenames"] = []
-                data["image_filenames_seen"] = set()
-                for r in img_rows:
-                    if r[0]:
-                        for fname in split_image_filenames(r[0]):
-                            if fname and fname not in data["image_filenames_seen"]:
-                                data["image_filenames"].append(fname)
-                                data["image_filenames_seen"].add(fname)
-                if not data["image_filenames"]:
-                    data["image_filenames"] = first_pass_images
+                for key, data in grouped.items():
+                    first_pass_images = list(data["image_filenames"])
+                    try:
+                        img_rows = conn.execute(single_image_q, {
+                            "name": data["medicine_name"],
+                            "imprint": data["splimprint"],
+                        })
+                        fetched: list[str] = []
+                        fetched_seen: set[str] = set()
+                        for r in img_rows:
+                            if r[0]:
+                                for fname in split_image_filenames(r[0]):
+                                    if fname and fname not in fetched_seen:
+                                        fetched.append(fname)
+                                        fetched_seen.add(fname)
+                        data["image_filenames"] = fetched if fetched else first_pass_images
+                        data["image_filenames_seen"] = set(data["image_filenames"])
+                    except Exception:
+                        logger.warning(
+                            "Second-pass image fetch failed for %s / %s, using first-pass images",
+                            data["medicine_name"], data["splimprint"],
+                        )
+                        # Keep first-pass images as fallback
+                        pass
 
             records = []
             for data in grouped.values():

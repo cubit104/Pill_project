@@ -16,6 +16,7 @@ type InteractionResponse = {
   drug2_brands: string[] | undefined
   severity: string | null
   description: string | null
+  interaction_text: string | null
   spl_text: string | null
   reference_text: string | null
   management: string | null
@@ -71,6 +72,14 @@ const SEVERITY_STYLES = {
   unknown: { dot: 'bg-slate-300', bg: 'bg-slate-50', border: 'border-slate-200', badge: 'bg-slate-100 text-slate-600', text: 'text-slate-700' },
 } as const
 
+const SUMMARY_CHIP_STYLES = {
+  major: { dot: SEVERITY_STYLES.major.dot, active: 'border-red-200 bg-red-50 text-red-900', muted: 'border-red-100 bg-white text-red-500' },
+  moderate: { dot: SEVERITY_STYLES.moderate.dot, active: 'border-orange-200 bg-orange-50 text-orange-900', muted: 'border-orange-100 bg-white text-orange-500' },
+  minor: { dot: SEVERITY_STYLES.minor.dot, active: 'border-yellow-200 bg-yellow-50 text-yellow-700', muted: 'border-yellow-100 bg-white text-yellow-700' },
+  food: { dot: 'bg-slate-400', active: 'border-slate-200 bg-slate-100 text-slate-900', muted: 'border-slate-200 bg-white text-slate-500' },
+  disease: { dot: 'bg-emerald-500', active: 'border-emerald-200 bg-emerald-50 text-emerald-900', muted: 'border-emerald-100 bg-white text-emerald-600' },
+} as const
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 const MAX_DRUGS = 10
 const MIN_DRUGS_ERROR = 'Add at least 2 medications to check interactions.'
@@ -117,14 +126,6 @@ function pairKey(drug1: string, drug2: string): string {
   return `${drug1}__${drug2}`
 }
 
-function sourceBadges(result: InteractionResponse): string[] {
-  const badges: string[] = []
-  if (result.source_ddinter) badges.push('DDInter')
-  if (result.source_kaggle) badges.push('Kaggle')
-  if (result.source_openfda) badges.push('OpenFDA/FDA')
-  return badges
-}
-
 function focusDrugInput() {
   const input = document.getElementById(INPUT_ID)
   if (input instanceof HTMLInputElement) {
@@ -141,8 +142,8 @@ export default function InteractionsCheckerClient() {
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all')
   const [activeTab, setActiveTab] = useState<TabId>('drug-drug')
 
-  const addDrug = (): void => {
-    const trimmed = drugInput.trim()
+  const addDrug = (name?: string): void => {
+    const trimmed = (name ?? drugInput).trim()
     if (!trimmed) return
 
     if (drugList.length >= MAX_DRUGS) {
@@ -245,19 +246,19 @@ export default function InteractionsCheckerClient() {
   const filterOptions: Array<{ id: SeverityFilter; label: string; count: number; dotClass?: string }> = useMemo(
     () => {
       const base = results?.summary?.severity || { major: 0, moderate: 0, minor: 0, unknown: 0 }
+      const allVisibleCount = (base.major ?? 0) + (base.moderate ?? 0) + (base.minor ?? 0)
       return [
-        { id: 'all', label: 'All', count: results?.summary?.sections?.drug_drug ?? 0 },
+        { id: 'all', label: 'All', count: allVisibleCount },
         { id: 'major', label: 'Major', count: base.major ?? 0, dotClass: 'bg-red-500' },
         { id: 'moderate', label: 'Moderate', count: base.moderate ?? 0, dotClass: 'bg-orange-400' },
         { id: 'minor', label: 'Minor', count: base.minor ?? 0, dotClass: 'bg-yellow-400' },
-        { id: 'unknown', label: 'Unknown', count: base.unknown ?? 0, dotClass: 'bg-slate-300' },
       ]
     },
     [results]
   )
 
   const visiblePairs = useMemo(() => {
-    const pairs = (results?.pairs || []).filter((item) => item.found === true)
+    const pairs = (results?.pairs || []).filter((item) => item.found === true && severityKey(item.severity) !== 'unknown')
     if (severityFilter === 'all') return pairs
     return pairs.filter((item) => severityKey(item.severity) === severityFilter)
   }, [results, severityFilter])
@@ -292,7 +293,7 @@ export default function InteractionsCheckerClient() {
                 setCheckError(null)
               }
             }}
-            onSelect={(value) => setDrugInput(value)}
+            onSelect={(value) => addDrug(value)}
             placeholder="Enter a drug name..."
             ariaLabel="Drug name"
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
@@ -358,11 +359,37 @@ export default function InteractionsCheckerClient() {
 
       {results && (
         <section className="space-y-4" aria-live="polite">
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-emerald-50/60 p-4 shadow-sm">
             <p className="font-semibold text-slate-900">Summary</p>
-            <p className="mt-1">
-              {results.summary.severity.major} major · {results.summary.severity.moderate} moderate · {results.summary.severity.minor} minor · {results.summary.sections.drug_food} food interaction(s) · {results.summary.sections.drug_disease} condition warning(s)
-            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {([
+                { id: 'major', count: results.summary.severity.major, label: 'major' },
+                { id: 'moderate', count: results.summary.severity.moderate, label: 'moderate' },
+                { id: 'minor', count: results.summary.severity.minor, label: 'minor' },
+                { id: 'food', count: results.summary.sections.drug_food, label: 'food interactions' },
+                { id: 'disease', count: results.summary.sections.drug_disease, label: 'condition warnings' },
+              ] as const).map((item) => {
+                const chipStyle = SUMMARY_CHIP_STYLES[item.id]
+                const muted = item.count === 0
+                return (
+                  <div
+                    key={item.id}
+                    className={`inline-flex min-w-[9.5rem] items-center gap-3 rounded-full border px-3 py-2 transition-colors ${
+                      muted ? chipStyle.muted : chipStyle.active
+                    }`}
+                  >
+                    <span
+                      className={`h-2.5 w-2.5 rounded-full ${chipStyle.dot} ${muted ? 'opacity-35' : ''}`}
+                      aria-hidden="true"
+                    />
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-lg font-semibold leading-none">{item.count}</span>
+                      <span className={`text-sm leading-none ${muted ? 'text-slate-500' : 'text-slate-600'}`}>{item.label}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
@@ -376,7 +403,7 @@ export default function InteractionsCheckerClient() {
                 type="button"
                 aria-pressed={activeTab === tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`rounded-full px-3 py-1.5 text-sm ${
+                className={`rounded-full px-4 py-2 text-base ${
                   activeTab === tab.id ? 'bg-emerald-100 text-emerald-800 font-semibold' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
@@ -396,7 +423,7 @@ export default function InteractionsCheckerClient() {
                       type="button"
                       onClick={() => setSeverityFilter(option.id)}
                       aria-pressed={active}
-                      className={`inline-flex items-center gap-2 text-sm ${
+                      className={`inline-flex items-center gap-2 text-base ${
                         active ? 'font-semibold text-slate-900 underline underline-offset-4' : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
@@ -413,42 +440,49 @@ export default function InteractionsCheckerClient() {
               </div>
 
               {visiblePairs.length === 0 ? (
-                <p className="text-sm text-slate-500">No interactions found for the current severity filter.</p>
+                <p className="text-base text-slate-500">No interactions found for the current severity filter.</p>
               ) : (
                 visiblePairs.map((item) => {
                   const key = pairKey(item.drug1, item.drug2)
                   const severity = severityKey(item.severity)
                   const style = SEVERITY_STYLES[severity]
-                  const displayTitle = `${drugLabel(item.drug1, item.drug1_generic)} ⇌ ${drugLabel(item.drug2, item.drug2_generic)}`
+                  const displayTitle = `${drugLabel(item.drug1, item.drug1_generic)} ⇄ ${drugLabel(item.drug2, item.drug2_generic)}`
                   const applies = `${appliesLabel(item.drug1_brands, item.drug1_generic, item.drug1)}, ${appliesLabel(item.drug2_brands, item.drug2_generic, item.drug2)}`
-                  const badges = sourceBadges(item)
+                  const trimmedDescription = item.description?.trim()
+                  let description = trimmedDescription
+                  if (!description && (severity === 'major' || severity === 'moderate')) {
+                    description = FALLBACK_DESCRIPTION
+                  }
 
                   return (
-                    <article key={key} className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`inline-block h-2.5 w-2.5 rounded-full ${style.dot}`} aria-hidden="true" />
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${style.badge}`}>
+                    <article key={key} className={`rounded-lg border p-5 ${style.bg} ${style.border}`}>
+                      <div className="flex flex-col items-center gap-2 text-center">
+                        <span className={`rounded-full px-3 py-1 text-sm font-bold uppercase ${style.badge}`}>
                           {severity}
                         </span>
-                        {badges.map((badge) => (
-                          <span key={badge} className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-slate-700 border border-slate-200">
-                            {badge}
-                          </span>
-                        ))}
-                        <h3 className={`text-sm font-semibold ${style.text}`}>{displayTitle}</h3>
+                        <h3 className={`text-xl font-bold ${style.text}`}>{displayTitle}</h3>
                       </div>
-                      <p className={`mt-2 text-sm ${style.text}`}>
+                      <p className={`mt-3 text-base ${style.text}`}>
                         <span className="font-medium">Applies to:</span> {applies}
                       </p>
-                      <p className={`mt-3 whitespace-pre-line text-sm ${style.text}`}>{item.description || FALLBACK_DESCRIPTION}</p>
+                      {description && (
+                        <div className="mt-4 rounded-md border border-white/60 bg-white/40 px-3 py-3">
+                          <p className={`whitespace-pre-line text-base font-medium leading-7 ${style.text}`}>{description}</p>
+                        </div>
+                      )}
+                      {item.interaction_text && item.interaction_text !== item.description ? (
+                        <p className={`mt-4 whitespace-pre-line text-base leading-7 ${style.text}`}>
+                          <span className="font-bold">Interaction: </span>{item.interaction_text}
+                        </p>
+                      ) : null}
                       {item.management ? (
-                        <div className="mt-3 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                          <p className="font-semibold">Management</p>
-                          <p className="mt-1 whitespace-pre-line">{item.management}</p>
+                        <div className="mt-4 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-base text-emerald-900">
+                          <p className="font-bold">Management:</p>
+                          <p className="mt-1 whitespace-pre-line leading-7">{item.management}</p>
                         </div>
                       ) : null}
-                      {item.reference_text ? (
-                        <details className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                      {item.reference_text && !item.interaction_text ? (
+                        <details className="mt-4 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
                           <summary className="cursor-pointer font-semibold text-slate-700">Reference text</summary>
                           <p className="mt-2 whitespace-pre-line">{item.reference_text}</p>
                         </details>
@@ -461,32 +495,29 @@ export default function InteractionsCheckerClient() {
           )}
 
           {activeTab === 'drug-food' && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {results.food_interactions.length === 0 ? (
-                <p className="text-sm text-slate-500">No drug-food interactions found for these medications.</p>
+                <p className="text-base text-slate-500">No drug-food interactions found for these medications.</p>
               ) : (
                 <>
                   {results.food_interactions.map((item, idx) => {
                     const severity = severityKey(item.level)
                     const style = SEVERITY_STYLES[severity]
                     return (
-                      <article key={`${item.selected_drug}-${item.food_name}-${idx}`} className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${style.badge}`}>{severity}</span>
-                          {item.source_ddinter ? (
-                            <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-slate-700 border border-slate-200">DDInter</span>
-                          ) : null}
-                          <h3 className={`text-sm font-semibold ${style.text}`}>{item.selected_drug} ⇌ {item.food_name}</h3>
+                      <article key={`${item.selected_drug}-${item.food_name}-${idx}`} className={`rounded-lg border p-5 ${style.bg} ${style.border}`}>
+                        <div className="flex flex-col items-center gap-2 text-center">
+                          <span className={`rounded-full px-3 py-1 text-sm font-bold uppercase ${style.badge}`}>{severity}</span>
+                          <h3 className={`text-xl font-bold ${style.text}`}>{item.selected_drug} ⇄ {item.food_name}</h3>
                         </div>
-                        <p className={`mt-3 text-sm ${style.text}`}>{item.interaction || FALLBACK_DESCRIPTION}</p>
+                        <p className={`mt-4 whitespace-pre-line text-base leading-7 ${style.text}`}>{item.interaction || FALLBACK_DESCRIPTION}</p>
                         {item.management ? (
-                          <div className="mt-3 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                            <p className="font-semibold">Management</p>
-                            <p className="mt-1 whitespace-pre-line">{item.management}</p>
+                          <div className="mt-4 rounded-md border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-base text-emerald-900">
+                            <p className="font-bold">Management:</p>
+                            <p className="mt-1 whitespace-pre-line leading-7">{item.management}</p>
                           </div>
                         ) : null}
                         {item.ref_text ? (
-                          <details className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                          <details className="mt-4 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
                             <summary className="cursor-pointer font-semibold text-slate-700">Reference text</summary>
                             <p className="mt-2 whitespace-pre-line">{item.ref_text}</p>
                           </details>
@@ -495,7 +526,7 @@ export default function InteractionsCheckerClient() {
                     )
                   })}
                   {results.summary.sections.food_truncated && (
-                    <p className="text-sm text-slate-500 text-center pt-1">
+                    <p className="text-base text-slate-500 text-center pt-1">
                       Showing the {results.food_interactions.length} most severe of {results.summary.sections.drug_food} results.
                     </p>
                   )}
@@ -505,26 +536,23 @@ export default function InteractionsCheckerClient() {
           )}
 
           {activeTab === 'drug-disease' && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {results.disease_interactions.length === 0 ? (
-                <p className="text-sm text-slate-500">No drug-disease interactions found for these medications.</p>
+                <p className="text-base text-slate-500">No drug-disease interactions found for these medications.</p>
               ) : (
                 <>
                   {results.disease_interactions.map((item, idx) => {
                     const severity = severityKey(item.level)
                     const style = SEVERITY_STYLES[severity]
                     return (
-                      <article key={`${item.selected_drug}-${item.disease_name}-${idx}`} className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${style.badge}`}>{severity}</span>
-                          {item.source_ddinter ? (
-                            <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-slate-700 border border-slate-200">DDInter</span>
-                          ) : null}
-                          <h3 className={`text-sm font-semibold ${style.text}`}>{item.selected_drug} ⇌ {item.disease_name}</h3>
+                      <article key={`${item.selected_drug}-${item.disease_name}-${idx}`} className={`rounded-lg border p-5 ${style.bg} ${style.border}`}>
+                        <div className="flex flex-col items-center gap-2 text-center">
+                          <span className={`rounded-full px-3 py-1 text-sm font-bold uppercase ${style.badge}`}>{severity}</span>
+                          <h3 className={`text-xl font-bold ${style.text}`}>{item.selected_drug} ⇄ {item.disease_name}</h3>
                         </div>
-                        <p className={`mt-3 text-sm ${style.text}`}>{item.text || FALLBACK_DESCRIPTION}</p>
+                        <p className={`mt-4 whitespace-pre-line text-base leading-7 ${style.text}`}>{item.text || FALLBACK_DESCRIPTION}</p>
                         {item.ref_text ? (
-                          <details className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                          <details className="mt-4 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
                             <summary className="cursor-pointer font-semibold text-slate-700">Reference text</summary>
                             <p className="mt-2 whitespace-pre-line">{item.ref_text}</p>
                           </details>
@@ -533,7 +561,7 @@ export default function InteractionsCheckerClient() {
                     )
                   })}
                   {results.summary.sections.disease_truncated && (
-                    <p className="text-sm text-slate-500 text-center pt-1">
+                    <p className="text-base text-slate-500 text-center pt-1">
                       Showing the {results.disease_interactions.length} most severe of {results.summary.sections.drug_disease} results.
                     </p>
                   )}

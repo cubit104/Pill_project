@@ -16,8 +16,9 @@ type DrugAutocompleteInputProps = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 const SUGGESTIONS_LIMIT = 8
-const DEBOUNCE_MS = 200
+const DEBOUNCE_MS = 150
 const BLUR_DELAY_MS = 150
+const CACHE_MAX = 50
 
 function buildApiUrl(path: string): string {
   return API_BASE ? `${API_BASE}${path}` : path
@@ -41,6 +42,7 @@ export default function DrugAutocompleteInput({
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const requestAbortRef = useRef<AbortController | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const suggestionCacheRef = useRef(new Map<string, string[]>())
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -51,6 +53,16 @@ export default function DrugAutocompleteInput({
       setOpen(false)
       return
     }
+
+    const cacheKey = trimmed.toLowerCase()
+    const cached = suggestionCacheRef.current.get(cacheKey)
+    if (cached !== undefined) {
+      setSuggestions(cached)
+      setOpen(cached.length > 0)
+      setHighlighted(-1)
+      return
+    }
+
     debounceRef.current = setTimeout(async () => {
       const controller = new AbortController()
       requestAbortRef.current = controller
@@ -61,8 +73,13 @@ export default function DrugAutocompleteInput({
         )
         if (!res.ok) return
         const data = await res.json() as string[]
-        setSuggestions(Array.isArray(data) ? data : [])
-        setOpen(Array.isArray(data) && data.length > 0)
+        const results = Array.isArray(data) ? data : []
+        if (suggestionCacheRef.current.size >= CACHE_MAX) {
+          suggestionCacheRef.current.clear()
+        }
+        suggestionCacheRef.current.set(cacheKey, results)
+        setSuggestions(results)
+        setOpen(results.length > 0)
         setHighlighted(-1)
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return

@@ -133,6 +133,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.7,
       }))
 
+    // NOTE: Interaction pages are served via the dedicated /sitemap-interactions.xml
+    // route (see frontend/app/sitemap-interactions.xml/route.ts) to avoid pushing
+    // the main sitemap past Vercel's 60-second build timeout and 2MB cache limit.
+
     return [
       ...staticPages,
       ...pillPages,

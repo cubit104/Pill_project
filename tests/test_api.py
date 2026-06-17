@@ -8,6 +8,7 @@ import os
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from sqlalchemy.exc import SQLAlchemyError
 
 # Provide a fake DATABASE_URL before importing main so the startup check passes
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/testdb")
@@ -695,6 +696,76 @@ def test_api_pill_slug_always_includes_synonym_keys_when_unmapped(client):
     assert data["brand_names_all"] == []
 
 
+def test_api_pill_slug_includes_pronunciation_when_available(client):
+    import database as db_module
+
+    pill_row = ("Lisinopril", "20", "Pink", "Round", "0069-0020-01", "29046", "lisinopril.jpg", "lisinopril-20mg", None)
+    pill_columns = ["medicine_name", "splimprint", "splcolor_text", "splshape_text", "ndc11", "rxcui", "image_filename", "slug", "meta_description"]
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql).lower()
+        result = MagicMock()
+        if "from pillfinder where deleted_at is null and published = true and slug = :slug" in sql_str:
+            result.fetchone.return_value = pill_row
+            result.keys.return_value = pill_columns
+        elif "from pill_ndcs" in sql_str:
+            result.fetchall.return_value = []
+        elif "from public.medication_guide" in sql_str:
+            result.fetchone.return_value = None
+        elif "from drug_indications" in sql_str:
+            result.fetchone.return_value = None
+        elif "from drug_pronunciations" in sql_str:
+            result.fetchone.return_value = ("lye sin' oh pril",)
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch("routes.details._resolve_history_identifier", return_value={"history_ndc": None, "history_source": None}):
+        response = client.get("/api/pill/lisinopril-20mg")
+
+    assert response.status_code == 200
+    assert response.json()["pronunciation"] == "lye sin' oh pril"
+
+
+def test_api_pill_slug_pronunciation_is_none_when_table_missing(client):
+    import database as db_module
+
+    pill_row = ("Lisinopril", "20", "Pink", "Round", "0069-0020-01", "29046", "lisinopril.jpg", "lisinopril-20mg", None)
+    pill_columns = ["medicine_name", "splimprint", "splcolor_text", "splshape_text", "ndc11", "rxcui", "image_filename", "slug", "meta_description"]
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql).lower()
+        result = MagicMock()
+        if "from pillfinder where deleted_at is null and published = true and slug = :slug" in sql_str:
+            result.fetchone.return_value = pill_row
+            result.keys.return_value = pill_columns
+        elif "from pill_ndcs" in sql_str:
+            result.fetchall.return_value = []
+        elif "from public.medication_guide" in sql_str:
+            result.fetchone.return_value = None
+        elif "from drug_indications" in sql_str:
+            result.fetchone.return_value = None
+        elif "from drug_pronunciations" in sql_str:
+            raise SQLAlchemyError('relation "drug_pronunciations" does not exist')
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch("routes.details._resolve_history_identifier", return_value={"history_ndc": None, "history_source": None}):
+        response = client.get("/api/pill/lisinopril-20mg")
+
+    assert response.status_code == 200
+    assert response.json()["pronunciation"] is None
+
+
 # ---------------------------------------------------------------------------
 # Sitemap endpoint
 # ---------------------------------------------------------------------------
@@ -824,6 +895,58 @@ def test_sitemap_adverse_reactions_returns_200_and_adverse_urls(client):
     assert "xml" in response.headers.get("content-type", "")
     assert b"/pill/ar-slug/adverse-reactions" in response.content
     assert b"/pill/no-ar-slug/adverse-reactions" not in response.content
+
+
+def test_api_interaction_slugs_returns_deduplicated_rows_and_cache_headers(client):
+    import database as db_module
+    interaction_rows = MagicMock()
+    interaction_rows.fetchall.return_value = [
+        ("plavix-75-mg", "Clopidogrel", True, True, False),
+        ("warfarin-5-mg", "Warfarin", True, False, True),
+    ]
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = interaction_rows
+
+    response = client.get("/api/slugs/interactions")
+
+    assert response.status_code == 200
+    assert response.headers.get("cache-control") == "public, max-age=86400, s-maxage=86400"
+    assert response.json() == [
+        {
+            "slug": "plavix-75-mg",
+            "drug_name": "Clopidogrel",
+            "has_drug_interactions": True,
+            "has_food_interactions": True,
+            "has_disease_interactions": False,
+        },
+        {
+            "slug": "warfarin-5-mg",
+            "drug_name": "Warfarin",
+            "has_drug_interactions": True,
+            "has_food_interactions": False,
+            "has_disease_interactions": True,
+        },
+    ]
+
+
+def test_sitemap_interactions_returns_200_and_interaction_urls(client):
+    import database as db_module
+    interaction_rows = MagicMock()
+    interaction_rows.fetchall.return_value = [
+        ("plavix-75-mg", "Clopidogrel", True, True, False),
+        ("warfarin-5-mg", "Warfarin", True, False, True),
+    ]
+    conn_mock = db_module.db_engine.connect.return_value.__enter__.return_value
+    conn_mock.execute.side_effect = None
+    conn_mock.execute.return_value = interaction_rows
+
+    response = client.get("/sitemap-interactions.xml")
+
+    assert response.status_code == 200
+    assert "xml" in response.headers.get("content-type", "")
+    assert b"/pill/plavix-75-mg/interactions" in response.content
+    assert b"/pill/warfarin-5-mg/interactions" in response.content
 
 
 def test_fetch_guide_page_slugs_falls_back_on_missing_columns(client):
