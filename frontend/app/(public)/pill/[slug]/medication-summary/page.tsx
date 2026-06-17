@@ -1,3 +1,4 @@
+import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
