@@ -311,6 +311,7 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
           drugClass={headerMeta.drugClass}
           dosageForm={headerMeta.dosageForm}
           isBrandPrimary={headerMeta.isBrandPrimary}
+          slug={slug}
         />
 
         <MedicationGuideTabs

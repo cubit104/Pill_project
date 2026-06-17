@@ -242,6 +242,7 @@ export default async function DosagePage({
           drugClass={headerMeta.drugClass}
           dosageForm={headerMeta.dosageForm}
           isBrandPrimary={headerMeta.isBrandPrimary}
+          slug={slug}
         />
 
         <MedicationGuideTabs

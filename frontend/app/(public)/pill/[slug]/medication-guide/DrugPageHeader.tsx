@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import PronunciationButton from './PronunciationButton'
 
 type DrugPageHeaderProps = {
   drugName: string
@@ -11,6 +12,7 @@ type DrugPageHeaderProps = {
   dosageForm?: string | null
   isBrandPrimary: boolean
   pageLabel: string
+  slug: string
 }
 
 const BRAND_PREVIEW_COUNT = 5
@@ -128,6 +130,7 @@ export default function DrugPageHeader({
   dosageForm,
   isBrandPrimary,
   pageLabel,
+  slug,
 }: DrugPageHeaderProps) {
   const headerDrugName = resolveHeaderDrugName({ drugName, genericName, isBrandPrimary })
   const generic = genericName?.trim() ? toTitleCase(genericName.trim()) : null
@@ -152,10 +155,13 @@ export default function DrugPageHeader({
         {pageLabel}
       </p>
 
-      {/* H1 — drug name, no dose */}
-      <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
-        {headerDrugName}
-      </h1>
+      {/* H1 with speaker button inline */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
+          {headerDrugName}
+        </h1>
+        <PronunciationButton slug={slug} drugName={headerDrugName} speakerOnly />
+      </div>
 
       {/* Meta lines: pronunciation, generic/brand, class, dosage form */}
       {hasMetaLines && (
@@ -175,24 +181,18 @@ export default function DrugPageHeader({
               <span className="text-slate-800">{generic}</span>
             </p>
           )}
-
-          {/* Brand names (shown when H1 is a generic name, truncated to 5 + N more) */}
           {showBrands && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Brand names:</span>{' '}
               <BrandNamesList brands={brandList} />
             </p>
           )}
-
-          {/* Drug class */}
           {classDisplay && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Drug class:</span>{' '}
               <span className="text-slate-800">{classDisplay}</span>
             </p>
           )}
-
-          {/* Dosage form */}
           {formDisplay && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Dosage form:</span>{' '}

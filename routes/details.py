@@ -1381,3 +1381,65 @@ def get_condition_drugs(slug: str):
     except Exception as e:
         logger.error(f"Error in get_condition_drugs: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/api/pill/{slug}/pronunciation")
+def get_pill_pronunciation(slug: str):
+    """Return pronunciation data for a pill slug from drug_pronunciations table."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+    try:
+        with database.db_engine.connect() as conn:
+            # First resolve the medicine_name from pillfinder (exact slug, with
+            # _MEDICINE_SLUG_EXPR fallback to match normalised slugs as other endpoints do)
+            pill_row = conn.execute(
+                text(f"""
+                    SELECT medicine_name FROM pillfinder
+                    WHERE deleted_at IS NULL AND published = true
+                      AND (slug = :slug OR {_MEDICINE_SLUG_EXPR} = :slug)
+                    LIMIT 1
+                """),
+                {"slug": slug},
+            ).fetchone()
+            if not pill_row:
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            medicine_name = pill_row[0] or ""
+            drug_name_lower = medicine_name.strip().lower()
+
+            # Lookup in drug_pronunciations by drug_name_lower
+            pron_row = conn.execute(
+                text("""
+                    SELECT drug_name_display, pronunciation_text, audio_url
+                    FROM drug_pronunciations
+                    WHERE drug_name_lower = :drug_name_lower
+                    LIMIT 1
+                """),
+                {"drug_name_lower": drug_name_lower},
+            ).fetchone()
+
+            if not pron_row:
+                # Return 200 with nulls — frontend falls back to speechSynthesis
+                return JSONResponse(content={
+                    "drug_name": medicine_name,
+                    "pronunciation_text": None,
+                    "audio_url": None,
+                    "has_audio": False,
+                }, headers={"Cache-Control": CACHE_CONTROL_HEADER})
+
+            return JSONResponse(content={
+                "drug_name": pron_row[0] or medicine_name,
+                "pronunciation_text": pron_row[1],
+                "audio_url": pron_row[2],
+                "has_audio": bool(pron_row[2]),
+            }, headers={"Cache-Control": CACHE_CONTROL_HEADER})
+
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_pill_pronunciation: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in get_pill_pronunciation: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

@@ -306,6 +306,7 @@ export default async function ProfessionalInformationPage({
           drugClass={headerMeta.drugClass}
           dosageForm={headerMeta.dosageForm}
           isBrandPrimary={headerMeta.isBrandPrimary}
+          slug={slug}
         />
 
         <MedicationGuideTabs
