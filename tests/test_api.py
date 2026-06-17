@@ -847,51 +847,51 @@ def test_api_pill_slug_pronunciation_is_none_when_table_missing(client):
 
 
 def test_api_pill_pronunciation_returns_generic_primary_with_brand_alternatives(client):
-        import database as db_module
+    import database as db_module
 
-        def side_effect(sql, params=None, *args, **kwargs):
-            sql_str = str(sql).lower()
-            result = MagicMock()
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql).lower()
+        result = MagicMock()
 
-            if "select medicine_name, rxcui from pillfinder" in sql_str:
-                result.fetchone.return_value = ("Clopidogrel", "174742")
-            elif "from drug_pronunciations" in sql_str:
-                if (params or {}).get("drug_name_lower") == "plavix":
-                    result.fetchone.return_value = ("plav' ix", "https://cdn.example/plavix.mp3")
-                else:
-                    result.fetchone.return_value = None
+        if "select medicine_name, rxcui from pillfinder" in sql_str:
+            result.fetchone.return_value = ("Clopidogrel", "174742")
+        elif "from drug_pronunciations" in sql_str:
+            if (params or {}).get("drug_name_lower") == "plavix":
+                result.fetchone.return_value = ("plav' ix", "https://cdn.example/plavix.mp3")
             else:
                 result.fetchone.return_value = None
-            return result
+        else:
+            result.fetchone.return_value = None
+        return result
 
-        db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
-        with patch(
-            "routes.details.get_synonyms_for_rxcui",
-            return_value={
-                "generic_name": "Clopidogrel",
-                "brand_names": ["Plavix"],
-                "product_tty": "SCD",
-            },
-        ), patch(
-            "routes.details.get_pronunciation",
-            return_value={
-                "pronunciation_text": "kloh pid' oh grel",
-                "audio_url": "https://cdn.example/clopidogrel.mp3",
-            },
-        ):
-            response = client.get("/api/pill/clopidogrel/pronunciation")
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch(
+        "routes.details.get_synonyms_for_rxcui",
+        return_value={
+            "generic_name": "Clopidogrel",
+            "brand_names": ["Plavix"],
+            "product_tty": "SCD",
+        },
+    ), patch(
+        "routes.details.get_pronunciation",
+        return_value={
+            "pronunciation_text": "kloh pid' oh grel",
+            "audio_url": "https://cdn.example/clopidogrel.mp3",
+        },
+    ):
+        response = client.get("/api/pill/clopidogrel/pronunciation")
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["drug_name"] == "Clopidogrel"
-        assert data["pronunciation_text"] == "kloh pid' oh grel"
-        assert data["audio_url"] == "https://cdn.example/clopidogrel.mp3"
-        assert data["generic_pronunciation"] == "kloh pid' oh grel"
-        assert data["generic_audio_url"] == "https://cdn.example/clopidogrel.mp3"
-        assert data["brand_pronunciation"] == "plav' ix"
-        assert data["brand_audio_url"] == "https://cdn.example/plavix.mp3"
-        assert data["brand_names"] == ["Plavix"]
-        assert data["is_brand_row"] is False
+    assert response.status_code == 200
+    data = response.json()
+    assert data["drug_name"] == "Clopidogrel"
+    assert data["pronunciation_text"] == "kloh pid' oh grel"
+    assert data["audio_url"] == "https://cdn.example/clopidogrel.mp3"
+    assert data["generic_pronunciation"] == "kloh pid' oh grel"
+    assert data["generic_audio_url"] == "https://cdn.example/clopidogrel.mp3"
+    assert data["brand_pronunciation"] == "plav' ix"
+    assert data["brand_audio_url"] == "https://cdn.example/plavix.mp3"
+    assert data["brand_names"] == ["Plavix"]
+    assert data["is_brand_row"] is False
 
 
 # ---------------------------------------------------------------------------

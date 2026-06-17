@@ -3,7 +3,7 @@ import logging
 import os
 from collections import OrderedDict
 from datetime import timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from threading import Lock
 import time
 
@@ -130,7 +130,7 @@ def _resolve_pill_pronunciations(
 
     brand_payload = None
     brand_candidates: List[str] = []
-    seen_candidates: set[str] = set()
+    seen_candidates: Set[str] = set()
 
     def _add_brand_candidate(name: Optional[str]) -> None:
         normalized = str(name or "").strip().lower()
