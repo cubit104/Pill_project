@@ -131,17 +131,14 @@ def get_pronunciation(
                     SELECT pronunciation_text, audio_url
                     FROM drug_pronunciations
                     WHERE drug_name_lower = :drug_name_lower
-                      AND pronunciation_text IS NOT NULL
                     LIMIT 1
                     """
                 ),
                 {"drug_name_lower": candidate},
             ).fetchone()
             if row:
-                pronunciation_text = str(row[0]).strip() or None
+                pronunciation_text = row[0].strip() if row[0] else None
                 audio_url = str(row[1]).strip() if row[1] else None
-                if pronunciation_text is None:
-                    continue
                 return {
                     "pronunciation_text": pronunciation_text,
                     "audio_url": audio_url,

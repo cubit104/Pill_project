@@ -149,6 +149,7 @@ export default function DrugPageHeader({
   const showBrands = shouldShowBrands && brandList.length > 0 && !brandsIsDuplicate
 
   const hasRemainingMeta = showGeneric || showBrands || !!classDisplay || !!formDisplay
+  const hasMetaSection = hasRemainingMeta || !!pronunciation
 
   return (
     <header className="space-y-2">
@@ -174,7 +175,7 @@ export default function DrugPageHeader({
       )}
 
       {/* Divider + remaining meta lines (generic, brand, class, dosage form) */}
-      {hasRemainingMeta && (
+      {hasMetaSection && (
         <div className="border-t-2 border-emerald-300 pt-3 space-y-1.5">
           {showGeneric && (
             <p className="text-sm text-slate-700">
