@@ -49,6 +49,7 @@ type GuideResponse = {
   has_medguide?: boolean
   has_medication_summary?: boolean
   medication_summary_html?: string | null
+  medguide_html?: string | null
   professional_html?: string | null
   professional_highlights_html?: string | null
   professional_sections?: Array<[string, string]> | null
@@ -258,7 +259,7 @@ export default async function MedicationSummaryPage({
         />
 
         <MedicationGuideTabs
-          activeTab="summary"
+          activeTab="consumer"
           medicationGuideHref={null}
           summaryHref={`/pill/${encodeURIComponent(slug)}/medication-summary`}
           dosageHref={`/pill/${encodeURIComponent(slug)}/dosage`}
