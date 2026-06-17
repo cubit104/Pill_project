@@ -186,14 +186,15 @@ export default function DrugPageHeader({
   const headerDrugName = resolveHeaderDrugName({ drugName, genericName, isBrandPrimary })
   const generic = genericName?.trim() ? toTitleCase(genericName.trim()) : null
   const brandList = splitBrandNames(brandName)
+  const normalizedBrandList = brandList.map((brand) => normalizeName(brand))
   const classDisplay = drugClass?.trim() ? toTitleCase(drugClass.trim()) : null
   const formDisplay = dosageForm?.trim() ? toTitleCase(dosageForm.trim()) : null
   const normalizedHeaderName = normalizeName(headerDrugName)
   const normalizedGenericName = normalizeName(genericName)
   const headerMatchesGeneric =
     !!normalizedHeaderName && !!normalizedGenericName && normalizedHeaderName === normalizedGenericName
-  const headerMatchesBrand = !!normalizedHeaderName && brandList.some(
-    (brand) => normalizeName(brand) === normalizedHeaderName,
+  const headerMatchesBrand = !!normalizedHeaderName && normalizedBrandList.some(
+    (brand) => brand === normalizedHeaderName,
   )
   const resolvedPronunciationData = resolvePronunciationVariant({
     headerMatchesGeneric,

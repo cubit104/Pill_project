@@ -156,8 +156,9 @@ def _resolve_pill_pronunciations(
         return payload.get(key) if payload else None
 
     primary_payload = brand_payload if is_brand_row else generic_payload
+    fallback_payload = generic_payload if is_brand_row else brand_payload
     if not primary_payload:
-        primary_payload = generic_payload or brand_payload
+        primary_payload = fallback_payload
 
     return {
         "pronunciation": _payload_value(primary_payload, "pronunciation_text"),
