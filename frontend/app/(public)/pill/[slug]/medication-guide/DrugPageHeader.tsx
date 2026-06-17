@@ -153,42 +153,38 @@ export default function DrugPageHeader({
         {pageLabel}
       </p>
 
-      {/* H1 — drug name, no dose */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
-          {headerDrugName}
-        </h1>
-        <PronunciationButton slug={slug} drugName={headerDrugName} />
-      </div>
+      {/* H1 — drug name */}
+      <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
+        {headerDrugName}
+      </h1>
+
+      {/* Pronunciation row — button + "Pronounced as: plav' iks" */}
+      <PronunciationButton slug={slug} drugName={headerDrugName} />
+
+      {/* Divider */}
+      <div className="border-t border-emerald-100" />
 
       {/* Meta lines: generic/brand, class, dosage form */}
       {hasMetaLines && (
-        <div className="border-t border-emerald-100 pt-3 space-y-1.5">
-          {/* Generic (shown when H1 is a brand name, e.g. Plavix → Generic: Clopidogrel) */}
+        <div className="pt-1 space-y-1.5">
           {showGeneric && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Generic:</span>{' '}
               <span className="text-slate-800">{generic}</span>
             </p>
           )}
-
-          {/* Brand names (shown when H1 is a generic name, truncated to 5 + N more) */}
           {showBrands && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Brand names:</span>{' '}
               <BrandNamesList brands={brandList} />
             </p>
           )}
-
-          {/* Drug class */}
           {classDisplay && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Drug class:</span>{' '}
               <span className="text-slate-800">{classDisplay}</span>
             </p>
           )}
-
-          {/* Dosage form */}
           {formDisplay && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Dosage form:</span>{' '}
