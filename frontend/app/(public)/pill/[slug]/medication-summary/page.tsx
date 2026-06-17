@@ -1,33 +1,26 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
-import { notFound, redirect } from 'next/navigation'
+import { notFound } from 'next/navigation'
+import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
+import { sanitizeRenderedHtml } from '../medication-guide/sanitizeRenderedHtml'
 import {
-  buildConditionLinks,
-  createTermCounter,
-  linkifyText,
-  normalizeTerms,
-  splitBrandNames,
-} from '../medication-guide/linkifyUtils'
-import { SHARED_READING_PROSE_CLASSES } from '../medication-guide/layoutStyles'
+  SHARED_CONTENT_CARD_CLASSES,
+  SHARED_READING_PROSE_CLASSES,
+} from '../medication-guide/layoutStyles'
 import { slugifyDrugName } from '../../../../lib/slug'
-import { breadcrumbSchema, faqSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
+import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const PILL_REVALIDATE_SECONDS = 3600
 const GUIDE_REVALIDATE_SECONDS = 86400
 
-const SAFETY_NOTICE =
-  'This patient-friendly summary is based on FDA/DailyMed prescribing information. It is not a substitute for medical advice. Not every medication has a separate FDA Medication Guide.'
-const BOXED_WARNING_NOTICE =
-  'This label includes a boxed warning. Review the full prescribing information and talk to a healthcare professional.'
-
 type PageParams = Promise<{ slug: string }>
 
 type PillInfo = {
-  pronunciation?: string | null
+  drug_name?: string | null
   spl_set_id?: string
   rxcui?: string
   ndc11?: string
@@ -40,15 +33,7 @@ type PillInfo = {
   dosage_form?: string | null
   is_brand_row?: boolean
   brand_or_generic?: 'brand' | 'generic'
-  has_dosage?: boolean
-  has_adverse_reactions?: boolean
-}
-
-type SummaryQA = { question: string; answer: string }
-type ConditionListItem = {
-  slug: string
-  title: string
-  tag: string
+  has_medication_summary?: boolean
 }
 
 type GuideResponse = {
@@ -62,10 +47,11 @@ type GuideResponse = {
   display_name?: string
   name?: string
   has_medguide?: boolean
-  has_boxed_warning?: boolean
   has_medication_summary?: boolean
-  medication_summary_json?: { questions?: SummaryQA[]; notice?: string } | null
   medication_summary_html?: string | null
+  professional_html?: string | null
+  professional_highlights_html?: string | null
+  professional_sections?: Array<[string, string]> | null
   source_url?: string | null
   fetched_at?: string | null
 }
@@ -101,9 +87,14 @@ function resolveDrugName({
   pill: PillInfo | null
   slug: string
 }): string {
-  if (pill?.medicine_name?.trim()) return formatDrugName(pill.medicine_name, false)
+  // Pill API response (from /api/pill/{slug}) is authoritative
+  const pillName = firstNonEmpty(pill?.drug_name, pill?.medicine_name)
+  if (pillName) return formatDrugName(pillName, false)
+  
+  // Fall back to guide API fields
   const brand = firstNonEmpty(guide?.brand_name, guide?.proprietary_name)
   if (brand) return formatDrugName(brand, true)
+  
   const fallback = firstNonEmpty(
     guide?.generic_name,
     guide?.display_name,
@@ -125,11 +116,10 @@ async function fetchPill(slug: string): Promise<PillInfo | null> {
   }
 }
 
-async function fetchGuide(pill: PillInfo): Promise<GuideResponse | null> {
+async function fetchSummary(pill: PillInfo): Promise<GuideResponse | null> {
   const params = new URLSearchParams({
     include_professional: 'false',
     include_medguide: 'false',
-    include_boxed_warning: 'true',
   })
 
   try {
@@ -171,129 +161,84 @@ async function fetchGuide(pill: PillInfo): Promise<GuideResponse | null> {
   }
 }
 
-async function fetchAllConditions(): Promise<ConditionListItem[]> {
-  try {
-    const res = await fetch(`${API_BASE}/api/conditions`, { next: { revalidate: 86400 } })
-    if (!res.ok) return []
-    const data = await res.json()
-    return data.conditions ?? []
-  } catch {
-    return []
-  }
-}
-
-function summaryQuestions(guide: GuideResponse | null): SummaryQA[] {
-  const questions = guide?.medication_summary_json?.questions
-  if (!Array.isArray(questions)) return []
-  return questions.filter(
-    (item): item is SummaryQA => item?.question != null && item?.answer != null
-  )
-}
-
-export async function generateMetadata({ params }: { params: PageParams }): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: {
+  params: PageParams
+}): Promise<Metadata> {
   const { slug } = await params
   const pill = await fetchPill(slug)
-  const guide = pill ? await fetchGuide(pill) : null
-  const drugName = resolveDrugName({ guide, pill, slug })
-
-  const hasOfficialMedguide = Boolean(guide?.has_medguide)
-  const hasSummary = Boolean(guide?.has_medication_summary || guide?.medication_summary_html?.trim())
-
-  if (hasOfficialMedguide) {
-    return {
-      title: `${drugName} Medication Guide, Warnings & FDA Label`,
-      description: `Read the FDA Medication Guide for ${drugName}.`,
-      alternates: { canonical: `/pill/${encodeURIComponent(slug)}/medication-guide` },
-      robots: { index: false, follow: true },
-    }
-  }
-
-  if (!hasSummary) {
-    return {
-      title: `${drugName} Medication Summary`,
-      robots: { index: false, follow: true },
-    }
-  }
+  const drugName = resolveDrugName({ guide: null, pill, slug })
 
   return {
-    title: `${drugName} Medication Summary — FDA Label Overview`,
-    description: `Patient-friendly FDA/DailyMed label summary for ${drugName}, including warnings, usage, side effects, and interactions.`,
+    title: `${drugName} Medication Summary`,
+    description: `Consumer-friendly summary of ${drugName}, including uses, warnings, and side effects.`,
     alternates: { canonical: `/pill/${encodeURIComponent(slug)}/medication-summary` },
-    robots: { index: true, follow: true },
   }
 }
 
-export default async function MedicationSummaryPage({ params }: { params: PageParams }) {
+export default async function MedicationSummaryPage({
+  params,
+}: {
+  params: PageParams
+}) {
   const { slug } = await params
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
-  const guideData = await fetchGuide(pill)
-  const hasOfficialMedguide = Boolean(guideData?.has_medguide)
-  if (hasOfficialMedguide) {
-    redirect(`/pill/${encodeURIComponent(slug)}/medication-guide`)
-  }
+  const summaryData = await fetchSummary(pill)
+  if (!summaryData?.has_medication_summary) notFound()
 
-  const questions = summaryQuestions(guideData)
-  if (questions.length === 0) notFound()
-
-  const drugName = resolveDrugName({ guide: guideData, pill, slug })
-  const conditions = await fetchAllConditions()
-  const conditionLinks = buildConditionLinks(conditions)
-  const conditionTags = conditionLinks.map((condition) => condition.term)
-  const drugNames = normalizeTerms([
-    drugName,
-    guideData?.brand_name ?? '',
-    guideData?.generic_name ?? '',
-    guideData?.proprietary_name ?? '',
-    guideData?.display_name ?? '',
-    guideData?.name ?? '',
-    pill.medicine_name ?? '',
-    ...splitBrandNames(pill.brand_names),
-  ])
+  const drugName = resolveDrugName({ guide: summaryData, pill, slug })
   const headerDrugName = stripDoseFromName(drugName)
-  const headerMeta = resolveHeaderMetadata({ drugName: headerDrugName, pill, guide: guideData })
-  const encodedSlug = encodeURIComponent(slug)
-  const drugSlug = slugifyDrugName(drugName)
-  const summaryLinkCounter = createTermCounter()
+  const headerMeta = resolveHeaderMetadata({ drugName: headerDrugName, pill, guide: summaryData })
 
-  const pageJsonLd = guidePageSchema({
+  const drugSlug = slugifyDrugName(drugName)
+
+  const summaryRxcui = summaryData?.rxcui ?? pill.rxcui
+  const summaryNdc = summaryData?.ndc ?? pill.ndc11 ?? pill.ndc9
+  const summarySplSetId = pill.spl_set_id
+  const sanitizedSummaryHtml = summaryData?.medication_summary_html
+    ? sanitizeRenderedHtml(summaryData.medication_summary_html)
+    : null
+
+  const summaryPageJsonLd = guidePageSchema({
     drugName,
     slug,
     pageType: 'medication-summary',
-    rxcui: guideData?.rxcui ?? pill.rxcui,
-    ndc: guideData?.ndc ?? pill.ndc11 ?? pill.ndc9,
-    splSetId: pill.spl_set_id,
-    genericName: guideData?.generic_name,
-    brandName: guideData?.brand_name ?? guideData?.proprietary_name,
-    fetchedAt: guideData?.fetched_at,
+    rxcui: summaryRxcui,
+    ndc: summaryNdc,
+    splSetId: summarySplSetId,
+    genericName: summaryData?.generic_name,
+    brandName: summaryData?.brand_name ?? summaryData?.proprietary_name,
+    fetchedAt: summaryData?.fetched_at,
   })
-
-  const breadcrumbs = breadcrumbSchema([
+  const summaryBreadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
     ...(drugSlug ? [{ name: drugName, url: `/drug/${drugSlug}` }] : []),
-    { name: 'Medication Summary', url: `/pill/${encodedSlug}/medication-summary` },
+    { name: 'Medication Summary', url: `/pill/${encodeURIComponent(slug)}/medication-summary` },
   ])
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(pageJsonLd) }} />
-      {questions.length > 0 && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(faqSchema(questions)) }} />
-      )}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(summaryBreadcrumbs) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(summaryPageJsonLd) }} />
 
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
         <nav aria-label="Breadcrumb">
           <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
             <li>
-              <Link href="/" className="hover:text-sky-700 transition-colors">Home</Link>
+              <Link href="/" className="hover:text-sky-700 transition-colors">
+                Home
+              </Link>
             </li>
             {drugSlug && (
               <>
                 <li aria-hidden="true" className="select-none">›</li>
                 <li>
-                  <Link href={`/drug/${drugSlug}`} className="hover:text-sky-700 transition-colors">{drugName}</Link>
+                  <Link href={`/drug/${drugSlug}`} className="hover:text-sky-700 transition-colors">
+                    {drugName}
+                  </Link>
                 </li>
               </>
             )}
@@ -305,7 +250,6 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
         <DrugPageHeader
           pageLabel="Medication Summary"
           drugName={headerDrugName}
-          pronunciation={pill?.pronunciation}
           genericName={headerMeta.genericName}
           brandName={headerMeta.brandName}
           drugClass={headerMeta.drugClass}
@@ -314,67 +258,70 @@ export default async function MedicationSummaryPage({ params }: { params: PagePa
         />
 
         <MedicationGuideTabs
-          activeTab="consumer"
+          activeTab="summary"
           medicationGuideHref={null}
-          summaryHref={`/pill/${encodedSlug}/medication-summary`}
-          dosageHref={pill?.has_dosage ? `/pill/${encodedSlug}/dosage` : null}
-          adverseReactionsHref={
-            pill?.has_adverse_reactions ? `/pill/${encodedSlug}/adverse-reactions` : null
-          }
-          interactionsHref={`/pill/${encodedSlug}/interactions`}
-          professionalHref={`/pill/${encodedSlug}/professional-information`}
+          summaryHref={`/pill/${encodeURIComponent(slug)}/medication-summary`}
+          dosageHref={`/pill/${encodeURIComponent(slug)}/dosage`}
+          adverseReactionsHref={`/pill/${encodeURIComponent(slug)}/adverse-reactions`}
+          interactionsHref={`/pill/${encodeURIComponent(slug)}/interactions`}
+          professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
         />
 
-        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          {SAFETY_NOTICE}
-        </section>
+        <MedguideMetaBar guide={summaryData} />
 
-        {guideData?.has_boxed_warning && (
-          <section className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm font-medium text-rose-900">
-            {BOXED_WARNING_NOTICE}
-          </section>
-        )}
-
-        <div className="space-y-4">
-          {questions.map((item) => (
-            <section key={item.question} className="rounded-xl border border-slate-200 bg-white p-5">
-              <div className={SHARED_READING_PROSE_CLASSES}>
-                <h2>{item.question}</h2>
-                <p>{linkifyText(item.answer, drugName, conditionTags, drugNames, summaryLinkCounter)}</p>
-              </div>
-            </section>
-          ))}
+        <div className={SHARED_CONTENT_CARD_CLASSES}>
+          {sanitizedSummaryHtml ? (
+            <article
+              className={SHARED_READING_PROSE_CLASSES}
+              dangerouslySetInnerHTML={{ __html: sanitizedSummaryHtml }}
+            />
+          ) : (
+            <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
+              <p className="text-sm text-slate-800 mb-3">Medication summary is not available.</p>
+              {summaryData?.source_url && (
+                <a
+                  href={summaryData.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-sky-700 font-semibold hover:text-sky-900"
+                >
+                  View on DailyMed ↗
+                </a>
+              )}
+            </div>
+          )}
         </div>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5">
-          <div className={SHARED_READING_PROSE_CLASSES}>
-            <p>
-              <Link href={`/pill/${encodedSlug}/professional-information`} className="text-emerald-700 hover:underline">
-                View full Professional Information
-              </Link>
-            </p>
-            <p>
-              <Link href={`/pill/${encodedSlug}`} className="text-emerald-700 hover:underline">
-                Return to main pill page
-              </Link>
-            </p>
-            {guideData?.source_url && (
+        {(summaryRxcui || summaryNdc || summaryData?.fetched_at || summaryData?.source_url) && (
+          <section className="border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1">
+            <h2 className="font-semibold text-slate-600 mb-2">Sources</h2>
+            {summaryRxcui && <p><span className="font-medium">RxCUI:</span> {summaryRxcui}</p>}
+            {summaryNdc && <p><span className="font-medium">NDC:</span> {summaryNdc}</p>}
+            {summaryData?.fetched_at && (
+              <p><span className="font-medium">Last fetched:</span>{' '}
+                {new Date(summaryData.fetched_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}
+              </p>
+            )}
+            {summaryData?.source_url && (
               <p>
-                Source:{' '}
-                <a href={guideData.source_url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">
-                  DailyMed prescribing information ↗
+                <span className="font-medium">Source:</span>{' '}
+                <a href={summaryData.source_url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">
+                  DailyMed ↗
                 </a>
               </p>
             )}
-          </div>
-        </section>
+          </section>
+        )}
 
         <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>
           <p className="text-xs text-amber-700 leading-8">
-            This summary is for educational purposes only and is not medical advice. Always consult your doctor,
+            This information is for educational purposes only and is not medical advice. Always consult your doctor,
             pharmacist, or other licensed healthcare professional before starting, stopping, or changing any medicine.{' '}
-            <Link href="/medical-disclaimer" className="underline hover:text-amber-900">Read full medical disclaimer</Link>.
+            <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
+              Read full medical disclaimer
+            </Link>
+            .
           </p>
         </section>
       </div>

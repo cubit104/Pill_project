@@ -1,27 +1,29 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
+import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
-import InteractionsClient from './InteractionsClient'
+import {
+  SHARED_CONTENT_CARD_CLASSES,
+  SHARED_READING_PROSE_CLASSES,
+} from '../medication-guide/layoutStyles'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 
-type PageParams = Promise<{ slug: string }>
-
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const PILL_REVALIDATE_SECONDS = 3600
-const INTERACTIONS_REVALIDATE_SECONDS = 3600
+const INTERACTIONS_CACHE_SECONDS = 86400 * 7
+
+type PageParams = Promise<{ slug: string }>
 
 type PillInfo = {
   drug_name?: string | null
-  pronunciation?: string | null
-  spl_set_id?: string | null
-  rxcui?: string | null
-  ndc11?: string | null
-  ndc9?: string | null
-  medicine_name?: string | null
+  spl_set_id?: string
+  rxcui?: string
+  ndc11?: string
+  ndc9?: string
+  medicine_name?: string
   brand_names?: string | null
   generic_name?: string | null
   brand_names_all?: string[] | null
@@ -29,22 +31,19 @@ type PillInfo = {
   dosage_form?: string | null
   is_brand_row?: boolean
   brand_or_generic?: 'brand' | 'generic'
-  has_medguide?: boolean
-  has_medication_summary?: boolean
-  has_dosage?: boolean
-  has_adverse_reactions?: boolean
 }
 
 type InteractionsSummaryResponse = {
-  rxcui?: string | null
+  drug_name?: string
   generic_name?: string | null
-  total?: number
-  severity_summary?: {
-    major?: number
-    moderate?: number
-    minor?: number
-    unknown?: number
-  }
+  rxcui?: string | null
+  ndc?: string | null
+  fetched_at?: string | null
+  results?: Array<{
+    drug_name: string
+    severity: string | null
+    description: string | null
+  }>
 }
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string | null {
@@ -60,7 +59,9 @@ function formatDrugName(value: string, keepAllCaps: boolean): string {
   const trimmed = value.trim()
   if (!trimmed) return trimmed
   if (keepAllCaps && /^[A-Z0-9\s\-()]+$/.test(trimmed)) return trimmed
-  return trimmed.toLowerCase().replace(/\b[a-z]/g, (char) => char.toUpperCase())
+  return trimmed
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (char) => char.toUpperCase())
 }
 
 function stripDoseFromName(name: string): string {
@@ -76,9 +77,13 @@ function resolveDrugName({
   pill: PillInfo | null
   slug: string
 }): string {
-  if (pill?.medicine_name?.trim()) return formatDrugName(pill.medicine_name, false)
+  // Pill API response (from /api/pill/{slug}) is authoritative
+  const pillName = firstNonEmpty(pill?.drug_name, pill?.medicine_name)
+  if (pillName) return formatDrugName(pillName, false)
+  
+  // Fall back to interactions API fields
   const fallback = firstNonEmpty(
-    pill?.drug_name,
+    interactions?.drug_name,
     interactions?.generic_name,
     decodeURIComponent(slug).replace(/-/g, ' ')
   )
@@ -97,11 +102,13 @@ async function fetchPill(slug: string): Promise<PillInfo | null> {
   }
 }
 
-async function fetchInteractionsSummary(drugName: string): Promise<InteractionsSummaryResponse | null> {
+async function fetchInteractions(
+  slug: string
+): Promise<InteractionsSummaryResponse | null> {
   try {
     const res = await fetch(
-      `${API_BASE}/api/interactions/${encodeURIComponent(drugName)}?per_page=1`,
-      { next: { revalidate: INTERACTIONS_REVALIDATE_SECONDS } }
+      `${API_BASE}/api/interactions/${encodeURIComponent(slug)}/summary`,
+      { next: { revalidate: INTERACTIONS_CACHE_SECONDS } }
     )
     if (!res.ok) return null
     return (await res.json()) as InteractionsSummaryResponse
@@ -110,79 +117,57 @@ async function fetchInteractionsSummary(drugName: string): Promise<InteractionsS
   }
 }
 
-export async function generateMetadata({ params }: { params: PageParams }): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: {
+  params: PageParams
+}): Promise<Metadata> {
   const { slug } = await params
   const pill = await fetchPill(slug)
   const drugName = resolveDrugName({ interactions: null, pill, slug })
-  const summary = await fetchInteractionsSummary(drugName)
-  const total = summary?.total ?? 0
-  const major = summary?.severity_summary?.major ?? 0
-  const moderate = summary?.severity_summary?.moderate ?? 0
 
   return {
     title: `${drugName} Drug Interactions`,
-    description: `There are ${total} drugs known to interact with ${drugName}. View all ${major} major, ${moderate} moderate interactions.`,
+    description: `Check for drug interactions with ${drugName}. Find major, moderate, and minor interactions with other medications.`,
     alternates: { canonical: `/pill/${encodeURIComponent(slug)}/interactions` },
   }
 }
 
-export default async function InteractionsPage({ params }: { params: PageParams }) {
+export default async function InteractionsPage({
+  params,
+}: {
+  params: PageParams
+}) {
   const { slug } = await params
   const pill = await fetchPill(slug)
   if (!pill) notFound()
 
-  const drugName = resolveDrugName({ interactions: null, pill, slug })
-  const interactionsSummary = await fetchInteractionsSummary(drugName)
-
+  const interactionsData = await fetchInteractions(slug)
+  const drugName = resolveDrugName({ interactions: interactionsData, pill, slug })
   const headerDrugName = stripDoseFromName(drugName)
-  const headerMeta = resolveHeaderMetadata({
-    drugName: headerDrugName,
-    pill,
-    guide: {
-      generic_name: interactionsSummary?.generic_name ?? null,
-      brand_name: null,
-      proprietary_name: null,
-      drug_class: null,
-      dosage_form: null,
-    },
-  })
+  const headerMeta = resolveHeaderMetadata({ drugName: headerDrugName, pill })
 
-  const encodedSlug = encodeURIComponent(slug)
-  const cleanDrugSlug =
-    slugifyDrugName(pill?.medicine_name || '') ||
-    slugifyDrugName(drugName) ||
-    encodedSlug
+  const drugSlug = slugifyDrugName(drugName)
 
-  const hasMedguide = Boolean(pill?.has_medguide)
-  const hasSummary = !hasMedguide && Boolean(pill?.has_medication_summary)
-  const total = interactionsSummary?.total ?? 0
-  const severitySummary = {
-    major: interactionsSummary?.severity_summary?.major ?? 0,
-    moderate: interactionsSummary?.severity_summary?.moderate ?? 0,
-    minor: interactionsSummary?.severity_summary?.minor ?? 0,
-    unknown: interactionsSummary?.severity_summary?.unknown ?? 0,
-  }
-
-  const breadcrumbs = breadcrumbSchema([
-    { name: 'Home', url: '/' },
-    ...(cleanDrugSlug ? [{ name: drugName, url: `/drug/${cleanDrugSlug}` }] : []),
-    { name: 'Drug Interactions', url: `/pill/${encodedSlug}/interactions` },
-  ])
-  const pageJsonLd = guidePageSchema({
+  const interactionsPageJsonLd = guidePageSchema({
     drugName,
     slug,
     pageType: 'interactions',
-    rxcui: interactionsSummary?.rxcui ?? pill.rxcui,
-    ndc: pill.ndc11 ?? pill.ndc9,
-    splSetId: pill.spl_set_id,
-    genericName: interactionsSummary?.generic_name,
-    fetchedAt: null,
+    rxcui: interactionsData?.rxcui,
+    ndc: interactionsData?.ndc,
+    genericName: interactionsData?.generic_name,
   })
+  const interactionsBreadcrumbs = breadcrumbSchema([
+    { name: 'Home', url: '/' },
+    ...(drugSlug ? [{ name: drugName, url: `/drug/${drugSlug}` }] : []),
+    { name: 'Interactions', url: `/pill/${encodeURIComponent(slug)}/interactions` },
+  ])
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(pageJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(interactionsBreadcrumbs) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(interactionsPageJsonLd) }} />
+
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
         <nav aria-label="Breadcrumb">
           <ol className="flex items-center gap-1 text-sm text-slate-500 flex-wrap">
@@ -191,25 +176,24 @@ export default async function InteractionsPage({ params }: { params: PageParams 
                 Home
               </Link>
             </li>
-            {cleanDrugSlug && (
+            {drugSlug && (
               <>
                 <li aria-hidden="true" className="select-none">›</li>
                 <li>
-                  <Link href={`/drug/${cleanDrugSlug}`} className="hover:text-sky-700 transition-colors">
+                  <Link href={`/drug/${drugSlug}`} className="hover:text-sky-700 transition-colors">
                     {drugName}
                   </Link>
                 </li>
               </>
             )}
             <li aria-hidden="true" className="select-none">›</li>
-            <li className="text-slate-700 font-medium">Drug Interactions</li>
+            <li className="text-slate-700 font-medium">Interactions</li>
           </ol>
         </nav>
 
         <DrugPageHeader
           pageLabel="Drug Interactions"
           drugName={headerDrugName}
-          pronunciation={pill?.pronunciation}
           genericName={headerMeta.genericName}
           brandName={headerMeta.brandName}
           drugClass={headerMeta.drugClass}
@@ -219,28 +203,56 @@ export default async function InteractionsPage({ params }: { params: PageParams 
 
         <MedicationGuideTabs
           activeTab="interactions"
-          medicationGuideHref={`/pill/${encodedSlug}/medication-guide`}
-          summaryHref={hasSummary ? `/pill/${encodedSlug}/medication-summary` : null}
-          dosageHref={`/pill/${encodedSlug}/dosage`}
-          adverseReactionsHref={`/pill/${encodedSlug}/adverse-reactions`}
-          interactionsHref={`/pill/${encodedSlug}/interactions`}
-          professionalHref={`/pill/${encodedSlug}/professional-information`}
+          medicationGuideHref={null}
+          summaryHref={null}
+          dosageHref={`/pill/${encodeURIComponent(slug)}/dosage`}
+          adverseReactionsHref={`/pill/${encodeURIComponent(slug)}/adverse-reactions`}
+          interactionsHref={`/pill/${encodeURIComponent(slug)}/interactions`}
+          professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
         />
 
-        <InteractionsClient
-          drugName={drugName}
-          genericName={interactionsSummary?.generic_name ?? pill.generic_name ?? null}
-          rxcui={interactionsSummary?.rxcui ?? pill.rxcui ?? null}
-          slug={slug}
-          initialTotal={total}
-          initialSeveritySummary={severitySummary}
-        />
+        <div className={SHARED_CONTENT_CARD_CLASSES}>
+          {interactionsData?.results && interactionsData.results.length > 0 ? (
+            <div className="space-y-4">
+              {interactionsData.results.map((interaction, idx) => (
+                <div
+                  key={idx}
+                  className="border border-slate-200 rounded-lg p-4 hover:border-slate-300 transition-colors"
+                >
+                  <h3 className="font-semibold text-slate-900 mb-2">{interaction.drug_name}</h3>
+                  {interaction.severity && (
+                    <p className="text-sm font-medium mb-2">
+                      <span
+                        className={`inline-block px-2 py-1 rounded ${
+                          interaction.severity === 'major'
+                            ? 'bg-red-100 text-red-800'
+                            : interaction.severity === 'moderate'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-blue-100 text-blue-800'
+                        }`}
+                      >
+                        {interaction.severity.charAt(0).toUpperCase() + interaction.severity.slice(1)}
+                      </span>
+                    </p>
+                  )}
+                  {interaction.description && (
+                    <p className="text-sm text-slate-600">{interaction.description}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-slate-600">No interactions found for this medication.</p>
+            </div>
+          )}
+        </div>
 
         <section className="bg-amber-50 border border-amber-200 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Disclaimer</h2>
-          <p className="text-xs text-amber-700 leading-relaxed">
+          <p className="text-xs text-amber-700 leading-8">
             This information is for educational purposes only and is not medical advice. Always consult your doctor,
-            pharmacist, or other licensed healthcare professional before starting, stopping, or changing any medicine.{` `}
+            pharmacist, or other licensed healthcare professional before starting, stopping, or changing any medicine.{' '}
             <Link href="/medical-disclaimer" className="underline hover:text-amber-900">
               Read full medical disclaimer
             </Link>

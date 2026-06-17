@@ -28,7 +28,7 @@ const GUIDE_REVALIDATE_SECONDS = 86400
 type PageParams = Promise<{ slug: string }>
 
 type PillInfo = {
-  pronunciation?: string | null
+  drug_name?: string | null
   spl_set_id?: string
   rxcui?: string
   ndc11?: string
@@ -101,9 +101,14 @@ function resolveDrugName({
   pill: PillInfo | null
   slug: string
 }): string {
-  if (pill?.medicine_name?.trim()) return formatDrugName(pill.medicine_name, false)
+  // Pill API response (from /api/pill/{slug}) is authoritative
+  const pillName = firstNonEmpty(pill?.drug_name, pill?.medicine_name)
+  if (pillName) return formatDrugName(pillName, false)
+  
+  // Fall back to guide API fields
   const brand = firstNonEmpty(guide?.brand_name, guide?.proprietary_name)
   if (brand) return formatDrugName(brand, true)
+  
   const fallback = firstNonEmpty(
     guide?.generic_name,
     guide?.display_name,
@@ -300,7 +305,6 @@ export default async function ProfessionalInformationPage({
         <DrugPageHeader
           pageLabel="Full FDA Prescribing Details"
           drugName={headerDrugName}
-          pronunciation={pill?.pronunciation}
           genericName={headerMeta.genericName}
           brandName={headerMeta.brandName}
           drugClass={headerMeta.drugClass}
