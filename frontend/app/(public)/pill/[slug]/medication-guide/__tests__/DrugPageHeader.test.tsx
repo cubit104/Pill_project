@@ -15,6 +15,7 @@ test('DrugPageHeader renders generic, class, and dosage lines for brand-primary 
       drugClass="Platelet aggregation inhibitors"
       dosageForm="Tablet, film coated"
       isBrandPrimary
+      slug="plavix"
     />
   )
 
@@ -32,6 +33,7 @@ test('DrugPageHeader renders brand relationship for generic-primary drugs', () =
       drugName="Clopidogrel"
       brandName="Plavix; Iscover"
       isBrandPrimary={false}
+      slug="clopidogrel"
     />
   )
 
@@ -47,6 +49,7 @@ test('DrugPageHeader trims generic-primary H1 names to the medication only', () 
       genericName="clopidogrel bisulfate"
       brandName="Plavix"
       isBrandPrimary={false}
+      slug="clopidogrel-bisulfate-apo"
     />
   )
 
@@ -63,6 +66,7 @@ test('DrugPageHeader trims generic-primary H1 names with manufacturer-only suffi
       genericName="clopidogrel bisulfate"
       brandName="Plavix"
       isBrandPrimary={false}
+      slug="clopidogrel-bisulfate-apo"
     />
   )
 
@@ -79,6 +83,7 @@ test('DrugPageHeader shows brand names when generic matches H1 even if flagged b
       genericName="Losartan Potassium"
       brandName="Cozaar"
       isBrandPrimary
+      slug="losartan-potassium"
     />
   )
 
@@ -93,6 +98,7 @@ test('DrugPageHeader strips numeric/imprint suffixes from H1 when no clean gener
       drugName="Ticagrelor 90 T 00186 0777 60"
       brandName="Brilinta"
       isBrandPrimary={false}
+      slug="ticagrelor"
     />
   )
 
@@ -106,6 +112,7 @@ test('DrugPageHeader strips simple trailing numeric strength tokens', () => {
       pageLabel="Medication Guide"
       drugName="Ticagrelor 90"
       isBrandPrimary={false}
+      slug="ticagrelor-90"
     />
   )
 
@@ -119,8 +126,71 @@ test('DrugPageHeader keeps names where numbers are not imprint-like suffixes', (
       pageLabel="Medication Guide"
       drugName="Vitamin B 12 Complex"
       isBrandPrimary={false}
+      slug="vitamin-b-12-complex"
     />
   )
 
   assert.match(html, />Vitamin B 12 Complex<\/h1>/)
+})
+
+test('DrugPageHeader renders pronunciation text when provided', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Lisinopril"
+      pronunciation="lye sin' oh pril"
+      isBrandPrimary={false}
+      slug="lisinopril"
+    />
+  )
+
+  assert.match(html, /text-slate-800 text-lg italic font-medium/)
+  assert.match(
+    html,
+    /Pronounced as:<\/span> <span[^>]*>lye sin(?:'|&#x27;) oh pril<\/span>/,
+  )
+})
+
+test('DrugPageHeader renders speaker button in SSR markup when audioUrl is provided', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Lisinopril"
+      pronunciation="lye sin' oh pril"
+      audioUrl="https://cdn.example/lisinopril.mp3"
+      isBrandPrimary={false}
+      slug="lisinopril"
+    />
+  )
+
+  assert.match(html, /aria-label="Pronounce Lisinopril"/)
+})
+
+test('DrugPageHeader hides pronunciation text when missing', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Lisinopril"
+      pronunciation={null}
+      isBrandPrimary={false}
+      slug="lisinopril"
+    />
+  )
+
+  assert.doesNotMatch(html, /Pronounced as:/)
+})
+
+test('DrugPageHeader shows meta section when only pronunciation is provided', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Lisinopril"
+      pronunciation="lye sin' oh pril"
+      isBrandPrimary={false}
+      slug="lisinopril"
+    />
+  )
+
+  assert.match(html, /border-t-2 border-emerald-300/)
+  assert.match(html, /Pronounced as:/)
 })

@@ -39,6 +39,8 @@ const PILL_REVALIDATE_SECONDS = 3600
 const GUIDE_REVALIDATE_SECONDS = 86400
 
 type PillInfo = {
+  pronunciation?: string | null
+  audio_url?: string | null
   spl_set_id?: string
   rxcui?: string
   ndc11?: string
@@ -523,11 +525,14 @@ export default async function MedicationGuidePage({
         <DrugPageHeader
           pageLabel="Full FDA Prescribing Details"
           drugName={headerDrugName}
+          pronunciation={pill?.pronunciation}
+          audioUrl={pill?.audio_url}
           genericName={professionalHeaderMeta.genericName}
           brandName={professionalHeaderMeta.brandName}
           drugClass={professionalHeaderMeta.drugClass}
           dosageForm={professionalHeaderMeta.dosageForm}
           isBrandPrimary={professionalHeaderMeta.isBrandPrimary}
+          slug={slug}
         />
 
         <MedicationGuideTabs
@@ -731,11 +736,14 @@ export default async function MedicationGuidePage({
       <DrugPageHeader
         pageLabel="Patient-Friendly FDA Guidance"
         drugName={headerDrugName}
+        pronunciation={pill?.pronunciation}
+        audioUrl={pill?.audio_url}
         genericName={headerMeta.genericName}
         brandName={headerMeta.brandName}
         drugClass={headerMeta.drugClass}
         dosageForm={headerMeta.dosageForm}
         isBrandPrimary={headerMeta.isBrandPrimary}
+        slug={slug}
       />
 
       <MedicationGuideTabs

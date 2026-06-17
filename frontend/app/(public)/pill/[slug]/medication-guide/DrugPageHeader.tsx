@@ -1,15 +1,19 @@
 'use client'
 
 import React, { useState } from 'react'
+import PronunciationButton from './PronunciationButton'
 
 type DrugPageHeaderProps = {
   drugName: string
+  pronunciation?: string | null
+  audioUrl?: string | null
   genericName?: string | null
   brandName?: string | null
   drugClass?: string | null
   dosageForm?: string | null
   isBrandPrimary: boolean
   pageLabel: string
+  slug: string
 }
 
 const BRAND_PREVIEW_COUNT = 5
@@ -120,12 +124,15 @@ function BrandNamesList({ brands }: { brands: string[] }) {
 
 export default function DrugPageHeader({
   drugName,
+  pronunciation,
+  audioUrl,
   genericName,
   brandName,
   drugClass,
   dosageForm,
   isBrandPrimary,
   pageLabel,
+  slug,
 }: DrugPageHeaderProps) {
   const headerDrugName = resolveHeaderDrugName({ drugName, genericName, isBrandPrimary })
   const generic = genericName?.trim() ? toTitleCase(genericName.trim()) : null
@@ -141,7 +148,8 @@ export default function DrugPageHeader({
   const showGeneric = isBrandPrimary && !!generic && !genericIsDuplicate
   const showBrands = shouldShowBrands && brandList.length > 0 && !brandsIsDuplicate
 
-  const hasMetaLines = showGeneric || showBrands || !!classDisplay || !!formDisplay
+  const hasRemainingMeta = showGeneric || showBrands || !!classDisplay || !!formDisplay
+  const hasMetaSection = hasRemainingMeta || !!pronunciation
 
   return (
     <header className="space-y-2">
@@ -150,39 +158,43 @@ export default function DrugPageHeader({
         {pageLabel}
       </p>
 
-      {/* H1 — drug name, no dose */}
-      <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
-        {headerDrugName}
-      </h1>
+      {/* H1 with speaker button inline */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
+          {headerDrugName}
+        </h1>
+        <PronunciationButton slug={slug} drugName={headerDrugName} audioUrl={audioUrl} pronunciationText={pronunciation} speakerOnly />
+      </div>
 
-      {/* Meta lines: generic/brand, class, dosage form */}
-      {hasMetaLines && (
-        <div className="border-t border-emerald-100 pt-3 space-y-1.5">
-          {/* Generic (shown when H1 is a brand name, e.g. Plavix → Generic: Clopidogrel) */}
+      {/* Pronunciation text — directly below drug name, above divider */}
+      {pronunciation && (
+        <p className="text-base text-slate-700">
+          <span className="font-semibold text-emerald-700 text-base">Pronounced as:</span>{' '}
+          <span className="text-slate-800 text-lg italic font-medium">{pronunciation}</span>
+        </p>
+      )}
+
+      {/* Divider + remaining meta lines (generic, brand, class, dosage form) */}
+      {hasMetaSection && (
+        <div className="border-t-2 border-emerald-300 pt-3 space-y-1.5">
           {showGeneric && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Generic:</span>{' '}
               <span className="text-slate-800">{generic}</span>
             </p>
           )}
-
-          {/* Brand names (shown when H1 is a generic name, truncated to 5 + N more) */}
           {showBrands && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Brand names:</span>{' '}
               <BrandNamesList brands={brandList} />
             </p>
           )}
-
-          {/* Drug class */}
           {classDisplay && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Drug class:</span>{' '}
               <span className="text-slate-800">{classDisplay}</span>
             </p>
           )}
-
-          {/* Dosage form */}
           {formDisplay && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Dosage form:</span>{' '}
