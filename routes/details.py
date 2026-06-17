@@ -3,7 +3,7 @@ import logging
 import os
 from collections import OrderedDict
 from datetime import timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from threading import Lock
 import time
 
@@ -78,6 +78,101 @@ def _to_iso(value) -> Optional[str]:
         except ValueError:
             continue
     return None
+
+
+def _lookup_pronunciation_by_name(conn, drug_name: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
+    """Return an exact pronunciation row for a drug name, or None if unavailable."""
+    if not drug_name:
+        return None
+    normalized_name = drug_name.strip().lower()
+    if not normalized_name:
+        return None
+
+    try:
+        row = conn.execute(
+            text(
+                """
+                SELECT pronunciation_text, audio_url
+                FROM drug_pronunciations
+                WHERE drug_name_lower = :drug_name_lower
+                LIMIT 1
+                """
+            ),
+            {"drug_name_lower": normalized_name},
+        ).fetchone()
+        if not row:
+            return None
+
+        return {
+            "pronunciation_text": row[0].strip() if row[0] else None,
+            "audio_url": str(row[1]).strip() if row[1] else None,
+        }
+    except SQLAlchemyError as exc:
+        err_msg = str(exc).lower()
+        if "drug_pronunciations" in err_msg and (
+            "does not exist" in err_msg or "no such table" in err_msg
+        ):
+            logger.debug("drug_pronunciations table not yet created: %s", exc)
+        else:
+            logger.warning("direct pronunciation lookup failed for %r: %s", drug_name, exc)
+        return None
+
+
+def _resolve_pill_pronunciations(
+    conn,
+    *,
+    medicine_name: Optional[str],
+    rxcui: Optional[str],
+    generic_name: Optional[str],
+    brand_names: Optional[List[str]],
+    is_brand_row: bool,
+    """Resolve generic, brand, and primary pronunciation payloads for a pill."""
+    generic_payload = None
+    if generic_name:
+        # Avoid rxcui-driven fallback to brand names so the "generic_*" fields
+        # remain truly generic.
+        generic_payload = get_pronunciation(conn, generic_name, rxcui=None)
+    if not generic_payload:
+        generic_payload = get_pronunciation(conn, medicine_name, rxcui=rxcui)
+    brand_payload = None
+    brand_candidates: List[str] = []
+    seen_candidates: Set[str] = set()
+
+    def _add_brand_candidate(name: Optional[str]) -> None:
+        if not name:
+            return
+        normalized = name.strip().lower()
+        if normalized and normalized not in seen_candidates:
+            seen_candidates.add(normalized)
+            brand_candidates.append(name.strip())
+
+    if is_brand_row:
+        _add_brand_candidate(medicine_name)
+    for brand_name in brand_names or []:
+        _add_brand_candidate(brand_name)
+
+    for brand_candidate in brand_candidates:
+        brand_payload = _lookup_pronunciation_by_name(conn, brand_candidate)
+        if brand_payload:
+            break
+
+    def _payload_value(payload: Optional[Dict[str, Optional[str]]], key: str) -> Optional[str]:
+        return payload.get(key) if payload else None
+
+    primary_payload = brand_payload if is_brand_row else generic_payload
+    fallback_payload = generic_payload if is_brand_row else brand_payload
+    if not primary_payload:
+        primary_payload = fallback_payload
+
+    return {
+        "pronunciation": _payload_value(primary_payload, "pronunciation_text"),
+        "audio_url": _payload_value(primary_payload, "audio_url"),
+        "brand_pronunciation": _payload_value(brand_payload, "pronunciation_text"),
+        "brand_audio_url": _payload_value(brand_payload, "audio_url"),
+        "generic_pronunciation": _payload_value(generic_payload, "pronunciation_text"),
+        "generic_audio_url": _payload_value(generic_payload, "audio_url"),
+        "generic_name": generic_name,
+    }
 
 def _aggregate_image_filenames(conn, raw_medicine_name: str, raw_splimprint: str, own_image_filename: str) -> str:
     """Collect image filenames for a pill by combining the row's own image_filename
@@ -697,6 +792,11 @@ def get_pill_by_slug(slug: str):
                 "meta_description": pill_info.get("meta_description") or None,
                 "indication": None,
                 "pronunciation": None,
+                "audio_url": None,
+                "brand_pronunciation": None,
+                "brand_audio_url": None,
+                "generic_pronunciation": None,
+                "generic_audio_url": None,
                 "generic_name": None,
                 "brand_names_all": [],
                 "is_brand_row": False,
@@ -755,15 +855,20 @@ def get_pill_by_slug(slug: str):
                     else:
                         logger.warning("drug_indications lookup failed for rxcui=%s: %s", rxcui_val, _e)
 
-            pronunciation = get_pronunciation(
+            pronunciation = _resolve_pill_pronunciations(
                 conn,
-                pill_info.get("medicine_name"),
+                medicine_name=pill_info.get("medicine_name"),
                 rxcui=pill_info.get("rxcui"),
+                generic_name=mapped.get("generic_name"),
+                brand_names=synonyms.get("brand_names") if synonyms else None,
+                is_brand_row=bool(mapped.get("is_brand_row")),
             )
-            mapped["pronunciation"] = (
-                pronunciation.get("pronunciation_text") if pronunciation else None
-            )
-            mapped["audio_url"] = pronunciation.get("audio_url") if pronunciation else None
+            mapped["pronunciation"] = pronunciation.get("pronunciation")
+            mapped["audio_url"] = pronunciation.get("audio_url")
+            mapped["brand_pronunciation"] = pronunciation.get("brand_pronunciation")
+            mapped["brand_audio_url"] = pronunciation.get("brand_audio_url")
+            mapped["generic_pronunciation"] = pronunciation.get("generic_pronunciation")
+            mapped["generic_audio_url"] = pronunciation.get("generic_audio_url")
 
         return mapped
 
@@ -1403,7 +1508,7 @@ def get_pill_pronunciation(slug: str):
             # _MEDICINE_SLUG_EXPR fallback to match normalised slugs as other endpoints do)
             pill_row = conn.execute(
                 text(f"""
-                    SELECT medicine_name FROM pillfinder
+                    SELECT medicine_name, rxcui FROM pillfinder
                     WHERE deleted_at IS NULL AND published = true
                       AND (slug = :slug OR {_MEDICINE_SLUG_EXPR} = :slug)
                     LIMIT 1
@@ -1414,35 +1519,31 @@ def get_pill_pronunciation(slug: str):
                 raise HTTPException(status_code=404, detail="Pill not found")
 
             medicine_name = pill_row[0] or ""
-            drug_name_lower = medicine_name.strip().lower()
-
-            # Lookup in drug_pronunciations by drug_name_lower
-            pron_row = conn.execute(
-                text("""
-                    SELECT drug_name_display, pronunciation_text, audio_url
-                    FROM drug_pronunciations
-                    WHERE drug_name_lower = :drug_name_lower
-                    LIMIT 1
-                """),
-                {"drug_name_lower": drug_name_lower},
-            ).fetchone()
-
-            if not pron_row:
-                # Return 200 with nulls — frontend falls back to speechSynthesis
-                return JSONResponse(content={
-                    "drug_name": medicine_name,
-                    "pronunciation_text": None,
-                    "audio_url": None,
-                    "has_audio": False,
-                }, headers={"Cache-Control": CACHE_CONTROL_HEADER})
+            rxcui = str(pill_row[1] or "").strip()
+            synonyms = get_synonyms_for_rxcui(conn, rxcui) if rxcui else {}
+            is_brand_row = synonyms.get("product_tty") in ("SBD", "BPCK")
+            pronunciation = _resolve_pill_pronunciations(
+                conn,
+                medicine_name=medicine_name,
+                rxcui=rxcui,
+                generic_name=synonyms.get("generic_name"),
+                brand_names=synonyms.get("brand_names") if synonyms else None,
+                is_brand_row=bool(is_brand_row),
+            )
 
             return JSONResponse(content={
-                "drug_name": pron_row[0] or medicine_name,
-                "pronunciation_text": pron_row[1],
-                "audio_url": pron_row[2],
-                "has_audio": bool(pron_row[2]),
+                "drug_name": medicine_name,
+                "pronunciation_text": pronunciation.get("pronunciation"),
+                "audio_url": pronunciation.get("audio_url"),
+                "has_audio": bool(pronunciation.get("audio_url")),
+                "brand_pronunciation": pronunciation.get("brand_pronunciation"),
+                "brand_audio_url": pronunciation.get("brand_audio_url"),
+                "generic_pronunciation": pronunciation.get("generic_pronunciation"),
+                "generic_audio_url": pronunciation.get("generic_audio_url"),
+                "generic_name": synonyms.get("generic_name"),
+                "brand_names": synonyms.get("brand_names") or [],
+                "is_brand_row": bool(is_brand_row),
             }, headers={"Cache-Control": CACHE_CONTROL_HEADER})
-
     except HTTPException:
         raise
     except SQLAlchemyError as e:
