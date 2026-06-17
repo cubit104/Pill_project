@@ -43,6 +43,15 @@ export default function PronunciationButton({ slug, drugName }: Props) {
 
   if (!loaded) return null
 
+  function cleanupAudioRef() {
+    if (!audioRef.current) return
+    audioRef.current.pause()
+    audioRef.current.onplay = null
+    audioRef.current.onended = null
+    audioRef.current.onerror = null
+    audioRef.current = null
+  }
+
   function speakDrugName() {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
     const utter = new SpeechSynthesisUtterance(drugName)
@@ -58,25 +67,12 @@ export default function PronunciationButton({ slug, drugName }: Props) {
     // If we have an audio_url, play the MP3
     if (data?.audio_url) {
       if (playing) {
-        if (audioRef.current) {
-          audioRef.current.pause()
-          audioRef.current.onplay = null
-          audioRef.current.onended = null
-          audioRef.current.onerror = null
-          audioRef.current.currentTime = 0
-          audioRef.current = null
-        }
+        cleanupAudioRef()
         setPlaying(false)
         return
       }
       // Dispose of any previous audio element before creating a new one
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current.onplay = null
-        audioRef.current.onended = null
-        audioRef.current.onerror = null
-        audioRef.current = null
-      }
+      cleanupAudioRef()
       const audio = new Audio(data.audio_url)
       audioRef.current = audio
       audio.onplay = () => setPlaying(true)
