@@ -148,17 +148,20 @@ def _resolve_pill_pronunciations(
         if brand_payload:
             break
 
+    def _payload_value(payload: Optional[Dict[str, Optional[str]]], key: str) -> Optional[str]:
+        return payload.get(key) if payload else None
+
     primary_payload = brand_payload if is_brand_row else generic_payload
     if not primary_payload:
         primary_payload = generic_payload or brand_payload
 
     return {
-        "pronunciation": primary_payload.get("pronunciation_text") if primary_payload else None,
-        "audio_url": primary_payload.get("audio_url") if primary_payload else None,
-        "brand_pronunciation": brand_payload.get("pronunciation_text") if brand_payload else None,
-        "brand_audio_url": brand_payload.get("audio_url") if brand_payload else None,
-        "generic_pronunciation": generic_payload.get("pronunciation_text") if generic_payload else None,
-        "generic_audio_url": generic_payload.get("audio_url") if generic_payload else None,
+        "pronunciation": _payload_value(primary_payload, "pronunciation_text"),
+        "audio_url": _payload_value(primary_payload, "audio_url"),
+        "brand_pronunciation": _payload_value(brand_payload, "pronunciation_text"),
+        "brand_audio_url": _payload_value(brand_payload, "audio_url"),
+        "generic_pronunciation": _payload_value(generic_payload, "pronunciation_text"),
+        "generic_audio_url": _payload_value(generic_payload, "audio_url"),
         "generic_name": generic_name,
     }
 

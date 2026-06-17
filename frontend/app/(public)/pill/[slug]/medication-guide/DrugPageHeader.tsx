@@ -73,6 +73,42 @@ function normalizeName(value: string | null | undefined): string | null {
   return trimmed ? trimmed.toLowerCase() : null
 }
 
+function resolvePronunciationVariant({
+  headerMatchesGeneric,
+  headerMatchesBrand,
+  pronunciation,
+  audioUrl,
+  genericPronunciation,
+  genericAudioUrl,
+  brandPronunciation,
+  brandAudioUrl,
+}: {
+  headerMatchesGeneric: boolean
+  headerMatchesBrand: boolean
+  pronunciation?: string | null
+  audioUrl?: string | null
+  genericPronunciation?: string | null
+  genericAudioUrl?: string | null
+  brandPronunciation?: string | null
+  brandAudioUrl?: string | null
+}) {
+  if (headerMatchesGeneric) {
+    return {
+      pronunciation: genericPronunciation ?? pronunciation,
+      audioUrl: genericAudioUrl ?? audioUrl,
+    }
+  }
+
+  if (headerMatchesBrand) {
+    return {
+      pronunciation: brandPronunciation ?? pronunciation,
+      audioUrl: brandAudioUrl ?? audioUrl,
+    }
+  }
+
+  return { pronunciation, audioUrl }
+}
+
 function resolveHeaderDrugName({
   drugName,
   genericName,
@@ -159,16 +195,18 @@ export default function DrugPageHeader({
   const headerMatchesBrand = !!normalizedHeaderName && brandList.some(
     (brand) => normalizeName(brand) === normalizedHeaderName,
   )
-  const resolvedPronunciation = headerMatchesGeneric
-    ? (genericPronunciation ?? pronunciation)
-    : headerMatchesBrand
-      ? (brandPronunciation ?? pronunciation)
-      : pronunciation
-  const resolvedAudioUrl = headerMatchesGeneric
-    ? (genericAudioUrl ?? audioUrl)
-    : headerMatchesBrand
-      ? (brandAudioUrl ?? audioUrl)
-      : audioUrl
+  const resolvedPronunciationData = resolvePronunciationVariant({
+    headerMatchesGeneric,
+    headerMatchesBrand,
+    pronunciation,
+    audioUrl,
+    genericPronunciation,
+    genericAudioUrl,
+    brandPronunciation,
+    brandAudioUrl,
+  })
+  const resolvedPronunciation = resolvedPronunciationData.pronunciation
+  const resolvedAudioUrl = resolvedPronunciationData.audioUrl
 
   const genericIsDuplicate = generic?.toLowerCase() === headerDrugName.toLowerCase()
   const brandsIsDuplicate =
