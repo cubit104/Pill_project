@@ -101,13 +101,13 @@ function resolveDrugName({
   pill: PillInfo | null
   slug: string
 }): string {
+  if (pill?.medicine_name?.trim()) return formatDrugName(pill.medicine_name, false)
   const brand = firstNonEmpty(guide?.brand_name, guide?.proprietary_name)
   if (brand) return formatDrugName(brand, true)
   const fallback = firstNonEmpty(
     guide?.generic_name,
     guide?.display_name,
     guide?.name,
-    pill?.medicine_name,
     decodeURIComponent(slug).replace(/-/g, ' ')
   )
   return formatDrugName(fallback || 'Medication', false)

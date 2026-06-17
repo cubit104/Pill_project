@@ -76,9 +76,9 @@ function resolveDrugName({
   pill: PillInfo | null
   slug: string
 }): string {
+  if (pill?.medicine_name?.trim()) return formatDrugName(pill.medicine_name, false)
   const fallback = firstNonEmpty(
     pill?.drug_name,
-    pill?.medicine_name,
     interactions?.generic_name,
     decodeURIComponent(slug).replace(/-/g, ' ')
   )
