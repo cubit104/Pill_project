@@ -82,7 +82,9 @@ def _to_iso(value) -> Optional[str]:
 
 def _lookup_pronunciation_by_name(conn, drug_name: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
     """Return an exact pronunciation row for a drug name, or None if unavailable."""
-    normalized_name = str(drug_name or "").strip().lower()
+    if not drug_name:
+        return None
+    normalized_name = drug_name.strip().lower()
     if not normalized_name:
         return None
 
@@ -133,10 +135,12 @@ def _resolve_pill_pronunciations(
     seen_candidates: Set[str] = set()
 
     def _add_brand_candidate(name: Optional[str]) -> None:
-        normalized = str(name or "").strip().lower()
+        if not name:
+            return
+        normalized = name.strip().lower()
         if normalized and normalized not in seen_candidates:
             seen_candidates.add(normalized)
-            brand_candidates.append(str(name).strip())
+            brand_candidates.append(name.strip())
 
     if is_brand_row:
         _add_brand_candidate(medicine_name)
