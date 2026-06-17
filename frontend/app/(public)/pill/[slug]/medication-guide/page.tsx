@@ -265,7 +265,7 @@ export default async function MedicationGuidePage({
         />
 
         <MedicationGuideTabs
-          activeTab="medguide"
+          activeTab="consumer"
           medicationGuideHref={`/pill/${encodeURIComponent(slug)}/medication-guide`}
           summaryHref={
             hasMedicationSummaryFallback ? `/pill/${encodeURIComponent(slug)}/medication-summary` : null
