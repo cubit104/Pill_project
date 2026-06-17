@@ -126,10 +126,14 @@ def _resolve_pill_pronunciations(
     generic_name: Optional[str],
     brand_names: Optional[List[str]],
     is_brand_row: bool,
-) -> Dict[str, Optional[str]]:
     """Resolve generic, brand, and primary pronunciation payloads for a pill."""
-    generic_payload = get_pronunciation(conn, medicine_name, rxcui=rxcui)
-
+    generic_payload = None
+    if generic_name:
+        # Avoid rxcui-driven fallback to brand names so the "generic_*" fields
+        # remain truly generic.
+        generic_payload = get_pronunciation(conn, generic_name, rxcui=None)
+    if not generic_payload:
+        generic_payload = get_pronunciation(conn, medicine_name, rxcui=rxcui)
     brand_payload = None
     brand_candidates: List[str] = []
     seen_candidates: Set[str] = set()
