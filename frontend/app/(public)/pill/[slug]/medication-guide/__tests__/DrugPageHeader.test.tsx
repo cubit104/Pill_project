@@ -166,6 +166,49 @@ test('DrugPageHeader renders speaker button in SSR markup when audioUrl is provi
   assert.match(html, /aria-label="Pronounce Lisinopril"/)
 })
 
+test('DrugPageHeader uses brand pronunciation when the H1 shows a brand name', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Plavix"
+      pronunciation="kloh pid' oh grel"
+      brandPronunciation="plav' ix"
+      genericPronunciation="kloh pid' oh grel"
+      genericName="clopidogrel"
+      brandName="Plavix; Iscover"
+      isBrandPrimary
+      slug="plavix"
+    />
+  )
+
+  assert.match(
+    html,
+    /Pronounced as:<\/span> <span[^>]*>plav(?:'|&#x27;) ix<\/span>/,
+  )
+})
+
+test('DrugPageHeader uses generic pronunciation when the H1 shows a generic name', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Clopidogrel 75"
+      pronunciation="plav' ix"
+      brandPronunciation="plav' ix"
+      genericPronunciation="kloh pid' oh grel"
+      genericName="clopidogrel"
+      brandName="Plavix"
+      isBrandPrimary={false}
+      slug="clopidogrel-75"
+    />
+  )
+
+  assert.match(html, />Clopidogrel<\/h1>/)
+  assert.match(
+    html,
+    /Pronounced as:<\/span> <span[^>]*>kloh pid(?:'|&#x27;) oh grel<\/span>/,
+  )
+})
+
 test('DrugPageHeader hides pronunciation text when missing', () => {
   const html = renderToStaticMarkup(
     <DrugPageHeader

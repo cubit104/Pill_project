@@ -7,6 +7,10 @@ type DrugPageHeaderProps = {
   drugName: string
   pronunciation?: string | null
   audioUrl?: string | null
+  brandPronunciation?: string | null
+  brandAudioUrl?: string | null
+  genericPronunciation?: string | null
+  genericAudioUrl?: string | null
   genericName?: string | null
   brandName?: string | null
   drugClass?: string | null
@@ -62,6 +66,11 @@ function hasNamePrefix(value: string, prefix: string): boolean {
   if (!value.toLowerCase().startsWith(prefix.toLowerCase())) return false
   const nextChar = value.slice(prefix.length, prefix.length + 1)
   return !nextChar || /[\s,;:/()-]/.test(nextChar)
+}
+
+function normalizeName(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed.toLowerCase() : null
 }
 
 function resolveHeaderDrugName({
@@ -126,6 +135,10 @@ export default function DrugPageHeader({
   drugName,
   pronunciation,
   audioUrl,
+  brandPronunciation,
+  brandAudioUrl,
+  genericPronunciation,
+  genericAudioUrl,
   genericName,
   brandName,
   drugClass,
@@ -139,6 +152,23 @@ export default function DrugPageHeader({
   const brandList = splitBrandNames(brandName)
   const classDisplay = drugClass?.trim() ? toTitleCase(drugClass.trim()) : null
   const formDisplay = dosageForm?.trim() ? toTitleCase(dosageForm.trim()) : null
+  const normalizedHeaderName = normalizeName(headerDrugName)
+  const normalizedGenericName = normalizeName(genericName)
+  const headerMatchesGeneric =
+    !!normalizedHeaderName && !!normalizedGenericName && normalizedHeaderName === normalizedGenericName
+  const headerMatchesBrand = !!normalizedHeaderName && brandList.some(
+    (brand) => normalizeName(brand) === normalizedHeaderName,
+  )
+  const resolvedPronunciation = headerMatchesGeneric
+    ? (genericPronunciation ?? pronunciation)
+    : headerMatchesBrand
+      ? (brandPronunciation ?? pronunciation)
+      : pronunciation
+  const resolvedAudioUrl = headerMatchesGeneric
+    ? (genericAudioUrl ?? audioUrl)
+    : headerMatchesBrand
+      ? (brandAudioUrl ?? audioUrl)
+      : audioUrl
 
   const genericIsDuplicate = generic?.toLowerCase() === headerDrugName.toLowerCase()
   const brandsIsDuplicate =
@@ -149,7 +179,7 @@ export default function DrugPageHeader({
   const showBrands = shouldShowBrands && brandList.length > 0 && !brandsIsDuplicate
 
   const hasRemainingMeta = showGeneric || showBrands || !!classDisplay || !!formDisplay
-  const hasMetaSection = hasRemainingMeta || !!pronunciation
+  const hasMetaSection = hasRemainingMeta || !!resolvedPronunciation
 
   return (
     <header className="space-y-2">
@@ -163,14 +193,14 @@ export default function DrugPageHeader({
         <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
           {headerDrugName}
         </h1>
-        <PronunciationButton slug={slug} drugName={headerDrugName} audioUrl={audioUrl} pronunciationText={pronunciation} speakerOnly />
+        <PronunciationButton slug={slug} drugName={headerDrugName} audioUrl={resolvedAudioUrl} pronunciationText={resolvedPronunciation} speakerOnly />
       </div>
 
       {/* Pronunciation text — directly below drug name, above divider */}
-      {pronunciation && (
+      {resolvedPronunciation && (
         <p className="text-base text-slate-700">
           <span className="font-semibold text-emerald-700 text-base">Pronounced as:</span>{' '}
-          <span className="text-slate-800 text-lg italic font-medium">{pronunciation}</span>
+          <span className="text-slate-800 text-lg italic font-medium">{resolvedPronunciation}</span>
         </p>
       )}
 

@@ -605,6 +605,84 @@ def test_api_pill_slug_meta_description_returned_when_set(client):
     assert data["meta_description"] == description
 
 
+def test_api_pill_slug_prefers_brand_pronunciation_for_brand_primary_rows(client):
+    import database as db_module
+
+    pill_row = (
+        "Plavix",
+        "75",
+        "Pink",
+        "Round",
+        "63653-1171-01",
+        "174742",
+        None,
+        "plavix-75-1171",
+        None,
+    )
+    pill_columns = [
+        "medicine_name",
+        "splimprint",
+        "splcolor_text",
+        "splshape_text",
+        "ndc11",
+        "rxcui",
+        "image_filename",
+        "slug",
+        "meta_description",
+    ]
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql).lower()
+        result = MagicMock()
+        result.keys.return_value = []
+        result.fetchall.return_value = []
+
+        if "from pillfinder" in sql_str:
+            result.fetchone.return_value = pill_row
+            result.keys.return_value = pill_columns
+        elif "from drug_indications" in sql_str:
+            result.fetchone.return_value = None
+        elif "from drug_pronunciations" in sql_str:
+            if (params or {}).get("drug_name_lower") == "plavix":
+                result.fetchone.return_value = ("plav' ix", "https://cdn.example/plavix.mp3")
+            else:
+                result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch(
+        "routes.details.get_synonyms_for_rxcui",
+        return_value={
+            "generic_name": "Clopidogrel",
+            "brand_names": ["Plavix", "Iscover"],
+            "product_tty": "SBD",
+        },
+    ), patch(
+        "routes.details.get_pronunciation",
+        return_value={
+            "pronunciation_text": "kloh pid' oh grel",
+            "audio_url": "https://cdn.example/clopidogrel.mp3",
+        },
+    ), patch(
+        "routes.details._resolve_history_identifier",
+        return_value={"history_ndc": None, "history_source": None},
+    ):
+        response = client.get("/api/pill/plavix-75-1171")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["pronunciation"] == "plav' ix"
+    assert data["audio_url"] == "https://cdn.example/plavix.mp3"
+    assert data["brand_pronunciation"] == "plav' ix"
+    assert data["brand_audio_url"] == "https://cdn.example/plavix.mp3"
+    assert data["generic_pronunciation"] == "kloh pid' oh grel"
+    assert data["generic_audio_url"] == "https://cdn.example/clopidogrel.mp3"
+
+
 def test_api_pill_slug_includes_synonym_fields_and_filters_self_brand(client):
     import database as db_module
 
@@ -766,6 +844,54 @@ def test_api_pill_slug_pronunciation_is_none_when_table_missing(client):
     assert response.status_code == 200
     assert response.json()["pronunciation"] is None
     assert response.json()["audio_url"] is None
+
+
+def test_api_pill_pronunciation_returns_generic_primary_with_brand_alternatives(client):
+        import database as db_module
+
+        def side_effect(sql, params=None, *args, **kwargs):
+            sql_str = str(sql).lower()
+            result = MagicMock()
+
+            if "select medicine_name, rxcui from pillfinder" in sql_str:
+                result.fetchone.return_value = ("Clopidogrel", "174742")
+            elif "from drug_pronunciations" in sql_str:
+                if (params or {}).get("drug_name_lower") == "plavix":
+                    result.fetchone.return_value = ("plav' ix", "https://cdn.example/plavix.mp3")
+                else:
+                    result.fetchone.return_value = None
+            else:
+                result.fetchone.return_value = None
+            return result
+
+        db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+        with patch(
+            "routes.details.get_synonyms_for_rxcui",
+            return_value={
+                "generic_name": "Clopidogrel",
+                "brand_names": ["Plavix"],
+                "product_tty": "SCD",
+            },
+        ), patch(
+            "routes.details.get_pronunciation",
+            return_value={
+                "pronunciation_text": "kloh pid' oh grel",
+                "audio_url": "https://cdn.example/clopidogrel.mp3",
+            },
+        ):
+            response = client.get("/api/pill/clopidogrel/pronunciation")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["drug_name"] == "Clopidogrel"
+        assert data["pronunciation_text"] == "kloh pid' oh grel"
+        assert data["audio_url"] == "https://cdn.example/clopidogrel.mp3"
+        assert data["generic_pronunciation"] == "kloh pid' oh grel"
+        assert data["generic_audio_url"] == "https://cdn.example/clopidogrel.mp3"
+        assert data["brand_pronunciation"] == "plav' ix"
+        assert data["brand_audio_url"] == "https://cdn.example/plavix.mp3"
+        assert data["brand_names"] == ["Plavix"]
+        assert data["is_brand_row"] is False
 
 
 # ---------------------------------------------------------------------------

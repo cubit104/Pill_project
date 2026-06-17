@@ -41,6 +41,10 @@ const GUIDE_REVALIDATE_SECONDS = 86400
 type PillInfo = {
   pronunciation?: string | null
   audio_url?: string | null
+  brand_pronunciation?: string | null
+  brand_audio_url?: string | null
+  generic_pronunciation?: string | null
+  generic_audio_url?: string | null
   spl_set_id?: string
   rxcui?: string
   ndc11?: string
@@ -527,6 +531,10 @@ export default async function MedicationGuidePage({
           drugName={headerDrugName}
           pronunciation={pill?.pronunciation}
           audioUrl={pill?.audio_url}
+          brandPronunciation={pill?.brand_pronunciation}
+          brandAudioUrl={pill?.brand_audio_url}
+          genericPronunciation={pill?.generic_pronunciation}
+          genericAudioUrl={pill?.generic_audio_url}
           genericName={professionalHeaderMeta.genericName}
           brandName={professionalHeaderMeta.brandName}
           drugClass={professionalHeaderMeta.drugClass}
@@ -738,6 +746,10 @@ export default async function MedicationGuidePage({
         drugName={headerDrugName}
         pronunciation={pill?.pronunciation}
         audioUrl={pill?.audio_url}
+        brandPronunciation={pill?.brand_pronunciation}
+        brandAudioUrl={pill?.brand_audio_url}
+        genericPronunciation={pill?.generic_pronunciation}
+        genericAudioUrl={pill?.generic_audio_url}
         genericName={headerMeta.genericName}
         brandName={headerMeta.brandName}
         drugClass={headerMeta.drugClass}
