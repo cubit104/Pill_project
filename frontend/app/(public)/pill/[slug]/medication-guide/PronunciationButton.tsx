@@ -43,6 +43,17 @@ export default function PronunciationButton({ slug, drugName }: Props) {
 
   if (!loaded) return null
 
+  function speakDrugName() {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+    const utter = new SpeechSynthesisUtterance(drugName)
+    utter.lang = 'en-US'
+    utter.rate = 0.9
+    utter.onstart = () => setPlaying(true)
+    utter.onend = () => setPlaying(false)
+    utter.onerror = () => setPlaying(false)
+    window.speechSynthesis.speak(utter)
+  }
+
   function handleClick() {
     // If we have an audio_url, play the MP3
     if (data?.audio_url) {
@@ -73,12 +84,7 @@ export default function PronunciationButton({ slug, drugName }: Props) {
       audio.onerror = () => {
         setPlaying(false)
         // Fallback to speechSynthesis on audio error
-        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-          const utter = new SpeechSynthesisUtterance(drugName)
-          utter.lang = 'en-US'
-          utter.rate = 0.9
-          window.speechSynthesis.speak(utter)
-        }
+        speakDrugName()
       }
       audio.play().catch(() => setPlaying(false))
       return
@@ -88,16 +94,11 @@ export default function PronunciationButton({ slug, drugName }: Props) {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       if (playing) {
         window.speechSynthesis.cancel()
+        // cancel() does not reliably fire onend, so reset state immediately
         setPlaying(false)
         return
       }
-      const utter = new SpeechSynthesisUtterance(drugName)
-      utter.lang = 'en-US'
-      utter.rate = 0.9
-      utter.onstart = () => setPlaying(true)
-      utter.onend = () => setPlaying(false)
-      utter.onerror = () => setPlaying(false)
-      window.speechSynthesis.speak(utter)
+      speakDrugName()
     }
   }
 

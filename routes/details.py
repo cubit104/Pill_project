@@ -1405,7 +1405,7 @@ def get_pill_pronunciation(slug: str):
             # Lookup in drug_pronunciations by drug_name_lower
             pron_row = conn.execute(
                 text("""
-                    SELECT drug_name_display, pronunciation_text, audio_url, mp3_path
+                    SELECT drug_name_display, pronunciation_text, audio_url
                     FROM drug_pronunciations
                     WHERE drug_name_lower = :drug_name_lower
                     LIMIT 1
