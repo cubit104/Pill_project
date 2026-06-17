@@ -6,6 +6,7 @@ import base64
 import logging
 import os
 import time
+from urllib.parse import quote
 
 import requests
 from sqlalchemy import text
@@ -88,17 +89,18 @@ def upload_audio_to_supabase(drug_name: str, audio_bytes: bytes) -> str | None:
 
     Returns the public URL string, or ``None`` on failure.
     """
-    supabase_url = os.environ.get("SUPABASE_URL")
-    service_key = os.environ.get("SUPABASE_SERVICE_KEY")
+    supabase_url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+    service_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
     if not supabase_url or not service_key:
         logger.warning(
-            "SUPABASE_URL or SUPABASE_SERVICE_KEY not set; cannot upload audio for %r",
+            "NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set; cannot upload audio for %r",
             drug_name,
         )
         return None
 
-    file_path = f"{drug_name.lower().strip()}.mp3"
+    slug = quote(drug_name.lower().strip(), safe="")
+    file_path = f"{slug}.mp3"
     upload_url = f"{supabase_url}/storage/v1/object/{_STORAGE_BUCKET}/{file_path}"
 
     headers = {
