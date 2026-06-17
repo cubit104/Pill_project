@@ -755,7 +755,15 @@ def get_pill_by_slug(slug: str):
                     else:
                         logger.warning("drug_indications lookup failed for rxcui=%s: %s", rxcui_val, _e)
 
-            mapped["pronunciation"] = get_pronunciation(conn, pill_info.get("medicine_name"))
+            pronunciation = get_pronunciation(
+                conn,
+                pill_info.get("medicine_name"),
+                rxcui=pill_info.get("rxcui"),
+            )
+            mapped["pronunciation"] = (
+                pronunciation.get("pronunciation_text") if pronunciation else None
+            )
+            mapped["audio_url"] = pronunciation.get("audio_url") if pronunciation else None
 
         return mapped
 

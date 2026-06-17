@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 type PronunciationData = {
   drug_name: string
@@ -11,6 +11,8 @@ type PronunciationData = {
 type Props = {
   slug: string
   drugName: string
+  audioUrl?: string | null
+  pronunciationText?: string | null
   /** Render only the speaker icon button, no pronunciation text */
   speakerOnly?: boolean
   /** Render only the "Pronounced as: ..." text line, no button */
@@ -19,13 +21,27 @@ type Props = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 
-export default function PronunciationButton({ slug: _slug, drugName, speakerOnly, textOnly }: Props) {
+export default function PronunciationButton({
+  slug: _slug,
+  drugName,
+  audioUrl,
+  pronunciationText,
+  speakerOnly,
+  textOnly
+}: Props) {
   const [data, setData] = useState<PronunciationData | null>(null)
   const [playing, setPlaying] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
+  // Only treat as "server-provided" when we actually have a non-empty audio URL string.
+  // When server pages pass audioUrl={null} (no stored audio yet), we still want the
+  // client-side fetch fallback to run so /api/pronunciation/{name}/audio can trigger
+  // audio generation/backfill.
+  const hasServerAudio = typeof audioUrl === 'string' && audioUrl.length > 0
+
   useEffect(() => {
+    if (hasServerAudio) return
     if (!drugName) return
     fetch(`${API_BASE}/api/pronunciation/${encodeURIComponent(drugName.toLowerCase())}/audio`)
       .then((r) => {
@@ -37,9 +53,10 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
       })
       .then((d) => { setData(d); setLoaded(true) })
       .catch(() => setLoaded(true))
-  }, [drugName])
+  }, [drugName, hasServerAudio])
 
-  if (!loaded) return null
+  // If server provided audio URL, render immediately (SSR). Otherwise wait for client fetch.
+  if (!hasServerAudio && !loaded) return null
 
   function cleanupAudioRef() {
     if (!audioRef.current) return
@@ -62,10 +79,11 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
   }
 
   function handleClick() {
-    if (data?.audio_url) {
+    const resolvedAudioUrl = hasServerAudio ? audioUrl : data?.audio_url
+    if (resolvedAudioUrl) {
       if (playing) { cleanupAudioRef(); setPlaying(false); return }
       cleanupAudioRef()
-      const audio = new Audio(data.audio_url)
+      const audio = new Audio(resolvedAudioUrl)
       audioRef.current = audio
       audio.onplay = () => setPlaying(true)
       audio.onended = () => setPlaying(false)
@@ -79,15 +97,15 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
     }
   }
 
-  const pronunciationText = data?.pronunciation_text
+  const resolvedPronunciationText = pronunciationText ?? data?.pronunciation_text
 
   // textOnly mode — just the "Pronounced as:" line, no button
   if (textOnly) {
-    if (!pronunciationText) return null
+    if (!resolvedPronunciationText) return null
     return (
-      <p className="text-sm text-slate-700">
-        <span className="font-semibold text-emerald-700">Pronounced as:</span>{' '}
-        <span className="text-slate-600 italic">{pronunciationText}</span>
+      <p className="text-base text-slate-700">
+        <span className="font-semibold text-emerald-700 text-base">Pronounced as:</span>{' '}
+        <span className="text-slate-800 text-lg italic font-medium">{resolvedPronunciationText}</span>
       </p>
     )
   }
@@ -99,7 +117,7 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
         type="button"
         onClick={handleClick}
         aria-label={`Pronounce ${drugName}`}
-        title={pronunciationText ? `Pronunciation: ${pronunciationText}` : 'Hear pronunciation'}
+        title={resolvedPronunciationText ? `Pronunciation: ${resolvedPronunciationText}` : 'Hear pronunciation'}
         className={`inline-flex items-center justify-center rounded-full w-8 h-8 border transition-colors ${
           playing
             ? 'border-emerald-500 bg-emerald-50 text-emerald-600 animate-pulse'
@@ -107,7 +125,7 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
         }`}
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" aria-hidden="true">
-          <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.508c-1.141 0-2.318.664-2.66 1.905A9.76 9.76 0 001.5 12c0 .898.121 1.768.35 2.595.341 1.24 1.518 1.905 2.659 1.905h1.93l4.5 4.5c.945.945 2.561.276 2.561-1.06V4.06zM18.584 5.106a.75.75 0 011.06 0c3.808 3.807 3.808 9.98 0 13.788a.75.75 0 01-1.06-1.06 8.25 8.25 0 000-11.668.75.75 0 010-1.06z" />
+          <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.508c-1.141 0-2.318.664-2.66 1.905A9.76 9.76 0 001.5 12c0 .898.121 1.768.35 2.595.341 1.24 1.518 1.905 2.659 1.905h1.93l4.5 4.5c.945.945 2.561.276 2.561-1.06V4.06z" />
           <path d="M15.932 7.757a.75.75 0 011.061 0 6 6 0 010 8.486.75.75 0 01-1.06-1.061 4.5 4.5 0 000-6.364.75.75 0 010-1.061z" />
         </svg>
       </button>
@@ -121,7 +139,7 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
         type="button"
         onClick={handleClick}
         aria-label={`Pronounce ${drugName}`}
-        title={pronunciationText ? `Pronunciation: ${pronunciationText}` : 'Hear pronunciation'}
+        title={resolvedPronunciationText ? `Pronunciation: ${resolvedPronunciationText}` : 'Hear pronunciation'}
         className={`inline-flex items-center justify-center rounded-full w-8 h-8 border transition-colors ${
           playing
             ? 'border-emerald-500 bg-emerald-50 text-emerald-600 animate-pulse'
@@ -129,13 +147,13 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
         }`}
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" aria-hidden="true">
-          <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.508c-1.141 0-2.318.664-2.66 1.905A9.76 9.76 0 001.5 12c0 .898.121 1.768.35 2.595.341 1.24 1.518 1.905 2.659 1.905h1.93l4.5 4.5c.945.945 2.561.276 2.561-1.06V4.06zM18.584 5.106a.75.75 0 011.06 0c3.808 3.807 3.808 9.98 0 13.788a.75.75 0 01-1.06-1.06 8.25 8.25 0 000-11.668.75.75 0 010-1.06z" />
+          <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.508c-1.141 0-2.318.664-2.66 1.905A9.76 9.76 0 001.5 12c0 .898.121 1.768.35 2.595.341 1.24 1.518 1.905 2.659 1.905h1.93l4.5 4.5c.945.945 2.561.276 2.561-1.06V4.06z" />
           <path d="M15.932 7.757a.75.75 0 011.061 0 6 6 0 010 8.486.75.75 0 01-1.06-1.061 4.5 4.5 0 000-6.364.75.75 0 010-1.061z" />
         </svg>
       </button>
-      {pronunciationText && (
+      {resolvedPronunciationText && (
         <span className="text-sm text-slate-400 font-normal italic leading-none">
-          {pronunciationText}
+          {resolvedPronunciationText}
         </span>
       )}
     </span>

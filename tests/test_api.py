@@ -715,7 +715,7 @@ def test_api_pill_slug_includes_pronunciation_when_available(client):
         elif "from drug_indications" in sql_str:
             result.fetchone.return_value = None
         elif "from drug_pronunciations" in sql_str:
-            result.fetchone.return_value = ("lye sin' oh pril",)
+            result.fetchone.return_value = ("lye sin' oh pril", "https://cdn.example/lisinopril.mp3")
         else:
             result.fetchone.return_value = None
             result.fetchall.return_value = []
@@ -729,6 +729,7 @@ def test_api_pill_slug_includes_pronunciation_when_available(client):
 
     assert response.status_code == 200
     assert response.json()["pronunciation"] == "lye sin' oh pril"
+    assert response.json()["audio_url"] == "https://cdn.example/lisinopril.mp3"
 
 
 def test_api_pill_slug_pronunciation_is_none_when_table_missing(client):
@@ -764,6 +765,7 @@ def test_api_pill_slug_pronunciation_is_none_when_table_missing(client):
 
     assert response.status_code == 200
     assert response.json()["pronunciation"] is None
+    assert response.json()["audio_url"] is None
 
 
 # ---------------------------------------------------------------------------

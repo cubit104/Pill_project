@@ -6,6 +6,7 @@ import PronunciationButton from './PronunciationButton'
 type DrugPageHeaderProps = {
   drugName: string
   pronunciation?: string | null
+  audioUrl?: string | null
   genericName?: string | null
   brandName?: string | null
   drugClass?: string | null
@@ -124,6 +125,7 @@ function BrandNamesList({ brands }: { brands: string[] }) {
 export default function DrugPageHeader({
   drugName,
   pronunciation,
+  audioUrl,
   genericName,
   brandName,
   drugClass,
@@ -146,7 +148,7 @@ export default function DrugPageHeader({
   const showGeneric = isBrandPrimary && !!generic && !genericIsDuplicate
   const showBrands = shouldShowBrands && brandList.length > 0 && !brandsIsDuplicate
 
-  const hasMetaLines = showGeneric || showBrands || !!classDisplay || !!formDisplay || !!pronunciation
+  const hasRemainingMeta = showGeneric || showBrands || !!classDisplay || !!formDisplay
 
   return (
     <header className="space-y-2">
@@ -160,21 +162,20 @@ export default function DrugPageHeader({
         <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
           {headerDrugName}
         </h1>
-        <PronunciationButton slug={slug} drugName={headerDrugName} speakerOnly />
+        <PronunciationButton slug={slug} drugName={headerDrugName} audioUrl={audioUrl} pronunciationText={pronunciation} speakerOnly />
       </div>
 
-      {/* Meta lines: pronunciation, generic/brand, class, dosage form */}
-      {hasMetaLines && (
-        <div className="border-t border-emerald-100 pt-3 space-y-1.5">
-          {/* Pronunciation */}
-          {pronunciation && (
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold text-emerald-700">Pronounced as:</span>{' '}
-              <span className="text-slate-600 italic">{pronunciation}</span>
-            </p>
-          )}
+      {/* Pronunciation text — directly below drug name, above divider */}
+      {pronunciation && (
+        <p className="text-base text-slate-700">
+          <span className="font-semibold text-emerald-700 text-base">Pronounced as:</span>{' '}
+          <span className="text-slate-800 text-lg italic font-medium">{pronunciation}</span>
+        </p>
+      )}
 
-          {/* Generic (shown when H1 is a brand name, e.g. Plavix → Generic: Clopidogrel) */}
+      {/* Divider + remaining meta lines (generic, brand, class, dosage form) */}
+      {hasRemainingMeta && (
+        <div className="border-t-2 border-emerald-300 pt-3 space-y-1.5">
           {showGeneric && (
             <p className="text-sm text-slate-700">
               <span className="font-semibold text-emerald-700">Generic:</span>{' '}

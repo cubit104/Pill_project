@@ -29,6 +29,7 @@ type PageParams = Promise<{ slug: string }>
 
 type PillInfo = {
   pronunciation?: string | null
+  audio_url?: string | null
   spl_set_id?: string
   rxcui?: string
   ndc11?: string
@@ -301,6 +302,7 @@ export default async function ProfessionalInformationPage({
           pageLabel="Full FDA Prescribing Details"
           drugName={headerDrugName}
           pronunciation={pill?.pronunciation}
+          audioUrl={pill?.audio_url}
           genericName={headerMeta.genericName}
           brandName={headerMeta.brandName}
           drugClass={headerMeta.drugClass}
