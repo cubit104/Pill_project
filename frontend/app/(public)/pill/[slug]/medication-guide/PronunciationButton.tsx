@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 type PronunciationData = {
   drug_name: string
@@ -11,6 +11,8 @@ type PronunciationData = {
 type Props = {
   slug: string
   drugName: string
+  audioUrl?: string | null
+  pronunciationText?: string | null
   /** Render only the speaker icon button, no pronunciation text */
   speakerOnly?: boolean
   /** Render only the "Pronounced as: ..." text line, no button */
@@ -19,13 +21,22 @@ type Props = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 
-export default function PronunciationButton({ slug: _slug, drugName, speakerOnly, textOnly }: Props) {
+export default function PronunciationButton({
+  slug: _slug,
+  drugName,
+  audioUrl,
+  pronunciationText,
+  speakerOnly,
+  textOnly
+}: Props) {
   const [data, setData] = useState<PronunciationData | null>(null)
   const [playing, setPlaying] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const hasServerAudioProp = audioUrl !== undefined
 
   useEffect(() => {
+    if (hasServerAudioProp) return
     if (!drugName) return
     fetch(`${API_BASE}/api/pronunciation/${encodeURIComponent(drugName.toLowerCase())}/audio`)
       .then((r) => {
@@ -37,9 +48,9 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
       })
       .then((d) => { setData(d); setLoaded(true) })
       .catch(() => setLoaded(true))
-  }, [drugName])
+  }, [drugName, hasServerAudioProp])
 
-  if (!loaded) return null
+  if (!hasServerAudioProp && !loaded) return null
 
   function cleanupAudioRef() {
     if (!audioRef.current) return
@@ -62,10 +73,11 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
   }
 
   function handleClick() {
-    if (data?.audio_url) {
+    const resolvedAudioUrl = audioUrl ?? data?.audio_url
+    if (resolvedAudioUrl) {
       if (playing) { cleanupAudioRef(); setPlaying(false); return }
       cleanupAudioRef()
-      const audio = new Audio(data.audio_url)
+      const audio = new Audio(resolvedAudioUrl)
       audioRef.current = audio
       audio.onplay = () => setPlaying(true)
       audio.onended = () => setPlaying(false)
@@ -79,15 +91,15 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
     }
   }
 
-  const pronunciationText = data?.pronunciation_text
+  const resolvedPronunciationText = pronunciationText ?? data?.pronunciation_text
 
   // textOnly mode — just the "Pronounced as:" line, no button
   if (textOnly) {
-    if (!pronunciationText) return null
+    if (!resolvedPronunciationText) return null
     return (
-      <p className="text-sm text-slate-700">
-        <span className="font-semibold text-emerald-700">Pronounced as:</span>{' '}
-        <span className="text-slate-600 italic">{pronunciationText}</span>
+      <p className="text-base text-slate-700">
+        <span className="font-semibold text-emerald-700 text-base">Pronounced as:</span>{' '}
+        <span className="text-slate-800 text-lg italic font-medium">{resolvedPronunciationText}</span>
       </p>
     )
   }
@@ -99,7 +111,7 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
         type="button"
         onClick={handleClick}
         aria-label={`Pronounce ${drugName}`}
-        title={pronunciationText ? `Pronunciation: ${pronunciationText}` : 'Hear pronunciation'}
+        title={resolvedPronunciationText ? `Pronunciation: ${resolvedPronunciationText}` : 'Hear pronunciation'}
         className={`inline-flex items-center justify-center rounded-full w-8 h-8 border transition-colors ${
           playing
             ? 'border-emerald-500 bg-emerald-50 text-emerald-600 animate-pulse'
@@ -121,7 +133,7 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
         type="button"
         onClick={handleClick}
         aria-label={`Pronounce ${drugName}`}
-        title={pronunciationText ? `Pronunciation: ${pronunciationText}` : 'Hear pronunciation'}
+        title={resolvedPronunciationText ? `Pronunciation: ${resolvedPronunciationText}` : 'Hear pronunciation'}
         className={`inline-flex items-center justify-center rounded-full w-8 h-8 border transition-colors ${
           playing
             ? 'border-emerald-500 bg-emerald-50 text-emerald-600 animate-pulse'
@@ -133,9 +145,9 @@ export default function PronunciationButton({ slug: _slug, drugName, speakerOnly
           <path d="M15.932 7.757a.75.75 0 011.061 0 6 6 0 010 8.486.75.75 0 01-1.06-1.061 4.5 4.5 0 000-6.364.75.75 0 010-1.061z" />
         </svg>
       </button>
-      {pronunciationText && (
+      {resolvedPronunciationText && (
         <span className="text-sm text-slate-400 font-normal italic leading-none">
-          {pronunciationText}
+          {resolvedPronunciationText}
         </span>
       )}
     </span>

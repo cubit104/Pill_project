@@ -249,7 +249,12 @@ def test_pronunciation_audio_200_with_audio_url(client, monkeypatch):
     pronunciation, mock_conn = _mock_conn_for_pronunciation(monkeypatch)
 
     monkeypatch.setattr(
-        pronunciation, "get_pronunciation", lambda conn, name: "lyse in' oh pril"
+        pronunciation,
+        "get_pronunciation",
+        lambda conn, name: {
+            "pronunciation_text": "lyse in' oh pril",
+            "audio_url": "https://example.supabase.co/storage/v1/object/public/pronunciation-audio/lisinopril.mp3",
+        },
     )
     monkeypatch.setattr(
         pronunciation,

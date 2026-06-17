@@ -144,10 +144,26 @@ test('DrugPageHeader renders pronunciation text when provided', () => {
     />
   )
 
+  assert.match(html, /text-slate-800 text-lg italic font-medium/)
   assert.match(
     html,
     /Pronounced as:<\/span> <span[^>]*>lye sin(?:'|&#x27;) oh pril<\/span>/,
   )
+})
+
+test('DrugPageHeader renders speaker button in SSR markup when audioUrl is provided', () => {
+  const html = renderToStaticMarkup(
+    <DrugPageHeader
+      pageLabel="Medication Guide"
+      drugName="Lisinopril"
+      pronunciation="lye sin' oh pril"
+      audioUrl="https://cdn.example/lisinopril.mp3"
+      isBrandPrimary={false}
+      slug="lisinopril"
+    />
+  )
+
+  assert.match(html, /aria-label="Pronounce Lisinopril"/)
 })
 
 test('DrugPageHeader hides pronunciation text when missing', () => {
@@ -175,6 +191,6 @@ test('DrugPageHeader shows meta section when only pronunciation is provided', ()
     />
   )
 
-  assert.match(html, /border-t border-emerald-100/)
+  assert.match(html, /border-t-2 border-emerald-300/)
   assert.match(html, /Pronounced as:/)
 })

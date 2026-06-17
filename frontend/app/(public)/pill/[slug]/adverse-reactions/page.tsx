@@ -23,6 +23,7 @@ const ADVERSE_REACTIONS_REVALIDATE_SECONDS = 86400
 type PillInfo = {
   drug_name?: string | null
   pronunciation?: string | null
+  audio_url?: string | null
   spl_set_id?: string | null
   rxcui?: string | null
   ndc11?: string | null
@@ -232,6 +233,7 @@ export default async function AdverseReactionsPage({
           pageLabel="Adverse Reactions"
           drugName={headerDrugName}
           pronunciation={pill?.pronunciation}
+          audioUrl={pill?.audio_url}
           genericName={headerMeta.genericName}
           brandName={headerMeta.brandName}
           drugClass={headerMeta.drugClass}

@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS public.drug_pronunciations (
     drug_name_display  TEXT NOT NULL,
     pronunciation_text TEXT,
     mp3_path           TEXT,
+    audio_url          TEXT,
     source             TEXT NOT NULL DEFAULT 'medlineplus'
                        CHECK (source IN ('medlineplus', 'gemini', 'g2p', 'google_tts', 'manual')),
     medlineplus_url    TEXT,

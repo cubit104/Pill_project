@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 from services.drug_pronunciation import (
     fetch_pronunciation_from_medlineplus,
     generate_pronunciation_gemini,
+    get_pronunciation,
     resolve_rxcui_for_drug_name,
     upsert_pronunciation,
 )
@@ -120,3 +121,24 @@ def test_upsert_pronunciation_returns_inserted_updated_or_skipped():
 
     conn.execute.return_value.fetchone.return_value = None
     assert upsert_pronunciation(conn, "Drug", "D R AH G", "medlineplus") == "skipped_manual"
+
+
+def test_get_pronunciation_returns_text_and_audio_url():
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.return_value = ("lye sin' oh pril", "https://cdn.example/lisinopril.mp3")
+
+    result = get_pronunciation(conn, "Lisinopril")
+
+    assert result == {
+        "pronunciation_text": "lye sin' oh pril",
+        "audio_url": "https://cdn.example/lisinopril.mp3",
+    }
+
+
+def test_get_pronunciation_returns_none_when_no_match():
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.return_value = None
+
+    result = get_pronunciation(conn, "Unknown Drug")
+
+    assert result is None

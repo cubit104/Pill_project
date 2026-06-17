@@ -38,7 +38,10 @@ def get_pronunciation_audio(drug_name: str):
     # Use a single transaction-aware connection for both reads and the
     # potential audio_url UPDATE inside get_or_generate_audio.
     with database.db_engine.begin() as conn:
-        pronunciation_text = get_pronunciation(conn, drug_name)
+        pronunciation = get_pronunciation(conn, drug_name)
+        pronunciation_text = (
+            pronunciation.get("pronunciation_text") if pronunciation else None
+        )
         audio_url = get_or_generate_audio(conn, lower_name)
 
         # If both are still None, check whether the row exists at all.

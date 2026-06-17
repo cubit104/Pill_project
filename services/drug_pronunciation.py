@@ -34,8 +34,8 @@ def get_pronunciation(
     conn,
     drug_name: str | None,
     rxcui: str | None = None,
-) -> str | None:
-    """Return pronunciation text for a drug, or None if unavailable.
+) -> dict[str, str | None] | None:
+    """Return pronunciation payload for a drug, or None if unavailable.
 
     Uses the clean DB path rather than parsing the messy medicine_name:
 
@@ -128,7 +128,7 @@ def get_pronunciation(
             row = conn.execute(
                 text(
                     """
-                    SELECT pronunciation_text
+                    SELECT pronunciation_text, audio_url
                     FROM drug_pronunciations
                     WHERE drug_name_lower = :drug_name_lower
                       AND pronunciation_text IS NOT NULL
@@ -138,7 +138,14 @@ def get_pronunciation(
                 {"drug_name_lower": candidate},
             ).fetchone()
             if row:
-                return str(row[0]).strip() or None
+                pronunciation_text = str(row[0]).strip() or None
+                audio_url = str(row[1]).strip() if row[1] else None
+                if pronunciation_text is None:
+                    continue
+                return {
+                    "pronunciation_text": pronunciation_text,
+                    "audio_url": audio_url,
+                }
         except SQLAlchemyError as exc:
             err_msg = str(exc).lower()
             if "drug_pronunciations" in err_msg and (
