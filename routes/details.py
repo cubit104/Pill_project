@@ -126,7 +126,7 @@ def _resolve_pill_pronunciations(
     generic_name: Optional[str],
     brand_names: Optional[List[str]],
     is_brand_row: bool,
-    Dict[str, Optional[str]]:
+    ) -> Dict[str, Optional[str]]:
     """Resolve generic, brand, and primary pronunciation payloads for a pill."""
     generic_payload = None
     if generic_name:
