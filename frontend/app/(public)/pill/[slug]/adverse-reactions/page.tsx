@@ -235,6 +235,7 @@ export default async function AdverseReactionsPage({
           drugClass={headerMeta.drugClass}
           dosageForm={headerMeta.dosageForm}
           isBrandPrimary={headerMeta.isBrandPrimary}
+          slug={slug}
         />
 
         <MedicationGuideTabs

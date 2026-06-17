@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import PronunciationButton from './PronunciationButton'
 
 type DrugPageHeaderProps = {
   drugName: string
@@ -10,6 +11,7 @@ type DrugPageHeaderProps = {
   dosageForm?: string | null
   isBrandPrimary: boolean
   pageLabel: string
+  slug: string
 }
 
 const BRAND_PREVIEW_COUNT = 5
@@ -126,6 +128,7 @@ export default function DrugPageHeader({
   dosageForm,
   isBrandPrimary,
   pageLabel,
+  slug,
 }: DrugPageHeaderProps) {
   const headerDrugName = resolveHeaderDrugName({ drugName, genericName, isBrandPrimary })
   const generic = genericName?.trim() ? toTitleCase(genericName.trim()) : null
@@ -151,9 +154,12 @@ export default function DrugPageHeader({
       </p>
 
       {/* H1 — drug name, no dose */}
-      <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
-        {headerDrugName}
-      </h1>
+      <div className="flex items-center gap-3 flex-wrap">
+        <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
+          {headerDrugName}
+        </h1>
+        <PronunciationButton slug={slug} drugName={headerDrugName} />
+      </div>
 
       {/* Meta lines: generic/brand, class, dosage form */}
       {hasMetaLines && (

@@ -15,6 +15,7 @@ test('DrugPageHeader renders generic, class, and dosage lines for brand-primary 
       drugClass="Platelet aggregation inhibitors"
       dosageForm="Tablet, film coated"
       isBrandPrimary
+      slug="plavix"
     />
   )
 
@@ -32,6 +33,7 @@ test('DrugPageHeader renders brand relationship for generic-primary drugs', () =
       drugName="Clopidogrel"
       brandName="Plavix; Iscover"
       isBrandPrimary={false}
+      slug="clopidogrel"
     />
   )
 
@@ -47,6 +49,7 @@ test('DrugPageHeader trims generic-primary H1 names to the medication only', () 
       genericName="clopidogrel bisulfate"
       brandName="Plavix"
       isBrandPrimary={false}
+      slug="clopidogrel-bisulfate-apo"
     />
   )
 
@@ -63,6 +66,7 @@ test('DrugPageHeader trims generic-primary H1 names with manufacturer-only suffi
       genericName="clopidogrel bisulfate"
       brandName="Plavix"
       isBrandPrimary={false}
+      slug="clopidogrel-bisulfate-apo"
     />
   )
 
@@ -79,6 +83,7 @@ test('DrugPageHeader shows brand names when generic matches H1 even if flagged b
       genericName="Losartan Potassium"
       brandName="Cozaar"
       isBrandPrimary
+      slug="losartan-potassium"
     />
   )
 
@@ -93,6 +98,7 @@ test('DrugPageHeader strips numeric/imprint suffixes from H1 when no clean gener
       drugName="Ticagrelor 90 T 00186 0777 60"
       brandName="Brilinta"
       isBrandPrimary={false}
+      slug="ticagrelor"
     />
   )
 
@@ -106,6 +112,7 @@ test('DrugPageHeader strips simple trailing numeric strength tokens', () => {
       pageLabel="Medication Guide"
       drugName="Ticagrelor 90"
       isBrandPrimary={false}
+      slug="ticagrelor-90"
     />
   )
 
@@ -119,6 +126,7 @@ test('DrugPageHeader keeps names where numbers are not imprint-like suffixes', (
       pageLabel="Medication Guide"
       drugName="Vitamin B 12 Complex"
       isBrandPrimary={false}
+      slug="vitamin-b-12-complex"
     />
   )
 

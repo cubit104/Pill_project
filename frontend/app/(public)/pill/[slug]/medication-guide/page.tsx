@@ -528,6 +528,7 @@ export default async function MedicationGuidePage({
           drugClass={professionalHeaderMeta.drugClass}
           dosageForm={professionalHeaderMeta.dosageForm}
           isBrandPrimary={professionalHeaderMeta.isBrandPrimary}
+          slug={slug}
         />
 
         <MedicationGuideTabs
@@ -736,6 +737,7 @@ export default async function MedicationGuidePage({
         drugClass={headerMeta.drugClass}
         dosageForm={headerMeta.dosageForm}
         isBrandPrimary={headerMeta.isBrandPrimary}
+        slug={slug}
       />
 
       <MedicationGuideTabs
