@@ -6,7 +6,6 @@ type PronunciationData = {
   drug_name: string
   pronunciation_text: string | null
   audio_url: string | null
-  has_audio: boolean
 }
 
 type Props = {
@@ -16,15 +15,15 @@ type Props = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 
-export default function PronunciationButton({ slug, drugName }: Props) {
+export default function PronunciationButton({ slug: _slug, drugName }: Props) {
   const [data, setData] = useState<PronunciationData | null>(null)
   const [playing, setPlaying] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
-    if (!slug) return
-    fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}/pronunciation`)
+    if (!drugName) return
+    fetch(`${API_BASE}/api/pronunciation/${encodeURIComponent(drugName.toLowerCase())}/audio`)
       .then((r) => {
         if (!r.ok) {
           if (r.status !== 404) {
@@ -39,7 +38,7 @@ export default function PronunciationButton({ slug, drugName }: Props) {
         setLoaded(true)
       })
       .catch(() => setLoaded(true))
-  }, [slug])
+  }, [drugName])
 
   if (!loaded) return null
 
@@ -64,14 +63,12 @@ export default function PronunciationButton({ slug, drugName }: Props) {
   }
 
   function handleClick() {
-    // If we have an audio_url, play the MP3
     if (data?.audio_url) {
       if (playing) {
         cleanupAudioRef()
         setPlaying(false)
         return
       }
-      // Dispose of any previous audio element before creating a new one
       cleanupAudioRef()
       const audio = new Audio(data.audio_url)
       audioRef.current = audio
@@ -79,7 +76,6 @@ export default function PronunciationButton({ slug, drugName }: Props) {
       audio.onended = () => setPlaying(false)
       audio.onerror = () => {
         setPlaying(false)
-        // Fallback to speechSynthesis on audio error
         speakDrugName()
       }
       audio.play().catch(() => setPlaying(false))
@@ -90,7 +86,6 @@ export default function PronunciationButton({ slug, drugName }: Props) {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       if (playing) {
         window.speechSynthesis.cancel()
-        // cancel() does not reliably fire onend, so reset state immediately
         setPlaying(false)
         return
       }
