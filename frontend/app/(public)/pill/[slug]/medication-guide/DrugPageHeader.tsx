@@ -153,18 +153,20 @@ export default function DrugPageHeader({
         {pageLabel}
       </p>
 
-      {/* H1 — drug name */}
-      <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
-        {headerDrugName}
-      </h1>
+      {/* H1 with speaker button inline */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">
+          {headerDrugName}
+        </h1>
+        <PronunciationButton slug={slug} drugName={headerDrugName} speakerOnly />
+      </div>
 
-      {/* Pronunciation row — button + "Pronounced as: plav' iks" */}
-      <PronunciationButton slug={slug} drugName={headerDrugName} />
+      {/* Pronunciation text line + divider */}
+      <PronunciationButton slug={slug} drugName={headerDrugName} textOnly />
 
-      {/* Divider */}
       <div className="border-t border-emerald-100" />
 
-      {/* Meta lines: generic/brand, class, dosage form */}
+      {/* Meta lines */}
       {hasMetaLines && (
         <div className="pt-1 space-y-1.5">
           {showGeneric && (
