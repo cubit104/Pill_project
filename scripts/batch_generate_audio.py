@@ -112,7 +112,7 @@ def main(argv=None):
             if args.limit is not None:
                 params["limit"] = args.limit
             rows = conn.execute(text(sql), params).fetchall()
-        drugs = [(row[0] or "").strip() for row in rows if (row[0] or "").strip()]
+        drugs = [name for row in rows if (name := (row[0] or "").strip())]
 
     if not drugs:
         print("No drugs pending audio generation.")

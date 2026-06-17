@@ -6,6 +6,7 @@ import logging
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 import database
 from services.drug_pronunciation import get_pronunciation
@@ -34,31 +35,25 @@ def get_pronunciation_audio(drug_name: str):
     """
     lower_name = drug_name.strip().lower()
 
-    with database.db_engine.connect() as conn:
-        pronunciation_text = get_pronunciation(conn, drug_name)
-
-        # Use a transaction-aware connection for the audio update so the
-        # UPDATE inside get_or_generate_audio is committed.
+    # Use a single transaction-aware connection for both reads and the
+    # potential audio_url UPDATE inside get_or_generate_audio.
     with database.db_engine.begin() as conn:
+        pronunciation_text = get_pronunciation(conn, drug_name)
         audio_url = get_or_generate_audio(conn, lower_name)
 
-    # If there's no pronunciation record at all, return 404.
-    if pronunciation_text is None and audio_url is None:
-        # Verify whether the row even exists (covers the case where the row
-        # exists but both columns are NULL).
-        with database.db_engine.connect() as conn:
-            from sqlalchemy import text as _text
+        # If both are still None, check whether the row exists at all.
+        if pronunciation_text is None and audio_url is None:
             row = conn.execute(
-                _text(
+                text(
                     "SELECT 1 FROM drug_pronunciations WHERE drug_name_lower = :n LIMIT 1"
                 ),
                 {"n": lower_name},
             ).fetchone()
-        if row is None:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"No pronunciation found for {drug_name!r}"},
-            )
+            if row is None:
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": f"No pronunciation found for {drug_name!r}"},
+                )
 
     return JSONResponse(
         content={
