@@ -9,7 +9,6 @@ import { sanitizeRenderedHtml } from './sanitizeRenderedHtml'
 import {
   SHARED_CONTENT_CARD_CLASSES,
   SHARED_READING_PROSE_CLASSES,
-  MEDGUIDE_PROSE_CLASSES,
 } from './layoutStyles'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
@@ -282,7 +281,7 @@ export default async function MedicationGuidePage({
         <div className={SHARED_CONTENT_CARD_CLASSES}>
           {sanitizedMedguideHtml ? (
             <article
-              className={MEDGUIDE_PROSE_CLASSES}
+              className={SHARED_READING_PROSE_CLASSES}
               dangerouslySetInnerHTML={{ __html: sanitizedMedguideHtml }}
             />
           ) : (
