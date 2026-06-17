@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import MedguideMetaBar from '../medication-guide/MedguideMetaBar'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'

@@ -1,10 +1,10 @@
-import { sanitizeRenderedHtml } from '../medication-guide/sanitizeRenderedHtml'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import MedicationGuideTabs from '../medication-guide/MedicationGuideTabs'
 import DrugPageHeader from '../medication-guide/DrugPageHeader'
 import { resolveHeaderMetadata } from '../medication-guide/headerMetadata'
+import { sanitizeRenderedHtml } from '../medication-guide/sanitizeRenderedHtml'
 import {
   SHARED_CONTENT_CARD_CLASSES,
   SHARED_READING_PROSE_CLASSES,
