@@ -746,13 +746,15 @@ export default function EditPillPage() {
 
   useEffect(() => { loadPill() }, [loadPill])
   useEffect(() => { fetchCompleteness() }, [fetchCompleteness])
-  useEffect(() => () => {
-    if (!pronunciationAudioRef.current) return
-    pronunciationAudioRef.current.pause()
-    pronunciationAudioRef.current.onplay = null
-    pronunciationAudioRef.current.onended = null
-    pronunciationAudioRef.current.onerror = null
-    pronunciationAudioRef.current = null
+  useEffect(() => {
+    return () => {
+      if (!pronunciationAudioRef.current) return
+      pronunciationAudioRef.current.pause()
+      pronunciationAudioRef.current.onplay = null
+      pronunciationAudioRef.current.onended = null
+      pronunciationAudioRef.current.onerror = null
+      pronunciationAudioRef.current = null
+    }
   }, [])
 
   const hasImage = (form['has_image'] ?? '').toUpperCase() === 'TRUE'
@@ -962,20 +964,19 @@ export default function EditPillPage() {
       pronunciationAudioRef.current = null
     }
     const audio = new Audio(audioUrl)
-    const clearPronunciationAudio = () => {
+    const clearPronunciationAudio = (target?: HTMLAudioElement) => {
       setPronunciationPlaying(false)
-      pronunciationAudioRef.current = null
+      if (!target || pronunciationAudioRef.current === target) pronunciationAudioRef.current = null
     }
     pronunciationAudioRef.current = audio
     audio.onplay = () => setPronunciationPlaying(true)
-    audio.onended = clearPronunciationAudio
-    audio.onerror = clearPronunciationAudio
+    audio.onended = () => clearPronunciationAudio()
+    audio.onerror = () => clearPronunciationAudio()
     audio.play().catch(() => {
       audio.onplay = null
       audio.onended = null
       audio.onerror = null
-      if (pronunciationAudioRef.current === audio) clearPronunciationAudio()
-      else setPronunciationPlaying(false)
+      clearPronunciationAudio(audio)
     })
   }
 
