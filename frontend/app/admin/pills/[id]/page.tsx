@@ -50,6 +50,12 @@ interface IndicationData {
   source_url?: string | null
   rxcui: string | null
 }
+interface PronunciationData {
+  pronunciation_text: string | null
+  audio_url: string | null
+  source: string | null
+  drug_name_matched: string | null
+}
 
 /**
  * Extract a human-readable error message from a failed fetch response.
@@ -645,6 +651,13 @@ export default function EditPillPage() {
   const [indicationSaving, setIndicationSaving] = useState(false)
   const [indicationSuccess, setIndicationSuccess] = useState('')
   const [indicationError, setIndicationError] = useState('')
+  const [pronunciationData, setPronunciationData] = useState<PronunciationData | null>(null)
+  const [pronunciationText, setPronunciationText] = useState('')
+  const [pronunciationSaving, setPronunciationSaving] = useState(false)
+  const [pronunciationSuccess, setPronunciationSuccess] = useState('')
+  const [pronunciationError, setPronunciationError] = useState('')
+  const [pronunciationPlaying, setPronunciationPlaying] = useState(false)
+  const pronunciationAudioRef = useRef<HTMLAudioElement | null>(null)
 
   const getSession = useCallback(async () => {
     const supabase = createClient()
@@ -695,6 +708,18 @@ export default function EditPillPage() {
           setIndicationText(indData.plain_text ?? '')
         }
       } catch (e) { console.error(`[loadPill] pill=${pillId} indication fetch failed:`, e) /* indication is optional */ }
+
+      // Fetch pronunciation alongside pill
+      try {
+        const pronunciationRes = await fetch(`/api/admin/pills/${pillId}/pronunciation`, {
+          headers: { Authorization: 'Bearer ' + session.access_token },
+        })
+        if (pronunciationRes.ok) {
+          const pData = await pronunciationRes.json()
+          setPronunciationData(pData)
+          setPronunciationText(pData.pronunciation_text ?? '')
+        }
+      } catch (e) { console.error(`[loadPill] pill=${pillId} pronunciation fetch failed:`, e) /* pronunciation is optional */ }
     } catch (e) {
       setError(String(e))
     } finally {
@@ -721,6 +746,16 @@ export default function EditPillPage() {
 
   useEffect(() => { loadPill() }, [loadPill])
   useEffect(() => { fetchCompleteness() }, [fetchCompleteness])
+  useEffect(() => {
+    return () => {
+      if (!pronunciationAudioRef.current) return
+      pronunciationAudioRef.current.pause()
+      pronunciationAudioRef.current.onplay = null
+      pronunciationAudioRef.current.onended = null
+      pronunciationAudioRef.current.onerror = null
+      pronunciationAudioRef.current = null
+    }
+  }, [])
 
   const hasImage = (form['has_image'] ?? '').toUpperCase() === 'TRUE'
 
@@ -915,6 +950,57 @@ export default function EditPillPage() {
     } catch (e) { setIndicationError(String(e)) } finally { setIndicationSaving(false) }
   }
 
+  const handlePlayPronunciationAudio = () => {
+    const audioUrl = pronunciationData?.audio_url
+    if (!audioUrl) return
+    if (pronunciationPlaying) {
+      pronunciationAudioRef.current?.pause()
+      pronunciationAudioRef.current = null
+      setPronunciationPlaying(false)
+      return
+    }
+    if (pronunciationAudioRef.current) {
+      pronunciationAudioRef.current.pause()
+      pronunciationAudioRef.current = null
+    }
+    const audio = new Audio(audioUrl)
+    const clearPronunciationAudio = (target?: HTMLAudioElement) => {
+      setPronunciationPlaying(false)
+      if (!target || pronunciationAudioRef.current === target) pronunciationAudioRef.current = null
+    }
+    pronunciationAudioRef.current = audio
+    audio.onplay = () => setPronunciationPlaying(true)
+    audio.onended = () => clearPronunciationAudio()
+    audio.onerror = () => clearPronunciationAudio()
+    audio.play().catch(() => {
+      audio.onplay = null
+      audio.onended = null
+      audio.onerror = null
+      clearPronunciationAudio(audio)
+    })
+  }
+
+  const handleSavePronunciation = async () => {
+    setPronunciationSaving(true); setPronunciationError(''); setPronunciationSuccess('')
+    const session = await getSession()
+    if (!session) { setPronunciationSaving(false); return }
+    try {
+      const res = await fetch(`/api/admin/pills/${pillId}/pronunciation`, {
+        method: 'PUT',
+        headers: { Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pronunciation_text: pronunciationText }),
+      })
+      if (!res.ok) throw new Error(await safeErrorDetail(res, 'Failed to save pronunciation'))
+      setPronunciationSuccess('Pronunciation saved successfully')
+      setPronunciationData({
+        pronunciation_text: pronunciationText,
+        audio_url: pronunciationData?.audio_url ?? null,
+        source: 'manual',
+        drug_name_matched: pronunciationData?.drug_name_matched ?? null,
+      })
+    } catch (e) { setPronunciationError(String(e)) } finally { setPronunciationSaving(false) }
+  }
+
   if (loading) return <div className="p-4 text-gray-500">Loading pill…</div>
 
   const showError = error && !errorDismissed
@@ -1097,6 +1183,60 @@ export default function EditPillPage() {
             </div>
           </>
         )}
+      </div>
+
+      {/* Pronunciation section */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+        <h2 className="font-semibold text-gray-900 mb-1">Pronunciation (Pronounced as)</h2>
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-500">
+            Saves a manual pronunciation for this pill's resolved lookup key. Public pages may still prefer a different brand-specific pronunciation when available.
+          </span>
+          <span className="inline-flex items-center rounded-full border border-gray-300 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-700">
+            Source: {pronunciationData?.source ?? 'none'}
+          </span>
+          {pronunciationData?.audio_url && (
+            <button
+              type="button"
+              onClick={handlePlayPronunciationAudio}
+              aria-label={`Play pronunciation audio for ${pill?.medicine_name ?? 'drug'}`}
+              title={pronunciationPlaying ? 'Stop audio' : 'Play audio'}
+              className={`inline-flex items-center justify-center rounded-full w-8 h-8 border transition-colors ${
+                pronunciationPlaying
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-600 animate-pulse'
+                  : 'border-slate-300 bg-white text-slate-500 hover:border-emerald-400 hover:text-emerald-700'
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" aria-hidden="true">
+                <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.508c-1.141 0-2.318.664-2.66 1.905A9.76 9.76 0 001.5 12c0 .898.121 1.768.35 2.595.341 1.24 1.518 1.905 2.659 1.905h1.93l4.5 4.5c.945.945 2.561.276 2.561-1.06V4.06z" />
+                <path d="M15.932 7.757a.75.75 0 011.061 0 6 6 0 010 8.486.75.75 0 01-1.06-1.061 4.5 4.5 0 000-6.364.75.75 0 010-1.061z" />
+              </svg>
+            </button>
+          )}
+        </div>
+        <input
+          type="text"
+          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          value={pronunciationText}
+          onChange={(e) => setPronunciationText(e.target.value)}
+          placeholder="e.g. lyse in' oh pril"
+        />
+        <div className="mt-3 flex items-center gap-3">
+          <button
+            onClick={handleSavePronunciation}
+            disabled={pronunciationSaving}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium transition-colors"
+          >
+            <Save className="w-4 h-4" />
+            {pronunciationSaving ? 'Saving…' : 'Save Pronunciation'}
+          </button>
+          {pronunciationSuccess && (
+            <span className="text-green-700 text-sm">{pronunciationSuccess}</span>
+          )}
+          {pronunciationError && (
+            <span className="text-red-600 text-sm">{pronunciationError}</span>
+          )}
+        </div>
       </div>
 
       {draftCount > 0 && (

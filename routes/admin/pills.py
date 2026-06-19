@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 import bleach
@@ -19,6 +19,7 @@ import database
 from services.synonym_resolver import ensure_synonym_mapping
 from routes.admin.auth import get_admin_user, log_audit, require_superuser, CRITICAL_FIELDS
 from routes.admin.field_schema import validate_pill, compute_completeness, compute_seo_score
+from services.drug_pronunciation import get_pronunciation, get_pronunciation_lookup_keys
 from utils import get_image_url, generate_slug
 
 logger = logging.getLogger(__name__)
@@ -1160,8 +1161,26 @@ class IndicationUpdate(BaseModel):
     plain_text: str
 
 
+class PronunciationUpdate(BaseModel):
+    """Manual pronunciation text saved for the pill's resolved lookup key."""
+
+    pronunciation_text: str = Field(
+        ...,
+        description="Pronunciation text in the site display format, including stress marks when available.",
+    )
+
+
 def _empty_indication(rxcui=None) -> dict:
     return {"plain_text": None, "source": None, "source_url": None, "rxcui": rxcui}
+
+
+def _empty_pronunciation() -> dict:
+    return {
+        "pronunciation_text": None,
+        "audio_url": None,
+        "source": None,
+        "drug_name_matched": None,
+    }
 
 
 @router.get("/{pill_id}/indication")
@@ -1202,6 +1221,128 @@ def get_pill_indication(pill_id: str, admin: dict = Depends(get_admin_user)):
         raise
     except SQLAlchemyError as e:
         logger.error(f"get_pill_indication DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
+@router.get("/{pill_id}/pronunciation")
+def get_pill_pronunciation(pill_id: str, admin: dict = Depends(get_admin_user)):
+    """Return resolved pronunciation for a pill (any admin role including readonly)."""
+    if not database.db_engine:
+        database.connect_to_database()
+    try:
+        with database.db_engine.connect() as conn:
+            pill_row = conn.execute(
+                text("SELECT medicine_name, rxcui FROM pillfinder WHERE id = :id LIMIT 1"),
+                {"id": pill_id},
+            ).fetchone()
+            if not pill_row:
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            medicine_name = pill_row[0]
+            rxcui = pill_row[1]
+
+            payload = get_pronunciation(
+                conn,
+                medicine_name,
+                rxcui=rxcui,
+                include_meta=True,
+            )
+            if not payload:
+                return _empty_pronunciation()
+
+            return {
+                "pronunciation_text": payload.get("pronunciation_text"),
+                "audio_url": payload.get("audio_url"),
+                "source": payload.get("source"),
+                "drug_name_matched": payload.get("drug_name_matched"),
+            }
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"get_pill_pronunciation DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
+@router.put("/{pill_id}/pronunciation")
+def update_pill_pronunciation(
+    request: Request,
+    pill_id: str,
+    body: PronunciationUpdate,
+    admin: dict = Depends(get_admin_user),
+):
+    """Upsert pronunciation_text with source='manual' (editor role or higher)."""
+    if admin["role"] not in ("superuser", "editor"):
+        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+
+    if not database.db_engine:
+        database.connect_to_database()
+    try:
+        with database.db_engine.begin() as conn:
+            pill_row = conn.execute(
+                text("SELECT medicine_name, rxcui FROM pillfinder WHERE id = :id LIMIT 1"),
+                {"id": pill_id},
+            ).fetchone()
+            if not pill_row:
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            medicine_name = (pill_row[0] or "").strip()
+            rxcui = pill_row[1]
+            if not medicine_name:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This pill has no medicine name — cannot save pronunciation",
+                )
+            lookup_keys = get_pronunciation_lookup_keys(
+                conn,
+                medicine_name,
+                rxcui=rxcui,
+            )
+            if not lookup_keys:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not determine a pronunciation lookup key for this pill",
+                )
+            drug_name_lower = lookup_keys[0]
+
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO drug_pronunciations
+                        (drug_name_lower, drug_name_display, pronunciation_text, source)
+                    VALUES
+                        (:drug_name_lower, :drug_name_display, :pronunciation_text, 'manual')
+                    ON CONFLICT (drug_name_lower) DO UPDATE
+                    SET drug_name_display  = EXCLUDED.drug_name_display,
+                        pronunciation_text = EXCLUDED.pronunciation_text,
+                        source             = 'manual',
+                        updated_at         = NOW()
+                    """
+                ),
+                {
+                    "drug_name_lower": drug_name_lower,
+                    "drug_name_display": medicine_name,
+                    "pronunciation_text": body.pronunciation_text,
+                },
+            )
+
+            log_audit(
+                conn,
+                actor_id=admin["id"],
+                actor_email=admin["email"],
+                action="update_pronunciation",
+                entity_type="drug_pronunciation",
+                entity_id=drug_name_lower,
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+
+        return {"saved": True, "source": "manual"}
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"update_pill_pronunciation DB error: {e}", exc_info=True)
         root = getattr(e, "orig", None) or e
         raise HTTPException(status_code=500, detail=f"Database error: {root}")
 

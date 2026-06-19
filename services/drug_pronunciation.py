@@ -30,12 +30,12 @@ _DOSE_SUFFIX_RE = re.compile(
 _IMPRINT_TOKEN_RE = re.compile(r"\s+([A-Z][A-Z0-9]*\d[A-Z0-9]*)(?=\s|$)")
 
 
-def get_pronunciation(
+def get_pronunciation_lookup_keys(
     conn,
     drug_name: str | None,
     rxcui: str | None = None,
-) -> dict[str, str | None] | None:
-    """Return pronunciation payload for a drug, or None if unavailable.
+) -> list[str]:
+    """Return ordered pronunciation lookup keys for a drug.
 
     Uses the clean DB path rather than parsing the messy medicine_name:
 
@@ -49,9 +49,8 @@ def get_pronunciation(
        c. Strip imprint suffix (e.g. "E101", "IP204")
        d. First word only (e.g. "lisinopril" from "Lisinopril E101 Tab")
 
-    All lookups hit ``drug_pronunciations.drug_name_lower``.
+    All returned values target ``drug_pronunciations.drug_name_lower``.
     """
-    # Build an ordered, deduplicated list of candidate names to try.
     candidates: list[str] = []
     seen: set[str] = set()
 
@@ -122,13 +121,24 @@ def get_pronunciation(
         if len(words) > 1:
             _add(words[0])
 
+    return candidates
+
+
+def get_pronunciation(
+    conn,
+    drug_name: str | None,
+    rxcui: str | None = None,
+    include_meta: bool = False,
+) -> dict[str, str | None] | None:
+    """Return pronunciation payload for a drug, or None if unavailable."""
     # --- Try each candidate against drug_pronunciations ---
+    candidates = get_pronunciation_lookup_keys(conn, drug_name, rxcui=rxcui)
     for candidate in candidates:
         try:
             row = conn.execute(
                 text(
                     """
-                    SELECT pronunciation_text, audio_url
+                    SELECT pronunciation_text, audio_url, source
                     FROM drug_pronunciations
                     WHERE drug_name_lower = :drug_name_lower
                     LIMIT 1
@@ -139,10 +149,14 @@ def get_pronunciation(
             if row:
                 pronunciation_text = row[0].strip() if row[0] else None
                 audio_url = str(row[1]).strip() if row[1] else None
-                return {
+                payload = {
                     "pronunciation_text": pronunciation_text,
                     "audio_url": audio_url,
                 }
+                if include_meta:
+                    payload["source"] = row[2] if row[2] else None
+                    payload["drug_name_matched"] = candidate
+                return payload
         except SQLAlchemyError as exc:
             err_msg = str(exc).lower()
             if "drug_pronunciations" in err_msg and (
