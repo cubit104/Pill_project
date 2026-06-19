@@ -1289,11 +1289,17 @@ def update_pill_pronunciation(
                     status_code=400,
                     detail="This pill has no medicine name — cannot save pronunciation",
                 )
-            drug_name_lower = get_pronunciation_lookup_keys(
+            lookup_keys = get_pronunciation_lookup_keys(
                 conn,
                 medicine_name,
                 rxcui=rxcui,
-            )[0]
+            )
+            if not lookup_keys:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not determine a pronunciation lookup key for this pill",
+                )
+            drug_name_lower = lookup_keys[0]
 
             conn.execute(
                 text(
