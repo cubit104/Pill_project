@@ -966,7 +966,13 @@ export default function EditPillPage() {
     audio.onplay = () => setPronunciationPlaying(true)
     audio.onended = () => { setPronunciationPlaying(false); pronunciationAudioRef.current = null }
     audio.onerror = () => { setPronunciationPlaying(false); pronunciationAudioRef.current = null }
-    audio.play().catch(() => setPronunciationPlaying(false))
+    audio.play().catch(() => {
+      audio.onplay = null
+      audio.onended = null
+      audio.onerror = null
+      if (pronunciationAudioRef.current === audio) pronunciationAudioRef.current = null
+      setPronunciationPlaying(false)
+    })
   }
 
   const handleSavePronunciation = async () => {
@@ -1179,7 +1185,7 @@ export default function EditPillPage() {
         <h2 className="font-semibold text-gray-900 mb-1">Pronunciation (Pronounced as)</h2>
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <span className="text-xs text-gray-500">
-            Shown on the public pill page. Once edited, the source becomes &apos;manual&apos; and automated backfill scripts will preserve your changes.
+            Saves a manual pronunciation for this pill&apos;s resolved lookup key. Public pages may still prefer a different brand-specific pronunciation when available.
           </span>
           <span className="inline-flex items-center rounded-full border border-gray-300 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-700">
             Source: {pronunciationData?.source ?? 'none'}

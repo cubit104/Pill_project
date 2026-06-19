@@ -1870,6 +1870,7 @@ def test_put_pill_pronunciation_saves_with_manual_source(client):
     mock_conn.__exit__ = MagicMock(return_value=False)
 
     executed_sqls: list[str] = []
+    execute_calls: list[tuple[str, dict]] = []
     call_count = [0]
 
     def side_effect(sql, *args, **kwargs):
@@ -1877,10 +1878,14 @@ def test_put_pill_pronunciation_saves_with_manual_source(client):
         call_count[0] += 1
         sql_str = str(sql).lower()
         executed_sqls.append(sql_str)
+        params = args[0] if args else {}
+        execute_calls.append((sql_str, params))
         if call_count[0] == 1:
             result.fetchone.return_value = FAKE_ADMIN_PROFILE
         elif "from pillfinder" in sql_str:
-            result.fetchone.return_value = ("Aspirin",)
+            result.fetchone.return_value = ("Advil Liqui-Gels", "123456")
+        elif "from rxcui_to_ingredient" in sql_str:
+            result.fetchone.return_value = ("Ibuprofen", ["Advil"])
         else:
             result.fetchone.return_value = None
         result.fetchall.return_value = []
@@ -1909,6 +1914,13 @@ def test_put_pill_pronunciation_saves_with_manual_source(client):
     assert data["source"] == "manual"
     assert any("drug_pronunciations" in sql for sql in executed_sqls), "Must write to drug_pronunciations"
     assert any("manual" in sql for sql in executed_sqls), "Upsert must set source='manual'"
+    pronunciation_write = next(
+        params for sql, params in execute_calls if "insert into drug_pronunciations" in sql
+    )
+    audit_write = next(params for sql, params in execute_calls if "insert into audit_log" in sql)
+    assert pronunciation_write["drug_name_lower"] == "ibuprofen"
+    assert pronunciation_write["drug_name_display"] == "Advil Liqui-Gels"
+    assert audit_write["entity_id"] == "ibuprofen"
 
 
 def test_put_pill_pronunciation_requires_editor_or_higher(client):

@@ -19,7 +19,7 @@ import database
 from services.synonym_resolver import ensure_synonym_mapping
 from routes.admin.auth import get_admin_user, log_audit, require_superuser, CRITICAL_FIELDS
 from routes.admin.field_schema import validate_pill, compute_completeness, compute_seo_score
-from services.drug_pronunciation import get_pronunciation
+from services.drug_pronunciation import get_pronunciation, get_pronunciation_lookup_keys
 from utils import get_image_url, generate_slug
 
 logger = logging.getLogger(__name__)
@@ -1276,18 +1276,24 @@ def update_pill_pronunciation(
     try:
         with database.db_engine.begin() as conn:
             pill_row = conn.execute(
-                text("SELECT medicine_name FROM pillfinder WHERE id = :id LIMIT 1"),
+                text("SELECT medicine_name, rxcui FROM pillfinder WHERE id = :id LIMIT 1"),
                 {"id": pill_id},
             ).fetchone()
             if not pill_row:
                 raise HTTPException(status_code=404, detail="Pill not found")
 
             medicine_name = (pill_row[0] or "").strip()
+            rxcui = pill_row[1]
             if not medicine_name:
                 raise HTTPException(
                     status_code=400,
                     detail="This pill has no medicine name — cannot save pronunciation",
                 )
+            drug_name_lower = get_pronunciation_lookup_keys(
+                conn,
+                medicine_name,
+                rxcui=rxcui,
+            )[0]
 
             conn.execute(
                 text(
@@ -1295,7 +1301,7 @@ def update_pill_pronunciation(
                     INSERT INTO drug_pronunciations
                         (drug_name_lower, drug_name_display, pronunciation_text, source)
                     VALUES
-                        (LOWER(:drug_name), :drug_name, :pronunciation_text, 'manual')
+                        (:drug_name_lower, :drug_name_display, :pronunciation_text, 'manual')
                     ON CONFLICT (drug_name_lower) DO UPDATE
                     SET drug_name_display  = EXCLUDED.drug_name_display,
                         pronunciation_text = EXCLUDED.pronunciation_text,
@@ -1304,7 +1310,8 @@ def update_pill_pronunciation(
                     """
                 ),
                 {
-                    "drug_name": medicine_name,
+                    "drug_name_lower": drug_name_lower,
+                    "drug_name_display": medicine_name,
                     "pronunciation_text": body.pronunciation_text,
                 },
             )
@@ -1315,7 +1322,7 @@ def update_pill_pronunciation(
                 actor_email=admin["email"],
                 action="update_pronunciation",
                 entity_type="drug_pronunciation",
-                entity_id=medicine_name.lower(),
+                entity_id=drug_name_lower,
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
