@@ -34,6 +34,7 @@ def get_pronunciation(
     conn,
     drug_name: str | None,
     rxcui: str | None = None,
+    include_meta: bool = False,
 ) -> dict[str, str | None] | None:
     """Return pronunciation payload for a drug, or None if unavailable.
 
@@ -128,7 +129,7 @@ def get_pronunciation(
             row = conn.execute(
                 text(
                     """
-                    SELECT pronunciation_text, audio_url
+                    SELECT pronunciation_text, audio_url, source
                     FROM drug_pronunciations
                     WHERE drug_name_lower = :drug_name_lower
                     LIMIT 1
@@ -139,10 +140,14 @@ def get_pronunciation(
             if row:
                 pronunciation_text = row[0].strip() if row[0] else None
                 audio_url = str(row[1]).strip() if row[1] else None
-                return {
+                payload = {
                     "pronunciation_text": pronunciation_text,
                     "audio_url": audio_url,
                 }
+                if include_meta:
+                    payload["source"] = row[2] if row[2] else None
+                    payload["drug_name_matched"] = candidate
+                return payload
         except SQLAlchemyError as exc:
             err_msg = str(exc).lower()
             if "drug_pronunciations" in err_msg and (

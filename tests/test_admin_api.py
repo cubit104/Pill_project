@@ -1756,6 +1756,181 @@ def test_put_pill_indication_requires_editor_or_higher(client):
     assert resp.status_code == 403
 
 
+# ---------------------------------------------------------------------------
+# GET/PUT /api/admin/pills/{pill_id}/pronunciation
+# ---------------------------------------------------------------------------
+
+def test_get_pill_pronunciation_returns_data_when_found(client):
+    """GET pronunciation returns resolved pronunciation row details."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        params = args[0] if args else {}
+
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "from pillfinder" in sql_str:
+            result.fetchone.return_value = ("Lisinopril 10mg Tablet", "123456")
+        elif "from rxcui_to_ingredient" in sql_str:
+            result.fetchone.return_value = None
+        elif "from drug_pronunciations" in sql_str:
+            if params.get("drug_name_lower") == "lisinopril":
+                result.fetchone.return_value = (
+                    "lye sin' oh pril",
+                    "https://cdn.example/lisinopril.mp3",
+                    "medlineplus",
+                )
+            else:
+                result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/pills/some-pill-id/pronunciation",
+            headers={"Authorization": "Bearer " + "faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["pronunciation_text"] == "lye sin' oh pril"
+    assert data["audio_url"] == "https://cdn.example/lisinopril.mp3"
+    assert data["source"] == "medlineplus"
+    assert data["drug_name_matched"] == "lisinopril"
+
+
+def test_get_pill_pronunciation_returns_nulls_when_not_found(client):
+    """GET pronunciation returns null payload when no pronunciation row matches."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "from pillfinder" in sql_str:
+            result.fetchone.return_value = ("Unknown Drug 10mg", "999999")
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/pills/some-pill-id/pronunciation",
+            headers={"Authorization": "Bearer " + "faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["pronunciation_text"] is None
+    assert data["audio_url"] is None
+    assert data["source"] is None
+    assert data["drug_name_matched"] is None
+
+
+def test_put_pill_pronunciation_saves_with_manual_source(client):
+    """PUT pronunciation upserts with source='manual'."""
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    executed_sqls: list[str] = []
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        executed_sqls.append(sql_str)
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "from pillfinder" in sql_str:
+            result.fetchone.return_value = ("Aspirin",)
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.put(
+            "/api/admin/pills/some-pill-id/pronunciation",
+            json={"pronunciation_text": "as' pir in"},
+            headers={"Authorization": "Bearer " + "faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["saved"] is True
+    assert data["source"] == "manual"
+    assert any("drug_pronunciations" in sql for sql in executed_sqls), "Must write to drug_pronunciations"
+    assert any("manual" in sql for sql in executed_sqls), "Upsert must set source='manual'"
+
+
+def test_put_pill_pronunciation_requires_editor_or_higher(client):
+    """PUT pronunciation returns 403 for readonly users."""
+    mock_engine, _ = _make_mock_engine(
+        admin_row=FAKE_READONLY_ROW,
+        profile_row=None,  # readonly has no profile row → falls back to admin_users
+    )
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_READONLY_ROW[0]}):
+        resp = client.put(
+            "/api/admin/pills/some-pill-id/pronunciation",
+            json={"pronunciation_text": "some text"},
+            headers={"Authorization": "Bearer " + "faketoken"},
+        )
+
+    assert resp.status_code == 403
+
+
 
 # ---------------------------------------------------------------------------
 # Bulk create — POST /api/admin/pills/bulk
