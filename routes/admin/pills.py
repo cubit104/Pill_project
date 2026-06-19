@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 import bleach
@@ -1162,7 +1162,12 @@ class IndicationUpdate(BaseModel):
 
 
 class PronunciationUpdate(BaseModel):
-    pronunciation_text: str
+    """Manual pronunciation text saved for the pill's resolved lookup key."""
+
+    pronunciation_text: str = Field(
+        ...,
+        description="Pronunciation text in the site display format, including stress marks when available.",
+    )
 
 
 def _empty_indication(rxcui=None) -> dict:

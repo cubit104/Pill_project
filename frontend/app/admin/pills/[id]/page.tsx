@@ -962,16 +962,20 @@ export default function EditPillPage() {
       pronunciationAudioRef.current = null
     }
     const audio = new Audio(audioUrl)
+    const clearPronunciationAudio = () => {
+      setPronunciationPlaying(false)
+      pronunciationAudioRef.current = null
+    }
     pronunciationAudioRef.current = audio
     audio.onplay = () => setPronunciationPlaying(true)
-    audio.onended = () => { setPronunciationPlaying(false); pronunciationAudioRef.current = null }
-    audio.onerror = () => { setPronunciationPlaying(false); pronunciationAudioRef.current = null }
+    audio.onended = clearPronunciationAudio
+    audio.onerror = clearPronunciationAudio
     audio.play().catch(() => {
       audio.onplay = null
       audio.onended = null
       audio.onerror = null
-      if (pronunciationAudioRef.current === audio) pronunciationAudioRef.current = null
-      setPronunciationPlaying(false)
+      if (pronunciationAudioRef.current === audio) clearPronunciationAudio()
+      else setPronunciationPlaying(false)
     })
   }
 
