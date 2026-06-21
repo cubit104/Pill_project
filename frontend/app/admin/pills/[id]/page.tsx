@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, useRef, useId } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
-import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink, Copy } from 'lucide-react'
 import {
   FIELD_SCHEMA,
   FIELD_SCHEMA_BY_KEY,
@@ -1108,6 +1108,32 @@ export default function EditPillPage() {
             <ExternalLink className="w-4 h-4" /> View Live Page
           </a>
         )}
+        <button
+          onClick={() => {
+            const DUPLICATE_FIELDS = [
+              'medicine_name', 'author', 'splcolor_text', 'splshape_text', 'dosage_form',
+              'route', 'spl_ingredients', 'spl_inactive_ing', 'dea_schedule_name',
+              'status_rx_otc', 'pharmclass_fda_epc', 'rxcui_1', 'imprint_status',
+              'tags', 'brand_names',
+            ] as const
+            const copiedFields: Record<string, string> = {}
+            for (const key of DUPLICATE_FIELDS) {
+              const val = form[key]
+              if (val != null) copiedFields[key] = String(val)
+            }
+            try {
+              localStorage.setItem('duplicate_pill_data', JSON.stringify(copiedFields))
+              router.push('/admin/pills/new')
+            } catch {
+              setErrorDismissed(false)
+              setError('Failed to start duplicate: browser storage is unavailable.')
+            }
+          }}
+          className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 text-sm font-medium transition-colors"
+          title="Copy this pill's fields to a new pill form"
+        >
+          <Copy className="w-4 h-4" /> Duplicate as New Pill
+        </button>
       </div>
 
       {token && (
