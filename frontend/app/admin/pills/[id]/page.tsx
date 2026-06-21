@@ -1121,8 +1121,13 @@ export default function EditPillPage() {
               const val = form[key]
               if (val != null) copiedFields[key] = String(val)
             }
-            localStorage.setItem('duplicate_pill_data', JSON.stringify(copiedFields))
-            router.push('/admin/pills/new')
+            try {
+              localStorage.setItem('duplicate_pill_data', JSON.stringify(copiedFields))
+              router.push('/admin/pills/new')
+            } catch {
+              setErrorDismissed(false)
+              setError('Failed to start duplicate: browser storage is unavailable.')
+            }
           }}
           className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 text-sm font-medium transition-colors"
           title="Copy this pill's fields to a new pill form"
