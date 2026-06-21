@@ -187,16 +187,36 @@ export default function NewPillPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const raw = localStorage.getItem('duplicate_pill_data')
+
+    let raw: string | null = null
+    try {
+      raw = window.localStorage.getItem('duplicate_pill_data')
+    } catch {
+      return
+    }
+
     if (raw) {
       try {
-        const parsed = JSON.parse(raw) as PillForm
-        setForm(parsed)
-        setDuplicateBanner(true)
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const allowedKeys = new Set(SECTION_GROUPS.flatMap(g => g.keys))
+          const sanitized: PillForm = {}
+          for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+            if (allowedKeys.has(k) && typeof v === 'string') sanitized[k] = v
+          }
+          if (Object.keys(sanitized).length > 0) {
+            setForm(sanitized)
+            setDuplicateBanner(true)
+          }
+        }
       } catch {
         // ignore malformed data
       }
-      localStorage.removeItem('duplicate_pill_data')
+      try {
+        window.localStorage.removeItem('duplicate_pill_data')
+      } catch {
+        // ignore storage errors
+      }
     }
   }, [])
   const handleCreate = async (publish = false) => {
