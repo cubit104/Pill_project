@@ -1,11 +1,11 @@
 'use client'
 
 export const dynamic = 'force-dynamic'
-import { useState, useRef, useId } from 'react'
+import { useState, useRef, useId, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
-import { ArrowLeft, Save } from 'lucide-react'
+import { ArrowLeft, Save, X } from 'lucide-react'
 import {
   FIELD_SCHEMA_BY_KEY,
   isNA,
@@ -183,7 +183,22 @@ export default function NewPillPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [duplicateBanner, setDuplicateBanner] = useState(false)
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const raw = localStorage.getItem('duplicate_pill_data')
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as PillForm
+        setForm(parsed)
+        setDuplicateBanner(true)
+      } catch {
+        // ignore malformed data
+      }
+      localStorage.removeItem('duplicate_pill_data')
+    }
+  }, [])
   const handleCreate = async (publish = false) => {
     setSaving(true); setError(''); setFieldErrors({})
     const supabase = createClient()
@@ -228,6 +243,15 @@ export default function NewPillPage() {
         </Link>
         <h1 className="text-2xl font-bold text-gray-900">Add New Pill</h1>
       </div>
+
+      {duplicateBanner && (
+        <div className="bg-blue-50 text-blue-800 px-4 py-3 rounded-md text-sm border border-blue-200 flex items-center justify-between gap-2">
+          <span>Pre-filled from duplicate — adjust fields and save as draft or publish.</span>
+          <button onClick={() => setDuplicateBanner(false)} className="shrink-0 text-blue-600 hover:text-blue-800" aria-label="Dismiss">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 text-red-700 px-4 py-3 rounded-md text-sm border border-red-200">
