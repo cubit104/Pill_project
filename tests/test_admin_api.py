@@ -388,7 +388,7 @@ def test_list_pills_sort_order_puts_unnamed_last(client):
 # New fields — image_alt_text, tags, and brand_or_generic accepted in create/update payloads
 # ---------------------------------------------------------------------------
 
-def test_pill_create_accepts_image_alt_text_tags_and_brand_or_generic(client):
+def test_pill_create_accepts_new_fields(client):
     """POST /api/admin/pills should accept image_alt_text, tags, and brand_or_generic fields."""
     mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
 
@@ -605,7 +605,7 @@ def test_pill_update_without_rxcui_uses_existing_rxcui_for_synonym_resolver(clie
     assert resolver_mock.call_args.args[1] == "12345"
 
 
-def test_pill_update_accepts_image_alt_text_tags_and_brand_or_generic(client):
+def test_pill_update_accepts_new_fields(client):
     """PUT /api/admin/pills/{id} should accept image_alt_text, tags, and brand_or_generic fields."""
     from datetime import datetime, timezone
 
