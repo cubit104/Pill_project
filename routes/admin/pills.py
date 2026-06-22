@@ -6,11 +6,11 @@ import logging
 import time
 import datetime
 from datetime import timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 import bleach
@@ -35,7 +35,7 @@ EDITABLE_FIELDS = [
     "medicine_name", "author", "brand_names", "splimprint", "splcolor_text", "splshape_text",
     "splsize", "spl_strength", "spl_ingredients", "spl_inactive_ing", "dosage_form",
     "route", "dea_schedule_name", "pharmclass_fda_epc", "ndc9", "ndc11", "rxcui",
-    "rxcui_1", "status_rx_otc", "imprint_status", "slug", "meta_title", "meta_description",
+    "rxcui_1", "status_rx_otc", "brand_or_generic", "imprint_status", "slug", "meta_title", "meta_description",
     "image_filename", "has_image", "image_alt_text", "tags",
 ]
 
@@ -120,6 +120,7 @@ class PillCreate(BaseModel):
     rxcui: Optional[str] = None
     rxcui_1: Optional[str] = None
     status_rx_otc: Optional[str] = None
+    brand_or_generic: Optional[Literal["brand", "generic"]] = None
     imprint_status: Optional[str] = None
     slug: Optional[str] = None
     meta_title: Optional[str] = None
@@ -128,6 +129,14 @@ class PillCreate(BaseModel):
     image_alt_text: Optional[str] = None
     tags: Optional[str] = None
     idempotency_key: Optional[str] = None
+
+    @field_validator("brand_or_generic", mode="before")
+    @classmethod
+    def normalize_brand_or_generic(cls, v):
+        if v is None:
+            return None
+        normalized = str(v).strip().lower()
+        return normalized if normalized else None
 
 
 class PillUpdate(PillCreate):
