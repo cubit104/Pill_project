@@ -26,7 +26,7 @@ const SECTION_GROUPS: { section: string; title: string; keys: string[] }[] = [
   {
     section: 'MediaSEO',
     title: 'Media & SEO',
-    keys: ['image_alt_text', 'meta_description', 'tags', 'brand_names'],
+    keys: ['image_alt_text', 'meta_description', 'tags', 'brand_names', 'brand_or_generic'],
   },
   {
     section: 'Advanced',

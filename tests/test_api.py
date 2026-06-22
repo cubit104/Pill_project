@@ -740,6 +740,7 @@ def test_api_pill_slug_includes_synonym_fields_and_filters_self_brand(client):
     assert "brand_names_all" in data
     assert data["generic_name"] == "Aspirin"
     assert data["brand_names_all"] == ["Bufferin", "Ecotrin"]
+    assert data["brand_or_generic"] == "brand"
 
 
 def test_api_pill_slug_always_includes_synonym_keys_when_unmapped(client):
@@ -772,6 +773,58 @@ def test_api_pill_slug_always_includes_synonym_keys_when_unmapped(client):
     data = response.json()
     assert data["generic_name"] is None
     assert data["brand_names_all"] == []
+    assert data["brand_or_generic"] is None
+
+
+def test_api_pill_slug_prefers_explicit_brand_or_generic_from_pill_row(client):
+    import database as db_module
+
+    pill_row = ("Plavix", "75", "Pink", "Round", "63653-1171-01", "174742", None, "plavix-75-1171", None, "generic")
+    pill_columns = [
+        "medicine_name",
+        "splimprint",
+        "splcolor_text",
+        "splshape_text",
+        "ndc11",
+        "rxcui",
+        "image_filename",
+        "slug",
+        "meta_description",
+        "brand_or_generic",
+    ]
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql).lower()
+        result = MagicMock()
+        if "from pillfinder where deleted_at is null and published = true and slug = :slug" in sql_str:
+            result.fetchone.return_value = pill_row
+            result.keys.return_value = pill_columns
+        elif "from pill_ndcs" in sql_str:
+            result.fetchall.return_value = []
+        elif "from public.medication_guide" in sql_str:
+            result.fetchone.return_value = None
+        elif "from drug_indications" in sql_str:
+            result.fetchone.return_value = None
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    with patch(
+        "routes.details.get_synonyms_for_rxcui",
+        return_value={
+            "generic_name": "Clopidogrel",
+            "brand_names": ["Plavix"],
+            "product_tty": "SBD",
+        },
+    ), patch("routes.details._resolve_history_identifier", return_value={"history_ndc": None, "history_source": None}):
+        response = client.get("/api/pill/plavix-75-1171")
+
+    assert response.status_code == 200
+    assert response.json()["brand_or_generic"] == "generic"
 
 
 def test_api_pill_slug_includes_pronunciation_when_available(client):

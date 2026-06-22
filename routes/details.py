@@ -811,6 +811,9 @@ def get_pill_by_slug(slug: str):
                     pill_info.get("medicine_name") or "",
                 )
                 mapped["is_brand_row"] = (synonyms.get("product_tty") in ("SBD", "BPCK"))
+            mapped["brand_or_generic"] = pill_info.get("brand_or_generic") or (
+                "brand" if mapped.get("is_brand_row") else None
+            )
 
             history_resolution = _resolve_history_identifier(
                 conn,

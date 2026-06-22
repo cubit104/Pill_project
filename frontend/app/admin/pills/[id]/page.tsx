@@ -27,7 +27,7 @@ const SECTION_GROUPS: { section: string; title: string; keys: string[] }[] = [
   {
     section: 'MediaSEO',
     title: 'Media & SEO',
-    keys: ['image_alt_text', 'meta_title', 'meta_description', 'tags', 'brand_names'],
+    keys: ['image_alt_text', 'meta_title', 'meta_description', 'tags', 'brand_names', 'brand_or_generic'],
   },
   {
     section: 'Advanced',
@@ -1114,7 +1114,7 @@ export default function EditPillPage() {
               'medicine_name', 'author', 'splcolor_text', 'splshape_text', 'dosage_form',
               'route', 'spl_ingredients', 'spl_inactive_ing', 'dea_schedule_name',
               'status_rx_otc', 'pharmclass_fda_epc', 'rxcui_1', 'imprint_status',
-              'tags', 'brand_names',
+              'tags', 'brand_names', 'brand_or_generic',
             ] as const
             const copiedFields: Record<string, string> = {}
             for (const key of DUPLICATE_FIELDS) {

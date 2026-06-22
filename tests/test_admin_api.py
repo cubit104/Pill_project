@@ -385,29 +385,31 @@ def test_list_pills_sort_order_puts_unnamed_last(client):
 
 
 # ---------------------------------------------------------------------------
-# New fields — image_alt_text and tags accepted in create/update payloads
+# New fields — image_alt_text, tags, and brand_or_generic accepted in create/update payloads
 # ---------------------------------------------------------------------------
 
-def test_pill_create_accepts_image_alt_text_and_tags(client):
-    """POST /api/admin/pills should accept image_alt_text and tags fields."""
+def test_pill_create_accepts_image_alt_text_tags_and_brand_or_generic(client):
+    """POST /api/admin/pills should accept image_alt_text, tags, and brand_or_generic fields."""
     mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
-
-    call_count = [0]
 
     def side_effect(sql, *args, **kwargs):
         result = MagicMock()
-        call_count[0] += 1
-        if call_count[0] == 1:
-            result.fetchone.return_value = FAKE_ADMIN_ROW
-        elif call_count[0] == 2:
+        sql_str = str(sql).lower()
+        if "from profiles" in sql_str:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "idempotency_key" in sql_str and "select" in sql_str:
             # idempotency_key check — no existing row
             result.fetchone.return_value = None
-        else:
+        elif "insert into pillfinder" in sql_str:
             # INSERT RETURNING id
             result.scalar.return_value = "new-pill-uuid"
+        else:
+            result.fetchone.return_value = None
+            result.scalar.return_value = 0
+            result.fetchall.return_value = []
         return result
 
-    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
+    mock_conn.execute.side_effect = side_effect
 
     import database as db_module
     db_module.db_engine = mock_engine
@@ -419,6 +421,7 @@ def test_pill_create_accepts_image_alt_text_and_tags(client):
                 "medicine_name": "TestDrug",
                 "image_alt_text": "White oval pill imprinted MP 45",
                 "tags": "painkiller, analgesic",
+                "brand_or_generic": "brand",
             },
             headers={"Authorization": "Bearer faketoken"},
         )
@@ -436,6 +439,9 @@ def test_pill_create_accepts_image_alt_text_and_tags(client):
     )
     assert any("tags" in sql for sql in insert_calls), (
         "tags must be included in the INSERT statement"
+    )
+    assert any("brand_or_generic" in sql for sql in insert_calls), (
+        "brand_or_generic must be included in the INSERT statement"
     )
 
 
@@ -599,8 +605,8 @@ def test_pill_update_without_rxcui_uses_existing_rxcui_for_synonym_resolver(clie
     assert resolver_mock.call_args.args[1] == "12345"
 
 
-def test_pill_update_accepts_image_alt_text_and_tags(client):
-    """PUT /api/admin/pills/{id} should accept image_alt_text and tags fields."""
+def test_pill_update_accepts_image_alt_text_tags_and_brand_or_generic(client):
+    """PUT /api/admin/pills/{id} should accept image_alt_text, tags, and brand_or_generic fields."""
     from datetime import datetime, timezone
 
     mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
@@ -614,24 +620,26 @@ def test_pill_update_accepts_image_alt_text_and_tags(client):
     before_row._fields = ["id", "medicine_name", "image_alt_text", "tags"]
     before_row.__iter__ = MagicMock(return_value=iter(["pill-id", "OldName", None, None]))
 
-    call_count = [0]
-
     def side_effect(sql, *args, **kwargs):
         result = MagicMock()
-        call_count[0] += 1
-        if call_count[0] == 1:
-            result.fetchone.return_value = FAKE_ADMIN_ROW
-        elif call_count[0] == 2:
+        sql_str = str(sql).lower()
+        if "from profiles" in sql_str:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "select updated_at from pillfinder" in sql_str:
             # updated_at check
             result.fetchone.return_value = pill_row
-        elif call_count[0] == 3:
+        elif "select * from pillfinder where id = :id" in sql_str:
             # before-snapshot SELECT *
             result.fetchone.return_value = before_row
+        elif "update pillfinder" in sql_str:
+            result.fetchone.return_value = None
         else:
             result.fetchone.return_value = None
+            result.scalar.return_value = 0
+            result.fetchall.return_value = []
         return result
 
-    mock_conn.execute.side_effect = _with_profiles_auth(side_effect)
+    mock_conn.execute.side_effect = side_effect
 
     import database as db_module
     db_module.db_engine = mock_engine
@@ -642,6 +650,7 @@ def test_pill_update_accepts_image_alt_text_and_tags(client):
             json={
                 "image_alt_text": "White oval pill imprinted MP 45",
                 "tags": "painkiller, analgesic",
+                "brand_or_generic": "generic",
                 "updated_at": "2024-06-01T12:00:00+00:00",
             },
             headers={"Authorization": "Bearer faketoken"},
@@ -660,6 +669,9 @@ def test_pill_update_accepts_image_alt_text_and_tags(client):
     )
     assert any("tags" in sql for sql in update_calls), (
         "tags must be included in the UPDATE statement"
+    )
+    assert any("brand_or_generic" in sql for sql in update_calls), (
+        "brand_or_generic must be included in the UPDATE statement"
     )
 
 

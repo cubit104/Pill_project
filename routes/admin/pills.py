@@ -6,7 +6,7 @@ import logging
 import time
 import datetime
 from datetime import timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -35,7 +35,7 @@ EDITABLE_FIELDS = [
     "medicine_name", "author", "brand_names", "splimprint", "splcolor_text", "splshape_text",
     "splsize", "spl_strength", "spl_ingredients", "spl_inactive_ing", "dosage_form",
     "route", "dea_schedule_name", "pharmclass_fda_epc", "ndc9", "ndc11", "rxcui",
-    "rxcui_1", "status_rx_otc", "imprint_status", "slug", "meta_title", "meta_description",
+    "rxcui_1", "status_rx_otc", "brand_or_generic", "imprint_status", "slug", "meta_title", "meta_description",
     "image_filename", "has_image", "image_alt_text", "tags",
 ]
 
@@ -120,6 +120,7 @@ class PillCreate(BaseModel):
     rxcui: Optional[str] = None
     rxcui_1: Optional[str] = None
     status_rx_otc: Optional[str] = None
+    brand_or_generic: Optional[Literal["brand", "generic"]] = None
     imprint_status: Optional[str] = None
     slug: Optional[str] = None
     meta_title: Optional[str] = None
