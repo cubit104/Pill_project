@@ -779,7 +779,6 @@ def test_api_pill_slug_always_includes_synonym_keys_when_unmapped(client):
 def test_api_pill_slug_prefers_explicit_brand_or_generic_from_pill_row(client):
     import database as db_module
 
-    pill_row = ("Plavix", "75", "Pink", "Round", "63653-1171-01", "174742", None, "plavix-75-1171", None, "generic")
     pill_columns = [
         "medicine_name",
         "splimprint",
@@ -792,6 +791,19 @@ def test_api_pill_slug_prefers_explicit_brand_or_generic_from_pill_row(client):
         "meta_description",
         "brand_or_generic",
     ]
+    pill_values = {
+        "medicine_name": "Plavix",
+        "splimprint": "75",
+        "splcolor_text": "Pink",
+        "splshape_text": "Round",
+        "ndc11": "63653-1171-01",
+        "rxcui": "174742",
+        "image_filename": None,
+        "slug": "plavix-75-1171",
+        "meta_description": None,
+        "brand_or_generic": "generic",
+    }
+    pill_row = tuple(pill_values[col] for col in pill_columns)
 
     def side_effect(sql, params=None, *args, **kwargs):
         sql_str = str(sql).lower()
