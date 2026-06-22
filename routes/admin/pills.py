@@ -10,7 +10,7 @@ from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 import bleach
@@ -129,6 +129,14 @@ class PillCreate(BaseModel):
     image_alt_text: Optional[str] = None
     tags: Optional[str] = None
     idempotency_key: Optional[str] = None
+
+    @field_validator("brand_or_generic", mode="before")
+    @classmethod
+    def normalize_brand_or_generic(cls, v):
+        if v is None:
+            return None
+        normalized = str(v).strip().lower()
+        return normalized if normalized else None
 
 
 class PillUpdate(PillCreate):
