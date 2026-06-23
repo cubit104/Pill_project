@@ -1,7 +1,7 @@
 """Admin user management endpoints (superuser only).
 
 Uses the Supabase Admin API (service_role key) to manage auth.users, then keeps
-public.profiles.user_role in sync. The auto-insert trigger on auth.users guarantees
+public.profiles.role in sync. The auto-insert trigger on auth.users guarantees
 a profiles row exists for every new user (with default role 'reviewer'); we update
 it after creation to the requested role.
 
@@ -112,9 +112,9 @@ def list_users(admin: dict = Depends(require_superuser)):
     try:
         with database.db_engine.connect() as conn:
             rows = conn.execute(
-                text("SELECT id::text, user_role, full_name FROM profiles")
+                text("SELECT id::text, role, full_name FROM profiles")
             ).fetchall()
-        profiles = {str(r[0]): {"user_role": r[1], "full_name": r[2]} for r in rows}
+        profiles = {str(r[0]): {"role": r[1], "full_name": r[2]} for r in rows}
     except SQLAlchemyError as e:
         logger.error(f"list_users profiles DB error: {e}")
         profiles = {}
@@ -122,7 +122,7 @@ def list_users(admin: dict = Depends(require_superuser)):
     result = []
     for uid, auth_u in auth_users.items():
         prof = profiles.get(uid, {})
-        raw_role = prof.get("user_role") or "reviewer"
+        raw_role = prof.get("role") or "reviewer"
         if raw_role == "superadmin":
             raw_role = "superuser"
         result.append({
@@ -190,10 +190,10 @@ def create_user(
         with database.db_engine.begin() as conn:
             conn.execute(
                 text("""
-                    INSERT INTO profiles (id, user_role, full_name)
+                    INSERT INTO profiles (id, role, full_name)
                     VALUES (:id, :role, :full_name)
                     ON CONFLICT (id) DO UPDATE
-                      SET user_role = :role,
+                      SET role = :role,
                           full_name = COALESCE(:full_name, profiles.full_name)
                 """),
                 {"id": user_id, "role": body.role, "full_name": body.full_name},
@@ -255,7 +255,7 @@ def update_user(
         try:
             with database.db_engine.begin() as conn:
                 conn.execute(
-                    text("UPDATE profiles SET user_role = :role WHERE id = :id"),
+                    text("UPDATE profiles SET role = :role WHERE id = :id"),
                     {"role": body.role, "id": user_id},
                 )
                 log_audit(
