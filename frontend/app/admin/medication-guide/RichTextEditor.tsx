@@ -40,11 +40,11 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
 
   useEffect(() => {
     setSourceHtml(content || '')
-    if (editor && content !== lastSyncedContentRef.current) {
+    if (!isSourceMode && editor && content !== lastSyncedContentRef.current) {
       editor.commands.setContent(content || '', false)
       lastSyncedContentRef.current = content || ''
     }
-  }, [content, editor])
+  }, [content, editor, isSourceMode])
 
   // Sync source HTML back to Tiptap editor only when leaving source mode
   useEffect(() => {
@@ -77,6 +77,9 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
     const href = /^https?:\/\//i.test(rawValue) ? rawValue : `https://${rawValue}`
     try {
       const validated = new URL(href)
+      if (validated.protocol !== 'http:' && validated.protocol !== 'https:') {
+        throw new Error('Invalid URL protocol')
+      }
       editor.chain().focus().extendMarkRange('link').setLink({ href: validated.toString() }).run()
       setShowLinkInput(false)
       setLinkError('')
