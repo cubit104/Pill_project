@@ -2,9 +2,11 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { sanitizeRenderedHtml } from '../../(public)/pill/[slug]/medication-guide/sanitizeRenderedHtml'
 import { createClient } from '../lib/supabase'
+import RichTextEditor from './RichTextEditor'
 
 type GuideSearchRow = {
   id: string
@@ -47,6 +49,9 @@ type GuideStatus = {
 }
 
 type TabKey = 'professional' | 'medguide' | 'dosage' | 'side_effects'
+type ViewMode = 'edit' | 'preview'
+
+type SuggestionItem = string | { label: string; kind?: string; generic?: string }
 
 const TAB_LABELS: Record<TabKey, string> = {
   professional: 'Professional',
@@ -56,6 +61,9 @@ const TAB_LABELS: Record<TabKey, string> = {
 }
 
 const STATUS_DOT = (ok: boolean) => (ok ? '✅' : '❌')
+
+const SUGGESTION_DEBOUNCE_MS = 120
+const SUGGESTION_CLOSE_DELAY_MS = 150
 
 export default function MedicationGuideAdminPage() {
   const router = useRouter()
@@ -76,12 +84,22 @@ export default function MedicationGuideAdminPage() {
 
   const [splSetIdInput, setSplSetIdInput] = useState('')
   const [activeTab, setActiveTab] = useState<TabKey>('professional')
+  const [viewMode, setViewMode] = useState<ViewMode>('edit')
   const [tabDrafts, setTabDrafts] = useState<Record<TabKey, string>>({
     professional: '',
     medguide: '',
     dosage: '',
     side_effects: '',
   })
+
+  // Suggestion dropdown state
+  const [suggestions, setSuggestions] = useState<SuggestionItem[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [highlightedIndex, setHighlightedIndex] = useState(-1)
+  const suggestDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const suggestionsRef = useRef<HTMLUListElement>(null)
 
   const getToken = useCallback(async () => {
     const supabase = createClient()
@@ -124,6 +142,18 @@ export default function MedicationGuideAdminPage() {
     }
   }, [getToken])
 
+  // Fetch suggestions from the same /suggestions API used on the homepage
+  const fetchSuggestions = useCallback(async (q: string) => {
+    if (q.length < 2) { setSuggestions([]); return }
+    try {
+      const res = await fetch(`/suggestions?q=${encodeURIComponent(q)}&type=drug`)
+      if (res.ok) {
+        const data: SuggestionItem[] = await res.json()
+        setSuggestions(data.slice(0, 8))
+      }
+    } catch { setSuggestions([]) }
+  }, [])
+
   const loadStatus = useCallback(async (pillId: string) => {
     const token = await getToken()
     if (!token) return
@@ -151,9 +181,26 @@ export default function MedicationGuideAdminPage() {
     }
   }, [getToken])
 
+  // Initial load
   useEffect(() => {
     runSearch(1, '', false)
   }, [runSearch])
+
+  // Debounced suggestions — triggers 120ms after user stops typing
+  useEffect(() => {
+    if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current)
+    suggestDebounceRef.current = setTimeout(() => {
+      fetchSuggestions(searchTerm)
+    }, SUGGESTION_DEBOUNCE_MS)
+    return () => {
+      if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current)
+    }
+  }, [searchTerm, fetchSuggestions])
+
+  // Cleanup blur timeout
+  useEffect(() => {
+    return () => { if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current) }
+  }, [])
 
   useEffect(() => {
     if (!selectedPillId) {
@@ -174,6 +221,50 @@ export default function MedicationGuideAdminPage() {
 
   const updateTabDraft = (tab: TabKey, value: string) => {
     setTabDrafts((prev) => ({ ...prev, [tab]: value }))
+  }
+
+  const getSuggestionLabel = (item: SuggestionItem): string => {
+    return typeof item === 'string' ? item : item.label
+  }
+
+  const getSuggestionGeneric = (item: SuggestionItem): string | undefined => {
+    return typeof item === 'string' ? undefined : item.generic
+  }
+
+  const handleSelectSuggestion = (label: string) => {
+    setSearchTerm(label)
+    setShowSuggestions(false)
+    setSuggestions([])
+    setHighlightedIndex(-1)
+    runSearch(1, label, missingOnly)
+  }
+
+  const handleSearchSubmit = () => {
+    setShowSuggestions(false)
+    setSuggestions([])
+    setHighlightedIndex(-1)
+    runSearch(1, searchTerm, missingOnly)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {
+        const picked = getSuggestionLabel(suggestions[highlightedIndex])
+        handleSelectSuggestion(picked)
+      } else {
+        handleSearchSubmit()
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setHighlightedIndex((prev) => Math.min(prev + 1, suggestions.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setHighlightedIndex((prev) => Math.max(prev - 1, -1))
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false)
+      setHighlightedIndex(-1)
+    }
   }
 
   const saveSetId = async () => {
@@ -303,6 +394,12 @@ export default function MedicationGuideAdminPage() {
     side_effects: { ok: !!status?.has_side_effects, chars: status?.side_effects_chars || 0 },
   }
 
+  const activeTabContent = tabDrafts[activeTab] || ''
+  const sanitizedPreviewHtml = useMemo(
+    () => sanitizeRenderedHtml(activeTabContent),
+    [activeTabContent]
+  )
+
   return (
     <div className="space-y-6">
       <div>
@@ -312,24 +409,66 @@ export default function MedicationGuideAdminPage() {
 
       {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-2 rounded-md">{error}</div>}
 
-      <form
-        className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault()
-          runSearch(1, searchTerm, missingOnly)
-        }}
-      >
+      <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm space-y-3">
         <div className="flex flex-col md:flex-row gap-3">
-          <input
-            className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm"
-            placeholder="Search drug name"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+          <div className="relative flex-1">
+            <label htmlFor="guide-search-input" className="sr-only">Drug name search</label>
+            <input
+              id="guide-search-input"
+              ref={inputRef}
+              type="text"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              placeholder="Search drug name…"
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setShowSuggestions(true); setHighlightedIndex(-1) }}
+              onKeyDown={handleKeyDown}
+              onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true) }}
+              onBlur={() => {
+                if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current)
+                blurTimeoutRef.current = setTimeout(() => setShowSuggestions(false), SUGGESTION_CLOSE_DELAY_MS)
+              }}
+              aria-autocomplete="list"
+              aria-controls="guide-suggestions-list"
+              aria-expanded={showSuggestions && suggestions.length > 0}
+            />
+            {showSuggestions && suggestions.length > 0 && (
+              <ul
+                id="guide-suggestions-list"
+                ref={suggestionsRef}
+                role="listbox"
+                className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto"
+              >
+                {suggestions.map((suggestion, index) => {
+                  const label = getSuggestionLabel(suggestion)
+                  const generic = getSuggestionGeneric(suggestion)
+                  return (
+                    <li
+                      key={`${label}-${index}`}
+                      role="option"
+                      aria-selected={index === highlightedIndex}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        handleSelectSuggestion(label)
+                      }}
+                      className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
+                        index === highlightedIndex ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className="font-medium">{label}</span>
+                      {generic && generic !== label && (
+                        <span className="ml-2 text-xs text-gray-400">({generic})</span>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
           <button
-            type="submit"
+            type="button"
             className="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700"
             disabled={loading}
+            onClick={handleSearchSubmit}
           >
             Search
           </button>
@@ -338,11 +477,11 @@ export default function MedicationGuideAdminPage() {
           <input
             type="checkbox"
             checked={missingOnly}
-            onChange={(e) => setMissingOnly(e.target.checked)}
+            onChange={(e) => { setMissingOnly(e.target.checked); runSearch(1, searchTerm, !missingOnly) }}
           />
           Show only missing SPL Set ID
         </label>
-      </form>
+      </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
         <div className="xl:col-span-2 bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
@@ -437,11 +576,34 @@ export default function MedicationGuideAdminPage() {
                 </div>
 
                 <div className="p-3 space-y-2">
-                  <textarea
-                    className="w-full min-h-[260px] border border-gray-300 rounded-md p-3 text-xs font-mono"
-                    value={tabDrafts[activeTab]}
-                    onChange={(e) => updateTabDraft(activeTab, e.target.value)}
-                  />
+                  <div className="flex gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('edit')}
+                      className={`px-3 py-1 rounded-md text-sm border ${viewMode === 'edit' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300'}`}
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('preview')}
+                      className={`px-3 py-1 rounded-md text-sm border ${viewMode === 'preview' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300'}`}
+                    >
+                      👁️ Preview
+                    </button>
+                  </div>
+                  {viewMode === 'edit' ? (
+                    <RichTextEditor
+                      content={tabDrafts[activeTab]}
+                      onChange={(html) => updateTabDraft(activeTab, html)}
+                      placeholder={`Edit ${TAB_LABELS[activeTab]} HTML content...`}
+                    />
+                  ) : (
+                    <div
+                      className="prose prose-sm max-w-none p-4 border rounded bg-white min-h-[200px]"
+                      dangerouslySetInnerHTML={{ __html: sanitizedPreviewHtml }}
+                    />
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
