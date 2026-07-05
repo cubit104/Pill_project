@@ -78,8 +78,10 @@ export function middleware(req: NextRequest) {
     }
   }
 
+  const ADMIN_PASSTHROUGH_PATHS = ['/admin', '/api', '/suggestions', '/filters']
+
   if (adminEnabled) {
-    if (pathname.startsWith('/admin') || pathname.startsWith('/api')) {
+    if (ADMIN_PASSTHROUGH_PATHS.some((p) => pathname.startsWith(p))) {
       return NextResponse.next()
     }
     return NextResponse.redirect(new URL('/admin/login', req.url))
