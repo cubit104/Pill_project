@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import DOMPurify from 'dompurify'
 import { createClient } from '../lib/supabase'
@@ -60,6 +60,8 @@ const TAB_LABELS: Record<TabKey, string> = {
 
 const STATUS_DOT = (ok: boolean) => (ok ? '✅' : '❌')
 
+const DEBOUNCE_MS = 300
+
 export default function MedicationGuideAdminPage() {
   const router = useRouter()
 
@@ -86,6 +88,8 @@ export default function MedicationGuideAdminPage() {
     dosage: '',
     side_effects: '',
   })
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const getToken = useCallback(async () => {
     const supabase = createClient()
@@ -155,9 +159,21 @@ export default function MedicationGuideAdminPage() {
     }
   }, [getToken])
 
+  // Initial load
   useEffect(() => {
     runSearch(1, '', false)
   }, [runSearch])
+
+  // Debounced live search — triggers 300ms after user stops typing
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      runSearch(1, searchTerm, missingOnly)
+    }, DEBOUNCE_MS)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [searchTerm, missingOnly, runSearch])
 
   useEffect(() => {
     if (!selectedPillId) {
@@ -317,27 +333,15 @@ export default function MedicationGuideAdminPage() {
 
       {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-2 rounded-md">{error}</div>}
 
-      <form
-        className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault()
-          runSearch(1, searchTerm, missingOnly)
-        }}
-      >
+      <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm space-y-3">
         <div className="flex flex-col md:flex-row gap-3">
           <input
             className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm"
-            placeholder="Search drug name"
+            placeholder="Search drug name (live search)"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
-          <button
-            type="submit"
-            className="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700"
-            disabled={loading}
-          >
-            Search
-          </button>
+          {loading && <span className="text-xs text-gray-400 self-center">Searching…</span>}
         </div>
         <label className="inline-flex items-center gap-2 text-sm text-gray-700">
           <input
@@ -347,7 +351,7 @@ export default function MedicationGuideAdminPage() {
           />
           Show only missing SPL Set ID
         </label>
-      </form>
+      </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
         <div className="xl:col-span-2 bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
