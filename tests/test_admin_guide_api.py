@@ -236,7 +236,7 @@ def test_refetch_requires_superuser(client):
         resp = client.post(
             "/api/admin/guide/pill-1/refetch",
             json={"target": "all"},
-            headers={"Authorization": "Bearer "  + "faketoken"},
+            headers={"Authorization": "Bearer " + "faketoken"},
         )
 
     assert resp.status_code == 403
@@ -282,7 +282,7 @@ def test_refetch_triggers_build_guide_and_returns_status(client):
         resp = client.post(
             "/api/admin/guide/pill-1/refetch",
             json={"target": "all"},
-            headers={"Authorization": "Bearer "  + "faketoken"},
+            headers={"Authorization": "Bearer " + "faketoken"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -336,7 +336,7 @@ def test_content_update_persists_and_returns_updated_field(client):
         resp = client.put(
             "/api/admin/guide/pill-1/content",
             json={"field": "medguide_html", "content": "<p>manual content</p>"},
-            headers={"Authorization": "Bearer "  + "faketoken"},
+            headers={"Authorization": "Bearer " + "faketoken"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -361,7 +361,7 @@ def test_content_update_requires_superuser(client):
         resp = client.put(
             "/api/admin/guide/pill-1/content",
             json={"field": "medguide_html", "content": "<p>manual</p>"},
-            headers={"Authorization": "Bearer "  + "faketoken"},
+            headers={"Authorization": "Bearer " + "faketoken"},
         )
 
     assert resp.status_code == 403
@@ -407,7 +407,7 @@ def test_clear_cache_deletes_guide_row_and_logs_audit(client):
     ):
         resp = client.post(
             "/api/admin/guide/pill-1/clear-cache",
-            headers={"Authorization": "Bearer "  + "faketoken"},
+            headers={"Authorization": "Bearer " + "faketoken"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -433,7 +433,7 @@ def test_clear_cache_requires_superuser(client):
     with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR["id"]}):
         resp = client.post(
             "/api/admin/guide/pill-1/clear-cache",
-            headers={"Authorization": "Bearer "  + "faketoken"},
+            headers={"Authorization": "Bearer " + "faketoken"},
         )
 
     assert resp.status_code == 403
