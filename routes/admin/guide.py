@@ -693,8 +693,6 @@ def upsert_guide_content(
 
             before_value = guide.get(field)
             params: dict[str, Any] = {"id": guide["id"], "content": content}
-
-            set_clauses = [f"{field} = :content", "updated_at = now()"]
             metadata: dict[str, Any] = {"source": "manual", "field": field}
 
             manual_flag_col = f"manual_override_{field}"
@@ -702,27 +700,163 @@ def upsert_guide_content(
             has_manual_overrides_col = _column_exists(conn, table="medication_guide", column="manual_overrides")
 
             if has_manual_flag_col:
-                set_clauses.append(f"{manual_flag_col} = true")
                 metadata["manual_override_column"] = manual_flag_col
+                if field == "professional_html":
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE public.medication_guide
+                            SET professional_html = :content,
+                                manual_override_professional_html = true,
+                                updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
+                elif field == "medguide_html":
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE public.medication_guide
+                            SET medguide_html = :content,
+                                manual_override_medguide_html = true,
+                                updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
+                elif field == "dosage_administration":
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE public.medication_guide
+                            SET dosage_administration = :content,
+                                manual_override_dosage_administration = true,
+                                updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
+                else:
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE public.medication_guide
+                            SET adverse_reactions = :content,
+                                manual_override_adverse_reactions = true,
+                                updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
             elif has_manual_overrides_col:
-                set_clauses.append(
-                    "manual_overrides = COALESCE(manual_overrides, '{}'::jsonb) || jsonb_build_object(:manual_field, true)"
-                )
-                params["manual_field"] = field
                 metadata["manual_override_column"] = "manual_overrides"
+                if field == "professional_html":
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE public.medication_guide
+                            SET professional_html = :content,
+                                manual_overrides = COALESCE(manual_overrides, '{}'::jsonb) || jsonb_build_object('professional_html', true),
+                                updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
+                elif field == "medguide_html":
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE public.medication_guide
+                            SET medguide_html = :content,
+                                manual_overrides = COALESCE(manual_overrides, '{}'::jsonb) || jsonb_build_object('medguide_html', true),
+                                updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
+                elif field == "dosage_administration":
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE public.medication_guide
+                            SET dosage_administration = :content,
+                                manual_overrides = COALESCE(manual_overrides, '{}'::jsonb) || jsonb_build_object('dosage_administration', true),
+                                updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
+                else:
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE public.medication_guide
+                            SET adverse_reactions = :content,
+                                manual_overrides = COALESCE(manual_overrides, '{}'::jsonb) || jsonb_build_object('adverse_reactions', true),
+                                updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
             else:
                 metadata["manual_override_column"] = None
-
-            conn.execute(
-                text(
-                    f"""
-                    UPDATE public.medication_guide
-                    SET {', '.join(set_clauses)}
-                    WHERE id = :id
-                    """
-                ),
-                params,
-            )
+                if field == "professional_html":
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE public.medication_guide
+                            SET professional_html = :content,
+                                updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
+                elif field == "medguide_html":
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE public.medication_guide
+                            SET medguide_html = :content,
+                                updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
+                elif field == "dosage_administration":
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE public.medication_guide
+                            SET dosage_administration = :content,
+                                updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
+                else:
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE public.medication_guide
+                            SET adverse_reactions = :content,
+                                updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
 
             log_audit(
                 conn,

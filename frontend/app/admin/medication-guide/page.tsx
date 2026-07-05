@@ -95,7 +95,7 @@ export default function MedicationGuideAdminPage() {
     return session.access_token
   }, [router])
 
-  const runSearch = useCallback(async (targetPage = 1) => {
+  const runSearch = useCallback(async (targetPage = 1, term = '', missing = false) => {
     const token = await getToken()
     if (!token) return
 
@@ -103,11 +103,11 @@ export default function MedicationGuideAdminPage() {
     setError('')
     try {
       const params = new URLSearchParams({
-        q: searchTerm,
+        q: term,
         page: String(targetPage),
         per_page: String(perPage),
       })
-      if (missingOnly) params.set('missing_only', 'true')
+      if (missing) params.set('missing_only', 'true')
 
       const res = await fetch(`/api/admin/guide/search?${params.toString()}`, {
         headers: { Authorization: 'Bearer ' + token },
@@ -122,7 +122,7 @@ export default function MedicationGuideAdminPage() {
     } finally {
       setLoading(false)
     }
-  }, [getToken, missingOnly, searchTerm])
+  }, [getToken])
 
   const loadStatus = useCallback(async (pillId: string) => {
     const token = await getToken()
@@ -152,7 +152,7 @@ export default function MedicationGuideAdminPage() {
   }, [getToken])
 
   useEffect(() => {
-    runSearch(1)
+    runSearch(1, '', false)
   }, [runSearch])
 
   useEffect(() => {
@@ -191,7 +191,7 @@ export default function MedicationGuideAdminPage() {
         body: JSON.stringify({ spl_set_id: splSetIdInput }),
       })
       if (!res.ok) throw new Error('Failed to save SPL Set ID')
-      await Promise.all([loadStatus(selectedPillId), runSearch(page)])
+      await Promise.all([loadStatus(selectedPillId), runSearch(page, searchTerm, missingOnly)])
     } catch (e) {
       setError(String(e))
     }
@@ -240,7 +240,7 @@ export default function MedicationGuideAdminPage() {
         dosage: data.dosage_administration || '',
         side_effects: data.adverse_reactions || data.side_effects || '',
       })
-      await runSearch(page)
+      await runSearch(page, searchTerm, missingOnly)
     } catch (e) {
       setError(String(e))
     }
@@ -271,7 +271,7 @@ export default function MedicationGuideAdminPage() {
       if (!res.ok) throw new Error(`Save failed (${TAB_LABELS[tab]})`)
       const data: GuideStatus = await res.json()
       setStatus(data)
-      await runSearch(page)
+      await runSearch(page, searchTerm, missingOnly)
     } catch (e) {
       setError(String(e))
     }
@@ -290,7 +290,7 @@ export default function MedicationGuideAdminPage() {
         headers: { Authorization: 'Bearer ' + token },
       })
       if (!res.ok) throw new Error('Clear cache failed')
-      await Promise.all([loadStatus(selectedPillId), runSearch(page)])
+      await Promise.all([loadStatus(selectedPillId), runSearch(page, searchTerm, missingOnly)])
     } catch (e) {
       setError(String(e))
     }
@@ -316,7 +316,7 @@ export default function MedicationGuideAdminPage() {
         className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm space-y-3"
         onSubmit={(e) => {
           e.preventDefault()
-          runSearch(1)
+          runSearch(1, searchTerm, missingOnly)
         }}
       >
         <div className="flex flex-col md:flex-row gap-3">
@@ -383,7 +383,7 @@ export default function MedicationGuideAdminPage() {
                 type="button"
                 className="px-2 py-1 border rounded disabled:opacity-50"
                 disabled={page <= 1 || loading}
-                onClick={() => runSearch(page - 1)}
+                onClick={() => runSearch(page - 1, searchTerm, missingOnly)}
               >
                 Prev
               </button>
@@ -391,7 +391,7 @@ export default function MedicationGuideAdminPage() {
                 type="button"
                 className="px-2 py-1 border rounded disabled:opacity-50"
                 disabled={page >= totalPages || loading}
-                onClick={() => runSearch(page + 1)}
+                onClick={() => runSearch(page + 1, searchTerm, missingOnly)}
               >
                 Next
               </button>
