@@ -340,7 +340,7 @@ export default function MedicationGuideAdminPage() {
             checked={missingOnly}
             onChange={(e) => setMissingOnly(e.target.checked)}
           />
-          Show only missing content
+          Show only missing SPL Set ID
         </label>
       </form>
 

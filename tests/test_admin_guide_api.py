@@ -41,11 +41,6 @@ def client():
             yield c
 
 
-def _mock_auth_with_role(role: str):
-    user = FAKE_SUPERUSER if role == "superuser" else FAKE_EDITOR
-    return patch("routes.admin.auth.get_admin_user", return_value=user)
-
-
 def test_admin_guide_endpoints_require_auth(client):
     with patch("routes.admin.auth._verify_jwt", return_value=None):
         assert client.get("/api/admin/guide/search").status_code == 401
@@ -187,3 +182,258 @@ def test_lookup_setid_prefers_drug_name_then_stops(client):
         "source": "drug_name",
     }
     lookup_mock.assert_awaited_once_with(key="drug_name", value="Ubrelvy")
+
+
+def _make_pill_row():
+    row = MagicMock()
+    row._mapping = {
+        "id": "pill-1",
+        "medicine_name": "Ubrelvy",
+        "spl_strength": "50 mg",
+        "rxcui": "12345",
+        "ndc11": "00023649707",
+        "ndc9": "000236497",
+        "spl_set_id": "fd9f9458-fd96-4688-be3f-f77b3d1af6ab",
+        "slug": "ubrelvy-50-mg",
+    }
+    return row
+
+
+def _make_guide_row():
+    row = MagicMock()
+    row._mapping = {
+        "id": "guide-1",
+        "spl_set_id": "fd9f9458-fd96-4688-be3f-f77b3d1af6ab",
+        "rxcui": "12345",
+        "ndc": "00023649707",
+        "brand_name": "Ubrelvy",
+        "generic_name": "ubrogepant",
+        "source_url": None,
+        "fetched_at": None,
+        "professional_html": "<p>professional</p>",
+        "medguide_html": None,
+        "dosage_administration": "<p>dosage</p>",
+        "adverse_reactions": None,
+        "side_effects": None,
+        "updated_at": None,
+    }
+    return row
+
+
+def test_refetch_requires_superuser(client):
+    mock_engine = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR["id"]}):
+        resp = client.post(
+            "/api/admin/guide/pill-1/refetch",
+            json={"target": "all"},
+            headers={"Authorization": "Bearer "  + "faketoken"},
+        )
+
+    assert resp.status_code == 403
+
+
+def test_refetch_triggers_build_guide_and_returns_status(client):
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    pill_row = _make_pill_row()
+    guide_row = _make_guide_row()
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        if "from profiles" in sql_str:
+            result.fetchone.return_value = ("superuser",)
+        elif "from pillfinder" in sql_str:
+            result.fetchone.return_value = pill_row
+        elif "from public.medication_guide" in sql_str:
+            result.fetchone.return_value = guide_row
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_SUPERUSER["id"]}), patch(
+        "routes.admin.guide.build_guide", new=AsyncMock(return_value=None)
+    ) as build_mock, patch(
+        "routes.admin.guide.log_audit", return_value=None
+    ):
+        resp = client.post(
+            "/api/admin/guide/pill-1/refetch",
+            json={"target": "all"},
+            headers={"Authorization": "Bearer "  + "faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["pill_id"] == "pill-1"
+    assert data["has_professional"] is True
+    assert data["has_medguide"] is False
+    build_mock.assert_awaited_once()
+    call_kwargs = build_mock.call_args.kwargs
+    assert call_kwargs["spl_set_id"] == "fd9f9458-fd96-4688-be3f-f77b3d1af6ab"
+    assert call_kwargs["force_refresh"] is True
+
+
+def test_content_update_persists_and_returns_updated_field(client):
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    pill_row = _make_pill_row()
+    guide_row = _make_guide_row()
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        if "from profiles" in sql_str:
+            result.fetchone.return_value = ("superuser",)
+        elif "from pillfinder" in sql_str:
+            result.fetchone.return_value = pill_row
+        elif "information_schema.columns" in sql_str:
+            result.scalar.return_value = 0
+        elif "from public.medication_guide" in sql_str:
+            result.fetchone.return_value = guide_row
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_SUPERUSER["id"]}), patch(
+        "routes.admin.guide.log_audit", return_value=None
+    ):
+        resp = client.put(
+            "/api/admin/guide/pill-1/content",
+            json={"field": "medguide_html", "content": "<p>manual content</p>"},
+            headers={"Authorization": "Bearer "  + "faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["pill_id"] == "pill-1"
+    assert data["updated_field"] == "medguide_html"
+
+
+def test_content_update_requires_superuser(client):
+    mock_engine = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR["id"]}):
+        resp = client.put(
+            "/api/admin/guide/pill-1/content",
+            json={"field": "medguide_html", "content": "<p>manual</p>"},
+            headers={"Authorization": "Bearer "  + "faketoken"},
+        )
+
+    assert resp.status_code == 403
+
+
+def test_clear_cache_deletes_guide_row_and_logs_audit(client):
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    pill_row = _make_pill_row()
+    guide_row = _make_guide_row()
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        if "from profiles" in sql_str:
+            result.fetchone.return_value = ("superuser",)
+        elif "from pillfinder" in sql_str:
+            result.fetchone.return_value = pill_row
+        elif "from public.medication_guide" in sql_str:
+            result.fetchone.return_value = guide_row
+        else:
+            result.fetchone.return_value = None
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+
+    db_module.db_engine = mock_engine
+
+    audit_calls = []
+
+    def capture_audit(conn, **kwargs):
+        audit_calls.append(kwargs)
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_SUPERUSER["id"]}), patch(
+        "routes.admin.guide.log_audit", side_effect=capture_audit
+    ):
+        resp = client.post(
+            "/api/admin/guide/pill-1/clear-cache",
+            headers={"Authorization": "Bearer "  + "faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["deleted"] is True
+    assert data["guide_id"] == "guide-1"
+    assert len(audit_calls) == 1
+    assert audit_calls[0]["action"] == "clear_medguide_cache"
+
+
+def test_clear_cache_requires_superuser(client):
+    mock_engine = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.connect.return_value = mock_conn
+    mock_engine.begin.return_value = mock_conn
+
+    import database as db_module
+
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR["id"]}):
+        resp = client.post(
+            "/api/admin/guide/pill-1/clear-cache",
+            headers={"Authorization": "Bearer "  + "faketoken"},
+        )
+
+    assert resp.status_code == 403

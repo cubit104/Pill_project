@@ -263,105 +263,34 @@ def search_guide_pills(
                         p.ndc11,
                         p.spl_set_id,
                         p.slug,
-                        (
-                            SELECT (NULLIF(mg.professional_html, '') IS NOT NULL)
-                            FROM public.medication_guide mg
-                            WHERE (
-                                    NULLIF(TRIM(COALESCE(p.spl_set_id, '')), '') IS NOT NULL
-                                    AND mg.spl_set_id = p.spl_set_id
-                                ) OR (
-                                    NULLIF(TRIM(COALESCE(p.rxcui, '')), '') IS NOT NULL
-                                    AND mg.rxcui = p.rxcui
-                                ) OR (
-                                    NULLIF(TRIM(COALESCE(p.ndc11, '')), '') IS NOT NULL
-                                    AND (
-                                        mg.ndc = p.ndc11
-                                        OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = REPLACE(COALESCE(p.ndc11, ''), '-', '')
-                                    )
-                                )
-                            ORDER BY mg.updated_at DESC NULLS LAST
-                            LIMIT 1
-                        ) AS has_professional,
-                        (
-                            SELECT (NULLIF(mg.medguide_html, '') IS NOT NULL)
-                            FROM public.medication_guide mg
-                            WHERE (
-                                    NULLIF(TRIM(COALESCE(p.spl_set_id, '')), '') IS NOT NULL
-                                    AND mg.spl_set_id = p.spl_set_id
-                                ) OR (
-                                    NULLIF(TRIM(COALESCE(p.rxcui, '')), '') IS NOT NULL
-                                    AND mg.rxcui = p.rxcui
-                                ) OR (
-                                    NULLIF(TRIM(COALESCE(p.ndc11, '')), '') IS NOT NULL
-                                    AND (
-                                        mg.ndc = p.ndc11
-                                        OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = REPLACE(COALESCE(p.ndc11, ''), '-', '')
-                                    )
-                                )
-                            ORDER BY mg.updated_at DESC NULLS LAST
-                            LIMIT 1
-                        ) AS has_medguide,
-                        (
-                            SELECT (NULLIF(mg.dosage_administration, '') IS NOT NULL)
-                            FROM public.medication_guide mg
-                            WHERE (
-                                    NULLIF(TRIM(COALESCE(p.spl_set_id, '')), '') IS NOT NULL
-                                    AND mg.spl_set_id = p.spl_set_id
-                                ) OR (
-                                    NULLIF(TRIM(COALESCE(p.rxcui, '')), '') IS NOT NULL
-                                    AND mg.rxcui = p.rxcui
-                                ) OR (
-                                    NULLIF(TRIM(COALESCE(p.ndc11, '')), '') IS NOT NULL
-                                    AND (
-                                        mg.ndc = p.ndc11
-                                        OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = REPLACE(COALESCE(p.ndc11, ''), '-', '')
-                                    )
-                                )
-                            ORDER BY mg.updated_at DESC NULLS LAST
-                            LIMIT 1
-                        ) AS has_dosage,
-                        (
-                            SELECT (
-                                NULLIF(mg.adverse_reactions, '') IS NOT NULL
-                                OR NULLIF(mg.side_effects, '') IS NOT NULL
-                            )
-                            FROM public.medication_guide mg
-                            WHERE (
-                                    NULLIF(TRIM(COALESCE(p.spl_set_id, '')), '') IS NOT NULL
-                                    AND mg.spl_set_id = p.spl_set_id
-                                ) OR (
-                                    NULLIF(TRIM(COALESCE(p.rxcui, '')), '') IS NOT NULL
-                                    AND mg.rxcui = p.rxcui
-                                ) OR (
-                                    NULLIF(TRIM(COALESCE(p.ndc11, '')), '') IS NOT NULL
-                                    AND (
-                                        mg.ndc = p.ndc11
-                                        OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = REPLACE(COALESCE(p.ndc11, ''), '-', '')
-                                    )
-                                )
-                            ORDER BY mg.updated_at DESC NULLS LAST
-                            LIMIT 1
-                        ) AS has_side_effects,
-                        (
-                            SELECT mg.fetched_at
-                            FROM public.medication_guide mg
-                            WHERE (
-                                    NULLIF(TRIM(COALESCE(p.spl_set_id, '')), '') IS NOT NULL
-                                    AND mg.spl_set_id = p.spl_set_id
-                                ) OR (
-                                    NULLIF(TRIM(COALESCE(p.rxcui, '')), '') IS NOT NULL
-                                    AND mg.rxcui = p.rxcui
-                                ) OR (
-                                    NULLIF(TRIM(COALESCE(p.ndc11, '')), '') IS NOT NULL
-                                    AND (
-                                        mg.ndc = p.ndc11
-                                        OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = REPLACE(COALESCE(p.ndc11, ''), '-', '')
-                                    )
-                                )
-                            ORDER BY mg.updated_at DESC NULLS LAST
-                            LIMIT 1
-                        ) AS guide_fetched_at
+                        (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional,
+                        (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
+                        (NULLIF(mg.dosage_administration, '') IS NOT NULL) AS has_dosage,
+                        (NULLIF(mg.adverse_reactions, '') IS NOT NULL OR NULLIF(mg.side_effects, '') IS NOT NULL) AS has_side_effects,
+                        mg.fetched_at AS guide_fetched_at
                     FROM pillfinder p
+                    LEFT JOIN LATERAL (
+                        SELECT mg.*
+                        FROM public.medication_guide mg
+                        WHERE (
+                            NULLIF(TRIM(COALESCE(p.spl_set_id, '')), '') IS NOT NULL
+                            AND mg.spl_set_id = p.spl_set_id
+                        ) OR (
+                            NULLIF(TRIM(COALESCE(p.rxcui, '')), '') IS NOT NULL
+                            AND mg.rxcui = p.rxcui
+                        ) OR (
+                            NULLIF(TRIM(COALESCE(p.ndc11, '')), '') IS NOT NULL
+                            AND (
+                                mg.ndc = p.ndc11
+                                OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = REPLACE(COALESCE(p.ndc11, ''), '-', '')
+                            )
+                        )
+                        ORDER BY
+                            CASE WHEN NULLIF(TRIM(COALESCE(p.spl_set_id, '')), '') IS NOT NULL AND mg.spl_set_id = p.spl_set_id THEN 0 ELSE 1 END,
+                            CASE WHEN NULLIF(TRIM(COALESCE(p.rxcui, '')), '') IS NOT NULL AND mg.rxcui = p.rxcui THEN 0 ELSE 1 END,
+                            mg.updated_at DESC NULLS LAST
+                        LIMIT 1
+                    ) mg ON true
                     {where}
                     ORDER BY LOWER(COALESCE(p.medicine_name, '')) ASC, p.updated_at DESC NULLS LAST
                     LIMIT :limit OFFSET :offset
@@ -542,68 +471,17 @@ async def lookup_spl_set_id(
 async def refetch_guide_content(
     pill_id: str,
     payload: RefetchPayload,
+    request: Request,
     admin: dict = Depends(require_superuser),
 ):
-    del admin
     _ensure_db()
 
     try:
-        with database.db_engine.begin() as conn:
+        with database.db_engine.connect() as conn:
             pill = _find_pill(conn, pill_id)
             spl_set_id = str(pill.get("spl_set_id") or "").strip()
             if not spl_set_id:
                 raise HTTPException(status_code=400, detail="spl_set_id is required before refetch")
-
-            if payload.target == "professional":
-                conn.execute(
-                    text(
-                        """
-                        UPDATE public.medication_guide
-                        SET professional_html = NULL,
-                            professional_meta = NULL,
-                            updated_at = now()
-                        WHERE spl_set_id = :spl_set_id
-                        """
-                    ),
-                    {"spl_set_id": spl_set_id},
-                )
-            elif payload.target == "medguide":
-                conn.execute(
-                    text(
-                        """
-                        UPDATE public.medication_guide
-                        SET medguide_html = NULL,
-                            updated_at = now()
-                        WHERE spl_set_id = :spl_set_id
-                        """
-                    ),
-                    {"spl_set_id": spl_set_id},
-                )
-            elif payload.target == "dosage":
-                conn.execute(
-                    text(
-                        """
-                        UPDATE public.medication_guide
-                        SET dosage_administration = NULL,
-                            updated_at = now()
-                        WHERE spl_set_id = :spl_set_id
-                        """
-                    ),
-                    {"spl_set_id": spl_set_id},
-                )
-            elif payload.target == "side_effects":
-                conn.execute(
-                    text(
-                        """
-                        UPDATE public.medication_guide
-                        SET adverse_reactions = NULL,
-                            side_effects = NULL,
-                            updated_at = now()
-                        WHERE spl_set_id = :spl_set_id
-                        """
-                    ),
-                    {"spl_set_id": spl_set_id},
-                )
 
         if payload.target == "all":
             await build_guide(
@@ -616,13 +494,13 @@ async def refetch_guide_content(
         elif payload.target == "professional":
             await build_guide(
                 spl_set_id=spl_set_id,
-                force_refresh=False,
+                force_refresh=True,
                 include_professional=True,
             )
         elif payload.target == "medguide":
             await build_guide(
                 spl_set_id=spl_set_id,
-                force_refresh=False,
+                force_refresh=True,
                 include_medguide=True,
             )
         elif payload.target in {"dosage", "side_effects"}:
@@ -630,6 +508,22 @@ async def refetch_guide_content(
                 spl_set_id=spl_set_id,
                 force_refresh=True,
                 include_professional=True,
+            )
+
+        with database.db_engine.begin() as conn:
+            log_audit(
+                conn,
+                actor_id=admin.get("id"),
+                actor_email=admin.get("email"),
+                action="refetch_medguide",
+                entity_type="medication_guide",
+                entity_id=str(pill_id),
+                metadata={
+                    "target": payload.target,
+                    "spl_set_id": spl_set_id,
+                },
+                ip_address=(request.client.host if request.client else None),
+                user_agent=request.headers.get("user-agent"),
             )
 
         with database.db_engine.connect() as conn:
