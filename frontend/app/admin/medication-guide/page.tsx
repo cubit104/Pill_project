@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import DOMPurify from 'dompurify'
+import { sanitizeRenderedHtml } from '../../(public)/pill/[slug]/medication-guide/sanitizeRenderedHtml'
 import { createClient } from '../lib/supabase'
 import RichTextEditor from './RichTextEditor'
 
@@ -322,7 +322,12 @@ export default function MedicationGuideAdminPage() {
     dosage: { ok: !!status?.has_dosage, chars: status?.dosage_chars || 0 },
     side_effects: { ok: !!status?.has_side_effects, chars: status?.side_effects_chars || 0 },
   }
-  const sanitizedPreviewHtml = DOMPurify.sanitize(tabDrafts[activeTab] || '')
+
+  const activeTabContent = tabDrafts[activeTab] || ''
+  const sanitizedPreviewHtml = useMemo(
+    () => sanitizeRenderedHtml(activeTabContent),
+    [activeTabContent]
+  )
 
   return (
     <div className="space-y-6">
