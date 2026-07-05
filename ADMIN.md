@@ -111,6 +111,8 @@ All endpoints require a valid Supabase JWT passed as `Authorization: Bearer <tok
 | GET | `/api/admin/stats` | any | Dashboard KPIs |
 | GET | `/api/admin/pills` | any | Paginated pill list |
 | GET | `/api/admin/pills/:id` | any | Single pill + drafts |
+| GET | `/api/admin/pills/:id/pronunciation` | any | Resolved pronunciation preview for this pill |
+| PUT | `/api/admin/pills/:id/pronunciation` | editor+ | Save manual pronunciation text |
 | POST | `/api/admin/pills` | reviewer+ | Create pill |
 | PUT | `/api/admin/pills/:id` | reviewer+ | Update pill |
 | DELETE | `/api/admin/pills/:id` | reviewer+ | Soft delete |

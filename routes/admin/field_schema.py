@@ -28,6 +28,7 @@ FIELD_SCHEMA: List[Dict[str, Any]] = [
 
     # Tier 3 — Optional
     {"key": "brand_names",       "label": "Brand Names",            "tier": "optional"},
+    {"key": "brand_or_generic",  "label": "Brand or Generic",       "tier": "optional"},
     {"key": "splsize",           "label": "Size",                   "tier": "optional"},
     {"key": "meta_description",  "label": "Meta Description",       "tier": "optional"},
     {"key": "pharmclass_fda_epc","label": "FDA Pharma Class",       "tier": "optional"},

@@ -123,6 +123,7 @@ from routes.admin import duplicates as admin_duplicates  # noqa: E402
 from routes.admin import backfill as admin_backfill  # noqa: E402
 from routes.admin import analytics as admin_analytics  # noqa: E402
 from routes.admin import posthog as admin_posthog  # noqa: E402
+from routes.admin import guide as admin_guide  # noqa: E402
 from routes.admin import medication_guide_backfill as admin_medication_guide_backfill  # noqa: E402
 
 app.include_router(search.router)
@@ -153,6 +154,7 @@ app.include_router(admin_backfill.clinical_router)
 app.include_router(admin_backfill.nadac_history_router)
 app.include_router(admin_analytics.router)
 app.include_router(admin_posthog.router)
+app.include_router(admin_guide.router)
 app.include_router(admin_medication_guide_backfill.router)
 
 
