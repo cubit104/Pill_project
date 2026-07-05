@@ -4,7 +4,9 @@ export const dynamic = 'force-dynamic'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import DOMPurify from 'dompurify'
 import { createClient } from '../lib/supabase'
+import RichTextEditor from './RichTextEditor'
 
 type GuideSearchRow = {
   id: string
@@ -47,6 +49,7 @@ type GuideStatus = {
 }
 
 type TabKey = 'professional' | 'medguide' | 'dosage' | 'side_effects'
+type ViewMode = 'edit' | 'preview'
 
 const TAB_LABELS: Record<TabKey, string> = {
   professional: 'Professional',
@@ -76,6 +79,7 @@ export default function MedicationGuideAdminPage() {
 
   const [splSetIdInput, setSplSetIdInput] = useState('')
   const [activeTab, setActiveTab] = useState<TabKey>('professional')
+  const [viewMode, setViewMode] = useState<ViewMode>('edit')
   const [tabDrafts, setTabDrafts] = useState<Record<TabKey, string>>({
     professional: '',
     medguide: '',
@@ -302,6 +306,7 @@ export default function MedicationGuideAdminPage() {
     dosage: { ok: !!status?.has_dosage, chars: status?.dosage_chars || 0 },
     side_effects: { ok: !!status?.has_side_effects, chars: status?.side_effects_chars || 0 },
   }
+  const sanitizedPreviewHtml = DOMPurify.sanitize(tabDrafts[activeTab] || '')
 
   return (
     <div className="space-y-6">
@@ -437,11 +442,34 @@ export default function MedicationGuideAdminPage() {
                 </div>
 
                 <div className="p-3 space-y-2">
-                  <textarea
-                    className="w-full min-h-[260px] border border-gray-300 rounded-md p-3 text-xs font-mono"
-                    value={tabDrafts[activeTab]}
-                    onChange={(e) => updateTabDraft(activeTab, e.target.value)}
-                  />
+                  <div className="flex gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('edit')}
+                      className={`px-3 py-1 rounded-md text-sm border ${viewMode === 'edit' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300'}`}
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('preview')}
+                      className={`px-3 py-1 rounded-md text-sm border ${viewMode === 'preview' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300'}`}
+                    >
+                      👁️ Preview
+                    </button>
+                  </div>
+                  {viewMode === 'edit' ? (
+                    <RichTextEditor
+                      content={tabDrafts[activeTab]}
+                      onChange={(html) => updateTabDraft(activeTab, html)}
+                      placeholder={`Edit ${TAB_LABELS[activeTab]} HTML content...`}
+                    />
+                  ) : (
+                    <div
+                      className="prose prose-sm max-w-none p-4 border rounded bg-white min-h-[200px]"
+                      dangerouslySetInnerHTML={{ __html: sanitizedPreviewHtml }}
+                    />
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
