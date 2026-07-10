@@ -8,7 +8,7 @@ import datetime
 from datetime import timezone
 from typing import Any, Dict, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
@@ -18,6 +18,7 @@ import bleach
 import database
 from services.synonym_resolver import ensure_synonym_mapping
 from routes.admin.auth import get_admin_user, log_audit, require_superuser, CRITICAL_FIELDS
+from routes.admin.indexnow import submit_pill_slug_to_indexnow
 from routes.admin.field_schema import validate_pill, compute_completeness, compute_seo_score
 from services.drug_pronunciation import get_pronunciation, get_pronunciation_lookup_keys
 from utils import get_image_url, generate_slug
@@ -1430,6 +1431,7 @@ def update_pill_indication(
 def create_pill(
     request: Request,
     body: PillCreate,
+    background_tasks: BackgroundTasks,
     publish: bool = Query(False),
     admin: dict = Depends(get_admin_user),
 ):
@@ -1458,6 +1460,7 @@ def create_pill(
             )
 
     try:
+        created_slug: Optional[str] = None
         with database.db_engine.begin() as conn:
             if body.idempotency_key:
                 existing = conn.execute(
@@ -1474,10 +1477,12 @@ def create_pill(
             cols = ", ".join(data.keys())
             vals = ", ".join(f":{k}" for k in data.keys())
             result = conn.execute(
-                text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
+                text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id, slug"),
                 data,
             )
-            new_id = result.scalar()
+            created_row = result.fetchone()
+            new_id = created_row[0] if created_row else None
+            created_slug = created_row[1] if created_row else None
 
             log_audit(
                 conn,
@@ -1492,6 +1497,8 @@ def create_pill(
             )
 
         _best_effort_ensure_synonym_mapping(data.get("rxcui"))
+        if publish and created_slug:
+            background_tasks.add_task(submit_pill_slug_to_indexnow, str(created_slug))
         return {"id": str(new_id), "created": True}
     except SQLAlchemyError as e:
         logger.error(f"create_pill DB error: {e}", exc_info=True)
@@ -1504,6 +1511,7 @@ def update_pill(
     request: Request,
     pill_id: str,
     body: PillUpdate,
+    background_tasks: BackgroundTasks,
     publish: bool = Query(False),
     admin: dict = Depends(get_admin_user),
 ):
@@ -1623,14 +1631,17 @@ def update_pill(
             )
 
     try:
+        should_submit_indexnow = False
+        indexnow_slug: Optional[str] = None
         with database.db_engine.begin() as conn:
             # Optimistic locking check
             current = conn.execute(
-                text("SELECT updated_at FROM pillfinder WHERE id = :id AND deleted_at IS NULL LIMIT 1"),
+                text("SELECT updated_at, published, slug FROM pillfinder WHERE id = :id AND deleted_at IS NULL LIMIT 1"),
                 {"id": pill_id},
             ).fetchone()
             if not current:
                 raise HTTPException(status_code=404, detail="Pill not found")
+            current_published = bool(current[1])
 
             if body.updated_at and current[0]:
                 db_ts = current[0].replace(tzinfo=timezone.utc) if current[0].tzinfo is None else current[0]
@@ -1715,8 +1726,13 @@ def update_pill(
                         user_agent=request.headers.get("user-agent"),
                     )
 
+            should_submit_indexnow = publish or current_published
+            indexnow_slug = str(updates.get("slug") or before.get("slug") or current[2] or "").strip()
+
         synonym_rxcui = updates.get("rxcui") if "rxcui" in updates else before.get("rxcui")
         _best_effort_ensure_synonym_mapping(synonym_rxcui)
+        if should_submit_indexnow and indexnow_slug:
+            background_tasks.add_task(submit_pill_slug_to_indexnow, indexnow_slug)
         return {"updated": True, "warnings": warnings}
     except HTTPException:
         raise
