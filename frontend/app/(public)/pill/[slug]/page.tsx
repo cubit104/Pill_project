@@ -13,6 +13,8 @@ import {
 import { DEFAULT_REVIEWER } from '../../../lib/reviewers'
 import { slugifyDrugName } from '../../../lib/slug'
 import { resolveImageUrls } from '../../../lib/image-url'
+import { fetchPriceSnapshot } from './price/priceData'
+import { snapshotToPriceCardInitialData } from './pricing/priceCardData'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -278,13 +280,25 @@ export default async function PillDetailPage(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params
-  const [pill, relatedData, similarPills, conditionData] = await Promise.all([
+  const [pill, relatedData, similarPills, conditionData, priceSnapshot] = await Promise.all([
     fetchPill(slug),
     fetchRelated(slug),
     fetchSimilar(slug),
     fetchConditionDrugs(slug),
+    // Fetch price snapshot server-side (revalidate: 300) so the summary card
+    // renders real prices in SSR HTML for Googlebot — no JS required.
+    // .catch(() => null) ensures a timeout or network error never rejects the
+    // whole Promise.all and never blocks the pill page response.
+    fetchPriceSnapshot(slug).catch(() => null),
   ])
   if (!pill) notFound()
+
+  // Extract the compact PriceResponse from the snapshot (if any) to pre-populate
+  // PriceSummaryCard via initialData. The snapshot uses revalidate:300, keeping
+  // the pill page ISR-friendly and refreshing weekly NADAC prices automatically.
+  const priceInitialData = priceSnapshot
+    ? snapshotToPriceCardInitialData(priceSnapshot).price
+    : undefined
 
   // Breadcrumb JSON-LD uses absolute URLs to match canonical
   const breadcrumbs = breadcrumbSchema([
@@ -366,6 +380,7 @@ export default async function PillDetailPage(
         conditionTags={conditionData.tags}
         faqItems={faqItems}
         identificationSummary={identificationSummary}
+        priceInitialData={priceInitialData}
       />
     </>
   )
