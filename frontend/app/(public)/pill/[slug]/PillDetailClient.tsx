@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
 import type { Reviewer } from '../../../lib/reviewers'
+import type { PriceResponse } from './pricing/priceCardData'
 import { classSlugify, slugifyDrugName } from '../../../lib/slug'
 import { slugifyUrl } from '../../../lib/url-utils'
 import DrugIndicationSection from './DrugIndicationSection'
@@ -331,6 +332,7 @@ export default function PillDetailClient({
   conditionTags,
   faqItems,
   identificationSummary,
+  initialPriceData,
 }: {
   pill: PillDetail
   slug?: string
@@ -344,6 +346,7 @@ export default function PillDetailClient({
   conditionTags?: string[]
   faqItems?: Array<{ question: string; answer: string }>
   identificationSummary?: string
+  initialPriceData?: PriceResponse
 }) {
   const [zoomImage, setZoomImage] = useState<string | null>(null)
   const [showAllBrands, setShowAllBrands] = useState(false)
@@ -636,6 +639,7 @@ export default function PillDetailClient({
                     ndc={pill.ndc}
                     rxcui={pill.rxcui}
                     medicineName={pill.drug_name}
+                    initialData={initialPriceData}
                   />
                 </div>
               )}
@@ -677,6 +681,7 @@ export default function PillDetailClient({
               ndc={pill.ndc}
               rxcui={pill.rxcui}
               medicineName={pill.drug_name}
+              initialData={initialPriceData}
             />
           </div>
         )}

@@ -13,6 +13,8 @@ import {
 import { DEFAULT_REVIEWER } from '../../../lib/reviewers'
 import { slugifyDrugName } from '../../../lib/slug'
 import { resolveImageUrls } from '../../../lib/image-url'
+import { fetchPriceSnapshot } from './price/priceData'
+import { snapshotToPriceCardInitialData } from './pricing/priceCardData'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -278,11 +280,14 @@ export default async function PillDetailPage(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params
-  const [pill, relatedData, similarPills, conditionData] = await Promise.all([
+  const [pill, relatedData, similarPills, conditionData, priceSnapshot] = await Promise.all([
     fetchPill(slug),
     fetchRelated(slug),
     fetchSimilar(slug),
     fetchConditionDrugs(slug),
+    // Price snapshot is non-blocking: timeout is enforced inside fetchPriceSnapshot and
+    // .catch ensures a slow/failed price backend never rejects the whole batch.
+    fetchPriceSnapshot(slug).catch((): null => null),
   ])
   if (!pill) notFound()
 
@@ -366,6 +371,7 @@ export default async function PillDetailPage(
         conditionTags={conditionData.tags}
         faqItems={faqItems}
         identificationSummary={identificationSummary}
+        initialPriceData={priceSnapshot ? (snapshotToPriceCardInitialData(priceSnapshot).price ?? undefined) : undefined}
       />
     </>
   )

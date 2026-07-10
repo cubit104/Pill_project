@@ -63,7 +63,8 @@ test('PriceSummaryCard renders fallback markup when price data is unavailable', 
   )
 
   assert.match(html, /💰 Price/)
-  assert.match(html, /Price data unavailable for this NDC\./)
+  assert.match(html, /Pricing/)
+  assert.match(html, /available for this medication right now\./)
   assert.match(html, /href="\/pill\/plavix-75-1171\/price"/)
   assert.match(html, /See Pricing Details/)
 })
