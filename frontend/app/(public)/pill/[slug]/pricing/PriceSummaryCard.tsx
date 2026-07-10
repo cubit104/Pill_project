@@ -3,24 +3,7 @@
 import React from 'react'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-
-interface PriceResponse {
-  ndc: string
-  price_per_unit: number
-  unit: string
-  effective_date: string
-  source: string
-  total_acquisition_cost: number
-  fair_retail_low: number
-  fair_retail_high: number
-  match_type?: string
-  matched_ndc?: string
-  source_rxcui?: string
-  resolved_ingredient?: string
-  resolved_rxcui?: string
-  equivalent_count?: number
-  disclaimers: string[]
-}
+import type { PriceResponse } from './priceCardData'
 
 function hasCompactPriceData(price: PriceResponse | null): price is PriceResponse {
   return Boolean(
@@ -145,7 +128,7 @@ export default function PriceSummaryCard({
         </>
       ) : (
         <p className="mt-2 text-sm text-slate-700">
-          Price data unavailable for this NDC. NADAC (CMS) pricing has not been published for this medication yet. See identification, dosage, and full drug details below.
+          Pricing isn&apos;t available for this medication right now. See identification, dosage, and full drug details below.
         </p>
       )}
       <div className="mt-4 pt-3 border-t border-slate-100">
