@@ -1481,8 +1481,10 @@ def create_pill(
                 data,
             )
             created_row = result.fetchone()
-            new_id = created_row[0] if created_row else None
-            created_slug = created_row[1] if created_row else None
+            if created_row:
+                new_id, created_slug = created_row
+            else:
+                new_id, created_slug = None, None
 
             log_audit(
                 conn,
