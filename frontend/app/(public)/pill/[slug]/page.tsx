@@ -287,7 +287,9 @@ export default async function PillDetailPage(
     fetchConditionDrugs(slug),
     // Fetch price snapshot server-side (revalidate: 300) so the summary card
     // renders real prices in SSR HTML for Googlebot — no JS required.
-    fetchPriceSnapshot(slug),
+    // .catch(() => null) ensures a timeout or network error never rejects the
+    // whole Promise.all and never blocks the pill page response.
+    fetchPriceSnapshot(slug).catch(() => null),
   ])
   if (!pill) notFound()
 
