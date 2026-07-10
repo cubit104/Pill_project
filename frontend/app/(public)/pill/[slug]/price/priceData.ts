@@ -26,15 +26,20 @@ async function fetchPriceJson(
 }
 
 export async function fetchPriceSnapshot(slug: string): Promise<PriceSnapshot | null> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), PRICE_DATA_FETCH_TIMEOUT_MS)
   try {
     const response = await fetch(`${API_BASE}/api/snapshot/${encodeURIComponent(slug)}`, {
       next: { revalidate: 300 },
+      signal: controller.signal,
     })
     if (response.status === 404) return null
     if (!response.ok) return null
     return await response.json() as PriceSnapshot
   } catch {
     return null
+  } finally {
+    clearTimeout(timeout)
   }
 }
 

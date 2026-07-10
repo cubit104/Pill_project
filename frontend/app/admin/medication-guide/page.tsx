@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { sanitizeRenderedHtml } from '../../(public)/pill/[slug]/medication-guide/sanitizeRenderedHtml'
+import { SHARED_READING_PROSE_CLASSES } from '../../(public)/pill/[slug]/medication-guide/layoutStyles'
 import { createClient } from '../lib/supabase'
 import RichTextEditor from './RichTextEditor'
 
@@ -64,6 +65,7 @@ const STATUS_DOT = (ok: boolean) => (ok ? '✅' : '❌')
 
 const SUGGESTION_DEBOUNCE_MS = 120
 const SUGGESTION_CLOSE_DELAY_MS = 150
+const SUCCESS_AUTO_DISMISS_MS = 3000
 
 export default function MedicationGuideAdminPage() {
   const router = useRouter()
@@ -72,6 +74,7 @@ export default function MedicationGuideAdminPage() {
   const [missingOnly, setMissingOnly] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
 
   const [rows, setRows] = useState<GuideSearchRow[]>([])
   const [total, setTotal] = useState(0)
@@ -98,8 +101,21 @@ export default function MedicationGuideAdminPage() {
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
   const suggestDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const suggestionsRef = useRef<HTMLUListElement>(null)
+
+  const showSuccess = useCallback((msg: string) => {
+    setSuccess(msg)
+    setError('')
+    if (successTimerRef.current) clearTimeout(successTimerRef.current)
+    successTimerRef.current = setTimeout(() => setSuccess(''), SUCCESS_AUTO_DISMISS_MS)
+  }, [])
+
+  // Cleanup success timer
+  useEffect(() => {
+    return () => { if (successTimerRef.current) clearTimeout(successTimerRef.current) }
+  }, [])
 
   const getToken = useCallback(async () => {
     const supabase = createClient()
@@ -283,6 +299,7 @@ export default function MedicationGuideAdminPage() {
       })
       if (!res.ok) throw new Error('Failed to save SPL Set ID')
       await Promise.all([loadStatus(selectedPillId), runSearch(page, searchTerm, missingOnly)])
+      showSuccess('SPL Set ID saved')
     } catch (e) {
       setError(String(e))
     }
@@ -302,6 +319,9 @@ export default function MedicationGuideAdminPage() {
       const data = await res.json()
       if (data?.spl_set_id) {
         setSplSetIdInput(data.spl_set_id)
+        showSuccess(`SPL Set ID found (${data.source})`)
+      } else {
+        showSuccess('No SPL Set ID found')
       }
     } catch (e) {
       setError(String(e))
@@ -322,7 +342,10 @@ export default function MedicationGuideAdminPage() {
         },
         body: JSON.stringify({ target }),
       })
-      if (!res.ok) throw new Error(`Re-fetch failed (${target})`)
+      if (!res.ok) {
+        const detail = await res.text()
+        throw new Error(detail || `Re-fetch failed (${target})`)
+      }
       const data: GuideStatus = await res.json()
       setStatus(data)
       setTabDrafts({
@@ -332,6 +355,7 @@ export default function MedicationGuideAdminPage() {
         side_effects: data.adverse_reactions || data.side_effects || '',
       })
       await runSearch(page, searchTerm, missingOnly)
+      showSuccess(`Re-fetch complete (${target})`)
     } catch (e) {
       setError(String(e))
     }
@@ -363,6 +387,7 @@ export default function MedicationGuideAdminPage() {
       const data: GuideStatus = await res.json()
       setStatus(data)
       await runSearch(page, searchTerm, missingOnly)
+      showSuccess(`${TAB_LABELS[tab]} saved successfully`)
     } catch (e) {
       setError(String(e))
     }
@@ -382,6 +407,7 @@ export default function MedicationGuideAdminPage() {
       })
       if (!res.ok) throw new Error('Clear cache failed')
       await Promise.all([loadStatus(selectedPillId), runSearch(page, searchTerm, missingOnly)])
+      showSuccess('Cache cleared')
     } catch (e) {
       setError(String(e))
     }
@@ -408,6 +434,7 @@ export default function MedicationGuideAdminPage() {
       </div>
 
       {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-2 rounded-md">{error}</div>}
+      {success && <div className="bg-green-50 text-green-700 text-sm px-4 py-2 rounded-md">{success}</div>}
 
       <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm space-y-3">
         <div className="flex flex-col md:flex-row gap-3">
@@ -600,7 +627,7 @@ export default function MedicationGuideAdminPage() {
                     />
                   ) : (
                     <div
-                      className="prose prose-sm max-w-none p-4 border rounded bg-white min-h-[200px]"
+                      className={`${SHARED_READING_PROSE_CLASSES} p-4 border rounded bg-white min-h-[200px] overflow-x-auto`}
                       dangerouslySetInnerHTML={{ __html: sanitizedPreviewHtml }}
                     />
                   )}
