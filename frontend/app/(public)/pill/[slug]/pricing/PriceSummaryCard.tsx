@@ -145,7 +145,7 @@ export default function PriceSummaryCard({
         </>
       ) : (
         <p className="mt-2 text-sm text-slate-700">
-          Price data not available for this pill yet.
+          Price data unavailable for this NDC. NADAC (CMS) pricing has not been published for this medication yet. See identification, dosage, and full drug details below.
         </p>
       )}
       <div className="mt-4 pt-3 border-t border-slate-100">
