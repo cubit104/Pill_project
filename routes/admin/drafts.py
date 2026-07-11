@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 import database
 from routes.admin.auth import get_admin_user, log_audit
-from routes.admin.indexnow import submit_pill_slug_to_indexnow
+from routes.admin.indexnow import can_submit_pill_slug_to_indexnow, submit_pill_slug_to_indexnow
 
 logger = logging.getLogger(__name__)
 
@@ -519,9 +519,13 @@ def publish_draft(
                 user_agent=request.headers.get("user-agent"),
             )
 
-        if published_slug:
+        indexnow_queued = bool(published_slug) and can_submit_pill_slug_to_indexnow(published_slug)
+        if indexnow_queued:
             background_tasks.add_task(submit_pill_slug_to_indexnow, published_slug)
-        return {"published": True}
+        response = {"published": True}
+        if indexnow_queued:
+            response["indexnow_queued"] = True
+        return response
     except HTTPException:
         raise
     except SQLAlchemyError as e:

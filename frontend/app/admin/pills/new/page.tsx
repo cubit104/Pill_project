@@ -251,7 +251,10 @@ export default function NewPillPage() {
         throw new Error(err.detail || 'Failed to create pill')
       }
       const data = await res.json()
-      router.push(`/admin/pills/${data.id}`)
+      const destination = publish && data.indexnow_queued === true
+        ? `/admin/pills/${data.id}?indexnow=queued`
+        : `/admin/pills/${data.id}`
+      router.push(destination)
     } catch (e) { setError(String(e)) } finally { setSaving(false) }
   }
 

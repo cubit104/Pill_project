@@ -18,7 +18,7 @@ import bleach
 import database
 from services.synonym_resolver import ensure_synonym_mapping
 from routes.admin.auth import get_admin_user, log_audit, require_superuser, CRITICAL_FIELDS
-from routes.admin.indexnow import submit_pill_slug_to_indexnow
+from routes.admin.indexnow import can_submit_pill_slug_to_indexnow, submit_pill_slug_to_indexnow
 from routes.admin.field_schema import validate_pill, compute_completeness, compute_seo_score
 from services.drug_pronunciation import get_pronunciation, get_pronunciation_lookup_keys
 from utils import get_image_url, generate_slug
@@ -1499,9 +1499,13 @@ def create_pill(
             )
 
         _best_effort_ensure_synonym_mapping(data.get("rxcui"))
-        if publish and created_slug:
+        indexnow_queued = publish and bool(created_slug) and can_submit_pill_slug_to_indexnow(created_slug)
+        if indexnow_queued:
             background_tasks.add_task(submit_pill_slug_to_indexnow, str(created_slug))
-        return {"id": str(new_id), "created": True}
+        response = {"id": str(new_id), "created": True}
+        if indexnow_queued:
+            response["indexnow_queued"] = True
+        return response
     except SQLAlchemyError as e:
         logger.error(f"create_pill DB error: {e}", exc_info=True)
         root = getattr(e, "orig", None) or e
@@ -1733,9 +1737,17 @@ def update_pill(
 
         synonym_rxcui = updates.get("rxcui") if "rxcui" in updates else before.get("rxcui")
         _best_effort_ensure_synonym_mapping(synonym_rxcui)
-        if should_submit_indexnow and indexnow_slug:
+        indexnow_queued = (
+            should_submit_indexnow
+            and bool(indexnow_slug)
+            and can_submit_pill_slug_to_indexnow(indexnow_slug)
+        )
+        if indexnow_queued:
             background_tasks.add_task(submit_pill_slug_to_indexnow, indexnow_slug)
-        return {"updated": True, "warnings": warnings}
+        response = {"updated": True, "warnings": warnings}
+        if indexnow_queued:
+            response["indexnow_queued"] = True
+        return response
     except HTTPException:
         raise
     except SQLAlchemyError as e:

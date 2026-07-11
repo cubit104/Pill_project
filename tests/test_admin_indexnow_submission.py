@@ -88,6 +88,7 @@ def test_create_publish_submits_indexnow_urls(client):
         )
 
     assert response.status_code == 201, response.text
+    assert response.json()["indexnow_queued"] is True
     assert submit_mock.call_count == 1
     assert submit_mock.call_args.args[0] == [
         "https://pillseek.com/pill/Drug%20Name%2F10",
@@ -125,6 +126,7 @@ def test_create_publish_swallow_indexnow_config_error(client):
         )
 
     assert response.status_code == 201, response.text
+    assert "indexnow_queued" not in response.json()
     assert submit_mock.call_count == 0
 
 
@@ -165,6 +167,7 @@ def test_update_published_pill_submits_indexnow_urls(client):
         )
 
     assert response.status_code == 200, response.text
+    assert response.json()["indexnow_queued"] is True
     assert submit_mock.call_count == 1
     assert submit_mock.call_args.args[0] == [
         "https://pillseek.com/pill/live-pill",
@@ -200,4 +203,46 @@ def test_update_unpublished_pill_does_not_submit_indexnow(client):
         )
 
     assert response.status_code == 200, response.text
+    assert "indexnow_queued" not in response.json()
     assert submit_mock.call_count == 0
+
+
+def test_publish_draft_returns_indexnow_queued_flag(client):
+    config = IndexNowConfig(
+        key="abc123",
+        key_location="https://pillseek.com/abc123.txt",
+        site_url="https://pillseek.com",
+        host="pillseek.com",
+    )
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        if "select id, pill_id, draft_data, status from pill_drafts" in sql_str:
+            result.fetchone.return_value = (
+                "draft-1",
+                "pill-1",
+                {"medicine_name": "Drug Name", "slug": "live-pill"},
+                "approved",
+            )
+        elif "select slug from pillfinder" in sql_str:
+            result.fetchone.return_value = ("live-pill",)
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+        return result
+
+    import database as db_module
+
+    db_module.db_engine = _mock_engine_with_side_effect(side_effect)
+
+    with patch("routes.admin.indexnow.load_indexnow_config", return_value=config), patch(
+        "routes.admin.indexnow.submit_indexnow_urls",
+        return_value=IndexNowSubmissionResult(3, 3, 0, 1, 1, 0),
+    ) as submit_mock:
+        response = client.post("/api/admin/drafts/draft-1/publish")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["indexnow_queued"] is True
+    assert submit_mock.call_count == 1

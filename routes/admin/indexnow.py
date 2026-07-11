@@ -14,6 +14,17 @@ from services.indexnow import (
 logger = logging.getLogger(__name__)
 
 
+def can_submit_pill_slug_to_indexnow(slug: str) -> bool:
+    normalized_slug = (slug or "").strip()
+    if not normalized_slug:
+        return False
+    try:
+        load_indexnow_config()
+    except IndexNowSubmissionError:
+        return False
+    return True
+
+
 def submit_pill_slug_to_indexnow(slug: str) -> None:
     normalized_slug = (slug or "").strip()
     if not normalized_slug:
