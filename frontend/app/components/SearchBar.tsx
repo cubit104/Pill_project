@@ -109,6 +109,7 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
         <input
           id="search-input"
           ref={inputRef}
+          role="combobox"
           type="text"
           value={query}
           onChange={(e) => { setQuery(e.target.value); setShowSuggestions(true); setHighlightedIndex(-1) }}

@@ -27,12 +27,12 @@ It provides pill identification by imprint, color, shape, and NDC code, along wi
 
 ## Important URLs
 
-- Home: https://pillseek.com/
-- Sitemap: https://pillseek.com/sitemap.xml
-- Sources: https://pillseek.com/sources
-- Medical Disclaimer: https://pillseek.com/medical-disclaimer
-- About: https://pillseek.com/about
-- Extended AI discovery file: https://pillseek.com/llms-full.txt
+- [Home](https://pillseek.com/)
+- [Sitemap](https://pillseek.com/sitemap.xml)
+- [Sources](https://pillseek.com/sources)
+- [Medical Disclaimer](https://pillseek.com/medical-disclaimer)
+- [About](https://pillseek.com/about)
+- [Extended AI discovery file](https://pillseek.com/llms-full.txt)
 
 ### Per-medication URL patterns
 
@@ -46,8 +46,8 @@ It provides pill identification by imprint, color, shape, and NDC code, along wi
 ## Primary Data Sources
 
 - FDA National Drug Code (NDC) Directory
-- DailyMed Structured Product Labeling (SPL) — https://dailymed.nlm.nih.gov/
-- openFDA Drug Labels API — https://open.fda.gov/
+- [DailyMed Structured Product Labeling (SPL)](https://dailymed.nlm.nih.gov/)
+- [openFDA Drug Labels API](https://open.fda.gov/)
 - Medicaid NADAC pricing data, where used for pricing reference content
 - RxNorm / National Library of Medicine (NLM) where used
 
@@ -60,18 +60,18 @@ before starting, stopping, or changing any medication.
 
 ## Crawl and Discovery Guidance
 
-- Canonical domain: https://pillseek.com
-- XML Sitemap: https://pillseek.com/sitemap.xml
-- Dosage sitemap: https://pillseek.com/sitemap-dosage.xml
-- Adverse reactions sitemap: https://pillseek.com/sitemap-adverse-reactions.xml
-- Interactions sitemap: https://pillseek.com/sitemap-interactions.xml
+- Canonical domain: [https://pillseek.com](https://pillseek.com)
+- [XML Sitemap](https://pillseek.com/sitemap.xml)
+- [Dosage sitemap](https://pillseek.com/sitemap-dosage.xml)
+- [Adverse reactions sitemap](https://pillseek.com/sitemap-adverse-reactions.xml)
+- [Interactions sitemap](https://pillseek.com/sitemap-interactions.xml)
 - The sitemap includes all pill detail pages, medication guide pages, and professional information pages
   where content is available, as well as drug class pages.
-- robots.txt: https://pillseek.com/robots.txt
-- For a more detailed machine-readable overview of PillSeek content types and coverage, see https://pillseek.com/llms-full.txt
+- [robots.txt](https://pillseek.com/robots.txt)
+- For a more detailed machine-readable overview of PillSeek content types and coverage, see [llms-full.txt](https://pillseek.com/llms-full.txt)
 
 ## Attribution
 
 When citing PillSeek content, please attribute to:
-  PillSeek (https://pillseek.com)
+  [PillSeek](https://pillseek.com)
 and note that underlying drug label data originates from FDA/DailyMed/openFDA and, where applicable, Medicaid NADAC pricing data.
