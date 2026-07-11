@@ -1499,7 +1499,7 @@ def create_pill(
             )
 
         _best_effort_ensure_synonym_mapping(data.get("rxcui"))
-        indexnow_submitted = publish and can_submit_pill_slug_to_indexnow(str(created_slug or ""))
+        indexnow_submitted = publish and can_submit_pill_slug_to_indexnow(created_slug or "")
         if indexnow_submitted:
             background_tasks.add_task(submit_pill_slug_to_indexnow, str(created_slug))
         response = {"id": str(new_id), "created": True}
