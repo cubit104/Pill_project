@@ -839,7 +839,11 @@ export default function EditPillPage() {
     setSaving(true)
     resetStatusState()
     const session = await getSession()
-    if (!session) return
+    if (!session) {
+      setSaving(false)
+      router.push('/admin/login')
+      return
+    }
     const changedFields = getChangedFields()
     if (Object.keys(changedFields).length === 0) {
       setSuccess('No text fields changed. If you just uploaded an image it was saved automatically \u2014 no further action needed.')
@@ -866,7 +870,11 @@ export default function EditPillPage() {
     setSaving(true)
     resetStatusState()
     const session = await getSession()
-    if (!session) return
+    if (!session) {
+      setSaving(false)
+      router.push('/admin/login')
+      return
+    }
     const changedFields = getChangedFields()
     const allFields: Record<string, string | null> = {}
     FIELD_SCHEMA.forEach(f => {
@@ -910,7 +918,7 @@ export default function EditPillPage() {
       const data = await res.json()
       setSuccess('Saved & published successfully')
       setSuccessDismissed(false)
-      setIndexNowBannerVisible(data.indexnow_submitted === true)
+      setIndexNowBannerVisible(data.indexnow_queued === true)
       setJustPublished(true)
       await loadPill(); await fetchCompleteness()
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
@@ -919,7 +927,11 @@ export default function EditPillPage() {
   const handleSaveDraft = async () => {
     setSaving(true); setError(''); setErrorDismissed(false); setIndexNowBannerVisible(false)
     const session = await getSession()
-    if (!session) return
+    if (!session) {
+      setSaving(false)
+      router.push('/admin/login')
+      return
+    }
     try {
       // pill.published is a boolean from the API response; PillData types it as string|null
       const pillPublished: unknown = pill?.['published']

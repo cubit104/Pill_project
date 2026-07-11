@@ -519,12 +519,12 @@ def publish_draft(
                 user_agent=request.headers.get("user-agent"),
             )
 
-        indexnow_submitted = bool(published_slug) and can_submit_pill_slug_to_indexnow(published_slug)
-        if indexnow_submitted:
+        indexnow_queued = bool(published_slug) and can_submit_pill_slug_to_indexnow(published_slug)
+        if indexnow_queued:
             background_tasks.add_task(submit_pill_slug_to_indexnow, published_slug)
         response = {"published": True}
-        if indexnow_submitted:
-            response["indexnow_submitted"] = True
+        if indexnow_queued:
+            response["indexnow_queued"] = True
         return response
     except HTTPException:
         raise

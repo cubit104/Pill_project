@@ -1499,12 +1499,12 @@ def create_pill(
             )
 
         _best_effort_ensure_synonym_mapping(data.get("rxcui"))
-        indexnow_submitted = publish and bool(created_slug) and can_submit_pill_slug_to_indexnow(created_slug)
-        if indexnow_submitted:
+        indexnow_queued = publish and bool(created_slug) and can_submit_pill_slug_to_indexnow(created_slug)
+        if indexnow_queued:
             background_tasks.add_task(submit_pill_slug_to_indexnow, str(created_slug))
         response = {"id": str(new_id), "created": True}
-        if indexnow_submitted:
-            response["indexnow_submitted"] = True
+        if indexnow_queued:
+            response["indexnow_queued"] = True
         return response
     except SQLAlchemyError as e:
         logger.error(f"create_pill DB error: {e}", exc_info=True)
@@ -1737,16 +1737,16 @@ def update_pill(
 
         synonym_rxcui = updates.get("rxcui") if "rxcui" in updates else before.get("rxcui")
         _best_effort_ensure_synonym_mapping(synonym_rxcui)
-        indexnow_submitted = (
+        indexnow_queued = (
             should_submit_indexnow
             and bool(indexnow_slug)
             and can_submit_pill_slug_to_indexnow(indexnow_slug)
         )
-        if indexnow_submitted:
+        if indexnow_queued:
             background_tasks.add_task(submit_pill_slug_to_indexnow, indexnow_slug)
         response = {"updated": True, "warnings": warnings}
-        if indexnow_submitted:
-            response["indexnow_submitted"] = True
+        if indexnow_queued:
+            response["indexnow_queued"] = True
         return response
     except HTTPException:
         raise

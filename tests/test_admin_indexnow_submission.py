@@ -88,7 +88,7 @@ def test_create_publish_submits_indexnow_urls(client):
         )
 
     assert response.status_code == 201, response.text
-    assert response.json()["indexnow_submitted"] is True
+    assert response.json()["indexnow_queued"] is True
     assert submit_mock.call_count == 1
     assert submit_mock.call_args.args[0] == [
         "https://pillseek.com/pill/Drug%20Name%2F10",
@@ -126,7 +126,7 @@ def test_create_publish_swallow_indexnow_config_error(client):
         )
 
     assert response.status_code == 201, response.text
-    assert "indexnow_submitted" not in response.json()
+    assert "indexnow_queued" not in response.json()
     assert submit_mock.call_count == 0
 
 
@@ -167,7 +167,7 @@ def test_update_published_pill_submits_indexnow_urls(client):
         )
 
     assert response.status_code == 200, response.text
-    assert response.json()["indexnow_submitted"] is True
+    assert response.json()["indexnow_queued"] is True
     assert submit_mock.call_count == 1
     assert submit_mock.call_args.args[0] == [
         "https://pillseek.com/pill/live-pill",
@@ -203,11 +203,11 @@ def test_update_unpublished_pill_does_not_submit_indexnow(client):
         )
 
     assert response.status_code == 200, response.text
-    assert "indexnow_submitted" not in response.json()
+    assert "indexnow_queued" not in response.json()
     assert submit_mock.call_count == 0
 
 
-def test_publish_draft_returns_indexnow_submitted_flag(client):
+def test_publish_draft_returns_indexnow_queued_flag(client):
     config = IndexNowConfig(
         key="abc123",
         key_location="https://pillseek.com/abc123.txt",
@@ -244,5 +244,5 @@ def test_publish_draft_returns_indexnow_submitted_flag(client):
         response = client.post("/api/admin/drafts/draft-1/publish")
 
     assert response.status_code == 200, response.text
-    assert response.json()["indexnow_submitted"] is True
+    assert response.json()["indexnow_queued"] is True
     assert submit_mock.call_count == 1
