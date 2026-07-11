@@ -519,7 +519,8 @@ def publish_draft(
                 user_agent=request.headers.get("user-agent"),
             )
 
-        indexnow_submitted = can_submit_pill_slug_to_indexnow(published_slug or "")
+        published_slug_text = str(published_slug).strip() if published_slug else ""
+        indexnow_submitted = bool(published_slug_text) and can_submit_pill_slug_to_indexnow(published_slug_text)
         if indexnow_submitted:
             background_tasks.add_task(submit_pill_slug_to_indexnow, published_slug)
         response = {"published": True}

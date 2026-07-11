@@ -1499,7 +1499,8 @@ def create_pill(
             )
 
         _best_effort_ensure_synonym_mapping(data.get("rxcui"))
-        indexnow_submitted = publish and can_submit_pill_slug_to_indexnow(created_slug or "")
+        created_slug_text = str(created_slug).strip() if created_slug else ""
+        indexnow_submitted = publish and bool(created_slug_text) and can_submit_pill_slug_to_indexnow(created_slug_text)
         if indexnow_submitted:
             background_tasks.add_task(submit_pill_slug_to_indexnow, str(created_slug))
         response = {"id": str(new_id), "created": True}
@@ -1737,7 +1738,12 @@ def update_pill(
 
         synonym_rxcui = updates.get("rxcui") if "rxcui" in updates else before.get("rxcui")
         _best_effort_ensure_synonym_mapping(synonym_rxcui)
-        indexnow_submitted = should_submit_indexnow and can_submit_pill_slug_to_indexnow(indexnow_slug or "")
+        indexnow_slug_text = str(indexnow_slug).strip() if indexnow_slug else ""
+        indexnow_submitted = (
+            should_submit_indexnow
+            and bool(indexnow_slug_text)
+            and can_submit_pill_slug_to_indexnow(indexnow_slug_text)
+        )
         if indexnow_submitted:
             background_tasks.add_task(submit_pill_slug_to_indexnow, indexnow_slug)
         response = {"updated": True, "warnings": warnings}

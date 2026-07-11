@@ -803,6 +803,15 @@ export default function EditPillPage() {
     return changed
   }
 
+  const resetStatusState = () => {
+    setError('')
+    setErrorDismissed(false)
+    setSuccess('')
+    setSuccessDismissed(false)
+    setIndexNowBannerVisible(false)
+    setFieldErrors({})
+  }
+
   const handleDiscard = () => {
     if (!pill) return
     const formData: PillData = {}
@@ -827,7 +836,8 @@ export default function EditPillPage() {
   }
 
   const handleSave = async () => {
-    setSaving(true); setError(''); setErrorDismissed(false); setSuccess(''); setSuccessDismissed(false); setIndexNowBannerVisible(false); setFieldErrors({})
+    setSaving(true)
+    resetStatusState()
     const session = await getSession()
     if (!session) return
     const changedFields = getChangedFields()
@@ -853,7 +863,8 @@ export default function EditPillPage() {
   }
 
   const handlePublish = async () => {
-    setSaving(true); setError(''); setErrorDismissed(false); setSuccess(''); setSuccessDismissed(false); setIndexNowBannerVisible(false); setFieldErrors({})
+    setSaving(true)
+    resetStatusState()
     const session = await getSession()
     if (!session) return
     const changedFields = getChangedFields()
