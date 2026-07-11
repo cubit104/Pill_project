@@ -4,13 +4,14 @@ import logging
 from typing import Optional
 
 import bleach
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
 from routes.admin.auth import get_admin_user, log_audit
+from routes.admin.indexnow import can_submit_pill_slug_to_indexnow, submit_pill_slug_to_indexnow
 
 logger = logging.getLogger(__name__)
 
@@ -412,7 +413,12 @@ def reject_draft(
 
 
 @router.post("/drafts/{draft_id}/publish")
-def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_admin_user)):
+def publish_draft(
+    request: Request,
+    draft_id: str,
+    background_tasks: BackgroundTasks,
+    admin: dict = Depends(get_admin_user),
+):
     if admin["role"] not in ("superuser", "editor"):
         raise HTTPException(status_code=403, detail="Requires reviewer role or higher")
 
@@ -420,6 +426,7 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
         database.connect_to_database()
 
     try:
+        published_slug: Optional[str] = None
         with database.db_engine.begin() as conn:
             draft = conn.execute(
                 text("SELECT id, pill_id, draft_data, status FROM pill_drafts WHERE id = :id LIMIT 1"),
@@ -453,10 +460,11 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
                 cols = ", ".join(insert_data.keys())
                 vals = ", ".join(f":{k}" for k in insert_data.keys())
                 new_pill = conn.execute(
-                    text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
+                    text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id, slug"),
                     insert_data,
                 ).fetchone()
                 pill_id = str(new_pill[0]) if new_pill else None
+                published_slug = str(new_pill[1]) if new_pill and new_pill[1] else None
                 # Link the draft back to the newly created pill
                 if pill_id:
                     conn.execute(
@@ -465,6 +473,11 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
                     )
             else:
                 pill_id = str(pill_id_raw)
+                pill_row = conn.execute(
+                    text("SELECT slug FROM pillfinder WHERE id = :pill_id AND deleted_at IS NULL LIMIT 1"),
+                    {"pill_id": pill_id},
+                ).fetchone()
+                existing_slug = pill_row[0] if pill_row else None
                 # Apply draft_data to existing pillfinder row and mark as published
                 publishable = {k: v for k, v in sanitized.items() if k in PUBLISHABLE_FIELDS}
                 if not publishable:
@@ -483,6 +496,7 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
                     text(f"UPDATE pillfinder SET {', '.join(set_parts)} WHERE id = :pill_id"),
                     params,
                 )
+                published_slug = str(publishable.get("slug") or existing_slug or "").strip() or None
 
             conn.execute(
                 text("""
@@ -505,7 +519,13 @@ def publish_draft(request: Request, draft_id: str, admin: dict = Depends(get_adm
                 user_agent=request.headers.get("user-agent"),
             )
 
-        return {"published": True}
+        indexnow_queued = bool(published_slug) and can_submit_pill_slug_to_indexnow(published_slug)
+        if indexnow_queued:
+            background_tasks.add_task(submit_pill_slug_to_indexnow, published_slug)
+        response = {"published": True}
+        if indexnow_queued:
+            response["indexnow_queued"] = True
+        return response
     except HTTPException:
         raise
     except SQLAlchemyError as e:

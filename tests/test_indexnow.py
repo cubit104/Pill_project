@@ -15,6 +15,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-key")
 from scripts import backfill_medication_guide as backfill_script
 from services.indexnow import (
     IndexNowSubmissionError,
+    build_pill_page_urls,
     build_indexnow_payload,
     expand_backfill_report_urls,
     load_indexnow_config,
@@ -93,6 +94,14 @@ def test_expand_backfill_report_urls_for_complete_report(tmp_path):
         "https://pillseek.com/pill/drug-one",
         "https://pillseek.com/pill/drug-one/medication-guide",
         "https://pillseek.com/pill/drug-one/professional-information",
+    ]
+
+
+def test_build_pill_page_urls_quotes_slug():
+    assert build_pill_page_urls("Drug Name/10", _config()) == [
+        "https://pillseek.com/pill/Drug%20Name%2F10",
+        "https://pillseek.com/pill/Drug%20Name%2F10/medication-guide",
+        "https://pillseek.com/pill/Drug%20Name%2F10/professional-information",
     ]
 
 

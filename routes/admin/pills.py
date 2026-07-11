@@ -8,7 +8,7 @@ import datetime
 from datetime import timezone
 from typing import Any, Dict, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
@@ -18,6 +18,7 @@ import bleach
 import database
 from services.synonym_resolver import ensure_synonym_mapping
 from routes.admin.auth import get_admin_user, log_audit, require_superuser, CRITICAL_FIELDS
+from routes.admin.indexnow import can_submit_pill_slug_to_indexnow, submit_pill_slug_to_indexnow
 from routes.admin.field_schema import validate_pill, compute_completeness, compute_seo_score
 from services.drug_pronunciation import get_pronunciation, get_pronunciation_lookup_keys
 from utils import get_image_url, generate_slug
@@ -1430,6 +1431,7 @@ def update_pill_indication(
 def create_pill(
     request: Request,
     body: PillCreate,
+    background_tasks: BackgroundTasks,
     publish: bool = Query(False),
     admin: dict = Depends(get_admin_user),
 ):
@@ -1458,6 +1460,7 @@ def create_pill(
             )
 
     try:
+        created_slug: Optional[str] = None
         with database.db_engine.begin() as conn:
             if body.idempotency_key:
                 existing = conn.execute(
@@ -1474,10 +1477,14 @@ def create_pill(
             cols = ", ".join(data.keys())
             vals = ", ".join(f":{k}" for k in data.keys())
             result = conn.execute(
-                text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id"),
+                text(f"INSERT INTO pillfinder ({cols}) VALUES ({vals}) RETURNING id, slug"),
                 data,
             )
-            new_id = result.scalar()
+            created_row = result.fetchone()
+            if created_row:
+                new_id, created_slug = created_row
+            else:
+                new_id, created_slug = None, None
 
             log_audit(
                 conn,
@@ -1492,7 +1499,13 @@ def create_pill(
             )
 
         _best_effort_ensure_synonym_mapping(data.get("rxcui"))
-        return {"id": str(new_id), "created": True}
+        indexnow_queued = publish and bool(created_slug) and can_submit_pill_slug_to_indexnow(created_slug)
+        if indexnow_queued:
+            background_tasks.add_task(submit_pill_slug_to_indexnow, str(created_slug))
+        response = {"id": str(new_id), "created": True}
+        if indexnow_queued:
+            response["indexnow_queued"] = True
+        return response
     except SQLAlchemyError as e:
         logger.error(f"create_pill DB error: {e}", exc_info=True)
         root = getattr(e, "orig", None) or e
@@ -1504,6 +1517,7 @@ def update_pill(
     request: Request,
     pill_id: str,
     body: PillUpdate,
+    background_tasks: BackgroundTasks,
     publish: bool = Query(False),
     admin: dict = Depends(get_admin_user),
 ):
@@ -1623,14 +1637,17 @@ def update_pill(
             )
 
     try:
+        should_submit_indexnow = False
+        indexnow_slug: Optional[str] = None
         with database.db_engine.begin() as conn:
             # Optimistic locking check
             current = conn.execute(
-                text("SELECT updated_at FROM pillfinder WHERE id = :id AND deleted_at IS NULL LIMIT 1"),
+                text("SELECT updated_at, published, slug FROM pillfinder WHERE id = :id AND deleted_at IS NULL LIMIT 1"),
                 {"id": pill_id},
             ).fetchone()
             if not current:
                 raise HTTPException(status_code=404, detail="Pill not found")
+            current_published = bool(current[1])
 
             if body.updated_at and current[0]:
                 db_ts = current[0].replace(tzinfo=timezone.utc) if current[0].tzinfo is None else current[0]
@@ -1715,9 +1732,22 @@ def update_pill(
                         user_agent=request.headers.get("user-agent"),
                     )
 
+            should_submit_indexnow = publish or current_published
+            indexnow_slug = str(updates.get("slug") or before.get("slug") or current[2] or "").strip()
+
         synonym_rxcui = updates.get("rxcui") if "rxcui" in updates else before.get("rxcui")
         _best_effort_ensure_synonym_mapping(synonym_rxcui)
-        return {"updated": True, "warnings": warnings}
+        indexnow_queued = (
+            should_submit_indexnow
+            and bool(indexnow_slug)
+            and can_submit_pill_slug_to_indexnow(indexnow_slug)
+        )
+        if indexnow_queued:
+            background_tasks.add_task(submit_pill_slug_to_indexnow, indexnow_slug)
+        response = {"updated": True, "warnings": warnings}
+        if indexnow_queued:
+            response["indexnow_queued"] = True
+        return response
     except HTTPException:
         raise
     except SQLAlchemyError as e:

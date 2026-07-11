@@ -51,3 +51,4 @@ yarn-error.log*
 frontend/node_modules
 frontend/package-lock.json
 data/drug_drug_interactions.csv
+=0.3.0

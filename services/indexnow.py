@@ -162,6 +162,15 @@ def expand_backfill_report_urls(path: str | Path, config: IndexNowConfig) -> lis
     return urls
 
 
+def build_pill_page_urls(slug: str, config: IndexNowConfig) -> list[str]:
+    normalized_slug = (slug or "").strip()
+    if not normalized_slug:
+        return []
+    encoded_slug = quote(normalized_slug, safe="")
+    pill_base = f"{config.site_url}/pill/{encoded_slug}"
+    return [f"{pill_base}{suffix}" for suffix in PILL_PAGE_SUFFIXES]
+
+
 def _iter_batches(urls: Sequence[str], batch_size: int) -> Iterable[list[str]]:
     for start in range(0, len(urls), batch_size):
         yield list(urls[start : start + batch_size])
