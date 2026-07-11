@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 import { useEffect, useState, useCallback, useRef, useId } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
 import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink, Copy } from 'lucide-react'
@@ -12,6 +12,8 @@ import {
   isNA,
   type FieldSchemaEntry,
 } from '../../lib/fieldSchema'
+
+const INDEXNOW_BANNER_DISMISS_MS = 8000
 
 const SECTION_GROUPS: { section: string; title: string; keys: string[] }[] = [
   {
@@ -628,6 +630,7 @@ function IndexStatusPanel({ slug, token }: { slug: string; token: string | null 
 
 export default function EditPillPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const pillId = params.id as string
   const router = useRouter()
 
@@ -639,6 +642,7 @@ export default function EditPillPage() {
   const [errorDismissed, setErrorDismissed] = useState(false)
   const [success, setSuccess] = useState('')
   const [successDismissed, setSuccessDismissed] = useState(false)
+  const [indexNowBannerVisible, setIndexNowBannerVisible] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<Array<{ id: string; status: string; created_at: string }>>([])
   const [draftCount, setDraftCount] = useState(0)
@@ -747,6 +751,19 @@ export default function EditPillPage() {
   useEffect(() => { loadPill() }, [loadPill])
   useEffect(() => { fetchCompleteness() }, [fetchCompleteness])
   useEffect(() => {
+    if (searchParams.get('indexnow') !== 'queued') return
+    setIndexNowBannerVisible(true)
+    const nextParams = new URLSearchParams(searchParams.toString())
+    nextParams.delete('indexnow')
+    const nextUrl = nextParams.toString() ? `/admin/pills/${pillId}?${nextParams.toString()}` : `/admin/pills/${pillId}`
+    window.history.replaceState(null, '', nextUrl)
+  }, [pillId, searchParams])
+  useEffect(() => {
+    if (!indexNowBannerVisible) return
+    const timer = window.setTimeout(() => setIndexNowBannerVisible(false), INDEXNOW_BANNER_DISMISS_MS)
+    return () => window.clearTimeout(timer)
+  }, [indexNowBannerVisible])
+  useEffect(() => {
     return () => {
       if (!pronunciationAudioRef.current) return
       pronunciationAudioRef.current.pause()
@@ -805,11 +822,12 @@ export default function EditPillPage() {
     setErrorDismissed(false)
     setSuccess('Form reset to last saved state.')
     setSuccessDismissed(false)
+    setIndexNowBannerVisible(false)
     setJustPublished(false)
   }
 
   const handleSave = async () => {
-    setSaving(true); setError(''); setErrorDismissed(false); setSuccess(''); setSuccessDismissed(false); setFieldErrors({})
+    setSaving(true); setError(''); setErrorDismissed(false); setSuccess(''); setSuccessDismissed(false); setIndexNowBannerVisible(false); setFieldErrors({})
     const session = await getSession()
     if (!session) return
     const changedFields = getChangedFields()
@@ -835,7 +853,7 @@ export default function EditPillPage() {
   }
 
   const handlePublish = async () => {
-    setSaving(true); setError(''); setErrorDismissed(false); setSuccess(''); setSuccessDismissed(false); setFieldErrors({})
+    setSaving(true); setError(''); setErrorDismissed(false); setSuccess(''); setSuccessDismissed(false); setIndexNowBannerVisible(false); setFieldErrors({})
     const session = await getSession()
     if (!session) return
     const changedFields = getChangedFields()
@@ -878,15 +896,17 @@ export default function EditPillPage() {
       }
       if (res.status === 409) { setError(await safeErrorDetail(res, 'Conflict')); setErrorDismissed(false); return }
       if (!res.ok) throw new Error(await safeErrorDetail(res, 'Publish failed'))
+      const data = await res.json()
       setSuccess('Saved & published successfully')
       setSuccessDismissed(false)
+      setIndexNowBannerVisible(data.indexnow_submitted === true)
       setJustPublished(true)
       await loadPill(); await fetchCompleteness()
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
 
   const handleSaveDraft = async () => {
-    setSaving(true); setError(''); setErrorDismissed(false)
+    setSaving(true); setError(''); setErrorDismissed(false); setIndexNowBannerVisible(false)
     const session = await getSession()
     if (!session) return
     try {
@@ -1075,6 +1095,19 @@ export default function EditPillPage() {
               <X className="w-4 h-4" />
             </button>
           </div>
+        </div>
+      )}
+
+      {indexNowBannerVisible && (
+        <div className="bg-sky-50 text-sky-800 px-4 py-2 rounded-md text-sm border border-sky-200 flex items-center justify-between gap-2">
+          <span>🔔 IndexNow: Pages queued for submission to Bing &amp; Yandex for faster indexing.</span>
+          <button
+            onClick={() => setIndexNowBannerVisible(false)}
+            className="shrink-0 text-sky-600 hover:text-sky-800"
+            aria-label="Dismiss IndexNow notice"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
