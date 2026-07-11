@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, useRef, useId } from 'react'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
-import { ArrowLeft, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink, Copy } from 'lucide-react'
+import { ArrowLeft, Bell, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink, Copy } from 'lucide-react'
 import {
   FIELD_SCHEMA,
   FIELD_SCHEMA_BY_KEY,
@@ -1111,7 +1111,10 @@ export default function EditPillPage() {
 
       {indexNowBannerVisible && (
         <div className="bg-sky-50 text-sky-800 px-4 py-2 rounded-md text-sm border border-sky-200 flex items-center justify-between gap-2">
-          <span>🔔 IndexNow: Pages queued for submission to Bing & Yandex for faster indexing.</span>
+          <span className="flex items-center gap-2">
+            <Bell className="w-4 h-4 shrink-0" aria-hidden="true" />
+            <span>IndexNow: Pages queued for submission to Bing & Yandex for faster indexing.</span>
+          </span>
           <button
             onClick={() => setIndexNowBannerVisible(false)}
             className="shrink-0 text-sky-600 hover:text-sky-800"
