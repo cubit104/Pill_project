@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import type { FiltersResponse } from '../types'
 
 const SearchBar = dynamic(() => import('./SearchBar'), {
-  ssr: false,
+  ssr: true,
   loading: () => (
     <div
       className="bg-emerald-50 rounded-2xl shadow-xl p-6 text-left border border-emerald-200 min-h-[252px]"
