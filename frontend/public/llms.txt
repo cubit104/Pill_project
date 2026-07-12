@@ -1,5 +1,4 @@
-# PillSeek — AI/LLM Discovery File
-# https://pillseek.com/llms.txt
+# PillSeek
 
 ## What is PillSeek?
 
