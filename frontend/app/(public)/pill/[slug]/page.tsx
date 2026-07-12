@@ -13,7 +13,7 @@ import {
 import { DEFAULT_REVIEWER } from '../../../lib/reviewers'
 import { slugifyDrugName } from '../../../lib/slug'
 import { resolveImageUrls } from '../../../lib/image-url'
-import { fetchPriceSnapshot } from './price/priceData'
+import { fetchPriceSnapshot, fetchInitialPriceData } from './price/priceData'
 import { snapshotToPriceCardInitialData } from './pricing/priceCardData'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
@@ -165,7 +165,7 @@ function buildFaqItems(pill: PillDetail): Array<{ question: string; answer: stri
     const physicalDesc = [pill.color, pill.shape].filter(Boolean).join(' ')
     items.push({
       question: `What does the imprint "${pill.imprint}" mean?`,
-      answer: `The imprint "${pill.imprint}" on this${physicalDesc ? ` ${physicalDesc}` : ''} pill helps identify it as ${pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : 'this medication'}.`,
+      answer: `The imprint "${pill.imprint}" on this${physicalDesc ? ` ${physicalDesc}` : ''} pill helps identify it as ${pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : 'this medication'}${pill.strength ? ` (${pill.strength})` : ''}. Imprints are required by the FDA so each pill can be uniquely identified.`,
     })
   }
 
@@ -293,12 +293,27 @@ export default async function PillDetailPage(
   ])
   if (!pill) notFound()
 
+  // Server-side price fallback: when no snapshot exists (newly published pills),
+  // call fetchInitialPriceData to resolve price via NDC → RxCUI → name chain.
+  // This is the same fallback the dedicated /pill/[slug]/price page uses.
+  // .catch(() => undefined) ensures a timeout or error never blocks the page.
+  const fallbackPriceData = priceSnapshot
+    ? undefined
+    : await fetchInitialPriceData({
+        ndc: pill.ndc,
+        rxcui: pill.rxcui,
+        medicineName: pill.drug_name,
+        historyNdc: pill.history_ndc ?? undefined,
+        historySource: pill.history_source ?? undefined,
+      }).catch(() => undefined)
+
   // Extract the compact PriceResponse from the snapshot (if any) to pre-populate
   // PriceSummaryCard via initialData. The snapshot uses revalidate:300, keeping
   // the pill page ISR-friendly and refreshing weekly NADAC prices automatically.
+  // Falls back to the live price fetch result when no snapshot exists.
   const priceInitialData = priceSnapshot
     ? snapshotToPriceCardInitialData(priceSnapshot).price
-    : undefined
+    : fallbackPriceData?.price
 
   // Breadcrumb JSON-LD uses absolute URLs to match canonical
   const breadcrumbs = breadcrumbSchema([
