@@ -39,11 +39,11 @@ export async function generateMetadata(
   return {
     title,
     description,
-    alternates: { canonical: `/imprint/${encodeURIComponent(imprint)}` },
+    alternates: { canonical: `/imprint/${encodeURIComponent(decodeURIComponent(imprint))}` },
     openGraph: {
       title,
       description,
-      url: `${SITE_URL}/imprint/${encodeURIComponent(imprint)}`,
+      url: `${SITE_URL}/imprint/${encodeURIComponent(decodeURIComponent(imprint))}`,
     },
     twitter: { card: 'summary_large_image', title, description },
   }
@@ -60,13 +60,13 @@ export default async function ImprintHubPage(
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: `Imprint ${displayImprint}`, url: `/imprint/${encodeURIComponent(imprint)}` },
+    { name: `Imprint ${displayImprint}`, url: `/imprint/${encodeURIComponent(decodeURIComponent(imprint))}` },
   ])
 
   const hubJson = hubPageSchema({
     name: `Pill With Imprint ${displayImprint}`,
     description: `Identify the pill with imprint code ${displayImprint}. View drug name, color, shape, and strength from the FDA database.`,
-    url: `/imprint/${encodeURIComponent(imprint)}`,
+    url: `/imprint/${encodeURIComponent(decodeURIComponent(imprint))}`,
   })
 
   return (
