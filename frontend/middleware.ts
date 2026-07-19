@@ -12,8 +12,6 @@ const BAD_BOTS = [
   'axios',
   'java/',
   'petalbot',
-  'semrushbot',
-  'ahrefsbot',
   'mj12bot',
   'dotbot',
   'blexbot',
