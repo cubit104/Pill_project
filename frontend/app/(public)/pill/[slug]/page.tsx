@@ -5,6 +5,7 @@ import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../
 import {
   breadcrumbSchema,
   buildIdentificationSummary,
+  drugSchema,
   faqSchema,
   imageObjectSchema,
   medicalWebPageSchema,
@@ -382,6 +383,10 @@ export default async function PillDetailPage(
           dangerouslySetInnerHTML={{ __html: safeJsonLd(imageObjects) }}
         />
       )}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(drugSchema(pill, slug)) }}
+      />
       <PillDetailClient
         pill={pill}
         slug={slug}
