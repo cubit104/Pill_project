@@ -355,7 +355,7 @@ export function drugSchema(pill: PillDetail, slug: string) {
 
   return stripUndefined({
     '@context': 'https://schema.org' as const,
-    '@type': 'Drug' as const,
+    '@type': 'MedicalEntity' as const,
     name: pill.drug_name,
     nonProprietaryName: pill.generic_name?.trim() || undefined,
     alternateName: pill.brand_names_all?.length ? pill.brand_names_all : undefined,
