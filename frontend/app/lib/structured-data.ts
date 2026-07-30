@@ -357,11 +357,11 @@ export function drugSchema(pill: PillDetail, slug: string) {
     '@context': 'https://schema.org' as const,
     '@type': 'Drug' as const,
     name: pill.drug_name,
-    nonProprietaryName: pill.generic_name ?? undefined,
+    nonProprietaryName: pill.generic_name?.trim() || undefined,
     alternateName: pill.brand_names_all?.length ? pill.brand_names_all : undefined,
     description: buildIdentificationSummary(pill),
     url: `${SITE_URL}/pill/${encodeURIComponent(slug)}`,
-    image: pill.image_url ?? undefined,
+    image: pill.image_url?.trim() || undefined,
     identifier: identifier.length > 0 ? identifier : undefined,
     dosageForm: pill.dosage_form ?? undefined,
     activeIngredient: pill.ingredients ?? undefined,
@@ -370,8 +370,8 @@ export function drugSchema(pill: PillDetail, slug: string) {
       : pill.status_rx_otc === 'OTC'
         ? 'OTC'
         : undefined,
-    manufacturer: pill.manufacturer
-      ? { '@type': 'Organization' as const, name: pill.manufacturer }
+    manufacturer: pill.manufacturer?.trim()
+      ? { '@type': 'Organization' as const, name: pill.manufacturer.trim() }
       : undefined,
     drugClass: pill.pharma_class ?? undefined,
   })
