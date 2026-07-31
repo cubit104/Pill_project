@@ -26,7 +26,7 @@ const SECTION_GROUPS: { section: string; title: string; keys: string[] }[] = [
   {
     section: 'MediaSEO',
     title: 'Media & SEO',
-    keys: ['image_alt_text', 'meta_description', 'tags', 'brand_names', 'brand_or_generic'],
+    keys: ['image_alt_text', 'meta_title', 'meta_description', 'tags', 'brand_names', 'brand_or_generic'],
   },
   {
     section: 'Advanced',
@@ -128,13 +128,10 @@ function ComboboxInput({
 }
 
 function FieldInput({
-  field, value, onChange, error, hasImage,
+  field, value, onChange, error,
 }: {
-  field: FieldSchemaEntry; value: string; onChange: (val: string) => void; error?: string; hasImage?: boolean
+  field: FieldSchemaEntry; value: string; onChange: (val: string) => void; error?: string
 }) {
-  // Hide conditional fields when their condition is not met
-  if (field.conditional === 'has_image' && !hasImage) return null
-
   const isNAValue = isNA(value)
   const borderClass = error
     ? 'border-red-400 focus:ring-red-400'
@@ -316,7 +313,6 @@ export default function NewPillPage() {
                 <div key={field.key} id={`field-${field.key}`}
                   className={fieldErrors[field.key] ? 'ring-2 ring-red-400 rounded-md p-1' : ''}>
                   <FieldInput field={field} value={form[field.key] ?? ''} onChange={(val) => setForm({ ...form, [field.key]: val })}
-                    hasImage={false}
                     error={fieldErrors[field.key]} />
                 </div>
               ))}

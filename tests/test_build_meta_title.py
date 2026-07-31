@@ -25,6 +25,7 @@ for _mod in (
 
 from routes.admin.pills import (  # noqa: E402
     _build_meta_title,
+    _build_image_alt_text,
     _normalize_color,
     _normalize_drug_name,
     _normalize_strength,
@@ -120,8 +121,8 @@ class TestNormalizeStrength:
 # ---------------------------------------------------------------------------
 
 class TestBuildMetaTitle:
-    def test_full_example_from_problem_statement(self):
-        """Canonical example from the problem statement."""
+    def test_full_example_imprint_first(self):
+        """Imprint-first format: {imprint} {drug} {strength} {color} {shape} - Pill Identifier."""
         result = _build_meta_title({
             "splcolor_text": "GRAY, BROWN",
             "splshape_text": "CAPSULE",
@@ -129,7 +130,7 @@ class TestBuildMetaTitle:
             "spl_strength": "25 MG/75 MG",
             "splimprint": "MYLAN;3422;MYLAN;3422",
         })
-        assert result == "Gray Brown Capsule Nitrofurantoin Macrocrystals 25 mg/75 mg Pill With Imprint MYLAN;3422;MYLAN;3422"
+        assert result == "MYLAN;3422;MYLAN;3422 Nitrofurantoin Macrocrystals 25 mg/75 mg Gray Brown Capsule - Pill Identifier"
 
     def test_empty_data_returns_empty_string(self):
         assert _build_meta_title({}) == ""
@@ -138,14 +139,15 @@ class TestBuildMetaTitle:
         """When no meaningful fields are present the result must be ''."""
         assert _build_meta_title({"splcolor_text": "", "medicine_name": None}) == ""
 
-    def test_no_imprint_omits_with_imprint_clause(self):
+    def test_no_imprint_fallback(self):
+        """Without imprint: {color} {shape} {drug} {strength} - Pill Identifier."""
         result = _build_meta_title({
             "splcolor_text": "WHITE",
             "splshape_text": "ROUND",
             "medicine_name": "ASPIRIN",
             "spl_strength": "325 MG",
         })
-        assert result == "White Round Aspirin 325 mg Pill"
+        assert result == "White Round Aspirin 325 mg - Pill Identifier"
         assert "With Imprint" not in result
 
     def test_imprint_preserved_as_is(self):
@@ -155,9 +157,11 @@ class TestBuildMetaTitle:
             "medicine_name": "ASPIRIN",
             "splimprint": "MYLAN;3422",
         })
-        assert "With Imprint MYLAN;3422" in result
+        assert result.startswith("MYLAN;3422")
+        assert "MYLAN;3422" in result
 
     def test_none_values_treated_as_empty(self):
+        """With no imprint, falls back to color/shape/drug format."""
         result = _build_meta_title({
             "splcolor_text": None,
             "splshape_text": None,
@@ -165,15 +169,16 @@ class TestBuildMetaTitle:
             "spl_strength": None,
             "splimprint": None,
         })
-        assert result == "Aspirin Pill"
+        assert result == "Aspirin - Pill Identifier"
 
     def test_only_imprint_present_still_builds_title(self):
+        """With only imprint: {imprint} Pill - Pill Identifier."""
         result = _build_meta_title({"splimprint": "ABC 123"})
-        assert result == "Pill With Imprint ABC 123"
+        assert result == "ABC 123 Pill - Pill Identifier"
 
     def test_color_normalization_applied(self):
         result = _build_meta_title({"splcolor_text": "RED, BLUE", "medicine_name": "ADVIL"})
-        assert result.startswith("Red Blue")
+        assert "Red Blue" in result
 
     def test_shape_title_cased(self):
         result = _build_meta_title({"splshape_text": "OVAL", "medicine_name": "TYLENOL"})
@@ -182,3 +187,49 @@ class TestBuildMetaTitle:
     def test_strength_lowercased(self):
         result = _build_meta_title({"medicine_name": "ASPIRIN", "spl_strength": "500 MG"})
         assert "500 mg" in result
+
+    def test_suffix_always_present(self):
+        result = _build_meta_title({"medicine_name": "ASPIRIN"})
+        assert result.endswith("- Pill Identifier")
+
+    def test_only_color_shape(self):
+        """Color and shape only: {color} {shape} Pill - Pill Identifier."""
+        result = _build_meta_title({"splcolor_text": "WHITE", "splshape_text": "OVAL"})
+        assert result == "White Oval Pill - Pill Identifier"
+
+
+# ---------------------------------------------------------------------------
+# _build_image_alt_text
+# ---------------------------------------------------------------------------
+
+class TestBuildImageAltText:
+    def test_full_example(self):
+        """Format: {color} {shape} {drug} {strength} pill imprinted {imprint}."""
+        result = _build_image_alt_text({
+            "splcolor_text": "BLUE",
+            "splshape_text": "CAPSULE",
+            "medicine_name": "GAVRETO",
+            "spl_strength": "100 MG",
+            "splimprint": "C94",
+        })
+        assert result == "Blue Capsule Gavreto 100 mg pill imprinted C94"
+
+    def test_no_imprint(self):
+        result = _build_image_alt_text({
+            "splcolor_text": "WHITE",
+            "splshape_text": "OVAL",
+            "medicine_name": "METFORMIN",
+            "spl_strength": "500 MG",
+        })
+        assert result == "White Oval Metformin 500 mg pill"
+
+    def test_only_imprint(self):
+        result = _build_image_alt_text({"splimprint": "ABC 123"})
+        assert result == "Pill imprinted ABC 123"
+
+    def test_empty_data(self):
+        assert _build_image_alt_text({}) == ""
+
+    def test_color_only(self):
+        result = _build_image_alt_text({"splcolor_text": "WHITE"})
+        assert result == "White pill"
