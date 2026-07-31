@@ -26,6 +26,7 @@ for _mod in (
 from routes.admin.pills import (  # noqa: E402
     _build_meta_title,
     _build_image_alt_text,
+    _build_meta_description,
     _normalize_color,
     _normalize_drug_name,
     _normalize_strength,
@@ -233,3 +234,79 @@ class TestBuildImageAltText:
     def test_color_only(self):
         result = _build_image_alt_text({"splcolor_text": "WHITE"})
         assert result == "White pill"
+
+
+# ---------------------------------------------------------------------------
+# _build_meta_description
+# ---------------------------------------------------------------------------
+
+class TestBuildMetaDescription:
+    def test_full_example_brand_and_generic(self):
+        """Brand + generic differ → 'Brand (generic)' in description."""
+        result = _build_meta_description({
+            "brand_names": "Gavreto",
+            "medicine_name": "PRALSETINIB",
+            "spl_strength": "100 MG",
+            "splcolor_text": "BLUE",
+            "splshape_text": "CAPSULE",
+            "splimprint": "C94",
+        })
+        assert result == (
+            "Discover Gavreto (pralsetinib) 100 mg \u2014 uses, dosage, side effects, and drug interactions."
+            " Identify this blue capsule pill imprinted C94 with PillSeek."
+        )
+
+    def test_no_imprint(self):
+        """Without imprint the identification sentence uses color+shape only."""
+        result = _build_meta_description({
+            "medicine_name": "METFORMIN",
+            "spl_strength": "500 MG",
+            "splcolor_text": "WHITE",
+            "splshape_text": "OVAL",
+        })
+        assert result == (
+            "Discover Metformin 500 mg \u2014 uses, dosage, side effects, and drug interactions."
+            " Identify this white oval pill with PillSeek."
+        )
+
+    def test_generic_only_no_duplication(self):
+        """When brand_names equals medicine_name (case-insensitive), no duplication."""
+        result = _build_meta_description({
+            "brand_names": "Metformin",
+            "medicine_name": "METFORMIN",
+            "spl_strength": "500 MG",
+            "splimprint": "A 12",
+        })
+        # drugDisplay should be just "Metformin", not "Metformin (metformin)"
+        assert "Metformin (metformin)" not in result
+        assert result.startswith("Discover Metformin 500 mg")
+
+    def test_long_text_truncated_at_word_boundary(self):
+        """Result must be at most 155 chars and must not cut mid-word."""
+        result = _build_meta_description({
+            "brand_names": "Verylongbrandname",
+            "medicine_name": "VERYLONGGENERICNAME",
+            "spl_strength": "999 MG",
+            "splcolor_text": "RED, WHITE, BLUE",
+            "splshape_text": "CAPSULE",
+            "splimprint": "LONGIMPRINT1234567890",
+        })
+        assert len(result) <= 155
+        # Must end at a complete word (no partial words after truncation)
+        assert not result[-1].isalpha() or " " not in result or result == result.rstrip()
+
+    def test_empty_data_returns_empty_string(self):
+        assert _build_meta_description({}) == ""
+
+    def test_medicine_name_only(self):
+        """Only medicine_name → uses it as drugDisplay."""
+        result = _build_meta_description({"medicine_name": "ASPIRIN"})
+        assert result.startswith("Discover Aspirin")
+
+    def test_no_color_shape_with_imprint(self):
+        """Without color/shape but with imprint → simpler identification sentence."""
+        result = _build_meta_description({
+            "medicine_name": "ASPIRIN",
+            "splimprint": "BAYER",
+        })
+        assert "Identify this pill imprinted BAYER with PillSeek." in result

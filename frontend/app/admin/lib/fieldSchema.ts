@@ -54,7 +54,7 @@ export const FIELD_SCHEMA: FieldSchemaEntry[] = [
   { key: 'meta_title',        label: 'SEO Title',            tier: 'optional', inputType: 'text',
     placeholder: 'e.g. C94 Gavreto 100 mg Blue Capsule - Pill Identifier' },
   { key: 'meta_description',  label: 'Meta Description',     tier: 'optional', inputType: 'textarea',
-    placeholder: 'e.g. Discover Gavreto (pralsetinib) 100 mg — uses, dosage, side effects, and drug interactions. Identify this blue capsule imprinted C94 with PillSeek.' },
+    placeholder: 'Auto-generated if left empty' },
   { key: 'pharmclass_fda_epc',label: 'FDA Pharma Class',     tier: 'optional' },
   { key: 'rxcui',             label: 'RxCUI',                tier: 'optional' },
   { key: 'rxcui_1',           label: 'RxCUI Alt',            tier: 'optional' },
