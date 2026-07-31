@@ -1619,7 +1619,7 @@ def update_pill(
             if mt_row:
                 current_meta_title = mt_row[0]
                 current_image_alt_text = mt_row[6]
-                current_has_image = (mt_row[7] or "").upper() == "TRUE"
+                current_has_image = str(mt_row[7] or "").upper() == "TRUE"
                 current_image_filename = mt_row[8]
 
                 merged_fields = {
