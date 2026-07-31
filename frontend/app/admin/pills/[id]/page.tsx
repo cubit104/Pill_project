@@ -153,12 +153,14 @@ function PreflightBanner({
 
 function ImageGallery({
   imageFilename,
+  imageAltText,
   resolvedImageUrls,
   pillId,
   token,
   onRefresh,
 }: {
   imageFilename: string | null
+  imageAltText: string | null
   resolvedImageUrls: string[]
   pillId: string
   token: string
@@ -261,7 +263,7 @@ function ImageGallery({
                 <div key={fn} className="relative border border-gray-200 rounded-lg overflow-hidden w-36">
                   <img
                     src={imgSrc}
-                    alt={fn}
+                    alt={imageAltText?.trim() || fn}
                     className="w-36 h-24 object-contain bg-gray-50"
                     onError={(e) => { ;(e.currentTarget as HTMLImageElement).style.display = 'none' }}
                   />
@@ -393,7 +395,7 @@ function FieldInput({
 }: {
   field: FieldSchemaEntry; value: string; onChange: (val: string) => void; error?: string; hasImage: boolean
 }) {
-  if (field.conditional === 'has_image' && !hasImage) return null
+  // image_alt_text is always visible; hasImage only affects completeness scoring (not visibility)
   const isNAValue = isNA(value)
   const isEmpty = !isNAValue && (value === '' || value === null)
   const borderClass = error
@@ -1198,6 +1200,7 @@ export default function EditPillPage() {
       {token && (
         <ImageGallery
           imageFilename={pill?.image_filename ?? null}
+          imageAltText={pill?.image_alt_text ?? null}
           resolvedImageUrls={resolvedImageUrls}
           pillId={pillId}
           token={token}

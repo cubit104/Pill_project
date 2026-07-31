@@ -310,19 +310,33 @@ function buildImageDescription(pill: PillDetail): string {
   const imageAltText = pill.image_alt_text?.trim()
   if (imageAltText) return imageAltText
 
-  const parts = [pill.color, pill.shape, pill.drug_name, pill.strength]
+  // Build drug display: Brand (generic) when both differ, otherwise just one name
+  const brand = (pill.brand_names?.trim() || '')
+  const generic = (pill.generic_name?.trim() || '')
+  const drugDisplay = brand && generic && brand.toLowerCase() !== generic.toLowerCase()
+    ? `${brand} (${generic.toLowerCase()})`
+    : brand || generic || (pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : '')
+
+  const parts = [
+    pill.color,
+    pill.shape,
+    drugDisplay || undefined,
+    pill.strength,
+  ]
     .map((part) => (typeof part === 'string' ? part.trim() : part))
     .filter((part): part is string => Boolean(part))
 
-  if (pill.imprint?.trim()) {
-    parts.push(`pill imprinted ${pill.imprint.trim()}`)
-  } else {
-    parts.push('pill')
+  const base = parts.join(' ').replace(/\s+/g, ' ').trim()
+
+  if (base && pill.imprint?.trim()) {
+    return `${base} pill imprinted ${pill.imprint.trim()}`
+  } else if (base) {
+    return `${base} pill`
+  } else if (pill.imprint?.trim()) {
+    return `Pill imprinted ${pill.imprint.trim()}`
   }
 
-  // Normalize any accidental double spaces from upstream data formatting.
-  const combined = parts.join(' ').replace(/\s+/g, ' ').trim()
-  return combined || buildIdentificationSummary(pill)
+  return buildIdentificationSummary(pill)
 }
 
 export function imageObjectSchema(
