@@ -1636,6 +1636,11 @@ def update_pill(
         if v is None:
             # Explicitly sent as null → clear the column
             updates[k] = None
+        elif v == "" and k in ("meta_title", "meta_description"):
+            # Preserve empty-string clears for SEO fields: NULL means "never set"
+            # and triggers auto-generation on save; "" means "intentionally cleared"
+            # and must suppress auto-generation on all future saves.
+            updates[k] = ""
         else:
             sanitized = _sanitize(v)
             updates[k] = sanitized  # _sanitize converts "" to None, clearing the column

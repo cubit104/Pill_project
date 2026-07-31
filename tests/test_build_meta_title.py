@@ -292,8 +292,14 @@ class TestBuildMetaDescription:
             "splimprint": "LONGIMPRINT1234567890",
         })
         assert len(result) <= 155
-        # Must end at a complete word (no partial words after truncation)
-        assert not result[-1].isalpha() or " " not in result or result == result.rstrip()
+        # Verify exact word-boundary truncation: full string → first 155 chars → cut back to last space
+        full = (
+            "Discover Verylongbrandname (verylonggenericname) 999 mg \u2014 uses, dosage, side effects, and drug interactions."
+            " Identify this red white blue capsule pill imprinted LONGIMPRINT1234567890 with PillSeek."
+        )
+        truncated = full[:155]
+        expected = truncated[:truncated.rfind(" ")]
+        assert result == expected
 
     def test_empty_data_returns_empty_string(self):
         assert _build_meta_description({}) == ""
