@@ -304,7 +304,7 @@ export async function generateMetadata(
     title,
     description,
     robots,
-    // Absolute canonical — must exactly match the browser URL (no trailing slash)
+    // Relative canonical resolved against metadataBase in app/layout.tsx
     alternates: { canonical: canonicalPath },
     openGraph: {
       title,

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { cache } from 'react'
 import { notFound, redirect } from 'next/navigation'
 import type { PillResult } from '../../../../types'
 import { breadcrumbSchema, safeJsonLd } from '../../../../lib/structured-data'
@@ -44,6 +45,14 @@ async function resolveRepresentativePriceData(
   return match?.initialData ? { pill: match.pill, initialData: match.initialData } : null
 }
 
+// Shared per-request resolution — React cache() deduplicates the fetches so
+// both generateMetadata() and the page component consume a single result.
+const getRepresentativePriceData = cache(async (decoded: string) => {
+  const searchResult = await fetchPillsByDrug(decoded)
+  const representative = await resolveRepresentativePriceData(searchResult.results)
+  return { searchResult, representative }
+})
+
 export async function generateMetadata(
   { params }: { params: Promise<{ name: string }> }
 ): Promise<Metadata> {
@@ -51,8 +60,7 @@ export async function generateMetadata(
   const decoded = decodeURIComponent(name)
   const canonicalSlug = slugifyDrugName(decoded) || decoded
   const displayName = toTitleCase(canonicalSlug.replace(/-/g, ' '))
-  const searchResult = await fetchPillsByDrug(decoded)
-  const representative = await resolveRepresentativePriceData(searchResult.results)
+  const { representative } = await getRepresentativePriceData(decoded)
   const robots = representative
     ? { index: true, follow: true }
     : { index: false, follow: true }
@@ -86,9 +94,8 @@ export default async function DrugPricePage(
   const displayName = toTitleCase(canonicalSlug.replace(/-/g, ' '))
   if (!displayName) notFound()
 
-  const searchResult = await fetchPillsByDrug(decoded)
+  const { searchResult, representative } = await getRepresentativePriceData(decoded)
   const pills = searchResult.results
-  const representative = await resolveRepresentativePriceData(pills)
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
     { name: displayName, url: `/drug/${canonicalSlug}` },

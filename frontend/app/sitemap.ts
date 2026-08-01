@@ -57,13 +57,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ]
 
   try {
-    const [slugRes, classRes, drugRes, drugPriceRes, conditionRes, filterRes] = await Promise.all([
+    const [slugRes, classRes, drugRes, drugPriceRes, conditionRes, colorRes, shapeRes] = await Promise.all([
       fetch(`${API_BASE}/api/slugs`, { next: { revalidate: 86400 } }),
       fetch(`${API_BASE}/api/classes`, { next: { revalidate: 86400 } }),
       fetch(`${API_BASE}/api/slugs/drugs`, { next: { revalidate: 86400 } }),
       fetch(`${API_BASE}/api/slugs/drug-prices`, { next: { revalidate: 86400 } }),
       fetch(`${API_BASE}/api/conditions`, { next: { revalidate: 86400 } }),
-      fetch(`${API_BASE}/filters`, { next: { revalidate: 86400 } }),
+      fetch(`${API_BASE}/api/slugs/colors`, { next: { revalidate: 86400 } }),
+      fetch(`${API_BASE}/api/slugs/shapes`, { next: { revalidate: 86400 } }),
     ])
 
     if (!slugRes.ok) {
@@ -83,12 +84,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const conditionPayload: { conditions?: Array<{ slug: string }> } = conditionRes.ok
       ? await conditionRes.json()
       : {}
-    const filtersPayload: {
-      colors?: Array<{ name: string }>
-      shapes?: Array<{ name: string }>
-    } = filterRes.ok
-      ? await filterRes.json()
-      : {}
+    const colorSlugs: Array<{ name: string }> = colorRes.ok
+      ? await colorRes.json()
+      : []
+    const shapeSlugs: Array<{ name: string }> = shapeRes.ok
+      ? await shapeRes.json()
+      : []
 
     let classes: Array<{ slug: string }> = []
     if (!classRes.ok) {
@@ -138,7 +139,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.6,
       }))
 
-    const colorPages: MetadataRoute.Sitemap = (filtersPayload.colors ?? [])
+    const colorPages: MetadataRoute.Sitemap = colorSlugs
       .map((color) => slugifyUrl(color.name))
       .filter(Boolean)
       .map((slug) => ({
@@ -147,7 +148,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.5,
       }))
 
-    const shapePages: MetadataRoute.Sitemap = (filtersPayload.shapes ?? [])
+    const shapePages: MetadataRoute.Sitemap = shapeSlugs
       .map((shape) => slugifyUrl(shape.name))
       .filter(Boolean)
       .map((slug) => ({
