@@ -71,10 +71,15 @@ def _normalize_strength(val: str) -> str:
 
 
 def _build_meta_title(data: dict) -> str:
-    """Auto-generate an SEO title from pill fields.
+    """Auto-generate an SEO title from pill fields using an imprint-first format.
 
-    Returns an empty string when no meaningful field values are present
-    (i.e. when the result would be the bare generic suffix "Pill").
+    Format: {imprint} {drug} {strength} {color} {shape} - Pill Identifier
+    Fallbacks:
+      - No imprint: {color} {shape} {drug} {strength} - Pill Identifier
+      - No drug + has imprint: {imprint} Pill {color} {shape} - Pill Identifier
+      - Only color/shape: {color} {shape} Pill - Pill Identifier
+
+    Returns an empty string when no meaningful field values are present.
     """
     color = _normalize_color(data.get("splcolor_text") or "")
     shape = (data.get("splshape_text") or "").strip().title()
@@ -86,11 +91,107 @@ def _build_meta_title(data: dict) -> str:
     if not any([color, shape, drug, strength]) and not imprint:
         return ""
 
-    parts = [color, shape, drug, strength, "Pill"]
-    if imprint:
-        parts.append(f"With Imprint {imprint}")
+    suffix = " - Pill Identifier"
 
-    return " ".join(p for p in parts if p).strip()
+    if drug and imprint:
+        # Full format: {imprint} {drug} {strength} {color} {shape} - Pill Identifier
+        parts = [imprint, drug, strength, color, shape]
+        return " ".join(p for p in parts if p).strip() + suffix
+    elif drug:
+        # No imprint: {color} {shape} {drug} {strength} - Pill Identifier
+        parts = [color, shape, drug, strength]
+        return " ".join(p for p in parts if p).strip() + suffix
+    elif imprint:
+        # Drug name missing: {imprint} Pill {color} {shape} - Pill Identifier
+        parts = [imprint, "Pill", color, shape]
+        return " ".join(p for p in parts if p).strip() + suffix
+    else:
+        # Only color/shape: {color} {shape} Pill - Pill Identifier
+        parts = [color, shape, "Pill"]
+        return " ".join(p for p in parts if p).strip() + suffix
+
+
+def _build_image_alt_text(data: dict) -> str:
+    """Auto-generate image alt text from pill fields.
+
+    Format: {color} {shape} {drug} {strength} pill imprinted {imprint}
+    Falls back gracefully when fields are missing.
+
+    Returns an empty string when no meaningful field values are present.
+    """
+    color = _normalize_color(data.get("splcolor_text") or "")
+    shape = (data.get("splshape_text") or "").strip().title()
+    drug = _normalize_drug_name(data.get("medicine_name") or "")
+    strength = _normalize_strength(data.get("spl_strength") or "")
+    imprint = (data.get("splimprint") or "").strip()
+
+    if not any([color, shape, drug, strength, imprint]):
+        return ""
+
+    parts = [color, shape, drug, strength]
+    base = " ".join(p for p in parts if p).strip()
+
+    if base and imprint:
+        return f"{base} pill imprinted {imprint}"
+    elif base:
+        return f"{base} pill"
+    elif imprint:
+        return f"Pill imprinted {imprint}"
+    return ""
+
+
+def _build_meta_description(data: dict) -> str:
+    """Auto-generate an SEO meta description from pill fields.
+
+    Format:
+      Discover {drugDisplay} {strength} — uses, dosage, side effects, and drug
+      interactions. Identify this {color} {shape} pill imprinted {imprint} with PillSeek.
+
+    drugDisplay logic (avoids duplicate names):
+      - If brand_names and medicine_name both exist and differ: "Brand (generic)"
+      - Otherwise: brand_names or normalized medicine_name
+
+    Truncated at 155 characters at word boundary.
+    Returns an empty string when no meaningful field values are present.
+    """
+    color = _normalize_color(data.get("splcolor_text") or "").lower()
+    shape = (data.get("splshape_text") or "").strip().lower()
+    strength = _normalize_strength(data.get("spl_strength") or "")
+    imprint = (data.get("splimprint") or "").strip()
+
+    brand = (data.get("brand_names") or "").strip()
+    drug = _normalize_drug_name(data.get("medicine_name") or "")
+
+    # Build drugDisplay: show "Brand (generic)" when both exist and differ
+    if brand and drug and brand.lower() != drug.lower():
+        drug_display = f"{brand} ({drug.lower()})"
+    else:
+        drug_display = brand or drug
+
+    if not any([drug_display, strength, color, shape, imprint]):
+        return ""
+
+    drug_part = " ".join(p for p in [drug_display, strength] if p)
+    if drug_part:
+        desc = f"Discover {drug_part} \u2014 uses, dosage, side effects, and drug interactions."
+    else:
+        desc = "Discover this medication \u2014 uses, dosage, side effects, and drug interactions."
+
+    color_shape = " ".join(p for p in [color, shape] if p)
+    if color_shape and imprint:
+        desc += f" Identify this {color_shape} pill imprinted {imprint} with PillSeek."
+    elif imprint:
+        desc += f" Identify this pill imprinted {imprint} with PillSeek."
+    elif color_shape:
+        desc += f" Identify this {color_shape} pill with PillSeek."
+
+    # Truncate at 155 characters at word boundary
+    if len(desc) > 155:
+        truncated = desc[:155]
+        last_space = truncated.rfind(" ")
+        desc = truncated[:last_space] if last_space > 0 else truncated
+
+    return desc
 
 
 def _sanitize(value: Optional[str]) -> Optional[str]:
@@ -1535,6 +1636,11 @@ def update_pill(
         if v is None:
             # Explicitly sent as null → clear the column
             updates[k] = None
+        elif v == "" and k in ("meta_title", "meta_description"):
+            # Preserve empty-string clears for SEO fields: NULL means "never set"
+            # and triggers auto-generation on save; "" means "intentionally cleared"
+            # and must suppress auto-generation on all future saves.
+            updates[k] = ""
         else:
             sanitized = _sanitize(v)
             updates[k] = sanitized  # _sanitize converts "" to None, clearing the column
@@ -1553,42 +1659,74 @@ def update_pill(
     if not updates:
         return {"updated": False}
 
-    # Auto-compute meta_title if it wasn't explicitly provided — fetch the
-    # current row so we can merge and build an accurate title.
-    if "meta_title" not in updates:
+    # Auto-compute meta_title, meta_description and image_alt_text if they
+    # weren't explicitly provided — fetch the current row so we can merge and
+    # build accurate values.
+    need_title = "meta_title" not in updates
+    need_desc = "meta_description" not in updates
+    need_alt = "image_alt_text" not in updates
+    if need_title or need_desc or need_alt:
         try:
             with database.db_engine.connect() as conn:
                 mt_row = conn.execute(
                     text("""
                         SELECT meta_title, splcolor_text, splshape_text,
-                               medicine_name, spl_strength, splimprint
+                               medicine_name, spl_strength, splimprint,
+                               image_alt_text, has_image, image_filename,
+                               meta_description, brand_names
                         FROM pillfinder WHERE id = :id AND deleted_at IS NULL LIMIT 1
                     """),
                     {"id": pill_id},
                 ).fetchone()
             if mt_row:
                 current_meta_title = mt_row[0]
-                # Only auto-set when the stored value is NULL.  An empty-string
-                # value means the admin explicitly cleared it, so we respect that.
-                if current_meta_title is None:
-                    merged_for_title = {
-                        "splcolor_text": mt_row[1],
-                        "splshape_text": mt_row[2],
-                        "medicine_name": mt_row[3],
-                        "spl_strength": mt_row[4],
-                        "splimprint": mt_row[5],
-                    }
-                    # Apply any incoming updates so the title reflects the new values
-                    for field in ("splcolor_text", "splshape_text", "medicine_name",
-                                  "spl_strength", "splimprint"):
-                        if field in updates:
-                            merged_for_title[field] = updates[field]
-                    computed = _build_meta_title(merged_for_title)
+                current_image_alt_text = mt_row[6]
+                current_has_image = str(mt_row[7] or "").upper() == "TRUE"
+                current_image_filename = mt_row[8]
+                current_meta_description = mt_row[9]
+
+                merged_fields = {
+                    "splcolor_text": mt_row[1],
+                    "splshape_text": mt_row[2],
+                    "medicine_name": mt_row[3],
+                    "spl_strength": mt_row[4],
+                    "splimprint": mt_row[5],
+                    "brand_names": mt_row[10],
+                }
+                # Apply any incoming updates so computed values reflect the new data
+                for field in ("splcolor_text", "splshape_text", "medicine_name",
+                              "spl_strength", "splimprint", "brand_names"):
+                    if field in updates:
+                        merged_fields[field] = updates[field]
+
+                if need_title and current_meta_title is None:
+                    # Only auto-set when the stored value is NULL.  An empty-string
+                    # value means the admin explicitly cleared it, so we respect that.
+                    computed = _build_meta_title(merged_fields)
                     if computed:
                         updates["meta_title"] = computed
+
+                if need_desc and current_meta_description is None:
+                    # Same guard as meta_title: only auto-fill when NULL.
+                    computed_desc = _build_meta_description(merged_fields)
+                    if computed_desc:
+                        updates["meta_description"] = computed_desc
+
+                if need_alt and current_image_alt_text is None:
+                    # Determine whether the pill has (or will have) an image
+                    if "has_image" in updates:
+                        has_image_after = (updates["has_image"] or "").upper() == "TRUE"
+                    elif "image_filename" in updates:
+                        has_image_after = bool(updates["image_filename"])
+                    else:
+                        has_image_after = current_has_image or bool(current_image_filename)
+                    if has_image_after:
+                        computed_alt = _build_image_alt_text(merged_fields)
+                        if computed_alt:
+                            updates["image_alt_text"] = computed_alt
         except SQLAlchemyError as exc:
             logger.warning(
-                "Failed to auto-compute meta_title for pill_id=%s; proceeding without it: %s",
+                "Failed to auto-compute title/alt/description for pill_id=%s; proceeding without it: %s",
                 pill_id,
                 exc,
             )

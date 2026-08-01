@@ -222,24 +222,77 @@ export async function generateMetadata(
   }
 
   const displayName = pill.drug_name && pill.drug_name !== 'Unknown' ? pill.drug_name : null
-  const computedTitle = displayName
-    ? [displayName, pill.strength, 'Pill Identifier, Images, NDC & RxCUI'].filter(Boolean).join(' ')
-    : [pill.color, pill.shape, 'Pill', pill.imprint ? `With Imprint ${pill.imprint}` : null].filter(Boolean).join(' ')
+
+  // Build drugDisplay: show Brand (generic) when both differ, otherwise just one name
+  const brand = (pill.brand_names?.trim() || '')
+  const generic = (pill.generic_name?.trim() || '')
+  const drugDisplay = brand && generic && brand.toLowerCase() !== generic.toLowerCase()
+    ? `${brand} (${generic.toLowerCase()})`
+    : brand || generic || displayName || ''
+
+  const computedTitle = (() => {
+    const color = pill.color || ''
+    const shape = pill.shape || ''
+    const strength = pill.strength || ''
+    const imprint = pill.imprint || ''
+    const suffix = ' - Pill Identifier'
+
+    if (drugDisplay && imprint) {
+      // Full format: {imprint} {drugDisplay} {strength} {color} {shape} - Pill Identifier
+      return [imprint, drugDisplay, strength, color, shape].filter(Boolean).join(' ') + suffix
+    } else if (drugDisplay) {
+      // No imprint: {color} {shape} {drugDisplay} {strength} - Pill Identifier
+      return [color, shape, drugDisplay, strength].filter(Boolean).join(' ') + suffix
+    } else if (imprint) {
+      // No drug name: {imprint} Pill {color} {shape} - Pill Identifier
+      return [imprint, 'Pill', color, shape].filter(Boolean).join(' ') + suffix
+    } else {
+      // Only color/shape: {color} {shape} Pill - Pill Identifier
+      return [...[color, shape].filter(Boolean), 'Pill'].join(' ') + suffix
+    }
+  })()
   const title = pill.meta_title || computedTitle
 
-  const identificationSummary = buildIdentificationSummary(pill)
   const truncateAtWord = (text: string, limit: number) => {
     if (text.length <= limit) return text
     const truncated = text.slice(0, limit)
     const lastSpace = truncated.lastIndexOf(' ')
     return lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated
   }
-  const description = pill.meta_description || truncateAtWord(identificationSummary, 155)
+
+  // Build meta description: "Discover {drugDisplay} {strength} — uses, dosage, side effects...
+  // Identify this {color} {shape} pill imprinted {imprint} with PillSeek."
+  const computedDescription = (() => {
+    const strength = pill.strength || ''
+    const imprint = pill.imprint || ''
+    const color = (pill.color || '').toLowerCase()
+    const shape = (pill.shape || '').toLowerCase()
+
+    const drugPart = [drugDisplay, strength].filter(Boolean).join(' ')
+    let desc = drugPart
+      ? `Discover ${drugPart} — uses, dosage, side effects, and drug interactions.`
+      : 'Discover this medication — uses, dosage, side effects, and drug interactions.'
+
+    const colorShape = [color, shape].filter(Boolean).join(' ')
+    if (colorShape && imprint) {
+      desc += ` Identify this ${colorShape} pill imprinted ${imprint} with PillSeek.`
+    } else if (imprint) {
+      desc += ` Identify this pill imprinted ${imprint} with PillSeek.`
+    } else if (colorShape) {
+      desc += ` Identify this ${colorShape} pill with PillSeek.`
+    }
+
+    return truncateAtWord(desc, 155)
+  })()
+
+  const identificationSummary = buildIdentificationSummary(pill)
+  const description = pill.meta_description || computedDescription || truncateAtWord(identificationSummary, 155)
 
   const images = resolveImageUrls(pill)
 
   // Canonical URL — no trailing slash, matches actual browser URL
-  const canonicalUrl = `${SITE_URL}/pill/${encodeURIComponent(slug)}`
+  const canonicalPath = `/pill/${encodeURIComponent(slug)}`
+  const canonicalUrl = `${SITE_URL}${canonicalPath}`
 
   // Index if we have a drug name + imprint — NDC is not required
   const hasData = !!(pill.drug_name && pill.drug_name !== 'Unknown' && pill.imprint)
@@ -251,8 +304,8 @@ export async function generateMetadata(
     title,
     description,
     robots,
-    // Absolute canonical — must exactly match the browser URL (no trailing slash)
-    alternates: { canonical: canonicalUrl },
+    // Relative canonical resolved against metadataBase in app/layout.tsx
+    alternates: { canonical: canonicalPath },
     openGraph: {
       title,
       description,

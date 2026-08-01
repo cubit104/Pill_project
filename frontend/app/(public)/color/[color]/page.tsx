@@ -37,15 +37,21 @@ export async function generateMetadata(
   { params }: { params: Promise<{ color: string }> }
 ): Promise<Metadata> {
   const { color } = await params
+  const decoded = decodeURIComponent(color)
+  const pills = await fetchPillsByColor(decoded)
   const displayColor = toTitleCase(decodeURIComponent(color))
   const title = `${displayColor} Pills — Identify ${displayColor} Medications`
   const description = `Browse and identify ${displayColor.toLowerCase()} pills by imprint, shape, and drug name. Free pill identifier powered by FDA data.`.slice(0, 155)
+  const robots = pills.length >= 2
+    ? { index: true, follow: true }
+    : { index: false, follow: true }
 
   return {
     title,
     description,
-    alternates: { canonical: `/color/${slugifyUrl(decodeURIComponent(color))}` },
-    openGraph: { title, description, url: `${SITE_URL}/color/${slugifyUrl(decodeURIComponent(color))}` },
+    robots,
+    alternates: { canonical: `/color/${slugifyUrl(decoded)}` },
+    openGraph: { title, description, url: `${SITE_URL}/color/${slugifyUrl(decoded)}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
@@ -74,7 +80,6 @@ export default async function ColorHubPage(
     name: `${displayColor} Pills`,
     description: `Browse ${displayColor.toLowerCase()} pills identified by imprint, shape, and drug name using FDA data.`,
     url: `/color/${slugged}`,
-    dateModified: new Date().toISOString(),
   })
 
   const relatedColors = ['white', 'yellow', 'orange', 'pink', 'blue', 'green', 'red', 'purple']

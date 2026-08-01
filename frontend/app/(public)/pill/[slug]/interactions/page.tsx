@@ -123,7 +123,7 @@ export async function generateMetadata({ params }: { params: PageParams }): Prom
   return {
     title: `${drugName} Drug Interactions`,
     description: `There are ${total} drugs known to interact with ${drugName}. View all ${major} major, ${moderate} moderate interactions.`,
-    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/interactions` },
+    robots: { index: false, follow: true },
   }
 }
 

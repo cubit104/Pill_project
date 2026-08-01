@@ -11,7 +11,7 @@ export interface FieldSchemaEntry {
   key: string
   label: string
   tier: FieldTier
-  /** If set, the field is only required when data[conditional] === 'TRUE' */
+  /** @deprecated No fields currently use this — image_alt_text visibility is handled via key check */
   conditional?: string
   inputType?: 'text' | 'textarea' | 'combobox'
   suggestions?: string[]
@@ -43,8 +43,8 @@ export const FIELD_SCHEMA: FieldSchemaEntry[] = [
     suggestions: ['N/A','Schedule I','Schedule II','Schedule III','Schedule IV','Schedule V'] },
   { key: 'status_rx_otc',     label: 'Rx/OTC Status',        tier: 'required_or_na', inputType: 'combobox',
     suggestions: ['Rx','OTC','Rx; OTC','OTC Monograph Final','OTC Monograph Not Final'] },
-  { key: 'image_alt_text',    label: 'Image Alt Text',       tier: 'required_or_na', conditional: 'has_image',
-    placeholder: 'White oval pill imprinted MP 45' },
+  { key: 'image_alt_text',    label: 'Image Alt Text',       tier: 'required_or_na',
+    placeholder: 'e.g. Blue capsule Gavreto 100 mg pill imprinted C94' },
 
   // Tier 3 — Optional
   { key: 'brand_names',       label: 'Brand Names',          tier: 'optional' },
@@ -52,8 +52,9 @@ export const FIELD_SCHEMA: FieldSchemaEntry[] = [
     suggestions: ['brand', 'generic'] },
   { key: 'splsize',           label: 'Size',                 tier: 'optional' },
   { key: 'meta_title',        label: 'SEO Title',            tier: 'optional', inputType: 'text',
-    placeholder: 'Auto-generated — edit to override' },
-  { key: 'meta_description',  label: 'Meta Description',     tier: 'optional', inputType: 'textarea' },
+    placeholder: 'e.g. C94 Gavreto 100 mg Blue Capsule - Pill Identifier' },
+  { key: 'meta_description',  label: 'Meta Description',     tier: 'optional', inputType: 'textarea',
+    placeholder: 'Auto-generated if left empty' },
   { key: 'pharmclass_fda_epc',label: 'FDA Pharma Class',     tier: 'optional' },
   { key: 'rxcui',             label: 'RxCUI',                tier: 'optional' },
   { key: 'rxcui_1',           label: 'RxCUI Alt',            tier: 'optional' },
@@ -99,7 +100,7 @@ export function computeCompleteness(
     if (f.tier === 'required') {
       if (isEmpty(val)) missingRequired.push(f.key)
     } else if (f.tier === 'required_or_na') {
-      if (f.conditional === 'has_image' && !hasImage) continue
+      if (f.key === 'image_alt_text' && !hasImage) continue
       if (isEmpty(val)) needsNa.push(f.key)
     } else {
       if (isEmpty(val)) optionalEmpty.push(f.key)
@@ -108,7 +109,7 @@ export function computeCompleteness(
 
   let total = FIELD_SCHEMA.length
   if (!hasImage) {
-    total -= FIELD_SCHEMA.filter(f => f.conditional === 'has_image').length
+    total -= FIELD_SCHEMA.filter(f => f.key === 'image_alt_text').length
   }
   const filled = total - missingRequired.length - needsNa.length - optionalEmpty.length
   const score = total > 0 ? Math.round((filled / total) * 100) : 0

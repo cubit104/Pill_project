@@ -56,6 +56,14 @@ class InteractionPageSlug(BaseModel):
     has_disease_interactions: bool
 
 
+class DrugPageSlug(BaseModel):
+    drug_name: str
+
+
+class FilterSlug(BaseModel):
+    name: str
+
+
 _GUIDE_LATERAL_JOIN = """\
         FROM pillfinder p
         LEFT JOIN LATERAL (
@@ -266,7 +274,148 @@ def _fetch_interaction_slugs(conn) -> List[InteractionPageSlug]:
     ]
 
 
-@router.get("/api/slugs", response_model=List[str])
+def _fetch_drug_page_slugs(conn) -> List[DrugPageSlug]:
+    result = conn.execute(
+        text(
+            """
+            WITH drug_groups AS (
+                SELECT
+                    medicine_name,
+                    slug,
+                    COUNT(*) OVER (PARTITION BY LOWER(TRIM(medicine_name))) AS pill_count,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY LOWER(TRIM(medicine_name))
+                        ORDER BY LENGTH(slug), slug
+                    ) AS rn
+                FROM pillfinder
+                WHERE deleted_at IS NULL
+                  AND published = true
+                  AND NULLIF(TRIM(slug), '') IS NOT NULL
+                  AND NULLIF(TRIM(medicine_name), '') IS NOT NULL
+            )
+            SELECT medicine_name AS drug_name
+            FROM drug_groups
+            WHERE rn = 1
+              AND pill_count >= 2
+            ORDER BY LOWER(medicine_name)
+            """
+        )
+    ).fetchall()
+    return [DrugPageSlug(drug_name=row[0]) for row in result if row[0]]
+
+
+def _fetch_drug_price_page_slugs(conn) -> List[DrugPageSlug]:
+    result = conn.execute(
+        text(
+            """
+            WITH priced_drugs AS (
+                SELECT
+                    p.medicine_name AS drug_name,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY LOWER(TRIM(p.medicine_name))
+                        ORDER BY LENGTH(p.slug), p.slug
+                    ) AS rn
+                FROM pillfinder p
+                JOIN public.pill_price_snapshot s ON s.slug = p.slug
+                WHERE p.deleted_at IS NULL
+                  AND p.published = true
+                  AND NULLIF(TRIM(p.slug), '') IS NOT NULL
+                  AND NULLIF(TRIM(p.medicine_name), '') IS NOT NULL
+                  AND COALESCE(s.schema_offers_valid, false) = true
+            )
+            SELECT drug_name
+            FROM priced_drugs
+            WHERE rn = 1
+            ORDER BY LOWER(drug_name)
+            """
+        )
+    ).fetchall()
+    return [DrugPageSlug(drug_name=row[0]) for row in result if row[0]]
+
+
+# Maps lowercase keywords found in splshape_text to canonical URL-ready shape names.
+# Mirrors the clean_shape() logic in routes/filters.py.
+_SHAPE_KEYWORD_MAP = [
+    ("capsule", "capsule"),
+    ("round", "round"),
+    ("oval", "oval"),
+    ("rectangle", "rectangle"),
+    ("triangle", "triangle"),
+    ("square", "square"),
+    ("pentagon", "pentagon"),
+    ("hexagon", "hexagon"),
+    ("diamond", "diamond"),
+    ("heart", "heart"),
+    ("tear", "tear"),
+    ("trapezoid", "trapezoid"),
+]
+
+
+def _normalize_shape(raw: str) -> str:
+    """Return the canonical slug for a raw splshape_text value."""
+    lower = raw.strip().lower()
+    for keyword, canonical in _SHAPE_KEYWORD_MAP:
+        if keyword in lower:
+            return canonical
+    # Fall back to hyphen-separated lowercase for unknown shapes
+    return "-".join(lower.split())
+
+
+def _fetch_color_page_slugs(conn) -> List[FilterSlug]:
+    """Return distinct colors (as URL slugs) with >= 2 published pills."""
+    result = conn.execute(
+        text(
+            """
+            SELECT LOWER(TRIM(splcolor_text)) AS color_slug
+            FROM pillfinder
+            WHERE deleted_at IS NULL
+              AND published = true
+              AND NULLIF(TRIM(splcolor_text), '') IS NOT NULL
+            GROUP BY LOWER(TRIM(splcolor_text))
+            HAVING COUNT(*) >= 2
+            ORDER BY color_slug
+            """
+        )
+    ).fetchall()
+    return [FilterSlug(name=row[0]) for row in result if row[0]]
+
+
+def _fetch_shape_page_slugs(conn) -> List[FilterSlug]:
+    """Return normalized shape slugs with >= 2 published pills.
+
+    Raw splshape_text values are normalized through the same keyword map
+    used by /filters, then counts are summed per canonical name so that
+    variant spellings (e.g. "ROUND" and "round") are merged.
+    """
+    result = conn.execute(
+        text(
+            """
+            SELECT LOWER(TRIM(splshape_text)) AS shape_raw, COUNT(*) AS pill_count
+            FROM pillfinder
+            WHERE deleted_at IS NULL
+              AND published = true
+              AND NULLIF(TRIM(splshape_text), '') IS NOT NULL
+            GROUP BY LOWER(TRIM(splshape_text))
+            """
+        )
+    ).fetchall()
+
+    counts: dict = {}
+    for row in result:
+        raw, cnt = row[0], row[1]
+        if not raw:
+            continue
+        canonical = _normalize_shape(raw)
+        counts[canonical] = counts.get(canonical, 0) + cnt
+
+    return [
+        FilterSlug(name=name)
+        for name, cnt in sorted(counts.items())
+        if cnt >= 2
+    ]
+
+
+
 def get_slugs():
     """Return a JSON array of all pill slugs (used by Next.js sitemap)"""
     if not database.db_engine:
@@ -302,6 +451,86 @@ def get_interaction_page_slugs(response: Response):
         raise HTTPException(status_code=500, detail="Database error")
     except Exception as e:
         logger.error(f"Error in /api/slugs/interactions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/api/slugs/drugs", response_model=List[DrugPageSlug])
+def get_drug_page_slugs(response: Response):
+    """Return unique published drug names for /drug/{slug} hub pages."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = _fetch_drug_page_slugs(conn)
+        response.headers["Cache-Control"] = "public, max-age=86400, s-maxage=86400"
+        return rows
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in /api/slugs/drugs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in /api/slugs/drugs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/api/slugs/drug-prices", response_model=List[DrugPageSlug])
+def get_drug_price_page_slugs(response: Response):
+    """Return unique drug names that already have resolved NADAC price snapshots."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = _fetch_drug_price_page_slugs(conn)
+        response.headers["Cache-Control"] = "public, max-age=86400, s-maxage=86400"
+        return rows
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in /api/slugs/drug-prices: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in /api/slugs/drug-prices: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/api/slugs/colors", response_model=List[FilterSlug])
+def get_color_page_slugs(response: Response):
+    """Return distinct color slugs with >= 2 published pills for /color/{slug} hubs."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = _fetch_color_page_slugs(conn)
+        response.headers["Cache-Control"] = "public, max-age=86400, s-maxage=86400"
+        return rows
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in /api/slugs/colors: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in /api/slugs/colors: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/api/slugs/shapes", response_model=List[FilterSlug])
+def get_shape_page_slugs(response: Response):
+    """Return normalized shape slugs with >= 2 published pills for /shape/{slug} hubs."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = _fetch_shape_page_slugs(conn)
+        response.headers["Cache-Control"] = "public, max-age=86400, s-maxage=86400"
+        return rows
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in /api/slugs/shapes: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in /api/slugs/shapes: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

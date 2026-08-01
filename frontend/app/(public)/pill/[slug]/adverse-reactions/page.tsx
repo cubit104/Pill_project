@@ -136,7 +136,7 @@ export async function generateMetadata({
   return {
     title: `${drugName} Adverse Reactions & Side Effects`,
     description: `Review adverse reactions and side effects reported for ${drugName}, based on FDA-approved prescribing information.`,
-    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/adverse-reactions` },
+    robots: { index: false, follow: true },
   }
 }
 

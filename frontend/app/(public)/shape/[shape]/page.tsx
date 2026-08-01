@@ -36,15 +36,21 @@ export async function generateMetadata(
   { params }: { params: Promise<{ shape: string }> }
 ): Promise<Metadata> {
   const { shape } = await params
+  const decoded = decodeURIComponent(shape)
+  const pills = await fetchPillsByShape(decoded)
   const displayShape = toTitleCase(decodeURIComponent(shape))
   const title = `${displayShape} Pills — Identify ${displayShape}-Shaped Medications`
   const description = `Browse and identify ${displayShape.toLowerCase()} pills by imprint, color, and drug name. Free pill identifier powered by FDA data.`.slice(0, 155)
+  const robots = pills.length >= 2
+    ? { index: true, follow: true }
+    : { index: false, follow: true }
 
   return {
     title,
     description,
-    alternates: { canonical: `/shape/${slugifyUrl(decodeURIComponent(shape))}` },
-    openGraph: { title, description, url: `${SITE_URL}/shape/${slugifyUrl(decodeURIComponent(shape))}` },
+    robots,
+    alternates: { canonical: `/shape/${slugifyUrl(decoded)}` },
+    openGraph: { title, description, url: `${SITE_URL}/shape/${slugifyUrl(decoded)}` },
     twitter: { card: 'summary_large_image', title, description },
   }
 }
@@ -73,7 +79,6 @@ export default async function ShapeHubPage(
     name: `${displayShape} Pills`,
     description: `Browse ${displayShape.toLowerCase()} pills identified by imprint, color, and drug name using FDA data.`,
     url: `/shape/${slugged}`,
-    dateModified: new Date().toISOString(),
   })
 
   const relatedShapes = [

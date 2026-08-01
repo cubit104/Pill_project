@@ -395,7 +395,6 @@ export async function generateMetadata({
     return {
       title: `${drugName} Professional Prescribing Information`,
       description: `View FDA prescribing information for ${drugName}, including indications, dosage, adverse reactions, contraindications, pharmacology, and counseling.`,
-      alternates: { canonical: `/pill/${encodeURIComponent(slug)}/professional-information` },
       robots: { index: false, follow: true },
     }
   }
@@ -403,7 +402,7 @@ export async function generateMetadata({
   return {
     title: `${drugName} Medication Guide, Warnings & FDA Label`,
     description: `Read the FDA Medication Guide for ${drugName}, including uses, dosage, side effects, warnings, and important safety information.`,
-    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/medication-guide` },
+    robots: { index: false, follow: true },
   }
 }
 
