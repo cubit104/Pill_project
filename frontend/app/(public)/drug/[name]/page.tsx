@@ -11,14 +11,14 @@ const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
 
-function toTitleCase(str: string): string {
+export function toTitleCase(str: string): string {
   return str
     .split(/[\s-]+/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
     .join(' ')
 }
 
-type DrugSearchResult = {
+export type DrugSearchResult = {
   results: PillResult[]
   fallbackUsed: boolean
   fallbackTerm: string | null
@@ -47,7 +47,7 @@ async function searchDrug(term: string): Promise<DrugSearchResult> {
  * If no results, fall back to replacing hyphens with spaces (handles slug-style URLs like
  * "mircette-28-dp-331" → "mircette 28 dp 331").
  */
-async function fetchPillsByDrug(name: string): Promise<DrugSearchResult> {
+export async function fetchPillsByDrug(name: string): Promise<DrugSearchResult> {
   const firstPass = await searchDrug(name)
   if (firstPass.results.length > 0) return firstPass
   const deSlugged = name.replace(/-/g, ' ')
@@ -64,12 +64,17 @@ export async function generateMetadata(
   const decoded = decodeURIComponent(name)
   const canonicalSlug = slugifyDrugName(decoded) || decoded
   const displayName = toTitleCase(canonicalSlug.replace(/-/g, ' '))
+  const searchResult = await fetchPillsByDrug(decoded)
+  const robots = searchResult.results.length >= 2
+    ? { index: true, follow: true }
+    : { index: false, follow: true }
   const title = `${displayName} Pills — Identify ${displayName} by Imprint, Color & Shape`
   const description = `Look up ${displayName} pills by imprint code, color, and shape. Find all ${displayName} medications in our FDA-powered pill identifier.`.slice(0, 155)
 
   return {
     title,
     description,
+    robots,
     alternates: { canonical: `/drug/${canonicalSlug}` },
     openGraph: { title, description, url: `${SITE_URL}/drug/${canonicalSlug}` },
     twitter: { card: 'summary_large_image', title, description },
@@ -101,7 +106,6 @@ export default async function DrugHubPage(
     name: `${displayName} Pill Identification`,
     description: `Browse all ${displayName} pills and identify them by imprint, color, and shape using FDA NDC data.`,
     url: `/drug/${canonicalSlug}`,
-    dateModified: new Date().toISOString(),
   })
 
   return (
@@ -135,6 +139,16 @@ export default async function DrugHubPage(
           Click any pill for full details including ingredients and manufacturer information.
           All data is sourced directly from the FDA NDC Directory and DailyMed.
         </p>
+
+        <div className="mb-6">
+          <Link
+            href={`/drug/${canonicalSlug}/price`}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+          >
+            View {displayName} NADAC Pricing
+            <span aria-hidden="true">→</span>
+          </Link>
+        </div>
 
         {/* Results */}
         {pills.length === 0 ? (

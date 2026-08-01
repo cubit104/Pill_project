@@ -94,7 +94,6 @@ export default async function ClassHubPage(
     name: `${class_name} Medications`,
     description: `Browse all ${count} medications in the ${class_name} pharmacologic class.`,
     url: `/class/${encodeURIComponent(slug)}`,
-    dateModified: new Date().toISOString(),
   })
 
   return (

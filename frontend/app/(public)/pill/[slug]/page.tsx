@@ -291,7 +291,8 @@ export async function generateMetadata(
   const images = resolveImageUrls(pill)
 
   // Canonical URL — no trailing slash, matches actual browser URL
-  const canonicalUrl = `${SITE_URL}/pill/${encodeURIComponent(slug)}`
+  const canonicalPath = `/pill/${encodeURIComponent(slug)}`
+  const canonicalUrl = `${SITE_URL}${canonicalPath}`
 
   // Index if we have a drug name + imprint — NDC is not required
   const hasData = !!(pill.drug_name && pill.drug_name !== 'Unknown' && pill.imprint)
@@ -304,7 +305,7 @@ export async function generateMetadata(
     description,
     robots,
     // Absolute canonical — must exactly match the browser URL (no trailing slash)
-    alternates: { canonical: canonicalUrl },
+    alternates: { canonical: canonicalPath },
     openGraph: {
       title,
       description,

@@ -137,7 +137,7 @@ export async function generateMetadata({
   return {
     title: `${drugName} Dosage & Administration – Recommended Doses`,
     description: `View recommended dosage and administration for ${drugName}, including adult doses, dosing adjustments, and FDA-approved prescribing instructions.`,
-    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/dosage` },
+    robots: { index: false, follow: true },
   }
 }
 

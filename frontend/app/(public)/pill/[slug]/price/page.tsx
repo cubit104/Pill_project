@@ -35,8 +35,7 @@ export async function generateMetadata(
 
   return {
     title,
-    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/price` },
-    robots: { index: true, follow: true },
+    robots: { index: false, follow: true },
     openGraph: {
       title,
       url: canonicalUrl,

@@ -56,6 +56,10 @@ class InteractionPageSlug(BaseModel):
     has_disease_interactions: bool
 
 
+class DrugPageSlug(BaseModel):
+    drug_name: str
+
+
 _GUIDE_LATERAL_JOIN = """\
         FROM pillfinder p
         LEFT JOIN LATERAL (
@@ -266,6 +270,62 @@ def _fetch_interaction_slugs(conn) -> List[InteractionPageSlug]:
     ]
 
 
+def _fetch_drug_page_slugs(conn) -> List[DrugPageSlug]:
+    result = conn.execute(
+        text(
+            """
+            WITH unique_drugs AS (
+                SELECT
+                    p.medicine_name AS drug_name,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY LOWER(TRIM(p.medicine_name))
+                        ORDER BY LENGTH(p.slug), p.slug
+                    ) AS rn
+                FROM pillfinder p
+                WHERE p.deleted_at IS NULL
+                  AND p.published = true
+                  AND NULLIF(TRIM(p.slug), '') IS NOT NULL
+                  AND NULLIF(TRIM(p.medicine_name), '') IS NOT NULL
+            )
+            SELECT drug_name
+            FROM unique_drugs
+            WHERE rn = 1
+            ORDER BY LOWER(drug_name)
+            """
+        )
+    ).fetchall()
+    return [DrugPageSlug(drug_name=row[0]) for row in result if row[0]]
+
+
+def _fetch_drug_price_page_slugs(conn) -> List[DrugPageSlug]:
+    result = conn.execute(
+        text(
+            """
+            WITH priced_drugs AS (
+                SELECT
+                    p.medicine_name AS drug_name,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY LOWER(TRIM(p.medicine_name))
+                        ORDER BY LENGTH(p.slug), p.slug
+                    ) AS rn
+                FROM pillfinder p
+                JOIN public.pill_price_snapshot s ON s.slug = p.slug
+                WHERE p.deleted_at IS NULL
+                  AND p.published = true
+                  AND NULLIF(TRIM(p.slug), '') IS NOT NULL
+                  AND NULLIF(TRIM(p.medicine_name), '') IS NOT NULL
+                  AND COALESCE(s.schema_offers_valid, false) = true
+            )
+            SELECT drug_name
+            FROM priced_drugs
+            WHERE rn = 1
+            ORDER BY LOWER(drug_name)
+            """
+        )
+    ).fetchall()
+    return [DrugPageSlug(drug_name=row[0]) for row in result if row[0]]
+
+
 @router.get("/api/slugs", response_model=List[str])
 def get_slugs():
     """Return a JSON array of all pill slugs (used by Next.js sitemap)"""
@@ -302,6 +362,46 @@ def get_interaction_page_slugs(response: Response):
         raise HTTPException(status_code=500, detail="Database error")
     except Exception as e:
         logger.error(f"Error in /api/slugs/interactions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/api/slugs/drugs", response_model=List[DrugPageSlug])
+def get_drug_page_slugs(response: Response):
+    """Return unique published drug names for /drug/{slug} hub pages."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = _fetch_drug_page_slugs(conn)
+        response.headers["Cache-Control"] = "public, max-age=86400, s-maxage=86400"
+        return rows
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in /api/slugs/drugs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in /api/slugs/drugs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/api/slugs/drug-prices", response_model=List[DrugPageSlug])
+def get_drug_price_page_slugs(response: Response):
+    """Return unique drug names that already have resolved NADAC price snapshots."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            rows = _fetch_drug_price_page_slugs(conn)
+        response.headers["Cache-Control"] = "public, max-age=86400, s-maxage=86400"
+        return rows
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in /api/slugs/drug-prices: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in /api/slugs/drug-prices: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

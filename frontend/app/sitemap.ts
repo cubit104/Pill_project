@@ -1,4 +1,6 @@
 import type { MetadataRoute } from 'next'
+import { slugifyDrugName } from './lib/slug'
+import { slugifyUrl } from './lib/url-utils'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com').replace(/\/$/, '')
@@ -38,6 +40,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.5,
     },
     {
+      url: `${SITE_URL}/condition`,
+      changeFrequency: 'weekly',
+      priority: 0.6,
+    },
+    {
+      url: `${SITE_URL}/interactions`,
+      changeFrequency: 'weekly',
+      priority: 0.5,
+    },
+    {
       url: `${SITE_URL}/sources`,
       changeFrequency: 'monthly',
       priority: 0.5,
@@ -45,10 +57,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ]
 
   try {
-    const [slugRes, classRes, guideSlugRes] = await Promise.all([
+    const [slugRes, classRes, drugRes, drugPriceRes, conditionRes, filterRes] = await Promise.all([
       fetch(`${API_BASE}/api/slugs`, { next: { revalidate: 86400 } }),
       fetch(`${API_BASE}/api/classes`, { next: { revalidate: 86400 } }),
-      fetch(`${API_BASE}/api/slugs/guide-pages`, { next: { revalidate: 86400 } }),
+      fetch(`${API_BASE}/api/slugs/drugs`, { next: { revalidate: 86400 } }),
+      fetch(`${API_BASE}/api/slugs/drug-prices`, { next: { revalidate: 86400 } }),
+      fetch(`${API_BASE}/api/conditions`, { next: { revalidate: 86400 } }),
+      fetch(`${API_BASE}/filters`, { next: { revalidate: 86400 } }),
     ])
 
     if (!slugRes.ok) {
@@ -59,17 +74,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
 
     const slugs: string[] = await slugRes.json()
-    type GuideSlugEntry = {
-      slug: string
-      has_medguide: boolean
-      has_professional: boolean
-      has_medication_summary: boolean
-      has_dosage?: boolean
-      has_adverse_reactions?: boolean
-    }
-    const guideSlugs: GuideSlugEntry[] = guideSlugRes.ok
-      ? await guideSlugRes.json()
+    const drugSlugs: Array<{ drug_name: string }> = drugRes.ok
+      ? await drugRes.json()
       : []
+    const drugPriceSlugs: Array<{ drug_name: string }> = drugPriceRes.ok
+      ? await drugPriceRes.json()
+      : []
+    const conditionPayload: { conditions?: Array<{ slug: string }> } = conditionRes.ok
+      ? await conditionRes.json()
+      : {}
+    const filtersPayload: {
+      colors?: Array<{ name: string }>
+      shapes?: Array<{ name: string }>
+    } = filterRes.ok
+      ? await filterRes.json()
+      : {}
 
     let classes: Array<{ slug: string }> = []
     if (!classRes.ok) {
@@ -93,60 +112,67 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.6,
     }))
 
-    const medicationGuidePages: MetadataRoute.Sitemap = guideSlugs
-      .filter((entry) => entry.slug && entry.has_medguide)
-      .map((entry) => ({
-        url: `${SITE_URL}/pill/${encodeURIComponent(entry.slug)}/medication-guide`,
-        changeFrequency: 'monthly' as const,
+    const drugPages: MetadataRoute.Sitemap = drugSlugs
+      .map((entry) => slugifyDrugName(entry.drug_name))
+      .filter(Boolean)
+      .map((slug) => ({
+        url: `${SITE_URL}/drug/${slug}`,
+        changeFrequency: 'weekly' as const,
         priority: 0.7,
       }))
 
-    const professionalInfoPages: MetadataRoute.Sitemap = guideSlugs
-      .filter((entry) => entry.slug && entry.has_professional)
-      .map((entry) => ({
-        url: `${SITE_URL}/pill/${encodeURIComponent(entry.slug)}/professional-information`,
-        changeFrequency: 'monthly' as const,
+    const drugPricePages: MetadataRoute.Sitemap = drugPriceSlugs
+      .map((entry) => slugifyDrugName(entry.drug_name))
+      .filter(Boolean)
+      .map((slug) => ({
+        url: `${SITE_URL}/drug/${slug}/price`,
+        changeFrequency: 'weekly' as const,
         priority: 0.7,
       }))
 
-    const medicationSummaryPages: MetadataRoute.Sitemap = guideSlugs
-      .filter((entry) => entry.slug && entry.has_medication_summary && !entry.has_medguide)
-      .map((entry) => ({
-        url: `${SITE_URL}/pill/${encodeURIComponent(entry.slug)}/medication-summary`,
-        changeFrequency: 'monthly' as const,
-        priority: 0.7,
+    const conditionPages: MetadataRoute.Sitemap = (conditionPayload.conditions ?? [])
+      .filter((condition) => condition.slug)
+      .map((condition) => ({
+        url: `${SITE_URL}/condition/${encodeURIComponent(condition.slug)}`,
+        changeFrequency: 'weekly' as const,
+        priority: 0.6,
       }))
 
-    const dosagePages: MetadataRoute.Sitemap = guideSlugs
-      .filter((entry) => entry.slug && entry.has_dosage)
-      .map((entry) => ({
-        url: `${SITE_URL}/pill/${encodeURIComponent(entry.slug)}/dosage`,
-        changeFrequency: 'monthly' as const,
-        priority: 0.7,
+    const colorPages: MetadataRoute.Sitemap = (filtersPayload.colors ?? [])
+      .map((color) => slugifyUrl(color.name))
+      .filter(Boolean)
+      .map((slug) => ({
+        url: `${SITE_URL}/color/${slug}`,
+        changeFrequency: 'weekly' as const,
+        priority: 0.5,
       }))
 
-    const adverseReactionsPages: MetadataRoute.Sitemap = guideSlugs
-      .filter((entry) => entry.slug && entry.has_adverse_reactions)
-      .map((entry) => ({
-        url: `${SITE_URL}/pill/${encodeURIComponent(entry.slug)}/adverse-reactions`,
-        changeFrequency: 'monthly' as const,
-        priority: 0.7,
+    const shapePages: MetadataRoute.Sitemap = (filtersPayload.shapes ?? [])
+      .map((shape) => slugifyUrl(shape.name))
+      .filter(Boolean)
+      .map((slug) => ({
+        url: `${SITE_URL}/shape/${slug}`,
+        changeFrequency: 'weekly' as const,
+        priority: 0.5,
       }))
 
-    // NOTE: Interaction pages are served via the dedicated /sitemap-interactions.xml
-    // route (see frontend/app/sitemap-interactions.xml/route.ts) to avoid pushing
-    // the main sitemap past Vercel's 60-second build timeout and 2MB cache limit.
-
-    return [
+    const urls = [
       ...staticPages,
       ...pillPages,
-      ...medicationGuidePages,
-      ...professionalInfoPages,
-      ...medicationSummaryPages,
-      ...dosagePages,
-      ...adverseReactionsPages,
+      ...drugPages,
+      ...drugPricePages,
       ...classPages,
+      ...conditionPages,
+      ...colorPages,
+      ...shapePages,
     ]
+
+    const deduped = new Map<string, MetadataRoute.Sitemap[number]>()
+    for (const entry of urls) {
+      deduped.set(entry.url, entry)
+    }
+
+    return Array.from(deduped.values())
   } catch (err) {
     console.error('[sitemap] Failed to fetch data from backend:', err)
     return staticPages

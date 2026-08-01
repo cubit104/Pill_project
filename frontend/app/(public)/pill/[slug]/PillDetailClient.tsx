@@ -353,6 +353,7 @@ export default function PillDetailClient({
   const resolvedSlug = slug ?? pill?.slug
   const drugSlug = pill.drug_name !== 'Unknown' ? slugifyDrugName(pill.drug_name) : ''
   const backHref = drugSlug ? `/drug/${drugSlug}` : '/'
+  const drugPriceHref = drugSlug ? `/drug/${drugSlug}/price` : null
   usePillView(resolvedSlug)
 
   const images = pill.images && pill.images.length > 0
@@ -632,6 +633,24 @@ export default function PillDetailClient({
                   </span>
                 )}
               </div>
+              {drugSlug && (
+                <div className="mt-4 flex flex-wrap gap-2 justify-center sm:justify-start">
+                  <Link
+                    href={`/drug/${drugSlug}`}
+                    className="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100"
+                  >
+                    Browse all {pill.drug_name} pills
+                  </Link>
+                  {drugPriceHref && (
+                    <Link
+                      href={drugPriceHref}
+                      className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+                    >
+                      View {pill.drug_name} price hub
+                    </Link>
+                  )}
+                </div>
+              )}
               {resolvedSlug && (
                 <div className="mt-4 hidden sm:block text-left">
                   <PriceSummaryCard

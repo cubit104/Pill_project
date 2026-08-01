@@ -60,7 +60,6 @@ export default function AboutPage() {
     name: 'About PillSeek',
     url: `${SITE_URL}/about`,
     author: { '@type': 'Organization', name: 'PillSeek' },
-    dateModified: new Date().toISOString(),
   }
 
   return (
