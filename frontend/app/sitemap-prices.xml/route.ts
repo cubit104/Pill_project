@@ -19,18 +19,20 @@ function buildXml(urls: string[]): string {
 
 export async function GET() {
   try {
-    const slugRes = await fetch(`${API_BASE}/api/slugs`, { next: { revalidate: 86400 } })
+    const slugRes = await fetch(`${API_BASE}/api/slugs/drug-prices`, { next: { revalidate: 86400 } })
     if (!slugRes.ok) {
       console.error(
-        `[sitemap-prices] Failed to fetch slugs from backend: ${slugRes.status} ${slugRes.statusText}`
+        `[sitemap-prices] Failed to fetch drug price slugs from backend: ${slugRes.status} ${slugRes.statusText}`
       )
-      throw new Error(`Failed to fetch slugs: ${slugRes.status} ${slugRes.statusText}`)
+      throw new Error(`Failed to fetch drug price slugs: ${slugRes.status} ${slugRes.statusText}`)
     }
 
-    const slugs: string[] = await slugRes.json()
-    const urls = slugs.map(
-      (slug) => `${SITE_URL}/pill/${encodeURIComponent(slug)}/price`
-    )
+    const slugs: Array<{ drug_name: string }> = await slugRes.json()
+    const { slugifyDrugName } = await import('../lib/slug')
+    const urls = slugs
+      .map((entry) => slugifyDrugName(entry.drug_name))
+      .filter(Boolean)
+      .map((slug) => `${SITE_URL}/drug/${slug}/price`)
 
     return new Response(buildXml(urls), {
       headers: {

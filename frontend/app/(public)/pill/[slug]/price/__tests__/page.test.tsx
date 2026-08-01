@@ -132,7 +132,7 @@ test('formatStrength compacts strength values', async () => {
   assert.equal(mod.formatStrength('  75 mg ; ; '), '75 mg')
 })
 
-test('price page metadata includes the drug name in the title', async () => {
+test('price page metadata includes the drug name in the title and stays noindex', async () => {
   const originalFetch = global.fetch
   global.fetch = async () =>
     new Response(
@@ -151,6 +151,8 @@ test('price page metadata includes the drug name in the title', async () => {
     const metadata = await mod.generateMetadata({ params: Promise.resolve({ slug: 'plavix-75-1171' }) })
 
     assert.equal(metadata.title, 'Plavix 75 mg – Price details')
+    assert.deepEqual(metadata.robots, { index: false, follow: true })
+    assert.equal(metadata.alternates, undefined)
   } finally {
     global.fetch = originalFetch
   }

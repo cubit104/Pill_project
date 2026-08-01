@@ -204,7 +204,7 @@ export async function generateMetadata({
   return {
     title: `${drugName} Professional Prescribing Information`,
     description: `View FDA prescribing information for ${drugName}, including indications, dosage, adverse reactions, contraindications, pharmacology, and counseling.`,
-    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/professional-information` },
+    robots: { index: false, follow: true },
   }
 }
 

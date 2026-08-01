@@ -204,7 +204,6 @@ export async function generateMetadata({ params }: { params: PageParams }): Prom
     return {
       title: `${drugName} Medication Guide, Warnings & FDA Label`,
       description: `Read the FDA Medication Guide for ${drugName}.`,
-      alternates: { canonical: `/pill/${encodeURIComponent(slug)}/medication-guide` },
       robots: { index: false, follow: true },
     }
   }
@@ -219,8 +218,7 @@ export async function generateMetadata({ params }: { params: PageParams }): Prom
   return {
     title: `${drugName} Medication Summary — FDA Label Overview`,
     description: `Patient-friendly FDA/DailyMed label summary for ${drugName}, including warnings, usage, side effects, and interactions.`,
-    alternates: { canonical: `/pill/${encodeURIComponent(slug)}/medication-summary` },
-    robots: { index: true, follow: true },
+    robots: { index: false, follow: true },
   }
 }
 
