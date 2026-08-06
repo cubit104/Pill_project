@@ -79,6 +79,9 @@ export function middleware(req: NextRequest) {
   const ADMIN_PASSTHROUGH_PATHS = ['/admin', '/api', '/suggestions', '/filters']
 
   if (adminEnabled) {
+    if (pathname.startsWith('/pill/preview/')) {
+      return NextResponse.next()
+    }
     if (ADMIN_PASSTHROUGH_PATHS.some((p) => pathname.startsWith(p))) {
       return NextResponse.next()
     }

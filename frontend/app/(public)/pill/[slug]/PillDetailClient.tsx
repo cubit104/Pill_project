@@ -333,6 +333,7 @@ export default function PillDetailClient({
   faqItems,
   identificationSummary,
   priceInitialData,
+  trackView = true,
 }: {
   pill: PillDetail
   slug?: string
@@ -347,6 +348,7 @@ export default function PillDetailClient({
   faqItems?: Array<{ question: string; answer: string }>
   identificationSummary?: string
   priceInitialData?: PriceResponse
+  trackView?: boolean
 }) {
   const [zoomImage, setZoomImage] = useState<string | null>(null)
   const [showAllBrands, setShowAllBrands] = useState(false)
@@ -354,7 +356,7 @@ export default function PillDetailClient({
   const drugSlug = pill.drug_name !== 'Unknown' ? slugifyDrugName(pill.drug_name) : ''
   const backHref = drugSlug ? `/drug/${drugSlug}` : '/'
   const drugPriceHref = drugSlug ? `/drug/${drugSlug}/price` : null
-  usePillView(resolvedSlug)
+  usePillView(resolvedSlug, trackView)
 
   const images = pill.images && pill.images.length > 0
     ? pill.images

@@ -1159,6 +1159,16 @@ export default function EditPillPage() {
           title="Discard unsaved changes and reset form to last saved state">
           <RotateCcw className="w-4 h-4" />Discard changes
         </button>
+        {pill?.id && (
+          <a
+            href={`/pill/preview/${encodeURIComponent(String(pill.id))}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 bg-amber-50 border border-amber-300 text-amber-800 px-4 py-2 rounded-md hover:bg-amber-100 text-sm font-medium transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" /> Preview Draft
+          </a>
+        )}
         {pill?.slug && (
           <a
             href={`${process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'}/pill/${pill.slug}`}

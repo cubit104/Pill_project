@@ -10,11 +10,11 @@ import { useEffect, useRef } from 'react'
  * (`/api/:path* → ${API_BASE_URL}/api/:path*`) and never goes cross-origin
  * from the browser — no CORS issues regardless of deployment origin.
  */
-export function usePillView(slug: string | undefined) {
+export function usePillView(slug: string | undefined, enabled: boolean = true) {
   const sent = useRef(false)
 
   useEffect(() => {
-    if (!slug || sent.current) return
+    if (!enabled || !slug || sent.current) return
     sent.current = true
 
     fetch('/api/pill-views', {
@@ -24,5 +24,5 @@ export function usePillView(slug: string | undefined) {
     }).catch(() => {
       // best-effort — swallow network errors silently
     })
-  }, [slug])
+  }, [enabled, slug])
 }

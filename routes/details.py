@@ -7,12 +7,13 @@ from typing import Optional, List, Dict, Any, Set
 from threading import Lock
 import time
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
+from routes.admin.auth import get_admin_user
 from services.medication_guide import (
     GuideInternalError,
     GuideNotFoundError,
@@ -535,349 +536,7 @@ def get_pill_by_slug(slug: str):
                 if not row:
                     raise HTTPException(status_code=404, detail="Pill not found")
 
-            columns = result.keys()
-            pill_info = dict(zip(columns, row))
-
-            # Capture RAW values BEFORE normalization (DB stores raw lowercase)
-            raw_medicine_name = pill_info.get("medicine_name", "") or ""
-            raw_splimprint = pill_info.get("splimprint", "") or ""
-            raw_image_filename = pill_info.get("image_filename", "") or ""
-
-            pill_info = normalize_fields(pill_info)
-
-            # Aggregate images: own row first, then other rows with same drug+imprint (normalized)
-            filenames = _aggregate_image_filenames(conn, raw_medicine_name, raw_splimprint, raw_image_filename)
-
-            image_urls = _build_image_urls(filenames)
-
-            logger.info(f"Slug {slug}: medicine_name={raw_medicine_name!r}, splimprint={raw_splimprint!r}, found {len(image_urls)} images, own_filename={raw_image_filename!r}")
-
-            # Fetch additional NDCs from pill_ndcs sibling table
-            additional_ndcs = []
-            try:
-                ndcs_result = conn.execute(
-                    text(
-                        """
-                        SELECT ndc11, package_description, is_primary
-                        FROM pill_ndcs
-                        WHERE pill_id = :pill_id
-                        ORDER BY is_primary DESC, ndc11
-                        """
-                    ),
-                    {"pill_id": str(pill_info.get("id"))},
-                )
-                additional_ndcs = [
-                    {"ndc11": r[0], "package_description": r[1]}
-                    for r in ndcs_result.fetchall()
-                    if not r[2]  # is_primary == False
-                ]
-            except SQLAlchemyError as _e:
-                err_msg = str(_e).lower()
-                if "pill_ndcs" in err_msg and (
-                    "does not exist" in err_msg or "no such table" in err_msg
-                ):
-                    logger.debug("pill_ndcs table not yet created: %s", _e)
-                else:
-                    logger.warning("pill_ndcs lookup failed for %s: %s", slug, _e)
-
-            guide_params = {
-                "spl_set_id": str(pill_info.get("spl_set_id") or ""),
-                "rxcui": str(pill_info.get("rxcui") or ""),
-                "ndc11": str(pill_info.get("ndc11") or ""),
-                "ndc9": str(pill_info.get("ndc9") or ""),
-                "ndc11_clean": str(pill_info.get("ndc11") or "").replace("-", ""),
-                "ndc9_clean": str(pill_info.get("ndc9") or "").replace("-", ""),
-            }
-            # Static WHERE / ORDER clause reused by both the primary and compat queries.
-            # All filter values are passed as named bind parameters — no user input is
-            # interpolated into the SQL text.
-            guide_filter_clause = """
-                        WHERE (
-                                :spl_set_id <> ''
-                                AND mg.spl_set_id = :spl_set_id
-                            ) OR (
-                                :rxcui <> ''
-                                AND mg.rxcui = :rxcui
-                            ) OR (
-                                :ndc11 <> ''
-                                AND (
-                                    mg.ndc = :ndc11
-                                    OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc11_clean
-                                )
-                            ) OR (
-                                :ndc9 <> ''
-                                AND (
-                                    mg.ndc = :ndc9
-                                    OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc9_clean
-                                )
-                            )
-                        ORDER BY
-                            CASE WHEN :spl_set_id <> '' AND mg.spl_set_id = :spl_set_id THEN 0 ELSE 1 END,
-                            CASE WHEN :rxcui <> '' AND mg.rxcui = :rxcui THEN 0 ELSE 1 END,
-                            mg.updated_at DESC NULLS LAST
-                        LIMIT 1
-            """
-            guide_flags = {
-                "has_medguide": False,
-                "has_medication_summary": False,
-                "has_dosage": False,
-                "has_adverse_reactions": False,
-            }
-            try:
-                guide_row = conn.execute(
-                    text(
-                        """
-                        SELECT
-                            (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
-                            (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary,
-                            (
-                                NULLIF(mg.dosage_administration, '') IS NOT NULL
-                                OR NULLIF(mg.dosage, '') IS NOT NULL
-                            ) AS has_dosage,
-                            (
-                                NULLIF(mg.adverse_reactions, '') IS NOT NULL
-                                OR NULLIF(mg.side_effects, '') IS NOT NULL
-                            ) AS has_adverse_reactions
-                        FROM public.medication_guide mg
-                        """
-                        + guide_filter_clause
-                    ),
-                    guide_params,
-                ).fetchone()
-                if guide_row:
-                    guide_flags = {
-                        "has_medguide": bool(guide_row[0]),
-                        "has_medication_summary": bool(guide_row[1]),
-                        "has_dosage": bool(guide_row[2]),
-                        "has_adverse_reactions": bool(guide_row[3]),
-                    }
-            except SQLAlchemyError as _e:
-                err_msg = str(_e).lower()
-                # Detect missing-column errors for not-yet-applied guide schema migrations.
-                pg_code = getattr(getattr(_e, "orig", None), "pgcode", None)
-                _is_missing_col = pg_code == "42703" or (
-                    "does not exist" in err_msg
-                    or "undefined" in err_msg
-                    or "no such column" in err_msg
-                )
-                if _is_missing_col:
-                    logger.debug(
-                        "Medication guide columns missing, using compat query for %s: %s",
-                        slug,
-                        _e,
-                    )
-                    summary_column_missing = "medication_summary_html" in err_msg
-                    try:
-                        if summary_column_missing:
-                            legacy_row = conn.execute(
-                                text(
-                                    """
-                                    SELECT
-                                        (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide
-                                    FROM public.medication_guide mg
-                                    """
-                                    + guide_filter_clause
-                                ),
-                                guide_params,
-                            ).fetchone()
-                            if legacy_row:
-                                guide_flags = {
-                                    "has_medguide": bool(legacy_row[0]),
-                                    "has_medication_summary": False,
-                                    "has_dosage": False,
-                                    "has_adverse_reactions": False,
-                                }
-                        else:
-                            compat_row = conn.execute(
-                                text(
-                                    """
-                                    SELECT
-                                        (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
-                                        (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
-                                    FROM public.medication_guide mg
-                                    """
-                                    + guide_filter_clause
-                                ),
-                                guide_params,
-                            ).fetchone()
-                            if compat_row:
-                                guide_flags = {
-                                    "has_medguide": bool(compat_row[0]),
-                                    "has_medication_summary": bool(compat_row[1]),
-                                    "has_dosage": False,
-                                    "has_adverse_reactions": False,
-                                }
-                    except SQLAlchemyError as _compat_e:
-                        compat_msg = str(_compat_e).lower()
-                        compat_pg_code = getattr(getattr(_compat_e, "orig", None), "pgcode", None)
-                        compat_missing_col = compat_pg_code == "42703" or (
-                            "does not exist" in compat_msg
-                            or "undefined" in compat_msg
-                            or "no such column" in compat_msg
-                        )
-                        if compat_missing_col:
-                            try:
-                                legacy_row = conn.execute(
-                                    text(
-                                        """
-                                        SELECT
-                                            (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide
-                                        FROM public.medication_guide mg
-                                        """
-                                        + guide_filter_clause
-                                    ),
-                                    guide_params,
-                                ).fetchone()
-                                if legacy_row:
-                                    guide_flags = {
-                                        "has_medguide": bool(legacy_row[0]),
-                                        "has_medication_summary": False,
-                                        "has_dosage": False,
-                                        "has_adverse_reactions": False,
-                                    }
-                            except SQLAlchemyError as _legacy_e:
-                                logger.warning(
-                                    "Medication guide legacy flag lookup failed for %s: %s",
-                                    slug,
-                                    _legacy_e,
-                                )
-                        else:
-                            logger.warning(
-                                "Medication guide compat flag lookup failed for %s: %s",
-                                slug,
-                                _compat_e,
-                            )
-                else:
-                    logger.warning("Medication guide flag lookup failed for %s: %s", slug, _e)
-
-            mapped = {
-                "drug_name": pill_info.get("medicine_name"),
-                "imprint": pill_info.get("splimprint"),
-                "color": pill_info.get("splcolor_text"),
-                "shape": pill_info.get("splshape_text"),
-                "ndc": pill_info.get("ndc11"),
-                "ndc9": pill_info.get("ndc9"),
-                "rxcui": str(pill_info.get("rxcui", "") or ""),
-                "slug": pill_info.get("slug"),
-                "strength": pill_info.get("spl_strength"),
-                "manufacturer": pill_info.get("author"),
-                "ingredients": pill_info.get("spl_ingredients"),
-                "inactive_ingredients": pill_info.get("spl_inactive_ing"),
-                "dea_schedule": pill_info.get("dea_schedule_name"),
-                "pharma_class": pill_info.get("dailymed_pharma_class_epc") or pill_info.get("pharmclass_fda_epc"),
-                "size": str(pill_info.get("splsize", "") or ""),
-                "dosage_form": pill_info.get("dosage_form"),
-                "brand_names": pill_info.get("brand_names"),
-                "status_rx_otc": pill_info.get("status_rx_otc"),
-                "route": pill_info.get("route"),
-                "meta_title": pill_info.get("meta_title") or None,
-                "image_url": image_urls[0] if image_urls else None,
-                "image_urls": image_urls,
-                "images": image_urls,
-                "has_multiple_images": len(image_urls) > 1,
-                "carousel_images": [{"id": i, "url": url} for i, url in enumerate(image_urls)],
-                # Source-citation / freshness fields — present only when the DB has them.
-                # updated_at is serialised as ISO 8601 with a trailing 'Z' so the frontend
-                # can reliably parse it with new Date() on all JS engines.
-                "spl_set_id": pill_info.get("spl_set_id") or pill_info.get("setid") or pill_info.get("spl_set_id_value"),
-                "updated_at": _to_iso(
-                    pill_info.get("updated_at")
-                    or pill_info.get("last_updated")
-                    or pill_info.get("ingested_at")
-                ),
-                "has_medguide": guide_flags["has_medguide"],
-                "has_medication_summary": guide_flags["has_medication_summary"],
-                "has_dosage": guide_flags["has_dosage"],
-                "has_adverse_reactions": guide_flags["has_adverse_reactions"],
-                "additional_ndcs": additional_ndcs,
-                "meta_description": pill_info.get("meta_description") or None,
-                "indication": None,
-                "pronunciation": None,
-                "audio_url": None,
-                "brand_pronunciation": None,
-                "brand_audio_url": None,
-                "generic_pronunciation": None,
-                "generic_audio_url": None,
-                "generic_name": None,
-                "brand_names_all": [],
-                "is_brand_row": False,
-            }
-
-            synonyms = get_synonyms_for_rxcui(conn, mapped["rxcui"]) if mapped.get("rxcui") else {}
-            if synonyms:
-                mapped["generic_name"] = synonyms.get("generic_name")
-                mapped["brand_names_all"] = filter_self_from_brands(
-                    synonyms.get("brand_names") or [],
-                    pill_info.get("medicine_name") or "",
-                )
-                mapped["is_brand_row"] = (synonyms.get("product_tty") in ("SBD", "BPCK"))
-            explicit_brand_or_generic = pill_info.get("brand_or_generic")
-            mapped["brand_or_generic"] = (
-                explicit_brand_or_generic
-                if explicit_brand_or_generic in ("brand", "generic")
-                else ("brand" if mapped.get("is_brand_row") else None)
-            )
-
-            history_resolution = _resolve_history_identifier(
-                conn,
-                slug=str(pill_info.get("slug") or slug),
-                canonical_ndc=pill_info.get("ndc11"),
-                rxcui=pill_info.get("rxcui"),
-                medicine_name=pill_info.get("medicine_name"),
-            )
-            mapped["history_ndc"] = history_resolution.get("history_ndc")
-            mapped["history_source"] = history_resolution.get("history_source")
-
-            # Fetch patient-friendly indication text from drug_indications (keyed by rxcui).
-            rxcui_val = pill_info.get("rxcui")
-            if rxcui_val:
-                try:
-                    ind_result = conn.execute(
-                        text(
-                            """
-                            SELECT plain_text, source_url, source, fetched_at
-                            FROM drug_indications
-                            WHERE rxcui = :rxcui
-                              AND plain_text IS NOT NULL
-                            LIMIT 1
-                            """
-                        ),
-                        {"rxcui": str(rxcui_val)},
-                    )
-                    ind_row = ind_result.fetchone()
-                    if ind_row:
-                        row_map = ind_row._mapping
-                        mapped["indication"] = {
-                            "plain_text": row_map["plain_text"],
-                            "source_url": row_map["source_url"],
-                            "source": row_map["source"],
-                            "fetched_at": _to_iso(row_map["fetched_at"]),
-                        }
-                except SQLAlchemyError as _e:
-                    err_msg = str(_e).lower()
-                    if "drug_indications" in err_msg and (
-                        "does not exist" in err_msg or "no such table" in err_msg
-                    ):
-                        logger.debug("drug_indications table not yet created: %s", _e)
-                    else:
-                        logger.warning("drug_indications lookup failed for rxcui=%s: %s", rxcui_val, _e)
-
-            pronunciation = _resolve_pill_pronunciations(
-                conn,
-                medicine_name=pill_info.get("medicine_name"),
-                rxcui=pill_info.get("rxcui"),
-                generic_name=mapped.get("generic_name"),
-                brand_names=synonyms.get("brand_names") if synonyms else None,
-                is_brand_row=bool(mapped.get("is_brand_row")),
-            )
-            mapped["pronunciation"] = pronunciation.get("pronunciation")
-            mapped["audio_url"] = pronunciation.get("audio_url")
-            mapped["brand_pronunciation"] = pronunciation.get("brand_pronunciation")
-            mapped["brand_audio_url"] = pronunciation.get("brand_audio_url")
-            mapped["generic_pronunciation"] = pronunciation.get("generic_pronunciation")
-            mapped["generic_audio_url"] = pronunciation.get("generic_audio_url")
-
-        return mapped
+            return _build_pill_response(conn, result, row, fallback_slug=slug)
 
     except HTTPException:
         raise
@@ -886,6 +545,390 @@ def get_pill_by_slug(slug: str):
         raise HTTPException(status_code=500, detail="Database error")
     except Exception as e:
         logger.error(f"Error in get_pill_by_slug: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+def _build_pill_response(conn, result, row, *, fallback_slug: str) -> dict[str, Any]:
+    columns = result.keys()
+    pill_info = dict(zip(columns, row))
+
+    # Capture RAW values BEFORE normalization (DB stores raw lowercase)
+    raw_medicine_name = pill_info.get("medicine_name", "") or ""
+    raw_splimprint = pill_info.get("splimprint", "") or ""
+    raw_image_filename = pill_info.get("image_filename", "") or ""
+
+    pill_info = normalize_fields(pill_info)
+
+    # Aggregate images: own row first, then other rows with same drug+imprint (normalized)
+    filenames = _aggregate_image_filenames(conn, raw_medicine_name, raw_splimprint, raw_image_filename)
+
+    image_urls = _build_image_urls(filenames)
+
+    logger.info(
+        "Pill lookup %s: medicine_name=%r, splimprint=%r, found %s images, own_filename=%r",
+        fallback_slug,
+        raw_medicine_name,
+        raw_splimprint,
+        len(image_urls),
+        raw_image_filename,
+    )
+
+    # Fetch additional NDCs from pill_ndcs sibling table
+    additional_ndcs = []
+    try:
+        ndcs_result = conn.execute(
+            text(
+                """
+                SELECT ndc11, package_description, is_primary
+                FROM pill_ndcs
+                WHERE pill_id = :pill_id
+                ORDER BY is_primary DESC, ndc11
+                """
+            ),
+            {"pill_id": str(pill_info.get("id"))},
+        )
+        additional_ndcs = [
+            {"ndc11": r[0], "package_description": r[1]}
+            for r in ndcs_result.fetchall()
+            if not r[2]  # is_primary == False
+        ]
+    except SQLAlchemyError as _e:
+        err_msg = str(_e).lower()
+        if "pill_ndcs" in err_msg and (
+            "does not exist" in err_msg or "no such table" in err_msg
+        ):
+            logger.debug("pill_ndcs table not yet created: %s", _e)
+        else:
+            logger.warning("pill_ndcs lookup failed for %s: %s", fallback_slug, _e)
+
+    guide_params = {
+        "spl_set_id": str(pill_info.get("spl_set_id") or ""),
+        "rxcui": str(pill_info.get("rxcui") or ""),
+        "ndc11": str(pill_info.get("ndc11") or ""),
+        "ndc9": str(pill_info.get("ndc9") or ""),
+        "ndc11_clean": str(pill_info.get("ndc11") or "").replace("-", ""),
+        "ndc9_clean": str(pill_info.get("ndc9") or "").replace("-", ""),
+    }
+    guide_filter_clause = """
+                WHERE (
+                        :spl_set_id <> ''
+                        AND mg.spl_set_id = :spl_set_id
+                    ) OR (
+                        :rxcui <> ''
+                        AND mg.rxcui = :rxcui
+                    ) OR (
+                        :ndc11 <> ''
+                        AND (
+                            mg.ndc = :ndc11
+                            OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc11_clean
+                        )
+                    ) OR (
+                        :ndc9 <> ''
+                        AND (
+                            mg.ndc = :ndc9
+                            OR REPLACE(COALESCE(mg.ndc, ''), '-', '') = :ndc9_clean
+                        )
+                    )
+                ORDER BY
+                    CASE WHEN :spl_set_id <> '' AND mg.spl_set_id = :spl_set_id THEN 0 ELSE 1 END,
+                    CASE WHEN :rxcui <> '' AND mg.rxcui = :rxcui THEN 0 ELSE 1 END,
+                    mg.updated_at DESC NULLS LAST
+                LIMIT 1
+    """
+    guide_flags = {
+        "has_medguide": False,
+        "has_medication_summary": False,
+        "has_dosage": False,
+        "has_adverse_reactions": False,
+    }
+    try:
+        guide_row = conn.execute(
+            text(
+                """
+                SELECT
+                    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
+                    (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary,
+                    (
+                        NULLIF(mg.dosage_administration, '') IS NOT NULL
+                        OR NULLIF(mg.dosage, '') IS NOT NULL
+                    ) AS has_dosage,
+                    (
+                        NULLIF(mg.adverse_reactions, '') IS NOT NULL
+                        OR NULLIF(mg.side_effects, '') IS NOT NULL
+                    ) AS has_adverse_reactions
+                FROM public.medication_guide mg
+                """
+                + guide_filter_clause
+            ),
+            guide_params,
+        ).fetchone()
+        if guide_row:
+            guide_flags = {
+                "has_medguide": bool(guide_row[0]),
+                "has_medication_summary": bool(guide_row[1]),
+                "has_dosage": bool(guide_row[2]),
+                "has_adverse_reactions": bool(guide_row[3]),
+            }
+    except SQLAlchemyError as _e:
+        err_msg = str(_e).lower()
+        pg_code = getattr(getattr(_e, "orig", None), "pgcode", None)
+        _is_missing_col = pg_code == "42703" or (
+            "does not exist" in err_msg
+            or "undefined" in err_msg
+            or "no such column" in err_msg
+        )
+        if _is_missing_col:
+            logger.debug(
+                "Medication guide columns missing, using compat query for %s: %s",
+                fallback_slug,
+                _e,
+            )
+            summary_column_missing = "medication_summary_html" in err_msg
+            try:
+                if summary_column_missing:
+                    legacy_row = conn.execute(
+                        text(
+                            """
+                            SELECT
+                                (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide
+                            FROM public.medication_guide mg
+                            """
+                            + guide_filter_clause
+                        ),
+                        guide_params,
+                    ).fetchone()
+                    if legacy_row:
+                        guide_flags = {
+                            "has_medguide": bool(legacy_row[0]),
+                            "has_medication_summary": False,
+                            "has_dosage": False,
+                            "has_adverse_reactions": False,
+                        }
+                else:
+                    compat_row = conn.execute(
+                        text(
+                            """
+                            SELECT
+                                (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide,
+                                (NULLIF(mg.medication_summary_html, '') IS NOT NULL) AS has_medication_summary
+                            FROM public.medication_guide mg
+                            """
+                            + guide_filter_clause
+                        ),
+                        guide_params,
+                    ).fetchone()
+                    if compat_row:
+                        guide_flags = {
+                            "has_medguide": bool(compat_row[0]),
+                            "has_medication_summary": bool(compat_row[1]),
+                            "has_dosage": False,
+                            "has_adverse_reactions": False,
+                        }
+            except SQLAlchemyError as _compat_e:
+                compat_msg = str(_compat_e).lower()
+                compat_pg_code = getattr(getattr(_compat_e, "orig", None), "pgcode", None)
+                compat_missing_col = compat_pg_code == "42703" or (
+                    "does not exist" in compat_msg
+                    or "undefined" in compat_msg
+                    or "no such column" in compat_msg
+                )
+                if compat_missing_col:
+                    try:
+                        legacy_row = conn.execute(
+                            text(
+                                """
+                                SELECT
+                                    (NULLIF(mg.medguide_html, '') IS NOT NULL) AS has_medguide
+                                FROM public.medication_guide mg
+                                """
+                                + guide_filter_clause
+                            ),
+                            guide_params,
+                        ).fetchone()
+                        if legacy_row:
+                            guide_flags = {
+                                "has_medguide": bool(legacy_row[0]),
+                                "has_medication_summary": False,
+                                "has_dosage": False,
+                                "has_adverse_reactions": False,
+                            }
+                    except SQLAlchemyError as _legacy_e:
+                        logger.warning(
+                            "Medication guide legacy flag lookup failed for %s: %s",
+                            fallback_slug,
+                            _legacy_e,
+                        )
+                else:
+                    logger.warning(
+                        "Medication guide compat flag lookup failed for %s: %s",
+                        fallback_slug,
+                        _compat_e,
+                    )
+        else:
+            logger.warning("Medication guide flag lookup failed for %s: %s", fallback_slug, _e)
+
+    mapped = {
+        "drug_name": pill_info.get("medicine_name"),
+        "imprint": pill_info.get("splimprint"),
+        "color": pill_info.get("splcolor_text"),
+        "shape": pill_info.get("splshape_text"),
+        "ndc": pill_info.get("ndc11"),
+        "ndc9": pill_info.get("ndc9"),
+        "rxcui": str(pill_info.get("rxcui", "") or ""),
+        "slug": pill_info.get("slug"),
+        "strength": pill_info.get("spl_strength"),
+        "manufacturer": pill_info.get("author"),
+        "ingredients": pill_info.get("spl_ingredients"),
+        "inactive_ingredients": pill_info.get("spl_inactive_ing"),
+        "dea_schedule": pill_info.get("dea_schedule_name"),
+        "pharma_class": pill_info.get("dailymed_pharma_class_epc") or pill_info.get("pharmclass_fda_epc"),
+        "size": str(pill_info.get("splsize", "") or ""),
+        "dosage_form": pill_info.get("dosage_form"),
+        "brand_names": pill_info.get("brand_names"),
+        "status_rx_otc": pill_info.get("status_rx_otc"),
+        "route": pill_info.get("route"),
+        "meta_title": pill_info.get("meta_title") or None,
+        "image_url": image_urls[0] if image_urls else None,
+        "image_urls": image_urls,
+        "images": image_urls,
+        "has_multiple_images": len(image_urls) > 1,
+        "carousel_images": [{"id": i, "url": url} for i, url in enumerate(image_urls)],
+        "spl_set_id": pill_info.get("spl_set_id") or pill_info.get("setid") or pill_info.get("spl_set_id_value"),
+        "updated_at": _to_iso(
+            pill_info.get("updated_at")
+            or pill_info.get("last_updated")
+            or pill_info.get("ingested_at")
+        ),
+        "has_medguide": guide_flags["has_medguide"],
+        "has_medication_summary": guide_flags["has_medication_summary"],
+        "has_dosage": guide_flags["has_dosage"],
+        "has_adverse_reactions": guide_flags["has_adverse_reactions"],
+        "additional_ndcs": additional_ndcs,
+        "meta_description": pill_info.get("meta_description") or None,
+        "indication": None,
+        "pronunciation": None,
+        "audio_url": None,
+        "brand_pronunciation": None,
+        "brand_audio_url": None,
+        "generic_pronunciation": None,
+        "generic_audio_url": None,
+        "generic_name": None,
+        "brand_names_all": [],
+        "is_brand_row": False,
+    }
+
+    synonyms = get_synonyms_for_rxcui(conn, mapped["rxcui"]) if mapped.get("rxcui") else {}
+    if synonyms:
+        mapped["generic_name"] = synonyms.get("generic_name")
+        mapped["brand_names_all"] = filter_self_from_brands(
+            synonyms.get("brand_names") or [],
+            pill_info.get("medicine_name") or "",
+        )
+        mapped["is_brand_row"] = (synonyms.get("product_tty") in ("SBD", "BPCK"))
+    explicit_brand_or_generic = pill_info.get("brand_or_generic")
+    mapped["brand_or_generic"] = (
+        explicit_brand_or_generic
+        if explicit_brand_or_generic in ("brand", "generic")
+        else ("brand" if mapped.get("is_brand_row") else None)
+    )
+
+    history_resolution = _resolve_history_identifier(
+        conn,
+        slug=str(pill_info.get("slug") or fallback_slug),
+        canonical_ndc=pill_info.get("ndc11"),
+        rxcui=pill_info.get("rxcui"),
+        medicine_name=pill_info.get("medicine_name"),
+    )
+    mapped["history_ndc"] = history_resolution.get("history_ndc")
+    mapped["history_source"] = history_resolution.get("history_source")
+
+    rxcui_val = pill_info.get("rxcui")
+    if rxcui_val:
+        try:
+            ind_result = conn.execute(
+                text(
+                    """
+                    SELECT plain_text, source_url, source, fetched_at
+                    FROM drug_indications
+                    WHERE rxcui = :rxcui
+                      AND plain_text IS NOT NULL
+                    LIMIT 1
+                    """
+                ),
+                {"rxcui": str(rxcui_val)},
+            )
+            ind_row = ind_result.fetchone()
+            if ind_row:
+                row_map = ind_row._mapping
+                mapped["indication"] = {
+                    "plain_text": row_map["plain_text"],
+                    "source_url": row_map["source_url"],
+                    "source": row_map["source"],
+                    "fetched_at": _to_iso(row_map["fetched_at"]),
+                }
+        except SQLAlchemyError as _e:
+            err_msg = str(_e).lower()
+            if "drug_indications" in err_msg and (
+                "does not exist" in err_msg or "no such table" in err_msg
+            ):
+                logger.debug("drug_indications table not yet created: %s", _e)
+            else:
+                logger.warning("drug_indications lookup failed for rxcui=%s: %s", rxcui_val, _e)
+
+    pronunciation = _resolve_pill_pronunciations(
+        conn,
+        medicine_name=pill_info.get("medicine_name"),
+        rxcui=pill_info.get("rxcui"),
+        generic_name=mapped.get("generic_name"),
+        brand_names=synonyms.get("brand_names") if synonyms else None,
+        is_brand_row=bool(mapped.get("is_brand_row")),
+    )
+    mapped["pronunciation"] = pronunciation.get("pronunciation")
+    mapped["audio_url"] = pronunciation.get("audio_url")
+    mapped["brand_pronunciation"] = pronunciation.get("brand_pronunciation")
+    mapped["brand_audio_url"] = pronunciation.get("brand_audio_url")
+    mapped["generic_pronunciation"] = pronunciation.get("generic_pronunciation")
+    mapped["generic_audio_url"] = pronunciation.get("generic_audio_url")
+
+    return mapped
+
+
+@router.get("/pill/preview/{pill_id}")
+def preview_pill_by_id(pill_id: str, admin: dict = Depends(get_admin_user)):
+    """Get pill preview data by ID for admins, including unpublished drafts."""
+    if not database.db_engine:
+        if not database.connect_to_database():
+            raise HTTPException(status_code=500, detail="Database connection not available")
+
+    try:
+        with database.db_engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    SELECT *
+                    FROM pillfinder
+                    WHERE deleted_at IS NULL AND id = :pill_id
+                    LIMIT 1
+                    """
+                ),
+                {"pill_id": pill_id},
+            )
+            row = result.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Pill not found")
+
+            mapped = _build_pill_response(conn, result, row, fallback_slug=pill_id)
+            mapped["is_preview"] = True
+            mapped["preview_banner"] = "DRAFT - Not Published"
+            return mapped
+
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in preview_pill_by_id: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(f"Error in preview_pill_by_id: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

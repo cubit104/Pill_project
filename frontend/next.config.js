@@ -37,6 +37,7 @@ const nextConfig = {
   async rewrites() {
     const apiBase = process.env.API_BASE_URL || 'http://localhost:8000'
     return [
+      { source: '/api/pill/preview/:pill_id', destination: `${apiBase}/pill/preview/:pill_id` },
       { source: '/api/:path*', destination: `${apiBase}/api/:path*` },
       { source: '/filters', destination: `${apiBase}/filters` },
       { source: '/suggestions', destination: `${apiBase}/suggestions` },
