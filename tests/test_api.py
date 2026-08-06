@@ -911,6 +911,79 @@ def test_api_pill_slug_pronunciation_is_none_when_table_missing(client):
     assert response.json()["audio_url"] is None
 
 
+def test_api_pill_preview_requires_admin_auth(client):
+    response = client.get("/api/pill/preview/pill-1")
+    assert response.status_code == 401
+
+
+def test_api_pill_preview_returns_draft_payload_for_admin(client):
+    import database as db_module
+    import main as app_module
+    from routes.admin.auth import get_admin_user
+
+    pill_columns = [
+        "id",
+        "medicine_name",
+        "splimprint",
+        "splcolor_text",
+        "splshape_text",
+        "ndc11",
+        "rxcui",
+        "image_filename",
+        "slug",
+        "meta_description",
+        "published",
+    ]
+    pill_row = (
+        "pill-1",
+        "Aspirin",
+        "ASP 81",
+        "White",
+        "Round",
+        "0069-0020-01",
+        "1191",
+        "aspirin.jpg",
+        "aspirin-81",
+        "Preview me",
+        False,
+    )
+
+    def side_effect(sql, params=None, *args, **kwargs):
+        sql_str = str(sql).lower()
+        result = MagicMock()
+        if "from pillfinder" in sql_str and "id = :id" in sql_str:
+            result.fetchone.return_value = pill_row
+            result.keys.return_value = pill_columns
+        elif "from pill_ndcs" in sql_str:
+            result.fetchall.return_value = []
+        elif "from public.medication_guide" in sql_str:
+            result.fetchone.return_value = None
+        elif "from drug_indications" in sql_str:
+            result.fetchone.return_value = None
+        elif "from rxcui_to_ingredient" in sql_str:
+            result.fetchone.return_value = ("1191", "Aspirin", ["Ecotrin"], "SBD")
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            result.scalar.return_value = 0
+            result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    db_module.db_engine.connect.return_value.__enter__.return_value.execute.side_effect = side_effect
+    app_module.app.dependency_overrides[get_admin_user] = lambda: {"email": "admin@test.com", "role": "superuser"}
+    try:
+        with patch("routes.details._resolve_history_identifier", return_value={"history_ndc": None, "history_source": None}):
+            response = client.get("/api/pill/preview/pill-1")
+    finally:
+        app_module.app.dependency_overrides.pop(get_admin_user, None)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["slug"] == "aspirin-81"
+    assert data["is_draft"] is True
+    assert data["generic_name"] == "Aspirin"
+
+
 def test_api_pill_pronunciation_returns_generic_primary_with_brand_alternatives(client):
     import database as db_module
 

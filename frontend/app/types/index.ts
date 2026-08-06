@@ -62,6 +62,8 @@ export interface PillDetail extends PillResult {
   history_ndc?: string | null
   /** Source used by backend to resolve history_ndc. */
   history_source?: 'ndc' | 'matched_ndc' | 'rxcui' | 'by_name' | null
+  /** True when the payload is an admin-only preview of an unpublished pill. */
+  is_draft?: boolean
 }
 
 export interface SimilarPill {

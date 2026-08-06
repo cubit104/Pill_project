@@ -1169,6 +1169,16 @@ export default function EditPillPage() {
             <ExternalLink className="w-4 h-4" /> View Live Page
           </a>
         )}
+        {pill?.id && pill?.slug && (
+          <a
+            href={`/pill/${pill.slug}?preview=${encodeURIComponent(pill.id)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 text-sm font-medium transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" /> Preview Draft
+          </a>
+        )}
         <button
           onClick={() => {
             const DUPLICATE_FIELDS = [

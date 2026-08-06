@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { cookies } from 'next/headers'
 import type { Metadata } from 'next'
 import PillDetailClient from './PillDetailClient'
 import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
@@ -22,10 +23,21 @@ const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com'
 ).replace(/\/$/, '')
 
-export async function fetchPill(slug: string): Promise<PillDetail | null> {
-  const res = await fetch(`${API_BASE}/api/pill/${encodeURIComponent(slug)}`, {
-    next: { revalidate: 900 }, // 15 minutes
-  })
+export async function fetchPill(slug: string, previewId?: string): Promise<PillDetail | null> {
+  const cookieHeader = previewId ? (await cookies()).toString() : ''
+  const res = await fetch(
+    previewId
+      ? `${API_BASE}/api/pill/preview/${encodeURIComponent(previewId)}`
+      : `${API_BASE}/api/pill/${encodeURIComponent(slug)}`,
+    previewId
+      ? {
+          cache: 'no-store',
+          ...(cookieHeader ? { headers: { cookie: cookieHeader } } : {}),
+        }
+      : {
+          next: { revalidate: 900 }, // 15 minutes
+        }
+  )
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`API error ${res.status}`)
   const raw = await res.json()
@@ -82,6 +94,7 @@ export async function fetchPill(slug: string): Promise<PillDetail | null> {
       typeof raw.has_adverse_reactions === 'boolean'
         ? raw.has_adverse_reactions
         : undefined,
+    is_draft: Boolean(raw.is_draft),
   }
 }
 
@@ -210,10 +223,18 @@ function buildFaqItems(pill: PillDetail): Array<{ question: string; answer: stri
 }
 
 export async function generateMetadata(
-  { params }: { params: Promise<{ slug: string }> }
+  {
+    params,
+    searchParams,
+  }: {
+    params: Promise<{ slug: string }>
+    searchParams: Promise<{ preview?: string }>
+  }
 ): Promise<Metadata> {
   const { slug } = await params
-  const pill = await fetchPill(slug)
+  const { preview } = await searchParams
+  const previewId = typeof preview === 'string' && preview.trim() ? preview : undefined
+  const pill = await fetchPill(slug, previewId)
   if (!pill) {
     return {
       title: 'Pill Not Found',
@@ -327,15 +348,24 @@ export async function generateMetadata(
       description,
       ...(images.length > 0 && { images: [images[0]] }),
     },
+    ...(previewId ? { robots: { index: false, follow: false } } : {}),
   }
 }
 
 export default async function PillDetailPage(
-  { params }: { params: Promise<{ slug: string }> }
+  {
+    params,
+    searchParams,
+  }: {
+    params: Promise<{ slug: string }>
+    searchParams: Promise<{ preview?: string }>
+  }
 ) {
   const { slug } = await params
+  const { preview } = await searchParams
+  const previewId = typeof preview === 'string' && preview.trim() ? preview : undefined
   const [pill, relatedData, similarPills, conditionData, priceSnapshot] = await Promise.all([
-    fetchPill(slug),
+    fetchPill(slug, previewId),
     fetchRelated(slug),
     fetchSimilar(slug),
     fetchConditionDrugs(slug),
@@ -416,6 +446,11 @@ export default async function PillDetailPage(
 
   return (
     <>
+      {pill.is_draft && (
+        <div className="bg-amber-100 border-b border-amber-200 px-4 py-3 text-center text-sm font-medium text-amber-900">
+          Draft preview — this pill is not published yet.
+        </div>
+      )}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbs) }}
