@@ -8,7 +8,8 @@ const adminEditPagePath = new URL('../../../../../admin/pills/[id]/page.tsx', im
 test('draft preview page source shows banner and disables view tracking', () => {
   const source = readFileSync(previewPagePath, 'utf8')
 
-  assert.match(source, /DRAFT - Not Published/)
+  assert.match(source, /setPreviewBanner\(/)
+  assert.match(source, /previewBanner && \(/)
   assert.match(source, /\/api\/pill\/preview\/\$\{encodeURIComponent\(pillId\)\}/)
   assert.match(source, /trackView=\{false\}/)
 })

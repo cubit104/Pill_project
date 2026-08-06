@@ -80,7 +80,11 @@ export function middleware(req: NextRequest) {
 
   if (adminEnabled) {
     if (pathname.startsWith('/pill/preview/')) {
-      return NextResponse.next()
+      const adminCookieName = process.env.ADMIN_SESSION_COOKIE_NAME || 'pillseek_admin_session'
+      if (req.cookies.get(adminCookieName)?.value) {
+        return NextResponse.next()
+      }
+      return NextResponse.redirect(new URL('/admin/login', req.url))
     }
     if (ADMIN_PASSTHROUGH_PATHS.some((p) => pathname.startsWith(p))) {
       return NextResponse.next()

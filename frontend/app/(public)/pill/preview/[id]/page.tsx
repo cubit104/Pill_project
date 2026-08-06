@@ -135,6 +135,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> 
 export default function PillPreviewPage({ params }: { params: { id: string } }) {
   const pillId = params.id
   const [pill, setPill] = useState<PillDetail | null>(null)
+  const [previewBanner, setPreviewBanner] = useState<string | null>(null)
   const [related, setRelated] = useState<RelatedDrug[]>([])
   const [pharmaClass, setPharmaClass] = useState<string | undefined>()
   const [similar, setSimilar] = useState<SimilarPill[]>([])
@@ -162,7 +163,7 @@ export default function PillPreviewPage({ params }: { params: { id: string } }) 
       }
 
       const raw = await fetchJson<any>(`/api/pill/preview/${encodeURIComponent(pillId)}`, {
-        headers: { Authorization: `****** },
+        headers: { Authorization: 'Bearer ' + token },
         cache: 'no-store',
       })
       if (!raw) {
@@ -176,6 +177,7 @@ export default function PillPreviewPage({ params }: { params: { id: string } }) 
       const nextPill = mapRawPill(raw)
       if (cancelled) return
       setPill(nextPill)
+      setPreviewBanner(typeof raw.preview_banner === 'string' && raw.preview_banner.trim() ? raw.preview_banner : null)
 
       if (!nextPill.slug) {
         setRelated([])
@@ -229,9 +231,11 @@ export default function PillPreviewPage({ params }: { params: { id: string } }) 
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="sticky top-0 z-50 border-b border-amber-300 bg-amber-100 px-4 py-3 text-center text-sm font-semibold text-amber-900">
-        DRAFT - Not Published
-      </div>
+      {previewBanner && (
+        <div className="sticky top-0 z-50 border-b border-amber-300 bg-amber-100 px-4 py-3 text-center text-sm font-semibold text-amber-900">
+          {previewBanner}
+        </div>
+      )}
       {loading && (
         <div className="mx-auto max-w-3xl px-4 py-12 text-center text-slate-600">
           Loading draft preview…

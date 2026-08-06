@@ -516,6 +516,7 @@ def get_pill_by_slug(slug: str):
         with database.db_engine.connect() as conn:
             query = text("SELECT * FROM pillfinder WHERE deleted_at IS NULL AND published = true AND slug = :slug LIMIT 1")
             result = conn.execute(query, {"slug": slug})
+            columns = list(result.keys())
             row = result.fetchone()
             if not row:
                 # Fallback: match by normalized drug-name slug against medicine_name
@@ -532,11 +533,12 @@ def get_pill_by_slug(slug: str):
                     ),
                     {"slug": slug},
                 )
+                columns = list(result.keys())
                 row = result.fetchone()
                 if not row:
                     raise HTTPException(status_code=404, detail="Pill not found")
 
-            return _build_pill_response(conn, result, row, fallback_slug=slug)
+            return _build_pill_response(conn, columns, row, fallback_slug=slug)
 
     except HTTPException:
         raise
@@ -548,8 +550,7 @@ def get_pill_by_slug(slug: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-def _build_pill_response(conn, result, row, *, fallback_slug: str) -> dict[str, Any]:
-    columns = result.keys()
+def _build_pill_response(conn, columns, row, *, fallback_slug: str) -> dict[str, Any]:
     pill_info = dict(zip(columns, row))
 
     # Capture RAW values BEFORE normalization (DB stores raw lowercase)
@@ -913,13 +914,16 @@ def preview_pill_by_id(pill_id: str, admin: dict = Depends(get_admin_user)):
                 ),
                 {"pill_id": pill_id},
             )
+            columns = list(result.keys())
             row = result.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Pill not found")
 
-            mapped = _build_pill_response(conn, result, row, fallback_slug=pill_id)
+            row_map = dict(zip(columns, row))
+            mapped = _build_pill_response(conn, columns, row, fallback_slug=pill_id)
             mapped["is_preview"] = True
-            mapped["preview_banner"] = "DRAFT - Not Published"
+            mapped["published"] = bool(row_map.get("published"))
+            mapped["preview_banner"] = None if mapped["published"] else "DRAFT - Not Published"
             return mapped
 
     except HTTPException:
