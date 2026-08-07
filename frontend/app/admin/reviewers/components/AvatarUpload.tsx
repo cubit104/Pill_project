@@ -43,7 +43,7 @@ export default function AvatarUpload({ reviewerId, currentUrl, onUpload }: Avata
 
       const res = await fetch(`/api/admin/reviewers/${reviewerId}/avatar`, {
         method: 'POST',
-        headers: { Authorization: `****** },
+        headers: { Authorization: 'Bearer ' + session.access_token },
         body: formData,
       })
 
