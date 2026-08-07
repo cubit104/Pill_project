@@ -396,7 +396,42 @@ def preview_draft(draft_id: str, admin: dict = Depends(get_admin_user)):
                 {"id": draft_id},
             ).fetchone()
             if not draft_row:
-                raise HTTPException(status_code=404, detail="Draft not found")
+                # Fallback: check if this is a pillfinder-source draft (published=false)
+                pf_row = conn.execute(
+                    text("""
+                        SELECT medicine_name, splimprint, splcolor_text, splshape_text,
+                               spl_strength, spl_ingredients, spl_inactive_ing, dosage_form,
+                               route, dea_schedule_name, pharmclass_fda_epc, ndc9, ndc11,
+                               rxcui, slug, meta_title, meta_description, image_filename,
+                               has_image, image_alt_text, brand_names, author, tags,
+                               status_rx_otc, splsize, rxcui_1, imprint_status, id
+                        FROM pillfinder
+                        WHERE id = :id AND published = false AND deleted_at IS NULL
+                        LIMIT 1
+                    """),
+                    {"id": draft_id},
+                ).fetchone()
+                if not pf_row:
+                    raise HTTPException(status_code=404, detail="Draft not found")
+
+                merged = dict(pf_row._mapping)
+
+                image_filename = merged.get("image_filename")
+                if image_filename:
+                    image_url = get_image_url(image_filename)
+                    images = get_image_urls(image_filename)
+                else:
+                    image_url = None
+                    images = []
+
+                return {
+                    **merged,
+                    "image_url": image_url,
+                    "images": images,
+                    "draft_id": draft_id,
+                    "draft_status": "draft",
+                    "pill_id": draft_id,
+                }
 
             pill_id_raw = draft_row[1]
             draft_data = draft_row[2] if isinstance(draft_row[2], dict) else (
