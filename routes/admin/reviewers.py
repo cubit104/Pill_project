@@ -204,6 +204,11 @@ def update_reviewer(
     if body.role is not None and body.role not in valid_roles:
         raise HTTPException(status_code=400, detail=f"Role must be one of {valid_roles}")
 
+    # Whitelist of columns that may be updated to prevent SQL injection
+    _UPDATABLE_COLUMNS = frozenset(
+        {"name", "credentials", "role", "bio", "specialty", "same_as", "license_info", "slug"}
+    )
+
     try:
         with database.db_engine.begin() as conn:
             existing = conn.execute(
@@ -216,6 +221,18 @@ def update_reviewer(
             updates = {}
             if body.name is not None:
                 updates["name"] = body.name.strip()
+                # Regenerate slug when name changes, preserving uniqueness
+                new_slug = _slugify(body.name)
+                if new_slug:
+                    base_slug = new_slug
+                    counter = 1
+                    while conn.execute(
+                        text("SELECT 1 FROM reviewers WHERE slug = :slug AND id != :id LIMIT 1"),
+                        {"slug": new_slug, "id": reviewer_id},
+                    ).fetchone():
+                        new_slug = f"{base_slug}-{counter}"
+                        counter += 1
+                    updates["slug"] = new_slug
             if body.credentials is not None:
                 updates["credentials"] = body.credentials
             if body.role is not None:
@@ -232,7 +249,9 @@ def update_reviewer(
             if not updates:
                 raise HTTPException(status_code=400, detail="No fields to update")
 
-            set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+            # Only allow whitelisted columns in the SET clause
+            safe_keys = [k for k in updates if k in _UPDATABLE_COLUMNS]
+            set_clause = ", ".join(f"{k} = :{k}" for k in safe_keys)
             updates["id"] = reviewer_id
             row = conn.execute(
                 text(
