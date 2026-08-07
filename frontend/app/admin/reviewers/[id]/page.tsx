@@ -38,6 +38,10 @@ const EMPTY_FORM: ReviewerForm = {
   avatar_url: '',
 }
 
+function authHeader(token: string): Record<string, string> {
+  return { Authorization: 'Bearer ' + token }
+}
+
 export default function ReviewerEditPage() {
   const params = useParams()
   const router = useRouter()
@@ -65,7 +69,7 @@ export default function ReviewerEditPage() {
       try {
         const token = await getToken()
         const res = await fetch(`/api/admin/reviewers/${id}`, {
-          headers: { Authorization: `****** },
+          headers: authHeader(token),
         })
         if (!res.ok) throw new Error('Reviewer not found')
         const data = await res.json()
@@ -129,13 +133,13 @@ export default function ReviewerEditPage() {
       if (isNew) {
         res = await fetch('/api/admin/reviewers', {
           method: 'POST',
-          headers: { Authorization: `****** 'Content-Type': 'application/json' },
+          headers: { ...authHeader(token), 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         })
       } else {
         res = await fetch(`/api/admin/reviewers/${reviewerId}`, {
           method: 'PUT',
-          headers: { Authorization: `****** 'Content-Type': 'application/json' },
+          headers: { ...authHeader(token), 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         })
       }
@@ -166,7 +170,7 @@ export default function ReviewerEditPage() {
       const token = await getToken()
       const res = await fetch(`/api/admin/reviewers/${reviewerId}`, {
         method: 'DELETE',
-        headers: { Authorization: `****** },
+        headers: authHeader(token),
       })
       if (!res.ok && res.status !== 204) {
         const data = await res.json().catch(() => ({}))
