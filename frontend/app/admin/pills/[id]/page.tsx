@@ -1178,6 +1178,15 @@ export default function EditPillPage() {
             <Eye className="w-4 h-4" /> Preview Draft
           </Link>
         )}
+        {drafts.length === 0 && (pill?.['published'] as unknown) === false && (
+          <Link
+            href={`/admin/drafts/${pillId}/preview`}
+            className="flex items-center gap-2 bg-white border border-purple-300 text-purple-700 px-4 py-2 rounded-md hover:bg-purple-50 text-sm font-medium transition-colors"
+            title="Preview this draft pill"
+          >
+            <Eye className="w-4 h-4" /> Preview Draft
+          </Link>
+        )}
         <button
           onClick={() => {
             const DUPLICATE_FIELDS = [
