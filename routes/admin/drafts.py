@@ -379,6 +379,59 @@ def list_drafts(
         raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
+_PILLFINDER_PREVIEW_COLS = [
+    "medicine_name", "splimprint", "splcolor_text", "splshape_text",
+    "spl_strength", "spl_ingredients", "spl_inactive_ing", "dosage_form",
+    "route", "dea_schedule_name", "pharmclass_fda_epc", "ndc9", "ndc11",
+    "rxcui", "slug", "meta_title", "meta_description", "image_filename",
+    "has_image", "image_alt_text", "brand_names", "author", "tags",
+    "status_rx_otc", "splsize", "rxcui_1", "imprint_status",
+]
+
+_PILLFINDER_PREVIEW_SELECT = ", ".join(_PILLFINDER_PREVIEW_COLS)
+
+_PREVIEW_FIELDS = frozenset(PUBLISHABLE_FIELDS)
+_NON_STRING_FIELDS = frozenset({"has_image"})
+
+
+def _sanitize_merged(merged: dict) -> dict:
+    """Apply string sanitization to all string fields in a pillfinder-sourced dict."""
+    sanitized = {}
+    for k, v in merged.items():
+        if k in _NON_STRING_FIELDS:
+            sanitized[k] = v
+        elif isinstance(v, str):
+            sanitized[k] = _sanitize(v)
+        else:
+            sanitized[k] = v
+    return sanitized
+
+
+def _build_preview_response(
+    merged: dict,
+    draft_id: str,
+    draft_status: str,
+    pill_id: Optional[str],
+) -> dict:
+    """Build the final preview response payload from a merged field dict."""
+    image_filename = merged.get("image_filename")
+    if image_filename:
+        image_url = get_image_url(image_filename)
+        images = get_image_urls(image_filename)
+    else:
+        image_url = None
+        images = []
+
+    return {
+        **merged,
+        "image_url": image_url,
+        "images": images,
+        "draft_id": draft_id,
+        "draft_status": draft_status,
+        "pill_id": pill_id,
+    }
+
+
 @router.get("/drafts/{draft_id}/preview")
 def preview_draft(draft_id: str, admin: dict = Depends(get_admin_user)):
     """Return a merged preview of a draft overlaid on its live pill data.
@@ -396,7 +449,28 @@ def preview_draft(draft_id: str, admin: dict = Depends(get_admin_user)):
                 {"id": draft_id},
             ).fetchone()
             if not draft_row:
-                raise HTTPException(status_code=404, detail="Draft not found")
+                # Fallback: check if this is a pillfinder-source draft (published=false)
+                pf_row = conn.execute(
+                    text(f"""
+                        SELECT {_PILLFINDER_PREVIEW_SELECT}
+                        FROM pillfinder
+                        WHERE id = :id AND published = false AND deleted_at IS NULL
+                        LIMIT 1
+                    """),
+                    {"id": draft_id},
+                ).fetchone()
+                if not pf_row:
+                    raise HTTPException(status_code=404, detail="Draft not found")
+
+                raw: dict = dict(zip(_PILLFINDER_PREVIEW_COLS, pf_row))
+                merged = _sanitize_merged(raw)
+
+                return _build_preview_response(
+                    merged=merged,
+                    draft_id=draft_id,
+                    draft_status="draft",
+                    pill_id=draft_id,
+                )
 
             pill_id_raw = draft_row[1]
             draft_data = draft_row[2] if isinstance(draft_row[2], dict) else (
@@ -408,13 +482,8 @@ def preview_draft(draft_id: str, admin: dict = Depends(get_admin_user)):
             merged: dict = {}
             if pill_id_raw:
                 live_row = conn.execute(
-                    text("""
-                        SELECT medicine_name, splimprint, splcolor_text, splshape_text,
-                               spl_strength, spl_ingredients, spl_inactive_ing, dosage_form,
-                               route, dea_schedule_name, pharmclass_fda_epc, ndc9, ndc11,
-                               rxcui, slug, meta_title, meta_description, image_filename,
-                               has_image, image_alt_text, brand_names, author, tags,
-                               status_rx_otc, splsize, rxcui_1, imprint_status
+                    text(f"""
+                        SELECT {_PILLFINDER_PREVIEW_SELECT}
                         FROM pillfinder
                         WHERE id = :pill_id AND deleted_at IS NULL
                         LIMIT 1
@@ -422,40 +491,20 @@ def preview_draft(draft_id: str, admin: dict = Depends(get_admin_user)):
                     {"pill_id": str(pill_id_raw)},
                 ).fetchone()
                 if live_row:
-                    cols = [
-                        "medicine_name", "splimprint", "splcolor_text", "splshape_text",
-                        "spl_strength", "spl_ingredients", "spl_inactive_ing", "dosage_form",
-                        "route", "dea_schedule_name", "pharmclass_fda_epc", "ndc9", "ndc11",
-                        "rxcui", "slug", "meta_title", "meta_description", "image_filename",
-                        "has_image", "image_alt_text", "brand_names", "author", "tags",
-                        "status_rx_otc", "splsize", "rxcui_1", "imprint_status",
-                    ]
-                    for col, val in zip(cols, live_row):
+                    for col, val in zip(_PILLFINDER_PREVIEW_COLS, live_row):
                         merged[col] = val
 
             # Overlay draft_data (draft wins) — restrict to known fields; only sanitize strings
-            _PREVIEW_FIELDS = frozenset(PUBLISHABLE_FIELDS)
-            _NON_STRING_FIELDS = frozenset({"has_image"})
             for k, v in (draft_data or {}).items():
                 if k in _PREVIEW_FIELDS:
                     merged[k] = v if k in _NON_STRING_FIELDS else _sanitize(v)
 
-        image_filename = merged.get("image_filename")
-        if image_filename:
-            image_url = get_image_url(image_filename)
-            images = get_image_urls(image_filename)
-        else:
-            image_url = None
-            images = []
-
-        return {
-            **merged,
-            "image_url": image_url,
-            "images": images,
-            "draft_id": str(draft_row[0]),
-            "draft_status": draft_status,
-            "pill_id": str(pill_id_raw) if pill_id_raw else None,
-        }
+        return _build_preview_response(
+            merged=merged,
+            draft_id=str(draft_row[0]),
+            draft_status=draft_status,
+            pill_id=str(pill_id_raw) if pill_id_raw else None,
+        )
     except HTTPException:
         raise
     except SQLAlchemyError as e:
