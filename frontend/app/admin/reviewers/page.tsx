@@ -38,7 +38,7 @@ export default function ReviewersListPage() {
         if (!session) { setError('Not authenticated'); setLoading(false); return }
 
         const res = await fetch('/api/admin/reviewers', {
-          headers: { Authorization: `****** },
+          headers: { Authorization: `Bearer ${session.access_token}` },
         })
         if (!res.ok) throw new Error('Failed to load reviewers')
         const data = await res.json()
@@ -127,11 +127,13 @@ export default function ReviewersListPage() {
                     {ROLE_LABELS[r.role] ?? r.role}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
-                      r.is_active
-                        ? 'bg-emerald-900/50 text-emerald-300'
-                        : 'bg-gray-700 text-gray-400'
-                    }`}>
+                    <span
+                      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+                        r.is_active
+                          ? 'bg-emerald-900/50 text-emerald-300'
+                          : 'bg-gray-700 text-gray-400'
+                      }`}
+                    >
                       <span className={`w-1.5 h-1.5 rounded-full ${r.is_active ? 'bg-emerald-400' : 'bg-gray-500'}`} />
                       {r.is_active ? 'Active' : 'Inactive'}
                     </span>
