@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '../../lib/supabase'
+import { createClient } from '../../../lib/supabase'
 import PillDetailClient from '../../../../(public)/pill/[slug]/PillDetailClient'
 import type { PillDetail } from '../../../../types'
 
