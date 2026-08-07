@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Linkedin, Plus, X } from 'lucide-react'
+import { ArrowLeft, Plus, X, createLucideIcon } from 'lucide-react'
 import { createClient } from '../../lib/supabase'
 import AvatarUpload from '../components/AvatarUpload'
 
@@ -70,6 +70,12 @@ const labelClass = 'block text-sm font-medium text-gray-700 mb-1.5'
 const inputClass = 'w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500'
 const textareaClass = `${inputClass} resize-vertical`
 const sectionCardClass = 'rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4'
+
+const Linkedin = createLucideIcon('Linkedin', [
+  ['circle', { cx: '4', cy: '4', r: '2', key: 'linkedin-dot' }],
+  ['path', { d: 'M2 9h4v12H2z', key: 'linkedin-bar' }],
+  ['path', { d: 'M10 9h4v1.8h.1c.6-1 1.9-2.1 4-2.1 4.2 0 4.9 2.7 4.9 6.2V21h-4v-5.6c0-1.3 0-3-2.1-3-2.2 0-2.5 1.7-2.5 3.4V21h-4z', key: 'linkedin-body' }],
+])
 
 function authHeader(token: string): Record<string, string> {
   return { Authorization: 'Bearer ' + token }
@@ -548,7 +554,7 @@ export default function ReviewerEditPage() {
 
           <div>
             <label className={labelClass}>
-              LinkedIn / ORCID / Profile URLs
+              ORCID / Other Profile URLs
             </label>
             <div className="space-y-2">
               {form.same_as.map((url, i) => (
@@ -571,7 +577,7 @@ export default function ReviewerEditPage() {
                   value={newSameAs}
                   onChange={(e) => setNewSameAs(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSameAs() } }}
-                  placeholder="https://linkedin.com/in/…"
+                  placeholder="https://orcid.org/0000-0000-0000-0000"
                   className={`flex-1 ${inputClass}`}
                 />
                 <button
