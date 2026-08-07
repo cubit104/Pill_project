@@ -25,6 +25,10 @@ const ROLE_LABELS: Record<string, string> = {
   fact_checker: 'Fact Checker',
 }
 
+function authHeader(token: string): Record<string, string> {
+  return { Authorization: 'Bearer ' + token }
+}
+
 export default function ReviewersListPage() {
   const [reviewers, setReviewers] = useState<Reviewer[]>([])
   const [loading, setLoading] = useState(true)
@@ -38,7 +42,7 @@ export default function ReviewersListPage() {
         if (!session) { setError('Not authenticated'); setLoading(false); return }
 
         const res = await fetch('/api/admin/reviewers', {
-          headers: { Authorization: `Bearer ${session.access_token}` },
+          headers: authHeader(session.access_token),
         })
         if (!res.ok) throw new Error('Failed to load reviewers')
         const data = await res.json()

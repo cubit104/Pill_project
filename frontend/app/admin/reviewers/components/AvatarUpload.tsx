@@ -65,7 +65,7 @@ export default function AvatarUpload({ reviewerId, currentUrl, onUpload }: Avata
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center border-2 border-gray-600">
+      <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center border-2 border-gray-200">
         {previewUrl ? (
           <img src={previewUrl} alt="Avatar" className="w-full h-full object-cover" />
         ) : (
@@ -77,12 +77,12 @@ export default function AvatarUpload({ reviewerId, currentUrl, onUpload }: Avata
         type="button"
         onClick={() => fileInputRef.current?.click()}
         disabled={uploading}
-        className="text-sm px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded-md transition-colors disabled:opacity-50"
+        className="text-sm px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 rounded-md transition-colors disabled:opacity-50"
       >
         {uploading ? 'Uploading…' : 'Upload Photo'}
       </button>
 
-      <p className="text-xs text-gray-400">JPG, PNG, WebP · max 2 MB</p>
+      <p className="text-xs text-gray-500">JPG, PNG, WebP · max 2 MB</p>
 
       {error && <p className="text-xs text-red-400">{error}</p>}
 

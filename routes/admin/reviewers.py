@@ -1,4 +1,5 @@
 """Admin reviewer management endpoints."""
+import json
 import logging
 import os
 import re
@@ -8,7 +9,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -24,6 +25,7 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 AVATAR_BUCKET = "reviewer-avatars"
 ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2 MB
+JSONB_COLUMNS = frozenset({"education", "registrations"})
 
 
 def _slugify(name: str) -> str:
@@ -44,7 +46,7 @@ def _supabase_upload_avatar(path: str, data: bytes, content_type: str) -> bool:
             resp = client.post(
                 f"{SUPABASE_URL}/storage/v1/object/{AVATAR_BUCKET}/{path}",
                 headers={
-                    "Authorization": f"******",
+                    "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY,
                     "Content-Type": content_type,
                     "x-upsert": "true",
                 },
@@ -60,13 +62,27 @@ def _avatar_public_url(path: str) -> str:
     return f"{SUPABASE_URL}/storage/v1/object/public/{AVATAR_BUCKET}/{path}"
 
 
+class EducationItem(BaseModel):
+    institution: str = ""
+    degree: str = ""
+
+
+class RegistrationItem(BaseModel):
+    title: str = ""
+    board: str = ""
+    url: str = ""
+
+
 class ReviewerCreate(BaseModel):
     name: str
     credentials: str = ""
     role: str = "medical_reviewer"
     bio: Optional[str] = None
     specialty: Optional[str] = None
-    same_as: list[str] = []
+    linkedin_url: Optional[str] = None
+    education: list[EducationItem] = Field(default_factory=list)
+    registrations: list[RegistrationItem] = Field(default_factory=list)
+    same_as: list[str] = Field(default_factory=list)
     license_info: Optional[str] = None
 
 
@@ -76,8 +92,21 @@ class ReviewerUpdate(BaseModel):
     role: Optional[str] = None
     bio: Optional[str] = None
     specialty: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    education: Optional[list[EducationItem]] = None
+    registrations: Optional[list[RegistrationItem]] = None
     same_as: Optional[list[str]] = None
     license_info: Optional[str] = None
+
+
+def _jsonb_value(items: list[BaseModel]) -> str:
+    return json.dumps([item.model_dump() for item in items])
+
+
+def _set_clause(key: str) -> str:
+    if key in JSONB_COLUMNS:
+        return f"{key} = CAST(:{key} AS jsonb)"
+    return f"{key} = :{key}"
 
 
 @router.get("/reviewers")
@@ -89,7 +118,8 @@ def list_reviewers(admin: dict = Depends(get_admin_user)):
             rows = conn.execute(
                 text(
                     "SELECT id, name, slug, credentials, role, bio, avatar_url, "
-                    "specialty, same_as, license_info, is_active, created_at, updated_at "
+                    "specialty, linkedin_url, education, registrations, same_as, "
+                    "license_info, is_active, created_at, updated_at "
                     "FROM reviewers ORDER BY name"
                 )
             ).fetchall()
@@ -108,7 +138,8 @@ def get_reviewer(reviewer_id: str, admin: dict = Depends(get_admin_user)):
             row = conn.execute(
                 text(
                     "SELECT id, name, slug, credentials, role, bio, avatar_url, "
-                    "specialty, same_as, license_info, is_active, created_at, updated_at "
+                    "specialty, linkedin_url, education, registrations, same_as, "
+                    "license_info, is_active, created_at, updated_at "
                     "FROM reviewers WHERE id = :id LIMIT 1"
                 ),
                 {"id": reviewer_id},
@@ -158,9 +189,14 @@ def create_reviewer(
 
             row = conn.execute(
                 text(
-                    "INSERT INTO reviewers (name, slug, credentials, role, bio, specialty, same_as, license_info) "
-                    "VALUES (:name, :slug, :credentials, :role, :bio, :specialty, :same_as, :license_info) "
-                    "RETURNING id, name, slug, credentials, role, bio, avatar_url, specialty, same_as, license_info, is_active"
+                    "INSERT INTO reviewers ("
+                    "name, slug, credentials, role, bio, specialty, linkedin_url, "
+                    "education, registrations, same_as, license_info"
+                    ") VALUES ("
+                    ":name, :slug, :credentials, :role, :bio, :specialty, :linkedin_url, "
+                    "CAST(:education AS jsonb), CAST(:registrations AS jsonb), :same_as, :license_info"
+                    ") RETURNING id, name, slug, credentials, role, bio, avatar_url, specialty, "
+                    "linkedin_url, education, registrations, same_as, license_info, is_active"
                 ),
                 {
                     "name": body.name.strip(),
@@ -169,6 +205,9 @@ def create_reviewer(
                     "role": body.role,
                     "bio": body.bio,
                     "specialty": body.specialty,
+                    "linkedin_url": body.linkedin_url,
+                    "education": _jsonb_value(body.education),
+                    "registrations": _jsonb_value(body.registrations),
                     "same_as": body.same_as,
                     "license_info": body.license_info,
                 },
@@ -206,7 +245,19 @@ def update_reviewer(
 
     # Whitelist of columns that may be updated to prevent SQL injection
     _UPDATABLE_COLUMNS = frozenset(
-        {"name", "credentials", "role", "bio", "specialty", "same_as", "license_info", "slug"}
+        {
+            "name",
+            "credentials",
+            "role",
+            "bio",
+            "specialty",
+            "linkedin_url",
+            "education",
+            "registrations",
+            "same_as",
+            "license_info",
+            "slug",
+        }
     )
 
     try:
@@ -241,6 +292,12 @@ def update_reviewer(
                 updates["bio"] = body.bio
             if body.specialty is not None:
                 updates["specialty"] = body.specialty
+            if body.linkedin_url is not None:
+                updates["linkedin_url"] = body.linkedin_url
+            if body.education is not None:
+                updates["education"] = _jsonb_value(body.education)
+            if body.registrations is not None:
+                updates["registrations"] = _jsonb_value(body.registrations)
             if body.same_as is not None:
                 updates["same_as"] = body.same_as
             if body.license_info is not None:
@@ -251,12 +308,13 @@ def update_reviewer(
 
             # Only allow whitelisted columns in the SET clause
             safe_keys = [k for k in updates if k in _UPDATABLE_COLUMNS]
-            set_clause = ", ".join(f"{k} = :{k}" for k in safe_keys)
+            set_clause = ", ".join(_set_clause(k) for k in safe_keys)
             updates["id"] = reviewer_id
             row = conn.execute(
                 text(
                     f"UPDATE reviewers SET {set_clause} WHERE id = :id "
-                    "RETURNING id, name, slug, credentials, role, bio, avatar_url, specialty, same_as, license_info, is_active"
+                    "RETURNING id, name, slug, credentials, role, bio, avatar_url, specialty, "
+                    "linkedin_url, education, registrations, same_as, license_info, is_active"
                 ),
                 updates,
             ).fetchone()
