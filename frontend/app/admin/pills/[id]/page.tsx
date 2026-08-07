@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, useRef, useId } from 'react'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
-import { ArrowLeft, Bell, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink, Copy } from 'lucide-react'
+import { ArrowLeft, Bell, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink, Copy, Eye } from 'lucide-react'
 import {
   FIELD_SCHEMA,
   FIELD_SCHEMA_BY_KEY,
@@ -1169,6 +1169,15 @@ export default function EditPillPage() {
             <ExternalLink className="w-4 h-4" /> View Live Page
           </a>
         )}
+        {drafts.length > 0 && (
+          <Link
+            href={`/admin/drafts/${drafts[0].id}/preview`}
+            className="flex items-center gap-2 bg-white border border-purple-300 text-purple-700 px-4 py-2 rounded-md hover:bg-purple-50 text-sm font-medium transition-colors"
+            title="Preview the most recent draft"
+          >
+            <Eye className="w-4 h-4" /> Preview Draft
+          </Link>
+        )}
         <button
           onClick={() => {
             const DUPLICATE_FIELDS = [
@@ -1344,6 +1353,9 @@ export default function EditPillPage() {
                   : draft.status === 'approved' ? 'bg-green-100 text-green-700'
                   : 'bg-gray-100 text-gray-600'}`}>{draft.status}</span>
                 <span className="text-gray-400 text-xs">{new Date(draft.created_at).toLocaleDateString()}</span>
+                <Link href={`/admin/drafts/${draft.id}/preview`} className="text-purple-600 text-xs hover:text-purple-800 hover:underline">
+                  <Eye className="w-3 h-3 inline" /> Preview
+                </Link>
                 <Link href="/admin/drafts" className="text-blue-600 text-xs hover:text-blue-800 hover:underline">
                   {draft.status === 'draft' ? 'Edit Draft →' : 'View in Drafts →'}
                 </Link>
