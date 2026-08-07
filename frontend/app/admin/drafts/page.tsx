@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../lib/supabase'
-import { CheckCircle, XCircle, Send, Pencil, Upload, Trash2 } from 'lucide-react'
+import { CheckCircle, XCircle, Send, Pencil, Upload, Trash2, Eye } from 'lucide-react'
 
 interface Draft {
   id: string
@@ -244,6 +244,14 @@ function DraftsListInner() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-2 items-center">
+                    {(draft.pill_id != null || draft.source === 'pill_drafts') && (
+                      <Link
+                        href={`/admin/drafts/${draft.id}/preview`}
+                        className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800"
+                      >
+                        <Eye className="w-3 h-3" /> Preview
+                      </Link>
+                    )}
                     {(draft.status === 'draft' || draft.status === 'rejected' || draft.status === 'published') && draft.pill_id && (
                       <Link
                         href={`/admin/pills/${draft.pill_id}`}

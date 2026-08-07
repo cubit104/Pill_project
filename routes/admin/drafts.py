@@ -378,6 +378,80 @@ def list_drafts(
         raise HTTPException(status_code=500, detail=f"Database error: {root}")
 
 
+@router.get("/drafts/{draft_id}/preview")
+def preview_draft(draft_id: str, admin: dict = Depends(get_admin_user)):
+    """Return a merged preview of a draft overlaid on its live pill data.
+
+    Merges the live pillfinder row (if any) with draft_data fields so the
+    frontend can render a pre-publish preview without modifying any data.
+    """
+    if not database.db_engine:
+        database.connect_to_database()
+
+    try:
+        with database.db_engine.connect() as conn:
+            draft_row = conn.execute(
+                text("SELECT id, pill_id, draft_data, status FROM pill_drafts WHERE id = :id LIMIT 1"),
+                {"id": draft_id},
+            ).fetchone()
+            if not draft_row:
+                raise HTTPException(status_code=404, detail="Draft not found")
+
+            pill_id_raw = draft_row[1]
+            draft_data = draft_row[2] if isinstance(draft_row[2], dict) else (
+                json.loads(draft_row[2]) if draft_row[2] else {}
+            )
+            draft_status = draft_row[3]
+
+            # Start with live pill fields (if linked), then overlay draft_data
+            merged: dict = {}
+            if pill_id_raw:
+                live_row = conn.execute(
+                    text("""
+                        SELECT medicine_name, splimprint, splcolor_text, splshape_text,
+                               spl_strength, spl_ingredients, spl_inactive_ing, dosage_form,
+                               route, dea_schedule_name, pharmclass_fda_epc, ndc9, ndc11,
+                               rxcui, slug, meta_title, meta_description, image_filename,
+                               has_image, image_alt_text, brand_names, author, tags,
+                               status_rx_otc, splsize, rxcui_1, imprint_status
+                        FROM pillfinder
+                        WHERE id = :pill_id AND deleted_at IS NULL
+                        LIMIT 1
+                    """),
+                    {"pill_id": str(pill_id_raw)},
+                ).fetchone()
+                if live_row:
+                    cols = [
+                        "medicine_name", "splimprint", "splcolor_text", "splshape_text",
+                        "spl_strength", "spl_ingredients", "spl_inactive_ing", "dosage_form",
+                        "route", "dea_schedule_name", "pharmclass_fda_epc", "ndc9", "ndc11",
+                        "rxcui", "slug", "meta_title", "meta_description", "image_filename",
+                        "has_image", "image_alt_text", "brand_names", "author", "tags",
+                        "status_rx_otc", "splsize", "rxcui_1", "imprint_status",
+                    ]
+                    for col, val in zip(cols, live_row):
+                        merged[col] = val
+
+            # Overlay draft_data (draft wins) — restrict to known fields and sanitize
+            _PREVIEW_FIELDS = frozenset(PUBLISHABLE_FIELDS)
+            for k, v in (draft_data or {}).items():
+                if k in _PREVIEW_FIELDS:
+                    merged[k] = _sanitize(v)
+
+        return {
+            **merged,
+            "draft_id": str(draft_row[0]),
+            "draft_status": draft_status,
+            "pill_id": str(pill_id_raw) if pill_id_raw else None,
+        }
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"preview_draft DB error: {e}", exc_info=True)
+        root = getattr(e, "orig", None) or e
+        raise HTTPException(status_code=500, detail=f"Database error: {root}")
+
+
 @router.post("/drafts/{draft_id}/submit")
 def submit_draft(request: Request, draft_id: str, admin: dict = Depends(get_admin_user)):
     if admin["role"] not in ("superuser", "editor", "reviewer"):
