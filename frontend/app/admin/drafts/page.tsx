@@ -244,7 +244,7 @@ function DraftsListInner() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-2 items-center">
-                    {(draft.pill_id != null || draft.source === 'pill_drafts') && (
+                    {draft.source === 'pill_drafts' && (
                       <Link
                         href={`/admin/drafts/${draft.id}/preview`}
                         className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800"

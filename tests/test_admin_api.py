@@ -3150,3 +3150,189 @@ def test_delete_draft_returns_404_for_missing(client):
         )
 
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Preview endpoint — GET /api/admin/drafts/{draft_id}/preview
+# ---------------------------------------------------------------------------
+
+def test_preview_draft_returns_404_when_draft_missing(client):
+    """GET /api/admin/drafts/{id}/preview returns 404 when draft does not exist."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "pill_drafts" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = None  # draft not found
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/drafts/nonexistent-draft/preview",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 404
+
+
+def test_preview_draft_merges_live_and_draft_data(client):
+    """GET preview returns merged data where draft fields win over live fields."""
+    import json as _json
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    DRAFT_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+    PILL_ID = "pppppppp-pppp-pppp-pppp-pppppppppppp"
+
+    draft_data = {"medicine_name": "Draft Name", "meta_title": "Draft Title"}
+
+    # Live pillfinder columns in order
+    live_cols = [
+        "Live Name", "ABCD", "white", "round",
+        "500mg", "Aspirin", "", "tablet",
+        "oral", None, None, "1234", "12345",
+        "12345", "live-slug", "Live Title", "Live desc", None,
+        False, None, None, "Pfizer", None,
+        None, None, None, None,
+    ]
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "pill_drafts" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = (DRAFT_ID, PILL_ID, _json.dumps(draft_data), "draft")
+        elif "pillfinder" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = live_cols
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            f"/api/admin/drafts/{DRAFT_ID}/preview",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # Draft data should win over live data for overlapping fields
+    assert data["medicine_name"] == "Draft Name"
+    assert data["meta_title"] == "Draft Title"
+    # Live data should be present for non-overlapping fields
+    assert data["splimprint"] == "ABCD"
+    assert data["draft_id"] == DRAFT_ID
+    assert data["draft_status"] == "draft"
+    assert data["pill_id"] == PILL_ID
+
+
+def test_preview_draft_allowlist_blocks_unknown_fields(client):
+    """GET preview does not expose draft_data fields outside the publishable allowlist."""
+    import json as _json
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    DRAFT_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+    # Include an unpublishable field that must not appear in response
+    draft_data = {"medicine_name": "Safe Name", "__secret__": "should not appear"}
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "pill_drafts" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = (DRAFT_ID, None, _json.dumps(draft_data), "draft")
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            f"/api/admin/drafts/{DRAFT_ID}/preview",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["medicine_name"] == "Safe Name"
+    assert "__secret__" not in data
+
+
+def test_preview_draft_preserves_boolean_types(client):
+    """GET preview does not stringify boolean values (e.g. has_image stays bool)."""
+    import json as _json
+
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    DRAFT_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+    draft_data = {"has_image": False}
+
+    call_count = [0]
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        call_count[0] += 1
+        sql_str = str(sql).lower()
+        if call_count[0] == 1:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "pill_drafts" in sql_str and "where id" in sql_str:
+            result.fetchone.return_value = (DRAFT_ID, None, _json.dumps(draft_data), "draft")
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            f"/api/admin/drafts/{DRAFT_ID}/preview",
+            headers={"Authorization": "Bearer faketoken"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["has_image"] is False  # must be bool, not the string "False"

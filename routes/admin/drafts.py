@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import database
 from routes.admin.auth import get_admin_user, log_audit
 from routes.admin.indexnow import can_submit_pill_slug_to_indexnow, submit_pill_slug_to_indexnow
+from utils import get_image_url, get_image_urls
 
 logger = logging.getLogger(__name__)
 
@@ -432,14 +433,25 @@ def preview_draft(draft_id: str, admin: dict = Depends(get_admin_user)):
                     for col, val in zip(cols, live_row):
                         merged[col] = val
 
-            # Overlay draft_data (draft wins) — restrict to known fields and sanitize
+            # Overlay draft_data (draft wins) — restrict to known fields; only sanitize strings
             _PREVIEW_FIELDS = frozenset(PUBLISHABLE_FIELDS)
+            _NON_STRING_FIELDS = frozenset({"has_image"})
             for k, v in (draft_data or {}).items():
                 if k in _PREVIEW_FIELDS:
-                    merged[k] = _sanitize(v)
+                    merged[k] = v if k in _NON_STRING_FIELDS else _sanitize(v)
+
+        image_filename = merged.get("image_filename")
+        if image_filename:
+            image_url = get_image_url(image_filename)
+            images = get_image_urls(image_filename)
+        else:
+            image_url = None
+            images = []
 
         return {
             **merged,
+            "image_url": image_url,
+            "images": images,
             "draft_id": str(draft_row[0]),
             "draft_status": draft_status,
             "pill_id": str(pill_id_raw) if pill_id_raw else None,

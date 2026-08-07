@@ -29,6 +29,8 @@ interface PreviewData {
   meta_title?: string | null
   meta_description?: string | null
   image_filename?: string | null
+  image_url?: string | null
+  images?: string[]
   has_image?: boolean | null
   image_alt_text?: string | null
   brand_names?: string | null
@@ -65,8 +67,8 @@ function mapToPillDetail(raw: PreviewData): PillDetail {
     status_rx_otc: raw.status_rx_otc ?? undefined,
     route: raw.route ?? undefined,
     meta_title: raw.meta_title ?? undefined,
-    image_url: undefined,
-    images: [],
+    image_url: raw.image_url ?? undefined,
+    images: raw.images ?? [],
     spl_set_id: undefined,
     updated_at: undefined,
     meta_description: raw.meta_description ?? undefined,
@@ -83,7 +85,8 @@ function mapToPillDetail(raw: PreviewData): PillDetail {
 export default function DraftPreviewPage() {
   const params = useParams()
   const router = useRouter()
-  const draftId = params?.id as string
+  const rawId = params?.id
+  const draftId = Array.isArray(rawId) ? rawId[0] : rawId
 
   const [previewData, setPreviewData] = useState<PreviewData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -96,7 +99,14 @@ export default function DraftPreviewPage() {
         data: { session },
       } = await supabase.auth.getSession()
       if (!session) {
+        setLoading(false)
         router.push('/admin/login')
+        return
+      }
+
+      if (!draftId) {
+        setError('Invalid draft ID.')
+        setLoading(false)
         return
       }
 
@@ -106,6 +116,7 @@ export default function DraftPreviewPage() {
         })
         if (res.status === 404) {
           setError('Draft not found.')
+          setLoading(false)
           return
         }
         if (!res.ok) {
