@@ -359,6 +359,7 @@ export default function ReviewerEditPage() {
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                 form.is_public ? 'bg-emerald-600' : 'bg-gray-300'
               }`}
+              aria-label="Show on Public Site"
               aria-pressed={form.is_public}
             >
               <span
