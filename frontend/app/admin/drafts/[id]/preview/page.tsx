@@ -177,7 +177,6 @@ export default function DraftPreviewPage() {
         slug={pill.slug || previewData.draft_id}
         lastUpdatedIso={undefined}
         formattedDate={undefined}
-        reviewer={undefined}
         related={[]}
         pharmaClass={undefined}
         similar={[]}

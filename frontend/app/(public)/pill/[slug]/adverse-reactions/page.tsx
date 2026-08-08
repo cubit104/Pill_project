@@ -13,6 +13,7 @@ import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 import { sanitizeRenderedHtml } from '../medication-guide/sanitizeRenderedHtml'
 import { cleanAdverseReactionsHtml } from './cleanAdverseReactionsHtml'
+import ReviewedBy from '../../../../components/ReviewedBy'
 
 type PageParams = Promise<{ slug: string }>
 
@@ -252,6 +253,7 @@ export default async function AdverseReactionsPage({
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
+        <ReviewedBy lastVerifiedIso={adverseReactionsData?.fetched_at ?? null} />
         <MedguideMetaBar guide={adverseReactionsData} />
 
         <div className="lg:max-w-[60rem] lg:mx-auto">

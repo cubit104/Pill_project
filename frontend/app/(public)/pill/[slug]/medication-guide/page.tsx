@@ -31,6 +31,7 @@ import {
 import { sanitizeRenderedHtml } from './sanitizeRenderedHtml'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
+import ReviewedBy from '../../../../components/ReviewedBy'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 
@@ -551,6 +552,7 @@ export default async function MedicationGuidePage({
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
+        <ReviewedBy lastVerifiedIso={professionalData?.fetched_at ?? null} />
         <MedguideMetaBar guide={professionalData} />
 
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -767,6 +769,7 @@ export default async function MedicationGuidePage({
       />
 
       <div className="space-y-6">
+        <ReviewedBy lastVerifiedIso={guideData?.fetched_at ?? null} />
         <MedguideMetaBar guide={guideData} />
 
         {guideData?.has_boxed_warning && (

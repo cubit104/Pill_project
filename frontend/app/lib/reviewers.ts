@@ -8,6 +8,8 @@
  * licensed reviewer (PharmD / MD) once one has been hired and contracted.
  */
 
+import { cache } from 'react'
+
 export interface Reviewer {
   id: string
   name: string
@@ -59,15 +61,21 @@ export interface PublicReviewer {
   updated_at: string | null
 }
 
-export async function fetchPublicReviewers(apiBase: string): Promise<PublicReviewer[]> {
+export const fetchPublicReviewers = cache(async function fetchPublicReviewers(
+  apiBase: string,
+  init?: Parameters<typeof fetch>[1]
+): Promise<PublicReviewer[]> {
   try {
-    const res = await fetch(`${apiBase}/api/editorial-team`, { cache: 'no-store' })
+    const res = await fetch(
+      `${apiBase}/api/editorial-team`,
+      init ?? { next: { revalidate: 3600 } }
+    )
     if (!res.ok) return []
     return await res.json()
   } catch {
     return []
   }
-}
+})
 
 export async function fetchPublicReviewer(apiBase: string, slug: string): Promise<PublicReviewer | null> {
   try {
