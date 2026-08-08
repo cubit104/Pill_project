@@ -36,3 +36,47 @@ export const REVIEWERS: Reviewer[] = [
 ]
 
 export const DEFAULT_REVIEWER = REVIEWERS[0]
+
+// ---------------------------------------------------------------------------
+// DB-backed public reviewer types & fetch helpers
+// ---------------------------------------------------------------------------
+
+export interface PublicReviewer {
+  id: string
+  slug: string
+  full_name: string
+  credentials: string | null
+  role: string | null
+  specialty: string | null
+  bio: string | null
+  photo_url: string | null
+  linkedin_url: string | null
+  education: Array<{ degree?: string; institution?: string; location?: string; year?: string }> | null
+  certifications: Array<{ title?: string; issuer?: string; year?: string }> | null
+  affiliations: Array<{ organization?: string }> | null
+  special_interests: string[] | null
+  joined_at: string | null
+  left_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export async function fetchPublicReviewers(apiBase: string): Promise<PublicReviewer[]> {
+  try {
+    const res = await fetch(`${apiBase}/api/editorial-team`, { cache: 'no-store' })
+    if (!res.ok) return []
+    return await res.json()
+  } catch {
+    return []
+  }
+}
+
+export async function fetchPublicReviewer(apiBase: string, slug: string): Promise<PublicReviewer | null> {
+  try {
+    const res = await fetch(`${apiBase}/api/editorial-team/${slug}`, { cache: 'no-store' })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
+}
