@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, ClipboardList, Users, Settings, ImageOff, Layers, BarChart2, X, UserCheck } from 'lucide-react'
+import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, ClipboardList, Users, UserCheck, Settings, ImageOff, Layers, BarChart2, X } from 'lucide-react'
 import { createClient } from '../lib/supabase'
 
 const baseNavItems = [

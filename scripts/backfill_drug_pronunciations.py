@@ -157,30 +157,9 @@ def main(argv=None):
                 medlineplus_count += 1
                 continue
 
-            gemini_text = generate_pronunciation_gemini(drug_name)
-            time.sleep(sleep_gemini_s)
-            if gemini_text:
-                if args.dry_run:
-                    print(f"✓ {drug_name} — Gemini: {gemini_text} (dry-run)")
-                else:
-                    with db.db_engine.begin() as conn:
-                        outcome = upsert_pronunciation(
-                            conn,
-                            drug_name=drug_name,
-                            pronunciation_text=gemini_text,
-                            source="gemini",
-                            needs_review=True,
-                        )
-                    if outcome == "skipped_manual":
-                        skipped += 1
-                        print(f"↷ {drug_name} — manual override, skipped")
-                        continue
-                    print(f"✓ {drug_name} — Gemini ({outcome})")
-                gemini_count += 1
-                continue
-
+            # Gemini fallback disabled — pronunciations are entered manually via admin panel
             not_found += 1
-            print(f"⚠ {drug_name} — not found")
+            print(f"⚠ {drug_name} — not found on MedlinePlus (add manually via admin panel)")
         except Exception as exc:
             logger.error("Processing failed for %r: %s", drug_name, exc)
             errors += 1
