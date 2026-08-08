@@ -13,6 +13,7 @@ import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
 import { sanitizeRenderedHtml } from '../medication-guide/sanitizeRenderedHtml'
 import { cleanDosageHtml, extractMaxDose } from './cleanDosageHtml'
+import ReviewedBy from '../../../../components/ReviewedBy'
 
 type PageParams = Promise<{ slug: string }>
 
@@ -257,6 +258,7 @@ export default async function DosagePage({
           professionalHref={`/pill/${encodedSlug}/professional-information`}
         />
 
+        <ReviewedBy lastVerifiedIso={dosageData?.fetched_at ?? null} />
         <MedguideMetaBar guide={dosageData} />
 
         <div className="lg:max-w-[60rem] lg:mx-auto">

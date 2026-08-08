@@ -16,6 +16,7 @@ import { slugifyDrugName } from '../../../lib/slug'
 import { resolveImageUrls } from '../../../lib/image-url'
 import { fetchPriceSnapshot, fetchInitialPriceData } from './price/priceData'
 import { snapshotToPriceCardInitialData } from './pricing/priceCardData'
+import ReviewedBy from '../../../components/ReviewedBy'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -445,7 +446,7 @@ export default async function PillDetailPage(
         slug={slug}
         lastUpdatedIso={lastUpdatedIso}
         formattedDate={formattedDate}
-        reviewer={DEFAULT_REVIEWER}
+        reviewedBy={<ReviewedBy lastVerifiedIso={lastUpdatedIso} />}
         related={relatedData.related}
         pharmaClass={relatedData.pharma_class ?? undefined}
         similar={similarPills}

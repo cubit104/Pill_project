@@ -20,6 +20,7 @@ import {
 } from '../medication-guide/layoutStyles'
 import { slugifyDrugName } from '../../../../lib/slug'
 import { breadcrumbSchema, guidePageSchema, safeJsonLd } from '../../../../lib/structured-data'
+import ReviewedBy from '../../../../components/ReviewedBy'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const PILL_REVALIDATE_SECONDS = 3600
@@ -325,6 +326,7 @@ export default async function ProfessionalInformationPage({
           professionalHref={`/pill/${encodeURIComponent(slug)}/professional-information`}
         />
 
+        <ReviewedBy lastVerifiedIso={guideData?.fetched_at ?? null} />
         <MedguideMetaBar guide={guideData} />
 
         {/* Sentinel: when this scrolls out of view, the mobile sticky TOC bar appears */}

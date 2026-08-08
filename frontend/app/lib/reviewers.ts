@@ -59,9 +59,15 @@ export interface PublicReviewer {
   updated_at: string | null
 }
 
-export async function fetchPublicReviewers(apiBase: string): Promise<PublicReviewer[]> {
+export async function fetchPublicReviewers(
+  apiBase: string,
+  init?: Parameters<typeof fetch>[1]
+): Promise<PublicReviewer[]> {
   try {
-    const res = await fetch(`${apiBase}/api/editorial-team`, { cache: 'no-store' })
+    const res = await fetch(
+      `${apiBase}/api/editorial-team`,
+      init ?? { next: { revalidate: 3600 } }
+    )
     if (!res.ok) return []
     return await res.json()
   } catch {
