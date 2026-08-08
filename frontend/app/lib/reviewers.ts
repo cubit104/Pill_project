@@ -44,19 +44,17 @@ export const DEFAULT_REVIEWER = REVIEWERS[0]
 export interface PublicReviewer {
   id: string
   slug: string
-  full_name: string
+  name: string
   credentials: string | null
   role: string | null
   specialty: string | null
   bio: string | null
-  photo_url: string | null
+  avatar_url: string | null
   linkedin_url: string | null
-  education: Array<{ degree?: string; institution?: string; location?: string; year?: string }> | null
-  certifications: Array<{ title?: string; issuer?: string; year?: string }> | null
-  affiliations: Array<{ organization?: string }> | null
-  special_interests: string[] | null
-  joined_at: string | null
-  left_at: string | null
+  education: Array<{ degree?: string; institution?: string }> | null
+  same_as: string[] | null
+  license_info: string | null
+  is_active: boolean
   created_at: string | null
   updated_at: string | null
 }

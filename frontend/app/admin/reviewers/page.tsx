@@ -15,6 +15,7 @@ interface Reviewer {
   role: string
   specialty: string | null
   avatar_url: string | null
+  is_public: boolean
   is_active: boolean
 }
 
@@ -131,16 +132,27 @@ export default function ReviewersListPage() {
                     {ROLE_LABELS[r.role] ?? r.role}
                   </td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
-                        r.is_active
-                          ? 'bg-emerald-900/50 text-emerald-300'
-                          : 'bg-gray-700 text-gray-400'
-                      }`}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${r.is_active ? 'bg-emerald-400' : 'bg-gray-500'}`} />
-                      {r.is_active ? 'Active' : 'Inactive'}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+                          r.is_active
+                            ? 'bg-emerald-900/50 text-emerald-300'
+                            : 'bg-gray-700 text-gray-400'
+                        }`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${r.is_active ? 'bg-emerald-400' : 'bg-gray-500'}`} />
+                        {r.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                      <span
+                        className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full ${
+                          r.is_public
+                            ? 'bg-emerald-900/40 text-emerald-300 border border-emerald-700/50'
+                            : 'bg-gray-700 text-gray-300'
+                        }`}
+                      >
+                        {r.is_public ? 'Public' : 'Private'}
+                      </span>
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Link

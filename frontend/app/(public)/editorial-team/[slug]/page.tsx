@@ -21,8 +21,8 @@ export async function generateMetadata(
     return { title: 'Reviewer Not Found — PillSeek' }
   }
   const displayName = reviewer.credentials
-    ? `${reviewer.full_name}, ${reviewer.credentials}`
-    : reviewer.full_name
+    ? `${reviewer.name}, ${reviewer.credentials}`
+    : reviewer.name
   return {
     title: `${displayName} — PillSeek Editorial Team`,
     description:
@@ -37,7 +37,7 @@ export async function generateMetadata(
       url: `${SITE_URL}/editorial-team/${reviewer.slug}`,
       type: 'profile',
       siteName: 'PillSeek',
-      ...(reviewer.photo_url ? { images: [{ url: reviewer.photo_url }] } : {}),
+      ...(reviewer.avatar_url ? { images: [{ url: reviewer.avatar_url }] } : {}),
     },
   }
 }
@@ -100,9 +100,9 @@ export default async function ReviewerProfilePage(
   if (!reviewer) return notFound()
 
   const displayName = reviewer.credentials
-    ? `${reviewer.full_name}, ${reviewer.credentials}`
-    : reviewer.full_name
-  const initials = getInitials(reviewer.full_name)
+    ? `${reviewer.name}, ${reviewer.credentials}`
+    : reviewer.name
+  const initials = getInitials(reviewer.name)
   const roleLabel = ROLE_LABELS[reviewer.role ?? ''] ?? reviewer.role ?? 'Team Member'
   const badgeClass = ROLE_BADGE[reviewer.role ?? ''] ?? 'bg-slate-100 text-slate-700'
   const linkedInUrl = getSafeLinkedInUrl(reviewer.linkedin_url)
@@ -110,7 +110,7 @@ export default async function ReviewerProfilePage(
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
     { name: 'Editorial Team', url: '/editorial-team' },
-    { name: reviewer.full_name, url: `/editorial-team/${reviewer.slug}` },
+    { name: reviewer.name, url: `/editorial-team/${reviewer.slug}` },
   ])
 
   const personJsonLd = {
@@ -120,7 +120,7 @@ export default async function ReviewerProfilePage(
     url: `${SITE_URL}/editorial-team/${reviewer.slug}`,
     jobTitle: roleLabel,
     ...(reviewer.specialty ? { description: reviewer.specialty } : {}),
-    ...(reviewer.photo_url ? { image: reviewer.photo_url } : {}),
+    ...(reviewer.avatar_url ? { image: reviewer.avatar_url } : {}),
     ...(linkedInUrl ? { sameAs: [linkedInUrl] } : {}),
     worksFor: {
       '@type': 'Organization',
@@ -148,7 +148,7 @@ export default async function ReviewerProfilePage(
             <span aria-hidden="true">›</span>
             <Link href="/editorial-team" className="hover:text-emerald-700 transition-colors">Editorial Team</Link>
             <span aria-hidden="true">›</span>
-            <span className="text-slate-900 font-medium">{reviewer.full_name}</span>
+            <span className="text-slate-900 font-medium">{reviewer.name}</span>
           </nav>
 
           {/* Profile header */}
@@ -156,10 +156,10 @@ export default async function ReviewerProfilePage(
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
               {/* Avatar */}
               <div className="relative flex-shrink-0 w-32 h-32 rounded-full overflow-hidden bg-emerald-100 flex items-center justify-center">
-                {reviewer.photo_url ? (
+                {reviewer.avatar_url ? (
                   <Image
-                    src={reviewer.photo_url}
-                    alt={reviewer.full_name}
+                    src={reviewer.avatar_url}
+                    alt={reviewer.name}
                     fill
                     className="object-cover"
                     sizes="128px"
@@ -208,72 +208,15 @@ export default async function ReviewerProfilePage(
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 mb-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Education</h2>
               <ul className="space-y-2">
-                {reviewer.education.map((edu: { degree?: string; institution?: string; location?: string; year?: string }, i: number) => (
+                {reviewer.education.map((edu: { degree?: string; institution?: string }, i: number) => (
                   <li key={i} className="flex items-start gap-2 text-slate-600">
                     <span className="mt-1 text-emerald-500 flex-shrink-0">•</span>
                     <span>
-                      {[
-                        edu.degree,
-                        [edu.institution, edu.location].filter(Boolean).join(', '),
-                        edu.year,
-                      ]
-                        .filter(Boolean)
-                        .join(' — ')}
+                      {[edu.degree, edu.institution].filter(Boolean).join(' — ')}
                     </span>
                   </li>
                 ))}
               </ul>
-            </section>
-          )}
-
-          {/* Certifications */}
-          {reviewer.certifications && reviewer.certifications.length > 0 && (
-            <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 mb-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Certifications</h2>
-              <ul className="space-y-2">
-                {reviewer.certifications.map((cert: { title?: string; issuer?: string; year?: string }, i: number) => (
-                  <li key={i} className="flex items-start gap-2 text-slate-600">
-                    <span className="mt-1 text-emerald-500 flex-shrink-0">•</span>
-                    <span>
-                      {[cert.title, cert.issuer, cert.year].filter(Boolean).join(' — ')}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {/* Affiliations */}
-          {reviewer.affiliations && reviewer.affiliations.length > 0 && (
-            <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 mb-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Affiliations</h2>
-              <ul className="space-y-2">
-                {reviewer.affiliations
-                  .filter((aff: { organization?: string }) => aff.organization)
-                  .map((aff: { organization?: string }, i: number) => (
-                  <li key={i} className="flex items-start gap-2 text-slate-600">
-                    <span className="mt-1 text-emerald-500 flex-shrink-0">•</span>
-                    <span>{`Member of the ${aff.organization}`}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {/* Special Interests */}
-          {reviewer.special_interests && reviewer.special_interests.length > 0 && (
-            <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 mb-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Special Interests</h2>
-              <div className="flex flex-wrap gap-2">
-                {reviewer.special_interests.map((interest: string) => (
-                  <span
-                    key={interest}
-                    className="bg-slate-100 rounded-full px-3 py-1 text-sm text-slate-700"
-                  >
-                    {interest}
-                  </span>
-                ))}
-              </div>
             </section>
           )}
 

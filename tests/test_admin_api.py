@@ -226,7 +226,7 @@ def test_soft_delete_calls_correct_sql(client):
         sql_str = str(sql).lower()
         executed_sqls.append(sql_str)
         # Profiles auth lookup
-        if "profiles" in sql_str and "user_role" in sql_str:
+        if "from profiles" in sql_str:
             result.fetchone.return_value = FAKE_ADMIN_PROFILE
         # DELETE soft-delete UPDATE RETURNING
         elif "deleted_at" in sql_str:
@@ -254,6 +254,120 @@ def test_soft_delete_calls_correct_sql(client):
     # Confirm that execute was called with a query containing 'deleted_at'
     assert any("deleted_at" in sql for sql in executed_sqls), (
         "DELETE endpoint must set deleted_at on the row"
+    )
+
+
+def test_list_reviewers_includes_is_public(client):
+    """GET /api/admin/reviewers should expose the public visibility flag."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+    auth_header = {"Authorization": "Bearer " + "test-token"}
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        if "from profiles" in sql_str:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "from reviewers order by name" in sql_str:
+            row = MagicMock()
+            row._mapping = {
+                "id": "reviewer-1",
+                "name": "Amy Reviewer",
+                "slug": "amy-reviewer",
+                "credentials": "MD",
+                "role": "medical_reviewer",
+                "bio": "Bio",
+                "avatar_url": None,
+                "specialty": "Cardiology",
+                "linkedin_url": None,
+                "education": [],
+                "registrations": [],
+                "same_as": [],
+                "license_info": None,
+                "is_public": True,
+                "is_active": True,
+                "created_at": None,
+                "updated_at": None,
+            }
+            result.fetchall.return_value = [row]
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get("/api/admin/reviewers", headers=auth_header)
+
+    assert resp.status_code == 200
+    assert resp.json()[0]["is_public"] is True
+
+
+def test_update_reviewer_accepts_is_public(client):
+    """PUT /api/admin/reviewers/{id} should allow toggling public visibility."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_EDITOR_ROW)
+    executed_calls: list[tuple[str, dict | None]] = []
+    auth_header = {"Authorization": "Bearer " + "test-token"}
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        params = args[0] if args else None
+        executed_calls.append((sql_str, params))
+        if "from profiles" in sql_str:
+            result.fetchone.return_value = FAKE_EDITOR_PROFILE
+        elif "select id from reviewers" in sql_str:
+            result.fetchone.return_value = ("reviewer-1",)
+        elif "update reviewers set" in sql_str:
+            row = MagicMock()
+            row._mapping = {
+                "id": "reviewer-1",
+                "name": "Amy Reviewer",
+                "slug": "amy-reviewer",
+                "credentials": "MD",
+                "role": "medical_reviewer",
+                "bio": "Bio",
+                "avatar_url": None,
+                "specialty": "Cardiology",
+                "linkedin_url": None,
+                "education": [],
+                "registrations": [],
+                "same_as": [],
+                "license_info": None,
+                "is_public": True,
+                "is_active": True,
+            }
+            result.fetchone.return_value = row
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR_ROW[0], "email": FAKE_EDITOR_ROW[1]}), \
+         patch("routes.admin.reviewers.log_audit", return_value=None):
+        resp = client.put(
+            "/api/admin/reviewers/reviewer-1",
+            json={"is_public": True},
+            headers=auth_header,
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["is_public"] is True
+    assert any("is_public" in sql for sql, _ in executed_calls if "update reviewers set" in sql)
+    assert any(
+        params and params.get("is_public") is True
+        for sql, params in executed_calls
+        if "update reviewers set" in sql
     )
 
 
