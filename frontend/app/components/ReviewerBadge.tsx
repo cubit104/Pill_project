@@ -7,6 +7,7 @@ interface ReviewerBadgeProps {
   slug: string
   photoUrl?: string | null
   lastReviewed?: string | null
+  label?: string
 }
 
 function getInitials(name: string): string {
@@ -37,6 +38,7 @@ export default function ReviewerBadge({
   slug,
   photoUrl,
   lastReviewed,
+  label = 'Medically reviewed by',
 }: ReviewerBadgeProps) {
   const displayName = credentials ? `${name}, ${credentials}` : name
 
@@ -62,7 +64,7 @@ export default function ReviewerBadge({
           )}
         </span>
         <span>
-          <span className="text-slate-400 mr-1">Medically reviewed by</span>
+          <span className="text-slate-400 mr-1">{label}</span>
           <span className="font-medium text-slate-700">{displayName}</span>
         </span>
       </Link>

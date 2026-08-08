@@ -70,7 +70,6 @@ def get_editorial_team():
                     SELECT {_SELECT}
                     FROM public.editorial_reviewers
                     WHERE is_public = TRUE AND is_active = TRUE
-                    ORDER BY full_name
                     """
                 )
             ).fetchall()

@@ -82,7 +82,7 @@ const ROLE_BADGE: Record<string, string> = {
 
 export default async function ReviewerProfilePage({ params }: Props) {
   const reviewer = await fetchPublicReviewer(API_BASE, params.slug)
-  if (!reviewer) notFound()
+  if (!reviewer) return notFound()
 
   const displayName = reviewer.credentials
     ? `${reviewer.full_name}, ${reviewer.credentials}`
@@ -232,10 +232,12 @@ export default async function ReviewerProfilePage({ params }: Props) {
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 mb-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Affiliations</h2>
               <ul className="space-y-2">
-                {reviewer.affiliations.map((aff, i) => (
+                {reviewer.affiliations
+                  .filter((aff) => aff.organization)
+                  .map((aff, i) => (
                   <li key={i} className="flex items-start gap-2 text-slate-600">
                     <span className="mt-1 text-emerald-500 flex-shrink-0">•</span>
-                    <span>{aff.organization ? `Member of the ${aff.organization}` : ''}</span>
+                    <span>{`Member of the ${aff.organization}`}</span>
                   </li>
                 ))}
               </ul>
