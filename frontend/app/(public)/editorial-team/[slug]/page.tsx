@@ -12,12 +12,11 @@ const SITE_URL = (
 
 export const revalidate = 3600
 
-interface Props {
-  params: { slug: string }
-}
-
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const reviewer = await fetchPublicReviewer(API_BASE, params.slug)
+export async function generateMetadata(
+  { params }: { params: Promise<{ slug: string }> }
+): Promise<Metadata> {
+  const { slug } = await params
+  const reviewer = await fetchPublicReviewer(API_BASE, slug)
   if (!reviewer) {
     return { title: 'Reviewer Not Found — PillSeek' }
   }
@@ -80,8 +79,11 @@ const ROLE_BADGE: Record<string, string> = {
   fact_checker: 'bg-amber-100 text-amber-700',
 }
 
-export default async function ReviewerProfilePage({ params }: Props) {
-  const reviewer = await fetchPublicReviewer(API_BASE, params.slug)
+export default async function ReviewerProfilePage(
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  const { slug } = await params
+  const reviewer = await fetchPublicReviewer(API_BASE, slug)
   if (!reviewer) return notFound()
 
   const displayName = reviewer.credentials
@@ -170,7 +172,7 @@ export default async function ReviewerProfilePage({ params }: Props) {
                     className="inline-flex items-center gap-1.5 mt-3 text-sm text-blue-600 hover:underline"
                   >
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+                      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
                     </svg>
                     Connect on LinkedIn
                   </a>
@@ -192,7 +194,7 @@ export default async function ReviewerProfilePage({ params }: Props) {
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 mb-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Education</h2>
               <ul className="space-y-2">
-                {reviewer.education.map((edu, i) => (
+                {reviewer.education.map((edu: { degree?: string; institution?: string; location?: string; year?: string }, i: number) => (
                   <li key={i} className="flex items-start gap-2 text-slate-600">
                     <span className="mt-1 text-emerald-500 flex-shrink-0">•</span>
                     <span>
@@ -215,7 +217,7 @@ export default async function ReviewerProfilePage({ params }: Props) {
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 mb-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Certifications</h2>
               <ul className="space-y-2">
-                {reviewer.certifications.map((cert, i) => (
+                {reviewer.certifications.map((cert: { title?: string; issuer?: string; year?: string }, i: number) => (
                   <li key={i} className="flex items-start gap-2 text-slate-600">
                     <span className="mt-1 text-emerald-500 flex-shrink-0">•</span>
                     <span>
@@ -233,8 +235,8 @@ export default async function ReviewerProfilePage({ params }: Props) {
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Affiliations</h2>
               <ul className="space-y-2">
                 {reviewer.affiliations
-                  .filter((aff) => aff.organization)
-                  .map((aff, i) => (
+                  .filter((aff: { organization?: string }) => aff.organization)
+                  .map((aff: { organization?: string }, i: number) => (
                   <li key={i} className="flex items-start gap-2 text-slate-600">
                     <span className="mt-1 text-emerald-500 flex-shrink-0">•</span>
                     <span>{`Member of the ${aff.organization}`}</span>
@@ -249,7 +251,7 @@ export default async function ReviewerProfilePage({ params }: Props) {
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 mb-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Special Interests</h2>
               <div className="flex flex-wrap gap-2">
-                {reviewer.special_interests.map((interest) => (
+                {reviewer.special_interests.map((interest: string) => (
                   <span
                     key={interest}
                     className="bg-slate-100 rounded-full px-3 py-1 text-sm text-slate-700"
