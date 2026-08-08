@@ -18,7 +18,7 @@ function toTitleCase(str: string): string {
     .join(' ')
 }
 
-type DrugSearchResult = {
+export type DrugSearchResult = {
   results: PillResult[]
   fallbackUsed: boolean
   fallbackTerm: string | null
@@ -47,7 +47,7 @@ async function searchDrug(term: string): Promise<DrugSearchResult> {
  * If no results, fall back to replacing hyphens with spaces (handles slug-style URLs like
  * "mircette-28-dp-331" → "mircette 28 dp 331").
  */
-async function fetchPillsByDrug(name: string): Promise<DrugSearchResult> {
+export async function fetchPillsByDrug(name: string): Promise<DrugSearchResult> {
   const firstPass = await searchDrug(name)
   if (firstPass.results.length > 0) return firstPass
   const deSlugged = name.replace(/-/g, ' ')
