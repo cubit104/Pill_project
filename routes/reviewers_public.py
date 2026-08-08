@@ -41,8 +41,6 @@ _PUBLIC_FIELDS = [
     "certifications",
     "affiliations",
     "special_interests",
-    "is_public",
-    "is_active",
     "joined_at",
     "left_at",
     "created_at",

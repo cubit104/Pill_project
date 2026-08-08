@@ -55,8 +55,6 @@ export interface PublicReviewer {
   certifications: Array<{ title?: string; issuer?: string; year?: string }> | null
   affiliations: Array<{ organization?: string }> | null
   special_interests: string[] | null
-  is_public: boolean
-  is_active: boolean
   joined_at: string | null
   left_at: string | null
   created_at: string | null
@@ -65,9 +63,9 @@ export interface PublicReviewer {
 
 export async function fetchPublicReviewers(apiBase: string): Promise<PublicReviewer[]> {
   try {
-    const res = await fetch(`${apiBase}/api/editorial-team`, { next: { revalidate: 3600 } })
+    const res = await fetch(`${apiBase}/api/editorial-team`, { cache: 'no-store' })
     if (!res.ok) return []
-    return res.json()
+    return await res.json()
   } catch {
     return []
   }
@@ -75,9 +73,9 @@ export async function fetchPublicReviewers(apiBase: string): Promise<PublicRevie
 
 export async function fetchPublicReviewer(apiBase: string, slug: string): Promise<PublicReviewer | null> {
   try {
-    const res = await fetch(`${apiBase}/api/editorial-team/${slug}`, { next: { revalidate: 3600 } })
+    const res = await fetch(`${apiBase}/api/editorial-team/${slug}`, { cache: 'no-store' })
     if (!res.ok) return null
-    return res.json()
+    return await res.json()
   } catch {
     return null
   }

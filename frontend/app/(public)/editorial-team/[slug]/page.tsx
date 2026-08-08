@@ -52,6 +52,19 @@ function getInitials(name: string): string {
     .toUpperCase()
 }
 
+function getSafeLinkedInUrl(url: string | null): string | null {
+  if (!url) return null
+  try {
+    const parsed = new URL(url)
+    const hostname = parsed.hostname.toLowerCase()
+    if (parsed.protocol !== 'https:') return null
+    if (hostname !== 'linkedin.com' && hostname !== 'www.linkedin.com') return null
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return ''
   try {
@@ -92,6 +105,7 @@ export default async function ReviewerProfilePage(
   const initials = getInitials(reviewer.full_name)
   const roleLabel = ROLE_LABELS[reviewer.role ?? ''] ?? reviewer.role ?? 'Team Member'
   const badgeClass = ROLE_BADGE[reviewer.role ?? ''] ?? 'bg-slate-100 text-slate-700'
+  const linkedInUrl = getSafeLinkedInUrl(reviewer.linkedin_url)
 
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: '/' },
@@ -107,7 +121,7 @@ export default async function ReviewerProfilePage(
     jobTitle: roleLabel,
     ...(reviewer.specialty ? { description: reviewer.specialty } : {}),
     ...(reviewer.photo_url ? { image: reviewer.photo_url } : {}),
-    ...(reviewer.linkedin_url ? { sameAs: [reviewer.linkedin_url] } : {}),
+    ...(linkedInUrl ? { sameAs: [linkedInUrl] } : {}),
     worksFor: {
       '@type': 'Organization',
       name: 'PillSeek',
@@ -164,9 +178,9 @@ export default async function ReviewerProfilePage(
                 {reviewer.specialty && (
                   <p className="mt-2 text-slate-500">{reviewer.specialty}</p>
                 )}
-                {reviewer.linkedin_url && (
+                {linkedInUrl && (
                   <a
-                    href={reviewer.linkedin_url}
+                    href={linkedInUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 mt-3 text-sm text-blue-600 hover:underline"

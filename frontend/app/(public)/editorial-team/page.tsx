@@ -51,6 +51,19 @@ function getInitials(name: string): string {
     .toUpperCase()
 }
 
+function getSafeLinkedInUrl(url: string | null): string | null {
+  if (!url) return null
+  try {
+    const parsed = new URL(url)
+    const hostname = parsed.hostname.toLowerCase()
+    if (parsed.protocol !== 'https:') return null
+    if (hostname !== 'linkedin.com' && hostname !== 'www.linkedin.com') return null
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
 function ReviewerCard({ reviewer }: { reviewer: PublicReviewer }) {
   const initials = getInitials(reviewer.full_name)
   const displayName = reviewer.credentials
@@ -58,6 +71,7 @@ function ReviewerCard({ reviewer }: { reviewer: PublicReviewer }) {
     : reviewer.full_name
   const roleLabel = ROLE_LABELS[reviewer.role ?? ''] ?? reviewer.role ?? 'Team Member'
   const badgeClass = ROLE_BADGE[reviewer.role ?? ''] ?? 'bg-slate-100 text-slate-700'
+  const linkedInUrl = getSafeLinkedInUrl(reviewer.linkedin_url)
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col gap-4 hover:shadow-md transition-shadow">
@@ -85,9 +99,9 @@ function ReviewerCard({ reviewer }: { reviewer: PublicReviewer }) {
           {reviewer.specialty && (
             <p className="mt-1 text-sm text-slate-500">{reviewer.specialty}</p>
           )}
-          {reviewer.linkedin_url && (
+          {linkedInUrl && (
             <a
-              href={reviewer.linkedin_url}
+              href={linkedInUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 mt-1 text-xs text-blue-600 hover:underline"
