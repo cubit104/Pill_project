@@ -1,6 +1,5 @@
-import Image from 'next/image'
 import Link from 'next/link'
-import { fetchPublicReviewers } from '../lib/reviewers'
+import { fetchPublicReviewers, type PublicReviewer } from '../lib/reviewers'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 
@@ -27,9 +26,8 @@ function getInitials(name: string): string {
 }
 
 export default async function ReviewedBy({ lastVerifiedIso }: { lastVerifiedIso?: string | null }) {
-  const reviewers = await fetchPublicReviewers(API_BASE, { next: { revalidate: 3600 } })
-  const preferredReviewer =
-    reviewers.find((reviewer) => reviewer.role?.toLowerCase() === 'medical_reviewer') ?? reviewers[0]
+  const reviewers = await fetchPublicReviewers(API_BASE)
+  const preferredReviewer = pickPreferredReviewer(reviewers)
 
   const reviewerName = preferredReviewer?.name || 'PillSeek Editorial Team'
   const reviewerCredentials = preferredReviewer?.credentials?.trim() || null
@@ -42,12 +40,13 @@ export default async function ReviewedBy({ lastVerifiedIso }: { lastVerifiedIso?
   return (
     <p className="text-xs text-slate-500 mb-3 flex items-center gap-2 flex-wrap">
       {reviewerAvatar ? (
-        <Image
+        <img
           src={reviewerAvatar}
           alt={reviewerName}
           width={28}
           height={28}
           className="rounded-full object-cover"
+          referrerPolicy="no-referrer"
         />
       ) : (
         <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-semibold text-emerald-700">
@@ -68,4 +67,8 @@ export default async function ReviewedBy({ lastVerifiedIso }: { lastVerifiedIso?
       </span>
     </p>
   )
+}
+
+export function pickPreferredReviewer(reviewers: PublicReviewer[]): PublicReviewer | undefined {
+  return reviewers.find((reviewer) => reviewer.role?.toLowerCase() === 'medical_reviewer') ?? reviewers[0]
 }
