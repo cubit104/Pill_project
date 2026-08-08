@@ -65,10 +65,10 @@ function getSafeLinkedInUrl(url: string | null): string | null {
 }
 
 function ReviewerCard({ reviewer }: { reviewer: PublicReviewer }) {
-  const initials = getInitials(reviewer.full_name)
+  const initials = getInitials(reviewer.name)
   const displayName = reviewer.credentials
-    ? `${reviewer.full_name}, ${reviewer.credentials}`
-    : reviewer.full_name
+    ? `${reviewer.name}, ${reviewer.credentials}`
+    : reviewer.name
   const roleLabel = ROLE_LABELS[reviewer.role ?? ''] ?? reviewer.role ?? 'Team Member'
   const badgeClass = ROLE_BADGE[reviewer.role ?? ''] ?? 'bg-slate-100 text-slate-700'
   const linkedInUrl = getSafeLinkedInUrl(reviewer.linkedin_url)
@@ -78,10 +78,10 @@ function ReviewerCard({ reviewer }: { reviewer: PublicReviewer }) {
       <div className="flex items-start gap-4">
         {/* Avatar */}
         <div className="relative flex-shrink-0 w-24 h-24 rounded-full overflow-hidden bg-emerald-100 flex items-center justify-center">
-          {reviewer.photo_url ? (
+          {reviewer.avatar_url ? (
             <Image
-              src={reviewer.photo_url}
-              alt={reviewer.full_name}
+              src={reviewer.avatar_url}
+              alt={reviewer.name}
               fill
               className="object-cover"
               sizes="96px"

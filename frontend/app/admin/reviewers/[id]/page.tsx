@@ -31,6 +31,7 @@ interface ReviewerForm {
   name: string
   credentials: string
   role: string
+  is_public: boolean
   specialty: string
   linkedin_url: string
   bio: string
@@ -56,6 +57,7 @@ const EMPTY_FORM: ReviewerForm = {
   name: '',
   credentials: '',
   role: 'medical_reviewer',
+  is_public: false,
   specialty: '',
   linkedin_url: '',
   bio: '',
@@ -133,6 +135,7 @@ export default function ReviewerEditPage() {
           name: data.name ?? '',
           credentials: data.credentials ?? '',
           role: data.role ?? 'medical_reviewer',
+          is_public: data.is_public ?? false,
           specialty: data.specialty ?? '',
           linkedin_url: data.linkedin_url ?? '',
           bio: data.bio ?? '',
@@ -231,6 +234,7 @@ export default function ReviewerEditPage() {
         name: form.name.trim(),
         credentials: form.credentials.trim(),
         role: form.role,
+        is_public: form.is_public,
         specialty: form.specialty.trim() || null,
         linkedin_url: form.linkedin_url.trim() || null,
         bio: form.bio.trim() || null,
@@ -342,6 +346,30 @@ export default function ReviewerEditPage() {
         </div>
 
         <form onSubmit={handleSave} className="space-y-6">
+          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 bg-gray-50">
+            <div>
+              <label className="text-sm font-medium text-gray-700">Show on Public Site</label>
+              <p className="text-xs text-gray-500 mt-0.5">
+                When enabled, this reviewer appears on the public /editorial-team page
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setField('is_public', !form.is_public)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                form.is_public ? 'bg-emerald-600' : 'bg-gray-300'
+              }`}
+              aria-label="Show on Public Site"
+              aria-pressed={form.is_public}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  form.is_public ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
           <div>
             <label className={labelClass}>
               Name <span className="text-red-500">*</span>

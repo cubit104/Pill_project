@@ -77,6 +77,7 @@ class ReviewerCreate(BaseModel):
     name: str
     credentials: str = ""
     role: str = "medical_reviewer"
+    is_public: bool = False
     bio: Optional[str] = None
     specialty: Optional[str] = None
     linkedin_url: Optional[str] = None
@@ -90,6 +91,7 @@ class ReviewerUpdate(BaseModel):
     name: Optional[str] = None
     credentials: Optional[str] = None
     role: Optional[str] = None
+    is_public: Optional[bool] = None
     bio: Optional[str] = None
     specialty: Optional[str] = None
     linkedin_url: Optional[str] = None
@@ -119,7 +121,7 @@ def list_reviewers(admin: dict = Depends(get_admin_user)):
                 text(
                     "SELECT id, name, slug, credentials, role, bio, avatar_url, "
                     "specialty, linkedin_url, education, registrations, same_as, "
-                    "license_info, is_active, created_at, updated_at "
+                    "license_info, is_public, is_active, created_at, updated_at "
                     "FROM reviewers ORDER BY name"
                 )
             ).fetchall()
@@ -139,7 +141,7 @@ def get_reviewer(reviewer_id: str, admin: dict = Depends(get_admin_user)):
                 text(
                     "SELECT id, name, slug, credentials, role, bio, avatar_url, "
                     "specialty, linkedin_url, education, registrations, same_as, "
-                    "license_info, is_active, created_at, updated_at "
+                    "license_info, is_public, is_active, created_at, updated_at "
                     "FROM reviewers WHERE id = :id LIMIT 1"
                 ),
                 {"id": reviewer_id},
@@ -191,12 +193,12 @@ def create_reviewer(
                 text(
                     "INSERT INTO reviewers ("
                     "name, slug, credentials, role, bio, specialty, linkedin_url, "
-                    "education, registrations, same_as, license_info"
+                    "education, registrations, same_as, license_info, is_public"
                     ") VALUES ("
                     ":name, :slug, :credentials, :role, :bio, :specialty, :linkedin_url, "
-                    "CAST(:education AS jsonb), CAST(:registrations AS jsonb), :same_as, :license_info"
+                    "CAST(:education AS jsonb), CAST(:registrations AS jsonb), :same_as, :license_info, :is_public"
                     ") RETURNING id, name, slug, credentials, role, bio, avatar_url, specialty, "
-                    "linkedin_url, education, registrations, same_as, license_info, is_active"
+                    "linkedin_url, education, registrations, same_as, license_info, is_public, is_active"
                 ),
                 {
                     "name": body.name.strip(),
@@ -210,6 +212,7 @@ def create_reviewer(
                     "registrations": _jsonb_value(body.registrations),
                     "same_as": body.same_as,
                     "license_info": body.license_info,
+                    "is_public": body.is_public,
                 },
             ).fetchone()
 
@@ -256,6 +259,7 @@ def update_reviewer(
             "registrations",
             "same_as",
             "license_info",
+            "is_public",
             "slug",
         }
     )
@@ -302,6 +306,8 @@ def update_reviewer(
                 updates["same_as"] = body.same_as
             if body.license_info is not None:
                 updates["license_info"] = body.license_info
+            if body.is_public is not None:
+                updates["is_public"] = body.is_public
 
             if not updates:
                 raise HTTPException(status_code=400, detail="No fields to update")
@@ -314,7 +320,7 @@ def update_reviewer(
                 text(
                     f"UPDATE reviewers SET {set_clause} WHERE id = :id "
                     "RETURNING id, name, slug, credentials, role, bio, avatar_url, specialty, "
-                    "linkedin_url, education, registrations, same_as, license_info, is_active"
+                    "linkedin_url, education, registrations, same_as, license_info, is_public, is_active"
                 ),
                 updates,
             ).fetchone()

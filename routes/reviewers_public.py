@@ -30,19 +30,17 @@ _ROLE_ORDER = {
 _PUBLIC_FIELDS = [
     "id",
     "slug",
-    "full_name",
+    "name",
     "credentials",
     "role",
     "specialty",
     "bio",
-    "photo_url",
+    "avatar_url",
     "linkedin_url",
     "education",
-    "certifications",
-    "affiliations",
-    "special_interests",
-    "joined_at",
-    "left_at",
+    "same_as",
+    "license_info",
+    "is_active",
     "created_at",
     "updated_at",
 ]
@@ -66,7 +64,7 @@ def get_editorial_team():
                 text(
                     f"""
                     SELECT {_SELECT}
-                    FROM public.editorial_reviewers
+                    FROM public.reviewers
                     WHERE is_public = TRUE AND is_active = TRUE
                     """
                 )
@@ -78,7 +76,7 @@ def get_editorial_team():
     reviewers = [_row_to_dict(row) for row in rows]
 
     # Sort by role priority in Python so missing roles sort last
-    reviewers.sort(key=lambda r: (_ROLE_ORDER.get(r.get("role", ""), 99), r.get("full_name", "")))
+    reviewers.sort(key=lambda r: (_ROLE_ORDER.get(r.get("role", ""), 99), r.get("name", "")))
 
     return reviewers
 
@@ -95,7 +93,7 @@ def get_editorial_team_member(slug: str):
                 text(
                     f"""
                     SELECT {_SELECT}
-                    FROM public.editorial_reviewers
+                    FROM public.reviewers
                     WHERE slug = :slug AND is_public = TRUE AND is_active = TRUE
                     LIMIT 1
                     """
