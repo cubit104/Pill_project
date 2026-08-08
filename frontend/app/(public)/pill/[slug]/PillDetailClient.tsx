@@ -323,7 +323,7 @@ export default function PillDetailClient({
   slug,
   lastUpdatedIso,
   formattedDate,
-  reviewedBy,
+  children,
   related,
   pharmaClass,
   similar,
@@ -337,7 +337,7 @@ export default function PillDetailClient({
   slug?: string
   lastUpdatedIso?: string
   formattedDate?: string
-  reviewedBy?: ReactNode
+  children?: ReactNode
   related?: RelatedDrug[]
   pharmaClass?: string
   similar?: SimilarPill[]
@@ -520,7 +520,7 @@ export default function PillDetailClient({
           ← Back
         </Link>
 
-        {reviewedBy}
+        {children}
 
         {/* Hero Card */}
         <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">
