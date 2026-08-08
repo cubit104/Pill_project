@@ -62,12 +62,13 @@ async function getReviewer(slug: string): Promise<ReviewerPublic | null> {
 export async function generateMetadata({
   params,
 }: {
-  params: { slug: string }
+  params: Promise<{ slug: string }>
 }): Promise<Metadata> {
   if (process.env.ENABLE_REVIEWER_PUBLIC !== 'true') {
     return { robots: { index: false, follow: false } }
   }
-  const reviewer = await getReviewer(params.slug)
+  const { slug } = await params
+  const reviewer = await getReviewer(slug)
   const displayName = reviewer
     ? reviewer.credentials
       ? `${reviewer.name}, ${reviewer.credentials}`
@@ -132,14 +133,15 @@ function domainLabel(href: string): string {
 export default async function ReviewerProfilePage({
   params,
 }: {
-  params: { slug: string }
+  params: Promise<{ slug: string }>
 }) {
   // Feature flag guard
   if (process.env.ENABLE_REVIEWER_PUBLIC !== 'true') {
     notFound()
   }
 
-  const reviewer = await getReviewer(params.slug)
+  const { slug } = await params
+  const reviewer = await getReviewer(slug)
   if (!reviewer) notFound()
 
   const education = safeList(reviewer.education)
