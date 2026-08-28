@@ -10,8 +10,12 @@ CREATE TABLE IF NOT EXISTS public.reviewers (
   bio TEXT DEFAULT '',
   avatar_url TEXT,
   specialty TEXT,
+  linkedin_url TEXT,
+  education JSONB DEFAULT '[]'::jsonb,
+  registrations JSONB DEFAULT '[]'::jsonb,
   same_as TEXT[] DEFAULT '{}',
   license_info TEXT,
+  is_public BOOLEAN NOT NULL DEFAULT false,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()

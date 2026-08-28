@@ -78,6 +78,7 @@ def test_editorial_team_uses_reviewers_table_and_sorts_by_name(client):
             None,
             None,
             None,
+            None,
             True,
             "2024-01-05T00:00:00Z",
             "2024-01-06T00:00:00Z",

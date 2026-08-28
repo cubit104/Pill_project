@@ -1408,7 +1408,7 @@ def update_pill_pronunciation(
             lookup_keys = get_pronunciation_lookup_keys(
                 conn,
                 medicine_name,
-                rxcui=None,
+                rxcui=rxcui,
             )
             if not lookup_keys:
                 raise HTTPException(

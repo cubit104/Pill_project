@@ -23,7 +23,7 @@ def get_reviewer_profile(slug: str):
                 text(
                     "SELECT name, slug, credentials, role, bio, avatar_url, "
                     "specialty, linkedin_url, education, registrations, same_as, license_info "
-                    "FROM reviewers WHERE slug = :slug AND is_active = true LIMIT 1"
+                    "FROM reviewers WHERE slug = :slug AND is_public = true AND is_active = true LIMIT 1"
                 ),
                 {"slug": slug},
             ).fetchone()

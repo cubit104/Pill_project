@@ -37,13 +37,13 @@ def _slugify(name: str) -> str:
     return s.strip("-")
 
 
-def _supabase_upload_avatar(path: str, data: bytes, content_type: str) -> bool:
+async def _supabase_upload_avatar(path: str, data: bytes, content_type: str) -> bool:
     """Upload a file to Supabase Storage. Returns True on success."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         return False
     try:
-        with httpx.Client(timeout=30) as client:
-            resp = client.post(
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
                 f"{SUPABASE_URL}/storage/v1/object/{AVATAR_BUCKET}/{path}",
                 headers={
                     "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY,
@@ -395,7 +395,7 @@ async def upload_avatar(
     storage_path = f"{reviewer_id}/{filename}"
     content_type = file.content_type or "image/jpeg"
 
-    upload_ok = _supabase_upload_avatar(storage_path, content, content_type)
+    upload_ok = await _supabase_upload_avatar(storage_path, content, content_type)
     if not upload_ok and SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
         raise HTTPException(status_code=502, detail="Avatar upload to storage failed. Please try again.")
 
