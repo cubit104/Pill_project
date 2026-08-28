@@ -811,6 +811,8 @@ def get_pill_by_slug(slug: str):
                     pill_info.get("medicine_name") or "",
                 )
                 mapped["is_brand_row"] = (synonyms.get("product_tty") in ("SBD", "BPCK"))
+            else:
+                mapped["generic_name"] = pill_info.get("medicine_name") or None
             explicit_brand_or_generic = pill_info.get("brand_or_generic")
             mapped["brand_or_generic"] = (
                 explicit_brand_or_generic

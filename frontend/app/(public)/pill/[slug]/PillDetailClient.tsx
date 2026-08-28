@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import type { PillDetail, RelatedDrug, SimilarPill, ConditionDrug } from '../../../types'
-import type { Reviewer } from '../../../lib/reviewers'
 import type { PriceResponse } from './pricing/priceCardData'
 import { classSlugify, slugifyDrugName } from '../../../lib/slug'
 import { slugifyUrl } from '../../../lib/url-utils'
@@ -324,7 +323,7 @@ export default function PillDetailClient({
   slug,
   lastUpdatedIso,
   formattedDate,
-  reviewer,
+  children,
   related,
   pharmaClass,
   similar,
@@ -338,7 +337,7 @@ export default function PillDetailClient({
   slug?: string
   lastUpdatedIso?: string
   formattedDate?: string
-  reviewer?: Reviewer
+  children?: ReactNode
   related?: RelatedDrug[]
   pharmaClass?: string
   similar?: SimilarPill[]
@@ -521,21 +520,7 @@ export default function PillDetailClient({
           ← Back
         </Link>
 
-        {/* Reviewed by / Last verified — matches JSON-LD dateModified / lastReviewed */}
-        {reviewer && (
-          <p className="text-xs text-slate-500 mb-3">
-            Reviewed by{' '}
-            <Link href={reviewer.url} className="underline hover:text-slate-700">
-              {reviewer.name}
-            </Link>
-            {lastUpdatedIso && formattedDate && (
-              <>
-                {' · '}Last verified{' '}
-                <time dateTime={lastUpdatedIso}>{formattedDate}</time>
-              </>
-            )}
-          </p>
-        )}
+        {children}
 
         {/* Hero Card */}
         <div className="bg-white border border-emerald-200 rounded-xl shadow-sm p-6 mb-6">

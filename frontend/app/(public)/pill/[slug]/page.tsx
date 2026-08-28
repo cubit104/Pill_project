@@ -11,11 +11,13 @@ import {
   medicalWebPageSchema,
   safeJsonLd,
 } from '../../../lib/structured-data'
-import { DEFAULT_REVIEWER } from '../../../lib/reviewers'
+import { DEFAULT_REVIEWER, fetchPublicReviewers, type Reviewer } from '../../../lib/reviewers'
+import { pickPreferredReviewer } from '../../../components/ReviewedBy'
 import { slugifyDrugName } from '../../../lib/slug'
 import { resolveImageUrls } from '../../../lib/image-url'
 import { fetchPriceSnapshot, fetchInitialPriceData } from './price/priceData'
 import { snapshotToPriceCardInitialData } from './pricing/priceCardData'
+import ReviewedBy from '../../../components/ReviewedBy'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -406,9 +408,26 @@ export default async function PillDetailPage(
   const identificationSummary = buildIdentificationSummary(pill)
   const imageObjects = imageObjectSchema(pill, resolveImageUrls(pill))
 
+  const publicReviewers = await fetchPublicReviewers(API_BASE)
+  const preferredReviewer = pickPreferredReviewer(publicReviewers)
+  const jsonLdReviewer: Reviewer = preferredReviewer
+    ? {
+        id: preferredReviewer.slug,
+        name: preferredReviewer.name,
+        credentials: preferredReviewer.credentials ?? '',
+        role: (preferredReviewer.role as Reviewer['role']) ?? 'editor',
+        schemaType: 'Person',
+        bio: preferredReviewer.bio ?? '',
+        url: `/editorial-team/${preferredReviewer.slug}`,
+        ...(preferredReviewer.same_as && preferredReviewer.same_as.length > 0
+          ? { sameAs: preferredReviewer.same_as }
+          : {}),
+      }
+    : DEFAULT_REVIEWER
+
   const medPage = medicalWebPageSchema(pill, slug, {
     dateModified: lastUpdatedIso,
-    reviewer: DEFAULT_REVIEWER,
+    reviewer: jsonLdReviewer,
     description: identificationSummary,
   })
 
@@ -445,7 +464,6 @@ export default async function PillDetailPage(
         slug={slug}
         lastUpdatedIso={lastUpdatedIso}
         formattedDate={formattedDate}
-        reviewer={DEFAULT_REVIEWER}
         related={relatedData.related}
         pharmaClass={relatedData.pharma_class ?? undefined}
         similar={similarPills}
@@ -454,7 +472,9 @@ export default async function PillDetailPage(
         faqItems={faqItems}
         identificationSummary={identificationSummary}
         priceInitialData={priceInitialData}
-      />
+      >
+        <ReviewedBy lastVerifiedIso={lastUpdatedIso} />
+      </PillDetailClient>
     </>
   )
 }

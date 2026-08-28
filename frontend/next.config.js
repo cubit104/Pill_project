@@ -10,6 +10,11 @@ const nextConfig = {
         hostname: 'uqdwcxizabmxwflkbfrb.supabase.co',
         pathname: '/storage/v1/object/public/images/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'uqdwcxizabmxwflkbfrb.supabase.co',
+        pathname: '/storage/v1/object/public/reviewer-avatars/**',
+      },
     ],
   },
   async headers() {
