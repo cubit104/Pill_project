@@ -65,6 +65,7 @@ def _avatar_public_url(path: str) -> str:
 class EducationItem(BaseModel):
     institution: str = ""
     degree: str = ""
+    url: str = ""
 
 
 class RegistrationItem(BaseModel):

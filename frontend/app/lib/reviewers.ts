@@ -53,7 +53,8 @@ export interface PublicReviewer {
   bio: string | null
   avatar_url: string | null
   linkedin_url: string | null
-  education: Array<{ degree?: string; institution?: string }> | null
+  education: Array<{ degree?: string; institution?: string; url?: string }> | null
+  registrations?: Array<{ title?: string; board?: string; url?: string }> | null
   same_as: string[] | null
   license_info: string | null
   is_active: boolean

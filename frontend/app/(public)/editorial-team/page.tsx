@@ -15,12 +15,12 @@ export const revalidate = 3600
 export const metadata: Metadata = {
   title: 'Editorial & Medical Review Team — PillSeek',
   description:
-    'Meet the pharmacists, physicians, and medical writers who review and verify content on PillSeek. Our editorial team ensures every piece of drug information is accurate and sourced from FDA-approved data.',
+    'PillSeek\'s drug content is medically reviewed by a licensed pharmacist. Meet our editorial and medical review team and learn how we source and verify drug information.',
   alternates: { canonical: '/editorial-team' },
   openGraph: {
     title: 'Editorial & Medical Review Team — PillSeek',
     description:
-      'Meet the pharmacists, physicians, and medical writers who review and verify content on PillSeek.',
+      'PillSeek\'s drug content is medically reviewed by a licensed pharmacist.',
     url: `${SITE_URL}/editorial-team`,
     type: 'website',
     siteName: 'PillSeek',
@@ -143,12 +143,33 @@ export default async function EditorialTeamPage() {
     name: 'Editorial & Medical Review Team — PillSeek',
     url: `${SITE_URL}/editorial-team`,
     description:
-      'Meet the pharmacists, physicians, and medical writers who review and verify content on PillSeek.',
+      'PillSeek\'s drug content is medically reviewed by a licensed pharmacist.',
     publisher: {
       '@type': 'Organization',
       name: 'PillSeek',
       url: SITE_URL,
     },
+    ...(reviewers.length > 0
+      ? {
+          member: reviewers.map((reviewer) => {
+            const linkedInUrl = getSafeLinkedInUrl(reviewer.linkedin_url)
+            const displayName = reviewer.credentials
+              ? `${reviewer.name}, ${reviewer.credentials}`
+              : reviewer.name
+            const roleLabel = ROLE_LABELS[reviewer.role ?? ''] ?? reviewer.role ?? 'Team Member'
+            return {
+              '@type': 'Person',
+              name: displayName,
+              url: `${SITE_URL}/editorial-team/${reviewer.slug}`,
+              jobTitle: roleLabel,
+              ...(reviewer.credentials ? { honorificSuffix: reviewer.credentials } : {}),
+              ...(reviewer.specialty ? { knowsAbout: reviewer.specialty } : {}),
+              ...(reviewer.avatar_url ? { image: reviewer.avatar_url } : {}),
+              ...(linkedInUrl ? { sameAs: [linkedInUrl] } : {}),
+            }
+          }),
+        }
+      : {}),
   }
 
   return (
@@ -177,9 +198,9 @@ export default async function EditorialTeamPage() {
               Our Editorial &amp; Medical Review Team
             </h1>
             <p className="text-lg text-slate-600 max-w-3xl">
-              PillSeek's content is reviewed and verified by licensed pharmacists, physicians, and
-              medical writers. Our team ensures every piece of drug information is accurate,
-              up-to-date, and sourced from FDA-approved data — so you can trust what you read.
+              All drug content on PillSeek is medically reviewed by a licensed pharmacist. Our
+              team ensures every piece of drug information is accurate, up-to-date, and sourced
+              from FDA-approved data — so you can trust what you read.
             </p>
           </header>
 

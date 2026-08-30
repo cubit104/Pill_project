@@ -65,6 +65,22 @@ function getSafeLinkedInUrl(url: string | null): string | null {
   }
 }
 
+/**
+ * Validate a user-supplied URL before it's used as an href. Requires https
+ * and a parseable URL. Returns null (render plain text, no link) otherwise.
+ */
+function getSafeExternalUrl(url: string | null | undefined): string | null {
+  if (!url) return null
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:') return null
+    if (parsed.username || parsed.password) return null
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return ''
   try {
@@ -113,15 +129,70 @@ export default async function ReviewerProfilePage(
     { name: reviewer.name, url: `/editorial-team/${reviewer.slug}` },
   ])
 
+  const education = (reviewer.education ?? []).filter(
+    (edu) => edu && (edu.degree || edu.institution)
+  )
+  const registrations = (reviewer.registrations ?? []).filter(
+    (reg) => reg && (reg.title || reg.board)
+  )
+  const affiliations = (reviewer.same_as ?? [])
+    .map((url) => getSafeExternalUrl(url))
+    .filter((url): url is string => Boolean(url))
+
+  const alumniOf = education
+    .filter((edu) => edu.institution)
+    .map((edu) => {
+      const url = getSafeExternalUrl(edu.url)
+      return {
+        '@type': 'EducationalOrganization',
+        name: edu.institution,
+        ...(url ? { url } : {}),
+      }
+    })
+
+  const hasCredential = [
+    ...registrations
+      .filter((reg) => reg.title && reg.board)
+      .map((reg) => {
+        const url = getSafeExternalUrl(reg.url)
+        return {
+          '@type': 'EducationalOccupationalCredential',
+          credentialCategory: 'license',
+          name: reg.title,
+          recognizedBy: {
+            '@type': 'Organization',
+            name: reg.board,
+            ...(url ? { url } : {}),
+          },
+        }
+      }),
+    ...education
+      .filter((edu) => edu.degree && edu.institution)
+      .map((edu) => ({
+        '@type': 'EducationalOccupationalCredential',
+        credentialCategory: 'degree',
+        name: edu.degree,
+        recognizedBy: {
+          '@type': 'EducationalOrganization',
+          name: edu.institution,
+        },
+      })),
+  ]
+
+  const sameAs = [...affiliations, ...(linkedInUrl ? [linkedInUrl] : [])]
+
   const personJsonLd = {
     '@context': 'https://schema.org',
     '@type': 'Person',
     name: displayName,
     url: `${SITE_URL}/editorial-team/${reviewer.slug}`,
     jobTitle: roleLabel,
-    ...(reviewer.specialty ? { description: reviewer.specialty } : {}),
+    ...(reviewer.credentials ? { honorificSuffix: reviewer.credentials } : {}),
+    ...(reviewer.specialty ? { description: reviewer.specialty, knowsAbout: reviewer.specialty } : {}),
     ...(reviewer.avatar_url ? { image: reviewer.avatar_url } : {}),
-    ...(linkedInUrl ? { sameAs: [linkedInUrl] } : {}),
+    ...(sameAs.length > 0 ? { sameAs } : {}),
+    ...(alumniOf.length > 0 ? { alumniOf } : {}),
+    ...(hasCredential.length > 0 ? { hasCredential } : {}),
     worksFor: {
       '@type': 'Organization',
       name: 'PillSeek',
@@ -204,16 +275,97 @@ export default async function ReviewerProfilePage(
           )}
 
           {/* Education */}
-          {reviewer.education && reviewer.education.length > 0 && (
+          {education.length > 0 && (
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 mb-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Education</h2>
               <ul className="space-y-2">
-                {reviewer.education.map((edu: { degree?: string; institution?: string }, i: number) => (
+                {education.map((edu, i) => {
+                  const url = getSafeExternalUrl(edu.url)
+                  return (
+                    <li key={i} className="flex items-start gap-2 text-slate-600">
+                      <span className="mt-1 text-emerald-500 flex-shrink-0">•</span>
+                      <span>
+                        {edu.degree && <>{edu.degree}</>}
+                        {edu.degree && edu.institution && ' — '}
+                        {edu.institution && (
+                          url ? (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-emerald-700 hover:underline"
+                            >
+                              {edu.institution}
+                            </a>
+                          ) : (
+                            edu.institution
+                          )
+                        )}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          )}
+
+          {/* Licences & Registrations */}
+          {(registrations.length > 0 || reviewer.license_info) && (
+            <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 mb-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Licences &amp; Registrations</h2>
+              <ul className="space-y-2">
+                {registrations.map((reg, i) => {
+                  const url = getSafeExternalUrl(reg.url)
+                  return (
+                    <li key={i} className="flex items-start gap-2 text-slate-600">
+                      <span className="mt-1 text-emerald-500 flex-shrink-0">•</span>
+                      <span>
+                        {reg.title && <>{reg.title}</>}
+                        {reg.title && reg.board && ' — '}
+                        {reg.board && (
+                          url ? (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-emerald-700 hover:underline"
+                            >
+                              {reg.board}
+                            </a>
+                          ) : (
+                            reg.board
+                          )
+                        )}
+                      </span>
+                    </li>
+                  )
+                })}
+                {reviewer.license_info && (
+                  <li className="flex items-start gap-2 text-slate-600">
+                    <span className="mt-1 text-emerald-500 flex-shrink-0">•</span>
+<span>{reviewer.license_info}</span>
+                  </li>
+                )}
+              </ul>
+            </section>
+          )}
+
+          {/* Professional profiles / Affiliations */}
+          {affiliations.length > 0 && (
+            <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 mb-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Professional Profiles</h2>
+              <ul className="space-y-2">
+                {affiliations.map((url, i) => (
                   <li key={i} className="flex items-start gap-2 text-slate-600">
                     <span className="mt-1 text-emerald-500 flex-shrink-0">•</span>
-                    <span>
-                      {[edu.degree, edu.institution].filter(Boolean).join(' — ')}
-                    </span>
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-emerald-700 hover:underline break-all"
+                    >
+                      {url}
+                    </a>
                   </li>
                 ))}
               </ul>
