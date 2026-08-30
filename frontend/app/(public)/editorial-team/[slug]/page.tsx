@@ -343,7 +343,7 @@ export default async function ReviewerProfilePage(
                 {reviewer.license_info && (
                   <li className="flex items-start gap-2 text-slate-600">
                     <span className="mt-1 text-emerald-500 flex-shrink-0">•</span>
-                    <span>Licence #{reviewer.license_info}</span>
+<span>{reviewer.license_info}</span>
                   </li>
                 )}
               </ul>
