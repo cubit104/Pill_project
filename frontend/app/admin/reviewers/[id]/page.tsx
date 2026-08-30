@@ -19,6 +19,7 @@ const ROLE_OPTIONS = [
 interface EducationEntry {
   institution: string
   degree: string
+  url: string
 }
 
 interface RegistrationEntry {
@@ -45,6 +46,7 @@ interface ReviewerForm {
 const EMPTY_EDUCATION: EducationEntry = {
   institution: '',
   degree: '',
+  url: '',
 }
 
 const EMPTY_REGISTRATION: RegistrationEntry = {
@@ -88,6 +90,7 @@ function normalizeEducation(value: unknown): EducationEntry[] {
   return value.map((item) => ({
     institution: typeof item?.institution === 'string' ? item.institution : '',
     degree: typeof item?.degree === 'string' ? item.degree : '',
+    url: typeof item?.url === 'string' ? item.url : '',
   }))
 }
 
@@ -216,8 +219,9 @@ export default function ReviewerEditPage() {
       .map((entry) => ({
         institution: entry.institution.trim(),
         degree: entry.degree.trim(),
+        url: entry.url.trim(),
       }))
-      .filter((entry) => entry.institution || entry.degree)
+      .filter((entry) => entry.institution || entry.degree || entry.url)
 
     const registrations = form.registrations
       .map((entry) => ({
@@ -491,6 +495,16 @@ export default function ReviewerEditPage() {
                         className={inputClass}
                       />
                     </div>
+                  </div>
+                  <div>
+                    <label className={labelClass}>Institution URL</label>
+                    <input
+                      type="url"
+                      value={entry.url}
+                      onChange={(e) => updateEducation(index, 'url', e.target.value)}
+                      placeholder="https://www.otago.ac.nz"
+                      className={inputClass}
+                    />
                   </div>
                 </div>
               ))}

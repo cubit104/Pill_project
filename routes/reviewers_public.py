@@ -38,6 +38,7 @@ _PUBLIC_FIELDS = [
     "avatar_url",
     "linkedin_url",
     "education",
+    "registrations",
     "same_as",
     "license_info",
     "is_active",
