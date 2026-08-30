@@ -187,12 +187,11 @@ export default async function ReviewerProfilePage(
     url: `${SITE_URL}/editorial-team/${reviewer.slug}`,
     jobTitle: roleLabel,
     ...(reviewer.credentials ? { honorificSuffix: reviewer.credentials } : {}),
-    ...(reviewer.specialty ? { description: reviewer.specialty } : {}),
+    ...(reviewer.specialty ? { description: reviewer.specialty, knowsAbout: reviewer.specialty } : {}),
     ...(reviewer.avatar_url ? { image: reviewer.avatar_url } : {}),
     ...(sameAs.length > 0 ? { sameAs } : {}),
     ...(alumniOf.length > 0 ? { alumniOf } : {}),
     ...(hasCredential.length > 0 ? { hasCredential } : {}),
-    ...(reviewer.specialty ? { knowsAbout: reviewer.specialty } : {}),
     worksFor: {
       '@type': 'Organization',
       name: 'PillSeek',
