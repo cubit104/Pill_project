@@ -414,9 +414,8 @@ def _fetch_shape_page_slugs(conn) -> List[FilterSlug]:
         if cnt >= 2
     ]
 
-
-
-def get_slugs():
+@router.get("/api/slugs", response_model=List[str])
+def get_slugs(response: Response):
     """Return a JSON array of all pill slugs (used by Next.js sitemap)"""
     if not database.db_engine:
         if not database.connect_to_database():
@@ -425,6 +424,7 @@ def get_slugs():
     try:
         with database.db_engine.connect() as conn:
             slugs = _fetch_all_slugs(conn)
+        response.headers["Cache-Control"] = "public, max-age=86400, s-maxage=86400"
         return slugs
     except SQLAlchemyError as e:
         logger.error(f"Database error in /api/slugs: {e}", exc_info=True)

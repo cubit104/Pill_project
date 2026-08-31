@@ -5,6 +5,20 @@ import { slugifyUrl } from './lib/url-utils'
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com').replace(/\/$/, '')
 
+async function fetchSitemapJson<T>(label: string, url: string, fallback: T): Promise<T> {
+  try {
+    const res = await fetch(url, { next: { revalidate: 86400 } })
+    if (!res.ok) {
+      console.error(`[sitemap] Failed to fetch ${label} from backend: ${res.status} ${res.statusText}`)
+      return fallback
+    }
+    return (await res.json()) as T
+  } catch (err) {
+    console.error(`[sitemap] Failed to fetch ${label} from backend:`, err)
+    return fallback
+  }
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Static pages — no trailing slash, consistent with next.config.js trailingSlash: false
   const staticPages: MetadataRoute.Sitemap = [
@@ -57,48 +71,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ]
 
   try {
-    const [slugRes, classRes, drugRes, drugPriceRes, conditionRes, colorRes, shapeRes] = await Promise.all([
-      fetch(`${API_BASE}/api/slugs`, { next: { revalidate: 86400 } }),
-      fetch(`${API_BASE}/api/classes`, { next: { revalidate: 86400 } }),
-      fetch(`${API_BASE}/api/slugs/drugs`, { next: { revalidate: 86400 } }),
-      fetch(`${API_BASE}/api/slugs/drug-prices`, { next: { revalidate: 86400 } }),
-      fetch(`${API_BASE}/api/conditions`, { next: { revalidate: 86400 } }),
-      fetch(`${API_BASE}/api/slugs/colors`, { next: { revalidate: 86400 } }),
-      fetch(`${API_BASE}/api/slugs/shapes`, { next: { revalidate: 86400 } }),
+    const [slugs, classes, drugSlugs, drugPriceSlugs, conditionPayload, colorSlugs, shapeSlugs] = await Promise.all([
+      fetchSitemapJson<string[]>('slugs', `${API_BASE}/api/slugs`, []),
+      fetchSitemapJson<Array<{ slug: string }>>('classes', `${API_BASE}/api/classes`, []),
+      fetchSitemapJson<Array<{ drug_name: string }>>('drug slugs', `${API_BASE}/api/slugs/drugs`, []),
+      fetchSitemapJson<Array<{ drug_name: string }>>('drug price slugs', `${API_BASE}/api/slugs/drug-prices`, []),
+      fetchSitemapJson<{ conditions?: Array<{ slug: string }> }>('conditions', `${API_BASE}/api/conditions`, {
+        conditions: [],
+      }),
+      fetchSitemapJson<Array<{ name: string }>>('color slugs', `${API_BASE}/api/slugs/colors`, []),
+      fetchSitemapJson<Array<{ name: string }>>('shape slugs', `${API_BASE}/api/slugs/shapes`, []),
     ])
-
-    if (!slugRes.ok) {
-      console.error(
-        `[sitemap] Failed to fetch slugs from backend: ${slugRes.status} ${slugRes.statusText}`
-      )
-      throw new Error(`Failed to fetch slugs: ${slugRes.status} ${slugRes.statusText}`)
-    }
-
-    const slugs: string[] = await slugRes.json()
-    const drugSlugs: Array<{ drug_name: string }> = drugRes.ok
-      ? await drugRes.json()
-      : []
-    const drugPriceSlugs: Array<{ drug_name: string }> = drugPriceRes.ok
-      ? await drugPriceRes.json()
-      : []
-    const conditionPayload: { conditions?: Array<{ slug: string }> } = conditionRes.ok
-      ? await conditionRes.json()
-      : {}
-    const colorSlugs: Array<{ name: string }> = colorRes.ok
-      ? await colorRes.json()
-      : []
-    const shapeSlugs: Array<{ name: string }> = shapeRes.ok
-      ? await shapeRes.json()
-      : []
-
-    let classes: Array<{ slug: string }> = []
-    if (!classRes.ok) {
-      console.error(
-        `[sitemap] Failed to fetch classes from backend: ${classRes.status} ${classRes.statusText}`
-      )
-    } else {
-      classes = await classRes.json()
-    }
 
     // No trailing slash — matches actual browser URLs and canonical tags
     const pillPages: MetadataRoute.Sitemap = slugs.map((slug) => ({
