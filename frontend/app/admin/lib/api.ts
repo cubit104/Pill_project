@@ -1,5 +1,21 @@
 import { createClient } from './supabase'
 
+function buildQueryString(
+  params?: Record<string, string | number | boolean | null | undefined>,
+) {
+  const searchParams = new URLSearchParams()
+
+  Object.entries(params ?? {}).forEach(([key, value]) => {
+    if (value === null || value === undefined) {
+      return
+    }
+
+    searchParams.set(key, String(value))
+  })
+
+  return searchParams.toString()
+}
+
 async function apiFetch(path: string, options?: RequestInit) {
   const supabase = createClient()
   const { data: { session } } = await supabase.auth.getSession()
@@ -26,8 +42,8 @@ export const adminApi = {
   getMe: () => apiFetch('/api/admin/me'),
   getStats: () => apiFetch('/api/admin/stats'),
   getPills: (params: Record<string, string | number | boolean>) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString()
-    return apiFetch(`/api/admin/pills?${qs}`)
+    const qs = buildQueryString(params)
+    return apiFetch(qs ? `/api/admin/pills?${qs}` : '/api/admin/pills')
   },
   getPill: (id: string) => apiFetch(`/api/admin/pills/${id}`),
   createPill: (data: object) =>
@@ -40,9 +56,9 @@ export const adminApi = {
     apiFetch(`/api/admin/pills/${id}/restore`, { method: 'POST' }),
   createDraft: (pillId: string, data: object) =>
     apiFetch(`/api/admin/pills/${pillId}/drafts`, { method: 'POST', body: JSON.stringify(data) }),
-  getDrafts: (params?: Record<string, string | number>) => {
-    const qs = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
-    return apiFetch(`/api/admin/drafts${qs ? `?${qs}` : ''}`)
+  getDrafts: (params?: Record<string, string | number | boolean>) => {
+    const qs = buildQueryString(params)
+    return apiFetch(qs ? `/api/admin/drafts?${qs}` : '/api/admin/drafts')
   },
   submitDraft: (id: string) =>
     apiFetch(`/api/admin/drafts/${id}/submit`, { method: 'POST' }),
@@ -58,8 +74,10 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify({ review_notes: notes }),
     }),
-  getAuditLog: (params?: Record<string, string | number>) =>
-    apiFetch(`/api/admin/audit?${new URLSearchParams(params as Record<string, string>).toString()}`),
+  getAuditLog: (params?: Record<string, string | number | boolean>) => {
+    const qs = buildQueryString(params)
+    return apiFetch(qs ? `/api/admin/audit?${qs}` : '/api/admin/audit')
+  },
   getUsers: () => apiFetch('/api/admin/users'),
   inviteUser: (data: object) =>
     apiFetch('/api/admin/users', { method: 'POST', body: JSON.stringify(data) }),

@@ -3171,7 +3171,7 @@ def test_list_drafts_status_filter_includes_pillfinder_for_draft(client):
     non_auth_sqls = [s for s in executed_sqls if "profiles" not in s.lower() and "admin_users" not in s.lower()]
     for s in non_auth_sqls:
         assert "'pillfinder'::text as source" in s.lower()
-        assert ":pd_status" in s
+        assert "d.status = :pd_status" in s.lower()
 
 
 # ---------------------------------------------------------------------------
