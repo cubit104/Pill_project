@@ -150,7 +150,7 @@ export default function AboutPage() {
                 {reviewer.credentials} &middot;{' '}
                 <span className="capitalize">{reviewer.role.replace('_', ' ')}</span>
               </p>
-              <p className="text-slate-700 text-sm leading-relaxed">{reviewer.bio}</p>
+              <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-line">{reviewer.bio}</p>
             </div>
           ))}
           <div className="mt-4 border-t border-slate-100 pt-4">

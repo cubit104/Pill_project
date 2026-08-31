@@ -371,6 +371,102 @@ def test_update_reviewer_accepts_is_public(client):
     )
 
 
+def _reviewer_update_side_effect():
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        sql_str = str(sql).lower()
+        if "from profiles" in sql_str:
+            result.fetchone.return_value = FAKE_EDITOR_PROFILE
+        elif "select id from reviewers" in sql_str:
+            result.fetchone.return_value = ("reviewer-1",)
+        elif "update reviewers set" in sql_str:
+            row = MagicMock()
+            row._mapping = {
+                "id": "reviewer-1",
+                "name": "Amy Reviewer",
+                "slug": "amy-reviewer",
+                "credentials": "MD",
+                "role": "medical_reviewer",
+                "bio": "Bio",
+                "avatar_url": None,
+                "specialty": "Cardiology",
+                "linkedin_url": None,
+                "education": [],
+                "registrations": [],
+                "same_as": [],
+                "license_info": None,
+                "is_public": True,
+                "is_active": True,
+            }
+            result.fetchone.return_value = row
+        else:
+            result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    return side_effect
+
+
+def test_update_reviewer_calls_log_audit_with_correct_signature(client):
+    """update_reviewer must call log_audit with (conn, actor_id=, actor_email=, ...),
+    not the old (admin_id=, resource_type=, resource_id=, new_values=) signature."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_EDITOR_ROW)
+    mock_conn.execute.side_effect = _reviewer_update_side_effect()
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    auth_header = {"Authorization": "Bearer " + "test-token"}
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR_ROW[0], "email": FAKE_EDITOR_ROW[1]}), \
+         patch("routes.admin.reviewers.log_audit") as mock_log_audit:
+        resp = client.put(
+            "/api/admin/reviewers/reviewer-1",
+            json={"is_public": True, "bio": "Updated bio"},
+            headers=auth_header,
+        )
+
+    assert resp.status_code == 200
+    assert mock_log_audit.called
+    call = mock_log_audit.call_args
+    # conn must be the first positional argument
+    assert call.args and call.args[0] is mock_conn
+    assert call.kwargs["actor_id"] == FAKE_EDITOR_ROW[0]
+    assert call.kwargs["actor_email"] == FAKE_EDITOR_ROW[1]
+    assert call.kwargs["action"] == "update_reviewer"
+    assert call.kwargs["entity_type"] == "reviewer"
+    assert call.kwargs["entity_id"] == "reviewer-1"
+    # diff should be plain, JSON-serialisable request-body values, not
+    # already-JSON-encoded jsonb strings.
+    assert call.kwargs["diff"] == {"is_public": True, "bio": "Updated bio"}
+    # forbidden legacy kwargs must not be used
+    assert "admin_id" not in call.kwargs
+    assert "resource_type" not in call.kwargs
+    assert "resource_id" not in call.kwargs
+    assert "new_values" not in call.kwargs
+
+
+def test_update_reviewer_succeeds_even_if_audit_logging_raises(client):
+    """A failure in log_audit must never turn an already-committed write into a 500."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_EDITOR_ROW)
+    mock_conn.execute.side_effect = _reviewer_update_side_effect()
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    auth_header = {"Authorization": "Bearer " + "test-token"}
+    with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR_ROW[0], "email": FAKE_EDITOR_ROW[1]}), \
+         patch("routes.admin.reviewers.log_audit", side_effect=TypeError("boom")):
+        resp = client.put(
+            "/api/admin/reviewers/reviewer-1",
+            json={"is_public": True},
+            headers=auth_header,
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["is_public"] is True
+
+
 # ---------------------------------------------------------------------------
 # Optimistic locking — 409 on timestamp mismatch
 # ---------------------------------------------------------------------------
@@ -416,6 +512,22 @@ def test_update_pill_returns_409_on_stale_timestamp(client):
 # Audit log insertion
 # ---------------------------------------------------------------------------
 
+def test_log_audit_uses_savepoint_to_isolate_transaction():
+    """Audit writes should run in a nested transaction so they cannot poison the main write."""
+    from routes.admin.auth import log_audit
+
+    conn = MagicMock()
+    nested_tx = MagicMock()
+    nested_tx.__enter__ = MagicMock(return_value=nested_tx)
+    nested_tx.__exit__ = MagicMock(return_value=False)
+    conn.begin_nested.return_value = nested_tx
+
+    log_audit(conn, "actor-id", "actor@test.com", "test_action", "pill", "123")
+
+    conn.begin_nested.assert_called_once_with()
+    conn.execute.assert_called_once()
+
+
 def test_log_audit_does_not_raise_on_db_error():
     """log_audit should silently log errors rather than raising exceptions."""
     from routes.admin.auth import log_audit
@@ -424,7 +536,14 @@ def test_log_audit_does_not_raise_on_db_error():
     broken_conn.execute.side_effect = Exception("DB is down")
 
     # Should not raise
-    log_audit(broken_conn, "actor-id", "actor@test.com", "test_action", "pill", "123")
+    log_audit(
+        conn=broken_conn,
+        actor_id="actor-id",
+        actor_email="actor@test.com",
+        action="test_action",
+        entity_type="pill",
+        entity_id="123",
+    )
 
 
 def test_get_me_returns_correct_fields(client):

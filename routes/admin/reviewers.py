@@ -217,13 +217,21 @@ def create_reviewer(
                 },
             ).fetchone()
 
-        log_audit(
-            admin_id=admin["id"],
-            action="create_reviewer",
-            resource_type="reviewer",
-            resource_id=str(row._mapping["id"]),
-            new_values={"name": body.name},
-        )
+            try:
+                log_audit(
+                    conn,
+                    actor_id=admin["id"],
+                    actor_email=admin["email"],
+                    action="create_reviewer",
+                    entity_type="reviewer",
+                    entity_id=str(row._mapping["id"]),
+                    diff=body.model_dump(exclude_none=True),
+                    ip_address=request.client.host if request.client else None,
+                    user_agent=request.headers.get("user-agent"),
+                )
+            except Exception as audit_exc:
+                logger.error("create_reviewer audit log failed: %s", audit_exc)
+
         return dict(row._mapping)
     except SQLAlchemyError as exc:
         logger.error("create_reviewer error: %s", exc)
@@ -326,13 +334,21 @@ def update_reviewer(
                 updates,
             ).fetchone()
 
-        log_audit(
-            admin_id=admin["id"],
-            action="update_reviewer",
-            resource_type="reviewer",
-            resource_id=reviewer_id,
-            new_values={k: v for k, v in updates.items() if k != "id"},
-        )
+            try:
+                log_audit(
+                    conn,
+                    actor_id=admin["id"],
+                    actor_email=admin["email"],
+                    action="update_reviewer",
+                    entity_type="reviewer",
+                    entity_id=reviewer_id,
+                    diff=body.model_dump(exclude_none=True),
+                    ip_address=request.client.host if request.client else None,
+                    user_agent=request.headers.get("user-agent"),
+                )
+            except Exception as audit_exc:
+                logger.error("update_reviewer audit log failed: %s", audit_exc)
+
         return dict(row._mapping)
     except SQLAlchemyError as exc:
         logger.error("update_reviewer error: %s", exc)
@@ -361,12 +377,19 @@ def delete_reviewer(
             if result.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Reviewer not found")
 
-        log_audit(
-            admin_id=admin["id"],
-            action="deactivate_reviewer",
-            resource_type="reviewer",
-            resource_id=reviewer_id,
-        )
+            try:
+                log_audit(
+                    conn,
+                    actor_id=admin["id"],
+                    actor_email=admin["email"],
+                    action="deactivate_reviewer",
+                    entity_type="reviewer",
+                    entity_id=reviewer_id,
+                    ip_address=request.client.host if request.client else None,
+                    user_agent=request.headers.get("user-agent"),
+                )
+            except Exception as audit_exc:
+                logger.error("deactivate_reviewer audit log failed: %s", audit_exc)
     except SQLAlchemyError as exc:
         logger.error("delete_reviewer error: %s", exc)
         raise HTTPException(status_code=500, detail="Database error")

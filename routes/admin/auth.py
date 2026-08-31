@@ -197,28 +197,30 @@ def log_audit(
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None,
 ):
-    """Insert a row into audit_log. Call within an existing DB connection."""
+    """Insert a row into audit_log without poisoning the caller's transaction."""
     import json
     try:
-        conn.execute(
-            text("""
-                INSERT INTO audit_log
-                  (actor_id, actor_email, action, entity_type, entity_id, diff, metadata, ip_address, user_agent)
-                VALUES
-                  (:actor_id, :actor_email, :action, :entity_type, :entity_id,
-                   CAST(:diff AS jsonb), CAST(:metadata AS jsonb), CAST(:ip AS inet), :user_agent)
-            """),
-            {
-                "actor_id": str(actor_id),
-                "actor_email": actor_email,
-                "action": action,
-                "entity_type": entity_type,
-                "entity_id": str(entity_id) if entity_id else None,
-                "diff": json.dumps(diff) if diff else None,
-                "metadata": json.dumps(metadata) if metadata else None,
-                "ip": ip_address,
-                "user_agent": user_agent,
-            },
-        )
+        params = {
+            "actor_id": str(actor_id),
+            "actor_email": actor_email,
+            "action": action,
+            "entity_type": entity_type,
+            "entity_id": str(entity_id) if entity_id else None,
+            "diff": json.dumps(diff) if diff else None,
+            "metadata": json.dumps(metadata) if metadata else None,
+            "ip": ip_address,
+            "user_agent": user_agent,
+        }
+        with conn.begin_nested():
+            conn.execute(
+                text("""
+                    INSERT INTO audit_log
+                      (actor_id, actor_email, action, entity_type, entity_id, diff, metadata, ip_address, user_agent)
+                    VALUES
+                      (:actor_id, :actor_email, :action, :entity_type, :entity_id,
+                       CAST(:diff AS jsonb), CAST(:metadata AS jsonb), CAST(:ip AS inet), :user_agent)
+                """),
+                params,
+            )
     except Exception as e:
         logger.error(f"Failed to write audit log: {e}")
