@@ -1223,6 +1223,7 @@ def test_api_slugs_returns_200(client):
     conn_mock.execute.return_value = mock_result
     response = client.get("/api/slugs")
     assert response.status_code == 200
+    assert response.headers.get("cache-control") == "public, max-age=86400, s-maxage=86400"
 
 
 def test_api_slugs_returns_list_of_strings(client):

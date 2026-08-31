@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../lib/supabase'
-import { CheckCircle, XCircle, Send, Pencil, Upload, Trash2, Eye } from 'lucide-react'
+import { CheckCircle, XCircle, Send, Pencil, Upload, Trash2, Eye, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 
 interface Draft {
   id: string
@@ -27,17 +27,24 @@ const STATUS_COLORS: Record<string, string> = {
   rejected: 'bg-red-100 text-red-600',
 }
 
+const PAGE_SIZE = 50
+
 function DraftsListInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const statusFilter = searchParams.get('status') || ''
 
+  const pageParam = parseInt(searchParams.get('page') || '1', 10)
+  const currentPage = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam
+  const limit = PAGE_SIZE
+  const offset = (currentPage - 1) * limit
+
   const [drafts, setDrafts] = useState<Draft[]>([])
+  const [total, setTotal] = useState<number>(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actioning, setActioning] = useState<string | null>(null)
   const [role, setRole] = useState<string | null>(null)
-  const [pendingCount, setPendingCount] = useState<number | null>(null)
 
   const fetchDrafts = useCallback(async () => {
     const supabase = createClient()
@@ -53,38 +60,43 @@ function DraftsListInner() {
     try {
       const qs = new URLSearchParams()
       if (statusFilter) qs.set('status', statusFilter)
+      qs.set('limit', String(limit))
+      qs.set('offset', String(offset))
       const qStr = qs.toString()
-      const [draftsRes, meRes, countRes] = await Promise.all([
+      const [draftsRes, meRes] = await Promise.all([
         fetch(`/api/admin/drafts${qStr ? `?${qStr}` : ''}`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
+          headers: { Authorization: 'Bearer ' + session.access_token },
         }),
         fetch('/api/admin/me', {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        }),
-        fetch('/api/admin/drafts/count', {
-          headers: { Authorization: `Bearer ${session.access_token}` },
+          headers: { Authorization: 'Bearer ' + session.access_token },
         }),
       ])
       if (!draftsRes.ok) throw new Error('Failed to fetch drafts')
-      setDrafts(await draftsRes.json())
+      const data = await draftsRes.json()
+      setDrafts(data.items || [])
+      setTotal(data.total || 0)
       if (meRes.ok) {
         const meData = await meRes.json()
         setRole(meData.role)
-      }
-      if (countRes.ok) {
-        const countData = await countRes.json()
-        setPendingCount(countData.count ?? null)
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, router])
+  }, [statusFilter, offset, router, limit])
 
   useEffect(() => {
     fetchDrafts()
   }, [fetchDrafts])
+
+  const goToPage = (newPage: number) => {
+    const params = new URLSearchParams()
+    if (statusFilter) params.set('status', statusFilter)
+    if (newPage > 1) params.set('page', String(newPage))
+    const qStr = params.toString()
+    router.push(`/admin/drafts${qStr ? `?${qStr}` : ''}`)
+  }
 
   const action = async (draftId: string, endpoint: string) => {
     const supabase = createClient()
@@ -98,7 +110,7 @@ function DraftsListInner() {
       const res = await fetch(`/api/admin/drafts/${draftId}/${endpoint}`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: 'Bearer ' + session.access_token,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({}),
@@ -129,7 +141,7 @@ function DraftsListInner() {
     try {
       const res = await fetch(`/api/admin/drafts/${draftId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: 'Bearer ' + session.access_token },
       })
       if (!res.ok) {
         const err = await res.json()
@@ -146,16 +158,14 @@ function DraftsListInner() {
   }
 
   const STATUSES = ['', 'draft', 'pending_review', 'approved', 'published', 'rejected']
+  const totalPages = Math.max(1, Math.ceil(total / limit))
+  const from = total === 0 ? 0 : offset + 1
+  const to = Math.min(offset + limit, total)
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Drafts</h1>
-        {pendingCount != null && pendingCount > 0 && (
-          <span className="bg-yellow-400 text-yellow-900 text-sm font-bold px-2 py-0.5 rounded-full">
-            {pendingCount}
-          </span>
-        )}
       </div>
 
       <div className="flex gap-2 flex-wrap">
@@ -205,7 +215,19 @@ function DraftsListInner() {
             {!loading && drafts.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                  No drafts found
+                  {total > 0 && offset >= total ? (
+                    <div>
+                      <p>No drafts found on this page.</p>
+                      <button
+                        onClick={() => goToPage(1)}
+                        className="mt-2 inline-flex items-center text-xs text-indigo-600 hover:text-indigo-800 underline font-medium"
+                      >
+                        Go to first page
+                      </button>
+                    </div>
+                  ) : (
+                    'No drafts found'
+                  )}
                 </td>
               </tr>
             )}
@@ -318,6 +340,61 @@ function DraftsListInner() {
             ))}
           </tbody>
         </table>
+
+        {/* Pagination Footer */}
+        <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200 sm:px-6">
+          <div className="text-xs text-gray-600">
+            {total > 0 ? (
+              <>
+                Showing <span className="font-semibold text-gray-900">{from}</span>–<span className="font-semibold text-gray-900">{to}</span> of{' '}
+                <span className="font-semibold text-gray-900">{total}</span> drafts
+              </>
+            ) : (
+              <span>0 drafts</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <button
+              onClick={() => goToPage(1)}
+              disabled={currentPage <= 1 || loading}
+              aria-label="Go to first page"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronsLeft className="w-3.5 h-3.5" />
+              First
+            </button>
+            <button
+              onClick={() => goToPage(currentPage - 1)}
+              disabled={currentPage <= 1 || loading}
+              aria-label="Go to previous page"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              Previous
+            </button>
+            <span className="text-xs text-gray-700 px-2 font-medium">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => goToPage(currentPage + 1)}
+              disabled={currentPage >= totalPages || loading}
+              aria-label="Go to next page"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => goToPage(totalPages)}
+              disabled={currentPage >= totalPages || loading}
+              aria-label="Go to last page"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Last
+              <ChevronsRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
