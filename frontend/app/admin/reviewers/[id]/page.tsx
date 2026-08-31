@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Plus, X, createLucideIcon } from 'lucide-react'
+import { AlertCircle, ArrowLeft, CheckCircle2, Plus, X, createLucideIcon } from 'lucide-react'
 import { createClient } from '../../lib/supabase'
 import AvatarUpload from '../components/AvatarUpload'
 
@@ -311,23 +311,33 @@ export default function ReviewerEditPage() {
       <div className="flex items-center gap-3 mb-6">
         <Link
           href="/admin/reviewers"
-          className="text-gray-400 hover:text-white transition-colors"
+          className="text-gray-400 hover:text-gray-900 transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />
         </Link>
-        <h1 className="text-2xl font-bold text-white">
+        <h1 className="text-2xl font-bold text-gray-900">
           {isNew ? 'Add Reviewer' : 'Edit Reviewer'}
         </h1>
       </div>
 
       {error && (
-        <div className="bg-red-900/30 border border-red-700 text-red-300 rounded-md p-3 text-sm mb-4">
-          {error}
+        <div
+          role="alert"
+          aria-live="polite"
+          className="flex items-start gap-2 bg-red-50 border border-red-300 text-red-800 font-medium rounded-md p-3 text-sm mb-4"
+        >
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <span>{error}</span>
         </div>
       )}
       {success && (
-        <div className="bg-emerald-900/30 border border-emerald-700 text-emerald-300 rounded-md p-3 text-sm mb-4">
-          {success}
+        <div
+          role="alert"
+          aria-live="polite"
+          className="flex items-start gap-2 bg-emerald-50 border border-emerald-300 text-emerald-800 font-medium rounded-md p-3 text-sm mb-4"
+        >
+          <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <span>{success}</span>
         </div>
       )}
 
@@ -447,6 +457,10 @@ export default function ReviewerEditPage() {
               placeholder="Licensed pharmacist with 15 years experience…"
               className={textareaClass}
             />
+            <p className="mt-1 text-xs text-gray-500">
+              Plain text only — blank lines start a new paragraph. Headings, tabs, and bullet
+              markup are not supported.
+            </p>
           </div>
 
           <div>

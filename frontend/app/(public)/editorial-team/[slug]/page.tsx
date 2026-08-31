@@ -270,7 +270,7 @@ export default async function ReviewerProfilePage(
           {reviewer.bio && (
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 mb-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-3">About</h2>
-              <p className="text-slate-600 leading-relaxed">{reviewer.bio}</p>
+              <p className="text-slate-600 leading-relaxed whitespace-pre-line">{reviewer.bio}</p>
             </section>
           )}
 
