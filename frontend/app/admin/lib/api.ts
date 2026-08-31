@@ -40,8 +40,10 @@ export const adminApi = {
     apiFetch(`/api/admin/pills/${id}/restore`, { method: 'POST' }),
   createDraft: (pillId: string, data: object) =>
     apiFetch(`/api/admin/pills/${pillId}/drafts`, { method: 'POST', body: JSON.stringify(data) }),
-  getDrafts: () =>
-    apiFetch('/api/admin/drafts'),
+  getDrafts: (params?: Record<string, string | number>) => {
+    const qs = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+    return apiFetch(`/api/admin/drafts${qs ? `?${qs}` : ''}`)
+  },
   submitDraft: (id: string) =>
     apiFetch(`/api/admin/drafts/${id}/submit`, { method: 'POST' }),
   approveDraft: (id: string, notes?: string) =>

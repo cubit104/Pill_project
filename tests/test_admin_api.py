@@ -147,7 +147,7 @@ def test_admin_stats_returns_403_for_non_admin(client):
     db_module.db_engine = mock_engine
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
-        resp = client.get("/api/admin/stats", headers={"Authorization": "Bearer faketoken"})
+        resp = client.get("/api/admin/stats", headers={"Authorization": "Bearer " + "test-token"})
     assert resp.status_code == 403
 
 
@@ -165,7 +165,7 @@ def test_readonly_cannot_delete_pill(client):
     with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_READONLY_ROW[0]}):
         resp = client.delete(
             "/api/admin/pills/some-pill-id",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
     assert resp.status_code == 403
 
@@ -189,7 +189,7 @@ def test_editor_cannot_update_critical_fields(client):
         resp = client.put(
             "/api/admin/pills/some-pill-id",
             json={"spl_strength": "500mg", "spl_ingredients": "Ibuprofen"},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
     assert resp.status_code == 403
 
@@ -206,7 +206,7 @@ def test_list_users_requires_superadmin(client):
     db_module.db_engine = mock_engine
 
     with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR_ROW[0]}):
-        resp = client.get("/api/admin/users", headers={"Authorization": "Bearer faketoken"})
+        resp = client.get("/api/admin/users", headers={"Authorization": "Bearer " + "test-token"})
     assert resp.status_code == 403
 
 
@@ -246,7 +246,7 @@ def test_soft_delete_calls_correct_sql(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.delete(
             "/api/admin/pills/some-pill-id",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200
@@ -503,7 +503,7 @@ def test_update_pill_returns_409_on_stale_timestamp(client):
         resp = client.put(
             "/api/admin/pills/some-pill-id",
             json={"medicine_name": "Aspirin", "updated_at": stale_ts},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
     assert resp.status_code == 409
 
@@ -554,7 +554,7 @@ def test_get_me_returns_correct_fields(client):
     db_module.db_engine = mock_engine
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
-        resp = client.get("/api/admin/me", headers={"Authorization": "Bearer faketoken"})
+        resp = client.get("/api/admin/me", headers={"Authorization": "Bearer " + "test-token"})
 
     assert resp.status_code == 200
     data = resp.json()
@@ -599,7 +599,7 @@ def test_list_pills_sort_order_puts_unnamed_last(client):
     db_module.db_engine = mock_engine
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
-        resp = client.get("/api/admin/pills", headers={"Authorization": "Bearer faketoken"})
+        resp = client.get("/api/admin/pills", headers={"Authorization": "Bearer " + "test-token"})
 
     assert resp.status_code == 200, resp.text
     assert mock_conn.execute.called, "Expected list_pills to execute a SQL query"
@@ -656,7 +656,7 @@ def test_pill_create_accepts_new_fields(client):
                 "tags": "painkiller, analgesic",
                 "brand_or_generic": "brand",
             },
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 201, resp.text
@@ -705,7 +705,7 @@ def test_pill_create_draft_sets_published_false(client):
         resp = client.post(
             "/api/admin/pills",
             json={"medicine_name": "DraftDrug"},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 201, resp.text
@@ -750,7 +750,7 @@ def test_pill_create_with_rxcui_calls_synonym_resolver(client):
         resp = client.post(
             "/api/admin/pills",
             json={"medicine_name": "Plavix", "rxcui": "12345"},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 201, resp.text
@@ -785,7 +785,7 @@ def test_pill_create_rxcui_resolver_failure_does_not_block_save(client):
         resp = client.post(
             "/api/admin/pills",
             json={"medicine_name": "Plavix", "rxcui": "12345"},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 201, resp.text
@@ -830,7 +830,7 @@ def test_pill_update_without_rxcui_uses_existing_rxcui_for_synonym_resolver(clie
         resp = client.put(
             "/api/admin/pills/pill-id",
             json={"medicine_name": "Updated Plavix", "updated_at": db_ts.isoformat()},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -886,7 +886,7 @@ def test_pill_update_accepts_new_fields(client):
                 "brand_or_generic": "generic",
                 "updated_at": "2024-06-01T12:00:00+00:00",
             },
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -944,7 +944,7 @@ def test_bulk_tag_adds_without_duplication(client):
         resp = client.post(
             "/api/admin/pills/bulk/tag",
             json={"ids": ["pill-uuid-1"], "tag": "painkiller", "mode": "add"},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -999,7 +999,7 @@ def test_bulk_delete_soft_deletes_all(client):
         resp = client.post(
             "/api/admin/pills/bulk/delete",
             json={"ids": ids},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -1045,7 +1045,7 @@ def test_duplicate_detection_requires_all_7_fields(client):
     db_module.db_engine = mock_engine
 
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
-        resp = client.get("/api/admin/duplicates", headers={"Authorization": "Bearer faketoken"})
+        resp = client.get("/api/admin/duplicates", headers={"Authorization": "Bearer " + "test-token"})
 
     assert resp.status_code == 200, resp.text
     data = resp.json()
@@ -1112,7 +1112,7 @@ def test_merge_rejects_when_fields_differ(client):
         resp = client.post(
             "/api/admin/duplicates/merge",
             json={"keep_id": "keep-id", "discard_ids": ["discard-id"]},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 400, resp.text
@@ -1184,7 +1184,7 @@ def test_merge_gap_fills_correctly(client):
         resp = client.post(
             "/api/admin/duplicates/merge",
             json={"keep_id": "keep-id", "discard_ids": ["discard-id"]},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -1230,7 +1230,7 @@ def test_csv_export_returns_streaming_response(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/pills/export.csv",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -1317,7 +1317,7 @@ def test_merge_end_to_end_keeps_pill_and_soft_deletes_discards(client):
         resp = client.post(
             "/api/admin/duplicates/merge",
             json={"keep_id": KEEP_ID, "discard_ids": [DISCARD_ID]},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -1391,7 +1391,7 @@ def test_upload_image_stores_full_storage_path(client):
         resp = client.post(
             f"/api/admin/pills/{PILL_UUID}/images",
             files={"file": ("test.jpg", fake_image, "image/jpeg")},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -1453,7 +1453,7 @@ def test_upload_image_appends_full_path_to_existing(client):
         resp = client.post(
             f"/api/admin/pills/{PILL_UUID}/images",
             files={"file": ("photo.png", fake_image, "image/png")},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -1512,7 +1512,7 @@ def test_delete_image_uses_filename_as_storage_key(client):
          patch("httpx.post", side_effect=fake_httpx_post):
         resp = client.delete(
             f"/api/admin/pills/{PILL_UUID}/images/{PILL_UUID}%2F8bdcca05-1776920313.jpg",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -1584,7 +1584,7 @@ def test_get_pill_resolved_image_urls_no_double_prefix(client):
     with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_ADMIN_ROW[0]}):
         resp = client.get(
             f"/api/admin/pills/{pill_id}",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -1640,7 +1640,7 @@ def test_list_pills_has_image_true_filters_by_image_filename(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/pills?has_image=true",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -1685,7 +1685,7 @@ def test_list_pills_has_image_false_filters_by_image_filename(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/pills?has_image=false",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -1734,7 +1734,7 @@ def test_stats_no_image_count_uses_image_filename(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/pills/stats",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -1788,7 +1788,7 @@ def test_get_pill_indication_returns_nulls_when_no_rxcui(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/pills/some-pill-id/indication",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200
@@ -1835,7 +1835,7 @@ def test_get_pill_indication_returns_data_when_found(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/pills/some-pill-id/indication",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200
@@ -1876,7 +1876,7 @@ def test_get_pill_indication_returns_404_for_missing_pill(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/pills/nonexistent/indication",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 404
@@ -1925,7 +1925,7 @@ def test_put_pill_indication_saves_with_manual_source(client):
         resp = client.put(
             "/api/admin/pills/some-pill-id/indication",
             json={"plain_text": "Aspirin is used for pain."},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200
@@ -1974,7 +1974,7 @@ def test_put_pill_indication_returns_400_when_no_rxcui(client):
         resp = client.put(
             "/api/admin/pills/some-pill-id/indication",
             json={"plain_text": "some text"},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 400
@@ -1995,7 +1995,7 @@ def test_put_pill_indication_requires_editor_or_higher(client):
         resp = client.put(
             "/api/admin/pills/some-pill-id/indication",
             json={"plain_text": "some text"},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 403
@@ -2052,7 +2052,7 @@ def test_get_pill_pronunciation_returns_data_when_found(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/pills/some-pill-id/pronunciation",
-            headers={"Authorization": "Bearer " + "faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2097,7 +2097,7 @@ def test_get_pill_pronunciation_returns_nulls_when_not_found(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/pills/some-pill-id/pronunciation",
-            headers={"Authorization": "Bearer " + "faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2150,7 +2150,7 @@ def test_put_pill_pronunciation_saves_with_manual_source(client):
         resp = client.put(
             "/api/admin/pills/some-pill-id/pronunciation",
             json={"pronunciation_text": "as' pir in"},
-            headers={"Authorization": "Bearer " + "faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2182,7 +2182,7 @@ def test_put_pill_pronunciation_requires_editor_or_higher(client):
         resp = client.put(
             "/api/admin/pills/some-pill-id/pronunciation",
             json={"pronunciation_text": "some text"},
-            headers={"Authorization": "Bearer " + "faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 403
@@ -2229,7 +2229,7 @@ def test_bulk_create_draft_inserts_all_rows(client):
         resp = client.post(
             "/api/admin/pills/bulk",
             json={"pills": pills, "publish": False},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2290,7 +2290,7 @@ def test_bulk_create_publish_skips_invalid_rows(client):
         resp = client.post(
             "/api/admin/pills/bulk",
             json={"pills": [valid_pill, invalid_pill], "publish": True},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2351,7 +2351,7 @@ def test_bulk_create_partial_db_failure(client):
         resp = client.post(
             "/api/admin/pills/bulk",
             json={"pills": pills, "publish": False},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2406,7 +2406,7 @@ def test_bulk_create_idempotency_key_prevents_duplicate(client):
         resp = client.post(
             "/api/admin/pills/bulk",
             json={"pills": pills, "publish": False},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2470,7 +2470,7 @@ def test_bulk_create_slug_collision_rejected_draft(client):
         resp = client.post(
             "/api/admin/pills/bulk",
             json={"pills": pills, "publish": False},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2541,7 +2541,7 @@ def test_bulk_create_slug_collision_rejected_publish(client):
         resp = client.post(
             "/api/admin/pills/bulk",
             json={"pills": [valid_pill], "publish": True},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2602,7 +2602,7 @@ def test_bulk_create_name_strength_collision_rejected_draft(client):
         resp = client.post(
             "/api/admin/pills/bulk",
             json={"pills": pills, "publish": False},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2671,7 +2671,7 @@ def test_bulk_create_name_strength_collision_rejected_publish(client):
         resp = client.post(
             "/api/admin/pills/bulk",
             json={"pills": [valid_pill], "publish": True},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2730,7 +2730,7 @@ def test_get_draft_returns_draft_data(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/drafts/draft-uuid-001",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2765,7 +2765,7 @@ def test_get_draft_returns_404_for_missing(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/drafts/nonexistent-id",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 404
@@ -2801,7 +2801,7 @@ def test_patch_draft_updates_draft_data(client):
         resp = client.patch(
             "/api/admin/drafts/draft-uuid-001",
             json={"draft_data": {"medicine_name": "Updated Aspirin", "slug": "aspirin-updated"}},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2836,7 +2836,7 @@ def test_patch_draft_returns_404_for_missing(client):
         resp = client.patch(
             "/api/admin/drafts/nonexistent-id",
             json={"draft_data": {"medicine_name": "Whatever"}},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 404
@@ -2875,7 +2875,7 @@ def test_patch_draft_returns_409_for_non_draft_status(client):
         resp = client.patch(
             "/api/admin/drafts/some-submitted-draft",
             json={"draft_data": {"medicine_name": "Whatever"}},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 409
@@ -2912,7 +2912,7 @@ def test_create_draft_upsert_returns_200_on_update(client):
         resp = client.post(
             "/api/admin/pills/some-pill-id/drafts",
             json={"draft_data": {"medicine_name": "Aspirin"}},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -2953,7 +2953,7 @@ def test_create_draft_returns_201_on_insert(client):
         resp = client.post(
             "/api/admin/pills/some-pill-id/drafts",
             json={"draft_data": {"medicine_name": "Aspirin"}},
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 201, resp.text
@@ -2963,28 +2963,35 @@ def test_create_draft_returns_201_on_insert(client):
 
 
 def test_list_drafts_returns_unpublished_pillfinder_rows(client):
-    """GET /api/admin/drafts returns pillfinder rows where published=false."""
+    """GET /api/admin/drafts returns paginated drafts containing pillfinder and pill_drafts rows."""
     import datetime
 
     mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
 
-    call_count = [0]
     pill_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
     def side_effect(sql, *args, **kwargs):
         result = MagicMock()
-        call_count[0] += 1
         sql_str = str(sql).lower()
-        if call_count[0] == 1:
+        if "profiles" in sql_str or "admin_users" in sql_str:
             result.fetchone.return_value = FAKE_ADMIN_PROFILE
             result.fetchall.return_value = []
-        elif "pillfinder" in sql_str and "published" in sql_str:
+        elif "count" in sql_str:
+            result.scalar.return_value = 1
+            result.fetchone.return_value = (1,)
+        elif "combined_drafts" in sql_str or "union all" in sql_str:
             result.fetchone.return_value = None
             result.fetchall.return_value = [
                 (
                     pill_id,
-                    "Ibuprofen",
+                    pill_id,
+                    "draft",
+                    None,
                     datetime.datetime(2024, 1, 2),
+                    None,
+                    "Ibuprofen",
+                    None,
+                    "pillfinder",
                 )
             ]
         else:
@@ -3000,19 +3007,171 @@ def test_list_drafts_returns_unpublished_pillfinder_rows(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/drafts",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert isinstance(data, list)
-    assert len(data) == 1
+    assert isinstance(data, dict)
+    assert "items" in data
+    assert "total" in data
+    assert data["total"] == 1
+    assert data["limit"] == 50
+    assert data["offset"] == 0
+    items = data["items"]
+    assert len(items) == 1
     # Both 'id' and 'pill_id' are the same pillfinder.id — pill_id is included
     # for backward compatibility with callers that expect the old pill_drafts shape.
-    assert data[0]["id"] == pill_id
-    assert data[0]["pill_id"] == pill_id  # same as id — no separate draft id
-    assert data[0]["status"] == "draft"
-    assert data[0]["medicine_name"] == "Ibuprofen"
+    assert items[0]["id"] == pill_id
+    assert items[0]["pill_id"] == pill_id  # same as id — no separate draft id
+    assert items[0]["status"] == "draft"
+    assert items[0]["medicine_name"] == "Ibuprofen"
+    assert items[0]["source"] == "pillfinder"
+    assert items[0]["created_at"] is None
+    assert items[0]["updated_at"] == "2024-01-02T00:00:00"
+
+
+def test_list_drafts_pagination_params_and_custom_limits(client):
+    """GET /api/admin/drafts respects custom limit and offset query parameters."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    captured_params = []
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        if args and len(args) > 0 and isinstance(args[0], dict):
+            captured_params.append(args[0])
+        elif kwargs:
+            captured_params.append(kwargs)
+        sql_str = str(sql).lower()
+        if "profiles" in sql_str or "admin_users" in sql_str:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "count" in sql_str:
+            result.scalar.return_value = 769
+            result.fetchone.return_value = (769,)
+        else:
+            result.fetchone.return_value = None
+            result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/drafts?limit=25&offset=50",
+            headers={"Authorization": "Bearer " + "test-token"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 769
+    assert data["limit"] == 25
+    assert data["offset"] == 50
+    assert data["items"] == []
+
+    # Verify limit & offset were passed to the SQL execution
+    assert any(p.get("limit") == 25 and p.get("offset") == 50 for p in captured_params)
+
+
+def test_list_drafts_param_validation(client):
+    """GET /api/admin/drafts rejects limit > 200, limit < 1, and offset < 0."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp_too_high = client.get("/api/admin/drafts?limit=201", headers={"Authorization": "Bearer " + "test-token"})
+        assert resp_too_high.status_code == 422
+
+        resp_zero_limit = client.get("/api/admin/drafts?limit=0", headers={"Authorization": "Bearer " + "test-token"})
+        assert resp_zero_limit.status_code == 422
+
+        resp_neg_offset = client.get("/api/admin/drafts?offset=-1", headers={"Authorization": "Bearer " + "test-token"})
+        assert resp_neg_offset.status_code == 422
+
+
+def test_list_drafts_status_filter_excludes_pillfinder_for_non_draft(client):
+    """GET /api/admin/drafts?status=pending_review excludes synthetic pillfinder subquery from UNION ALL."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    executed_sqls = []
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        executed_sqls.append(str(sql))
+        sql_str = str(sql).lower()
+        if "profiles" in sql_str or "admin_users" in sql_str:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "count" in sql_str:
+            result.scalar.return_value = 5
+        else:
+            result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/drafts?status=pending_review",
+            headers={"Authorization": "Bearer " + "test-token"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 5
+
+    # synthetic pillfinder subquery ('pillfinder'::text as source) should not appear in executed SQL queries when filtering by pending_review
+    non_auth_sqls = [s for s in executed_sqls if "profiles" not in s.lower() and "admin_users" not in s.lower()]
+    for s in non_auth_sqls:
+        assert "'pillfinder'::text as source" not in s.lower()
+        assert ":pd_status" in s
+
+
+def test_list_drafts_status_filter_includes_pillfinder_for_draft(client):
+    """GET /api/admin/drafts?status=draft includes pillfinder rows in UNION ALL."""
+    mock_engine, mock_conn = _make_mock_engine(admin_row=FAKE_ADMIN_ROW)
+
+    executed_sqls = []
+
+    def side_effect(sql, *args, **kwargs):
+        result = MagicMock()
+        executed_sqls.append(str(sql))
+        sql_str = str(sql).lower()
+        if "profiles" in sql_str or "admin_users" in sql_str:
+            result.fetchone.return_value = FAKE_ADMIN_PROFILE
+        elif "count" in sql_str:
+            result.scalar.return_value = 10
+        else:
+            result.fetchall.return_value = []
+        return result
+
+    mock_conn.execute.side_effect = side_effect
+
+    import database as db_module
+    db_module.db_engine = mock_engine
+
+    with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
+        resp = client.get(
+            "/api/admin/drafts?status=draft",
+            headers={"Authorization": "Bearer " + "test-token"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 10
+
+    # synthetic pillfinder subquery should appear in executed SQL queries when filtering by draft
+    non_auth_sqls = [s for s in executed_sqls if "profiles" not in s.lower() and "admin_users" not in s.lower()]
+    for s in non_auth_sqls:
+        assert "'pillfinder'::text as source" in s.lower()
+        assert ":pd_status" in s
 
 
 # ---------------------------------------------------------------------------
@@ -3059,7 +3218,7 @@ def test_delete_draft_superuser_can_delete_draft_status(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.delete(
             f"/api/admin/drafts/{DRAFT_ID}",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -3103,7 +3262,7 @@ def test_delete_draft_editor_can_delete_draft_status(client):
     with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR_ROW[0], "email": FAKE_EDITOR_ROW[1]}):
         resp = client.delete(
             f"/api/admin/drafts/{DRAFT_ID}",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -3145,7 +3304,7 @@ def test_delete_draft_readonly_gets_403_for_draft_status(client):
     with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_READONLY_ROW[0]}):
         resp = client.delete(
             f"/api/admin/drafts/{DRAFT_ID}",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 403
@@ -3182,7 +3341,7 @@ def test_delete_draft_editor_gets_403_for_pending_review(client):
     with patch("routes.admin.auth._verify_jwt", return_value={"id": FAKE_EDITOR_ROW[0], "email": FAKE_EDITOR_ROW[1]}):
         resp = client.delete(
             f"/api/admin/drafts/{DRAFT_ID}",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 403
@@ -3225,7 +3384,7 @@ def test_delete_draft_superuser_can_delete_pending_review(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.delete(
             f"/api/admin/drafts/{DRAFT_ID}",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -3281,7 +3440,7 @@ def test_delete_draft_soft_deletes_pillfinder_when_last_draft(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.delete(
             f"/api/admin/drafts/{DRAFT_ID}",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -3343,7 +3502,7 @@ def test_delete_draft_does_not_touch_pillfinder_when_other_drafts_exist(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.delete(
             f"/api/admin/drafts/{DRAFT_ID}",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -3379,7 +3538,7 @@ def test_delete_draft_returns_404_for_missing(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.delete(
             "/api/admin/drafts/nonexistent-draft-id",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 404
@@ -3417,7 +3576,7 @@ def test_preview_draft_returns_404_when_draft_missing(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             "/api/admin/drafts/nonexistent-draft/preview",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 404
@@ -3470,7 +3629,7 @@ def test_preview_draft_merges_live_and_draft_data(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             f"/api/admin/drafts/{DRAFT_ID}/preview",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -3520,7 +3679,7 @@ def test_preview_draft_allowlist_blocks_unknown_fields(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             f"/api/admin/drafts/{DRAFT_ID}/preview",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -3563,7 +3722,7 @@ def test_preview_draft_preserves_boolean_types(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             f"/api/admin/drafts/{DRAFT_ID}/preview",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
@@ -3613,7 +3772,7 @@ def test_preview_draft_pillfinder_fallback(client):
     with patch("routes.admin.auth._verify_jwt", return_value=FAKE_USER_PAYLOAD):
         resp = client.get(
             f"/api/admin/drafts/{PILL_ID}/preview",
-            headers={"Authorization": "Bearer faketoken"},
+            headers={"Authorization": "Bearer " + "test-token"},
         )
 
     assert resp.status_code == 200, resp.text
