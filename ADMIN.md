@@ -119,7 +119,7 @@ All endpoints require a valid Supabase JWT passed as `Authorization: Bearer <tok
 | DELETE | `/api/admin/pills/:id/hard` | **superuser** | Hard delete (permanent) |
 | POST | `/api/admin/pills/:id/restore` | editor+ | Restore from trash |
 | POST | `/api/admin/pills/:id/drafts` | reviewer+ | Create draft |
-| GET | `/api/admin/drafts` | any | List drafts |
+| GET | `/api/admin/drafts` | any | Paginated draft list |
 | POST | `/api/admin/drafts/:id/approve` | editor+ | Approve |
 | POST | `/api/admin/drafts/:id/reject` | editor+ | Reject |
 | POST | `/api/admin/drafts/:id/publish` | editor+ | Publish |

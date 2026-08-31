@@ -290,6 +290,8 @@ def update_draft(
 @router.get("/drafts")
 def list_drafts(
     status: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     admin: dict = Depends(get_admin_user),
 ):
     """List drafts from BOTH pill_drafts (review workflow) and pillfinder.published=false.
@@ -303,63 +305,64 @@ def list_drafts(
 
     try:
         with database.db_engine.connect() as conn:
-            # ── Source 1: pill_drafts (full review-workflow rows) ─────────────────
             pd_extra = ""
-            pd_params: dict = {}
+            filter_params: dict = {}
             if status:
                 pd_extra = " AND d.status = :pd_status"
-                pd_params["pd_status"] = status
+                filter_params["pd_status"] = status
 
-            pd_rows = conn.execute(
-                text(f"""
-                    SELECT d.id, d.pill_id, d.status, d.created_at, d.updated_at,
-                           d.review_notes,
-                           COALESCE(p.medicine_name, d.draft_data->>'medicine_name') AS medicine_name,
-                           d.created_by,
-                           'pill_drafts'::text AS source
-                    FROM pill_drafts d
-                    LEFT JOIN pillfinder p ON p.id = d.pill_id
-                    WHERE 1=1{pd_extra}
-                    ORDER BY d.updated_at DESC NULLS LAST, d.created_at DESC NULLS LAST
-                    LIMIT 100
-                """),
-                pd_params,
-            ).fetchall()
+            subqueries = [
+                f"""
+                SELECT d.id::text AS id,
+                       d.pill_id::text AS pill_id,
+                       d.status::text AS status,
+                       d.created_at::timestamptz AS created_at,
+                       d.updated_at::timestamptz AS updated_at,
+                       d.review_notes::text AS review_notes,
+                       COALESCE(p.medicine_name, d.draft_data->>'medicine_name')::text AS medicine_name,
+                       d.created_by::text AS created_by,
+                       'pill_drafts'::text AS source
+                FROM pill_drafts d
+                LEFT JOIN pillfinder p ON p.id = d.pill_id
+                WHERE 1=1{pd_extra}
+                """
+            ]
 
-            # ── Source 2: pillfinder rows with published=false (bulk-draft path) ──
-            # These always have synthetic status='draft'; omit when filtering by other statuses.
-            pf_rows: list = []
             if not status or status == "draft":
-                pf_rows = conn.execute(
-                    text("""
-                        SELECT id::text, id::text AS pill_id, 'draft'::text AS status,
-                               NULL::timestamptz AS created_at, updated_at,
-                               NULL::text AS review_notes, medicine_name,
-                               NULL::text AS created_by, 'pillfinder'::text AS source
-                        FROM pillfinder
-                        WHERE published = false AND deleted_at IS NULL
-                        ORDER BY updated_at DESC NULLS LAST
-                        LIMIT 100
-                    """),
-                ).fetchall()
+                subqueries.append(
+                    """
+                    SELECT id::text AS id,
+                           id::text AS pill_id,
+                           'draft'::text AS status,
+                           NULL::timestamptz AS created_at,
+                           updated_at::timestamptz AS updated_at,
+                           NULL::text AS review_notes,
+                           medicine_name::text AS medicine_name,
+                           NULL::text AS created_by,
+                           'pillfinder'::text AS source
+                    FROM pillfinder
+                    WHERE published = false AND deleted_at IS NULL
+                    """
+                )
 
-        # Merge and sort by updated_at DESC, then created_at DESC (None sorts last).
-        # ISO-format strings compare correctly to one another; "" < any date string,
-        # so None values (represented as "") sort last when reverse=True — correct
-        # for the intended NULLS LAST behaviour.
-        combined = list(pd_rows) + list(pf_rows)
+            union_sql = "\nUNION ALL\n".join(subqueries)
 
-        def _sort_key(r: tuple) -> tuple:
-            updated = r[4]
-            created = r[3]
-            u = updated.isoformat() if updated is not None else ""
-            c = created.isoformat() if created is not None else ""
-            return (u, c)
+            count_sql = f"SELECT COUNT(*) FROM (\n{union_sql}\n) AS combined_count"
+            total = conn.execute(text(count_sql), filter_params).scalar() or 0
 
-        combined.sort(key=_sort_key, reverse=True)
-        combined = combined[:200]
+            data_params = {**filter_params, "limit": limit, "offset": offset}
+            data_sql = f"""
+                SELECT id, pill_id, status, created_at, updated_at,
+                       review_notes, medicine_name, created_by, source
+                FROM (
+                    {union_sql}
+                ) AS combined_drafts
+                ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC NULLS LAST
+                LIMIT :limit OFFSET :offset
+            """
+            rows = conn.execute(text(data_sql), data_params).fetchall()
 
-        return [
+        items = [
             {
                 "id": str(r[0]),
                 "pill_id": str(r[1]) if r[1] else None,
@@ -371,8 +374,15 @@ def list_drafts(
                 "created_by": str(r[7]) if r[7] else None,
                 "source": r[8],
             }
-            for r in combined
+            for r in rows
         ]
+
+        return {
+            "items": items,
+            "total": int(total),
+            "limit": limit,
+            "offset": offset,
+        }
     except SQLAlchemyError as e:
         logger.error(f"list_drafts DB error: {e}", exc_info=True)
         root = getattr(e, "orig", None) or e
