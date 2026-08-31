@@ -512,6 +512,22 @@ def test_update_pill_returns_409_on_stale_timestamp(client):
 # Audit log insertion
 # ---------------------------------------------------------------------------
 
+def test_log_audit_uses_savepoint_to_isolate_transaction():
+    """Audit writes should run in a nested transaction so they cannot poison the main write."""
+    from routes.admin.auth import log_audit
+
+    conn = MagicMock()
+    nested_tx = MagicMock()
+    nested_tx.__enter__ = MagicMock(return_value=nested_tx)
+    nested_tx.__exit__ = MagicMock(return_value=False)
+    conn.begin_nested.return_value = nested_tx
+
+    log_audit(conn, "actor-id", "actor@test.com", "test_action", "pill", "123")
+
+    conn.begin_nested.assert_called_once_with()
+    conn.execute.assert_called_once()
+
+
 def test_log_audit_does_not_raise_on_db_error():
     """log_audit should silently log errors rather than raising exceptions."""
     from routes.admin.auth import log_audit
