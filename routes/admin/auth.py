@@ -211,29 +211,16 @@ def log_audit(
             "ip": ip_address,
             "user_agent": user_agent,
         }
-        if hasattr(conn, "begin_nested"):
-            with conn.begin_nested():
-                conn.execute(
-                    text("""
-                        INSERT INTO audit_log
-                          (actor_id, actor_email, action, entity_type, entity_id, diff, metadata, ip_address, user_agent)
-                        VALUES
-                          (:actor_id, :actor_email, :action, :entity_type, :entity_id,
-                           CAST(:diff AS jsonb), CAST(:metadata AS jsonb), CAST(:ip AS inet), :user_agent)
-                    """),
-                    params,
-                )
-            return
-
-        conn.execute(
-            text("""
-                INSERT INTO audit_log
-                  (actor_id, actor_email, action, entity_type, entity_id, diff, metadata, ip_address, user_agent)
-                VALUES
-                  (:actor_id, :actor_email, :action, :entity_type, :entity_id,
-                   CAST(:diff AS jsonb), CAST(:metadata AS jsonb), CAST(:ip AS inet), :user_agent)
-            """),
-            params,
-        )
+        with conn.begin_nested():
+            conn.execute(
+                text("""
+                    INSERT INTO audit_log
+                      (actor_id, actor_email, action, entity_type, entity_id, diff, metadata, ip_address, user_agent)
+                    VALUES
+                      (:actor_id, :actor_email, :action, :entity_type, :entity_id,
+                       CAST(:diff AS jsonb), CAST(:metadata AS jsonb), CAST(:ip AS inet), :user_agent)
+                """),
+                params,
+            )
     except Exception as e:
         logger.error(f"Failed to write audit log: {e}")

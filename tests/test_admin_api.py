@@ -536,7 +536,14 @@ def test_log_audit_does_not_raise_on_db_error():
     broken_conn.execute.side_effect = Exception("DB is down")
 
     # Should not raise
-    log_audit(broken_conn, "actor-id", "actor@test.com", "test_action", "pill", "123")
+    log_audit(
+        conn=broken_conn,
+        actor_id="actor-id",
+        actor_email="actor@test.com",
+        action="test_action",
+        entity_type="pill",
+        entity_id="123",
+    )
 
 
 def test_get_me_returns_correct_fields(client):
