@@ -116,7 +116,7 @@ function ReviewerCard({ reviewer }: { reviewer: PublicReviewer }) {
       </div>
 
       {reviewer.bio && (
-        <p className="text-sm text-slate-600 line-clamp-2 whitespace-pre-line">{reviewer.bio}</p>
+        <p className="text-sm text-slate-600 line-clamp-2">{reviewer.bio}</p>
       )}
 
       <Link

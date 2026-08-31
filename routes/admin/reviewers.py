@@ -389,7 +389,7 @@ def delete_reviewer(
                     user_agent=request.headers.get("user-agent"),
                 )
             except Exception as audit_exc:
-                logger.error("delete_reviewer audit log failed: %s", audit_exc)
+                logger.error("deactivate_reviewer audit log failed: %s", audit_exc)
     except SQLAlchemyError as exc:
         logger.error("delete_reviewer error: %s", exc)
         raise HTTPException(status_code=500, detail="Database error")
