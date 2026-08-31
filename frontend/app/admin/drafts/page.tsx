@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../lib/supabase'
-import { CheckCircle, XCircle, Send, Pencil, Upload, Trash2, Eye, ChevronLeft, ChevronRight } from 'lucide-react'
+import { CheckCircle, XCircle, Send, Pencil, Upload, Trash2, Eye, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 
 interface Draft {
   id: string
@@ -353,10 +353,20 @@ function DraftsListInner() {
               <span>0 drafts</span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <button
+              onClick={() => goToPage(1)}
+              disabled={currentPage <= 1 || loading}
+              aria-label="Go to first page"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronsLeft className="w-3.5 h-3.5" />
+              First
+            </button>
             <button
               onClick={() => goToPage(currentPage - 1)}
               disabled={currentPage <= 1 || loading}
+              aria-label="Go to previous page"
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
@@ -368,10 +378,20 @@ function DraftsListInner() {
             <button
               onClick={() => goToPage(currentPage + 1)}
               disabled={currentPage >= totalPages || loading}
+              aria-label="Go to next page"
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               Next
               <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => goToPage(totalPages)}
+              disabled={currentPage >= totalPages || loading}
+              aria-label="Go to last page"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Last
+              <ChevronsRight className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
