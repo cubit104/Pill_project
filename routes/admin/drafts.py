@@ -306,10 +306,10 @@ def list_drafts(
     try:
         with database.db_engine.connect() as conn:
             pd_extra = ""
-            params: dict = {"limit": limit, "offset": offset}
+            filter_params: dict = {}
             if status:
                 pd_extra = " AND d.status = :pd_status"
-                params["pd_status"] = status
+                filter_params["pd_status"] = status
 
             subqueries = [
                 f"""
@@ -348,8 +348,9 @@ def list_drafts(
             union_sql = "\nUNION ALL\n".join(subqueries)
 
             count_sql = f"SELECT COUNT(*) FROM (\n{union_sql}\n) AS combined_count"
-            total = conn.execute(text(count_sql), params).scalar() or 0
+            total = conn.execute(text(count_sql), filter_params).scalar() or 0
 
+            data_params = {**filter_params, "limit": limit, "offset": offset}
             data_sql = f"""
                 SELECT id, pill_id, status, created_at, updated_at,
                        review_notes, medicine_name, created_by, source
@@ -359,7 +360,7 @@ def list_drafts(
                 ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             """
-            rows = conn.execute(text(data_sql), params).fetchall()
+            rows = conn.execute(text(data_sql), data_params).fetchall()
 
         items = [
             {
