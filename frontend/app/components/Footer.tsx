@@ -46,6 +46,7 @@ export default function Footer() {
             <h3 className="text-sm font-semibold text-emerald-900 mb-3">Company</h3>
             <ul className="space-y-2">
               <li><Link href="/about" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">About</Link></li>
+              <li><Link href="/editorial-team" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">Editorial Team</Link></li>
               <li><Link href="/sources" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">Data Sources</Link></li>
               <li><Link href="/contact" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">Contact</Link></li>
             </ul>

@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { UserCheck, Plus, UserCircle } from 'lucide-react'
+import { AlertCircle, UserCheck, Plus, UserCircle } from 'lucide-react'
 import { createClient } from '../lib/supabase'
 
 interface Reviewer {
@@ -62,7 +62,7 @@ export default function ReviewersListPage() {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <UserCheck className="w-6 h-6 text-indigo-400" />
-          <h1 className="text-2xl font-bold text-white">Reviewers</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Reviewers</h1>
         </div>
         <Link
           href="/admin/reviewers/new"
@@ -78,8 +78,13 @@ export default function ReviewersListPage() {
       )}
 
       {error && (
-        <div className="bg-red-900/30 border border-red-700 text-red-300 rounded-md p-3 text-sm mb-4">
-          {error}
+        <div
+          role="alert"
+          aria-live="polite"
+          className="flex items-start gap-2 bg-red-50 border border-red-300 text-red-800 font-medium rounded-md p-3 text-sm mb-4"
+        >
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 
