@@ -52,3 +52,6 @@ frontend/node_modules
 frontend/package-lock.json
 data/drug_drug_interactions.csv
 =0.3.0
+
+# Local pill-vision model files (deployed separately, not committed)
+pill_vision/

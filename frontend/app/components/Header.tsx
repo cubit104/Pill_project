@@ -1,10 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [photoIdEnabled, setPhotoIdEnabled] = useState(false)
+
+  // Camera identification is a beta feature switched on/off from Admin → Settings.
+  useEffect(() => {
+    fetch('/api/features')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((f) => setPhotoIdEnabled(Boolean(f?.photo_id_enabled)))
+      .catch(() => {})
+  }, [])
+
+  const newBadge = (
+    <span className="ml-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 align-middle">New</span>
+  )
 
   return (
     <header className="bg-white border-b border-slate-200 shadow-sm relative sm:sticky top-0 z-40 pt-[env(safe-area-inset-top)] sm:pt-0">
@@ -23,6 +36,11 @@ export default function Header() {
         <nav className="hidden sm:flex items-center gap-8" aria-label="Main navigation">
           <Link href="/" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">Home</Link>
           <Link href="/search" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">Search</Link>
+          {photoIdEnabled && (
+            <Link href="/identify" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">
+              📷 Photo ID{newBadge}
+            </Link>
+          )}
         </nav>
 
         <button
@@ -43,7 +61,12 @@ export default function Header() {
       {menuOpen && (
         <nav id="mobile-menu" className="sm:hidden bg-white border-t border-slate-100 px-4 py-3 flex flex-col gap-3" aria-label="Mobile navigation">
           <Link href="/" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2 border-b border-slate-100" onClick={() => setMenuOpen(false)}>Home</Link>
-          <Link href="/search" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2" onClick={() => setMenuOpen(false)}>Search</Link>
+          <Link href="/search" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2 border-b border-slate-100" onClick={() => setMenuOpen(false)}>Search</Link>
+          {photoIdEnabled && (
+            <Link href="/identify" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2" onClick={() => setMenuOpen(false)}>
+              📷 Photo ID{newBadge}
+            </Link>
+          )}
         </nav>
       )}
     </header>

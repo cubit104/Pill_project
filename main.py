@@ -58,6 +58,10 @@ async def lifespan(app: FastAPI):
         logger.warning("Unable to verify pill_views table at startup: %s", exc, exc_info=True)
     if _env_truthy("RUN_SLUG_REGEN_ON_STARTUP"):
         await loop.run_in_executor(None, regenerate_slugs)
+    # Pill-vision assets (visual matcher) are fetched from storage if absent.
+    from services.model_assets import prefetch_in_background  # noqa: E402
+
+    prefetch_in_background()
     logger.info("Pill identification system initialized successfully")
     try:
         yield
@@ -117,7 +121,7 @@ except Exception as e:
 # Include all route modules
 from routes import search, details, filters, ndc, sitemap, health, similar, prices, trending, snapshot, interactions  # noqa: E402
 from routes import pill_images, conditions, medication_guide, pill_views, pronunciation  # noqa: E402
-from routes import reviewers_public  # noqa: E402
+from routes import reviewers_public, identify, identify_photo, site_settings  # noqa: E402
 from routes.admin import pills as admin_pills, drafts as admin_drafts, images as admin_images  # noqa: E402
 from routes.admin import audit as admin_audit, users as admin_users, stats as admin_stats  # noqa: E402
 from routes.admin import duplicates as admin_duplicates  # noqa: E402
@@ -146,6 +150,9 @@ app.include_router(pronunciation.router)
 app.include_router(pill_images.router)
 app.include_router(conditions.router)
 app.include_router(reviewers_public.router)
+app.include_router(identify.router)
+app.include_router(identify_photo.router)
+app.include_router(site_settings.router)
 app.include_router(admin_pills.router)
 app.include_router(admin_drafts.router)
 app.include_router(admin_images.router)
