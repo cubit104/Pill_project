@@ -177,10 +177,19 @@ def identify_pill(payload: IdentifyRequest):
             conditions.append("UPPER(COALESCE(splshape_text, '')) LIKE :shape_like")
             params["shape_like"] = f"%{payload.shape.strip().upper()}%"
 
+    # Rank the pool by how many query tokens each row matches so common tokens
+    # (e.g. "10") cannot push exact matches past the LIMIT.
+    order_by = ""
+    if query_tokens:
+        hits = " + ".join(
+            f"(CASE WHEN {_NORMALIZED_IMPRINT_SQL} ~ ('(^| )' || :tok_{i} || '( |$)') THEN 1 ELSE 0 END)"
+            for i in range(len(query_tokens))
+        )
+        order_by = f" ORDER BY ({hits}) DESC"
     sql = (
         "SELECT slug, medicine_name, splimprint, splcolor_text, splshape_text, "
         "spl_strength, image_filename "
-        "FROM pillfinder WHERE " + " AND ".join(conditions) + f" LIMIT {_CANDIDATE_POOL_LIMIT}"
+        "FROM pillfinder WHERE " + " AND ".join(conditions) + order_by + f" LIMIT {_CANDIDATE_POOL_LIMIT}"
     )
 
     try:
@@ -190,8 +199,7 @@ def identify_pill(payload: IdentifyRequest):
         logger.error(f"Database error in /api/identify: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Database error")
 
-    scored = []
-    seen_keys = set()
+    best_by_key: dict[tuple, IdentifyCandidate] = {}
     for row in rows:
         slug, medicine_name, splimprint, color_text, shape_text, strength, image_filename = row
         if not slug:
@@ -208,11 +216,10 @@ def identify_pill(payload: IdentifyRequest):
         # Deduplicate visually identical entries (same name + same imprint set),
         # keeping the highest-scoring one.
         key = ((medicine_name or "").strip().lower(), " ".join(sorted(row_imprint_tokens)))
-        if key in seen_keys:
+        if key in best_by_key and best_by_key[key].score >= score:
             continue
-        seen_keys.add(key)
 
-        scored.append(
+        best_by_key[key] = (
             IdentifyCandidate(
                 slug=slug,
                 medicine_name=medicine_name or "",
@@ -227,6 +234,7 @@ def identify_pill(payload: IdentifyRequest):
             )
         )
 
+    scored = list(best_by_key.values())
     scored.sort(key=lambda c: (-c.score, c.medicine_name, c.slug))
 
     return IdentifyResponse(

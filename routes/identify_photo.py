@@ -12,6 +12,7 @@ If the files are absent the endpoint returns 503 and the rest of the API is
 unaffected.
 """
 
+import asyncio
 import io
 import json
 import logging
@@ -25,15 +26,17 @@ from sqlalchemy import text
 
 import database
 from routes.identify import IdentifyRequest, identify_pill
+from routes.site_settings import read_flags
 from utils import process_image_filenames
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-MODEL_PATH = os.getenv("PILL_VISION_MODEL", os.path.join("pill_vision", "pill_encoder_int8.onnx"))
-INDEX_PATH = os.getenv("PILL_VISION_INDEX", os.path.join("pill_vision", "index_prod.npz"))
-ATTR_PATH = os.getenv("PILL_VISION_ATTRS", os.path.join("pill_vision", "pill_attr_heads.npz"))
+VISION_DIR = os.getenv("PILL_VISION_DIR", "pill_vision")
+MODEL_PATH = os.getenv("PILL_VISION_MODEL", os.path.join(VISION_DIR, "pill_encoder_int8.onnx"))
+INDEX_PATH = os.getenv("PILL_VISION_INDEX", os.path.join(VISION_DIR, "index_prod.npz"))
+ATTR_PATH = os.getenv("PILL_VISION_ATTRS", os.path.join(VISION_DIR, "pill_attr_heads.npz"))
 # In-house imprint reader (TrOCR fine-tune) service; unset/empty = disabled
 # (the endpoint then returns visual matches only).
 OCR_URL = os.getenv("PILL_OCR_URL", "")
@@ -274,22 +277,43 @@ async def identify_photo(
 ):
     """Match one or two photos (front/back). With two, each pill's score is the
     best of: either side alone, or the averaged two-side embedding."""
+    # The beta switch (Admin → Settings) gates the API too, not just the UI.
+    if not (await asyncio.to_thread(read_flags)).get("photo_id_enabled"):
+        raise HTTPException(status_code=404, detail="Photo identification is not enabled")
+
     uploads = [photo] + ([photo2] if photo2 is not None else [])
     raws: list[bytes] = []
     for up in uploads:
-        raw = await up.read()
-        if not raw:
-            continue
-        if len(raw) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=413, detail="Photo too large (max 8MB)")
-        raws.append(raw)
+        raw = await _read_bounded(up)
+        if raw:
+            raws.append(raw)
     if not raws:
         raise HTTPException(status_code=422, detail="Empty upload")
+
+    # Everything below is CPU-bound (ONNX, DB); keep it off the event loop.
+    return await asyncio.to_thread(_identify_sync, raws)
+
+
+async def _read_bounded(up: UploadFile) -> bytes:
+    """Read an upload in chunks, rejecting it as soon as it exceeds the limit."""
+    chunks, total = [], 0
+    while True:
+        chunk = await up.read(1 << 20)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Photo too large (max 20MB)")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _identify_sync(raws: list[bytes]) -> dict:
 
     # 1) Imprint reader first — it is the primary signal.
     imprint_read = ""
     imprint_matches: list[dict] = []
-    tokens, side_reads = await _read_imprint(raws)
+    tokens, side_reads = asyncio.run(_read_imprint(raws))
     if tokens:
         imprint_read = " ".join(tokens)
         try:
