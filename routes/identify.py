@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Same normalization used by /search so both features match identically:
-# collapse ;,-and-whitespace separators to single spaces, uppercase.
+# collapse ';', ',' and whitespace separators to single spaces, uppercase.
 _NORMALIZED_IMPRINT_SQL = "UPPER(REGEXP_REPLACE(COALESCE(splimprint, ''), '[;,\\s]+', ' ', 'g'))"
 
 # Cap the candidate pool fetched from the DB before Python-side scoring.

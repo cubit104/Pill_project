@@ -134,7 +134,7 @@ def _find_pill_candidates(img, keep: int = 2):
 
     Kept deliberately small — every candidate is one model inference on CPU.
     Users are told to center the pill, so we probe the center at three zooms
-    plus four near-center offsets at the two tighter zooms (11 total).
+    plus two near-center x-offsets at the medium zoom (5 total).
     """
     w, h = img.size
     base = min(w, h)

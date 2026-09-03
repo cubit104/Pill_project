@@ -76,7 +76,10 @@ function shrinkForUpload(file: File): Promise<File> {
       canvas.width = Math.round(img.width * scale)
       canvas.height = Math.round(img.height * scale)
       const ctx = canvas.getContext('2d')
-      if (!ctx) return resolve(file)
+      if (!ctx) {
+        URL.revokeObjectURL(url)
+        return resolve(file)
+      }
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
       URL.revokeObjectURL(url)
       canvas.toBlob(

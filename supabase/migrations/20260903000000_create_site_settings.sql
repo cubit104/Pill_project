@@ -11,5 +11,8 @@ INSERT INTO public.site_settings (key, value)
 VALUES ('photo_id_enabled', 'false'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
-ALTER TABLE public.site_settings ENABLE ROW LEVEL SECURITY;
--- The API reads/writes with the service role; no anon access needed.
+-- RLS is intentionally NOT enabled: the FastAPI backend connects directly via DATABASE_URL
+-- (no PostgREST/JWT claims), matching the other API-managed tables (see
+-- 20240101000009_disable_rls_on_admin_tables.sql). Write authorization is enforced in
+-- routes/site_settings.py (superuser role required).
+ALTER TABLE public.site_settings DISABLE ROW LEVEL SECURITY;
