@@ -21,7 +21,7 @@ import threading
 
 import httpx
 import numpy as np
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import text
 
 import database
@@ -45,6 +45,32 @@ OCR_TIMEOUT = float(os.getenv("PILL_OCR_TIMEOUT", "300"))
 OCR_KEY = os.getenv("PILL_OCR_KEY", "")  # shared secret expected by the reader service
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 TOP_K = 6
+# Per-client rate limit for photo identification (each call costs reader + model time).
+RATE_LIMIT_PER_HOUR = int(os.getenv("PILL_PHOTO_RATE_LIMIT_PER_HOUR", "30"))
+_rate_lock = threading.Lock()
+_rate_hits: dict[str, list[float]] = {}
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_rate_limit(ip: str) -> None:
+    import time
+
+    now = time.time()
+    with _rate_lock:
+        hits = [t for t in _rate_hits.get(ip, []) if now - t < 3600]
+        if len(hits) >= RATE_LIMIT_PER_HOUR:
+            raise HTTPException(status_code=429, detail="Too many identifications; please try again later.")
+        hits.append(now)
+        _rate_hits[ip] = hits
+        if len(_rate_hits) > 10000:  # keep the table bounded
+            for k in [k for k, v in _rate_hits.items() if not v or now - v[-1] > 3600]:
+                _rate_hits.pop(k, None)
 
 # CLIP normalization constants
 _MEAN = np.array([0.48145466, 0.4578275, 0.40821073], dtype=np.float32)
@@ -274,10 +300,12 @@ def _rerank_by_attrs(matches: list[dict], shape_p: dict, color_p: dict) -> list[
 
 @router.post("/api/identify/photo")
 async def identify_photo(
+    request: Request,
     photo: UploadFile = File(...),
     photo2: UploadFile | None = File(default=None),
     consent: str | None = Form(default=None),
 ):
+    _check_rate_limit(_client_ip(request))
     """Match one or two photos (front/back). With two, each pill's score is the
     best of: either side alone, or the averaged two-side embedding."""
     # The beta switch (Admin → Settings) gates the API too, not just the UI.

@@ -206,11 +206,13 @@ export default function IdentifyClient() {
     }
   }
 
+  const [feedbackError, setFeedbackError] = useState<string | null>(null)
+
   const sendFeedback = async (verdict: 'up' | 'down', chosenSlug?: string) => {
     if (!photoResult?.capture_id || feedbackSent) return
-    setFeedbackSent(verdict)
+    setFeedbackError(null)
     try {
-      await fetch(`${apiBase()}/api/identify/feedback`, {
+      const res = await fetch(`${apiBase()}/api/identify/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -220,8 +222,10 @@ export default function IdentifyClient() {
           corrected_imprint: tokensText !== (photoResult.imprint_read ?? '') ? tokensText : null,
         }),
       })
+      if (!res.ok) throw new Error(`Feedback not saved (${res.status})`)
+      setFeedbackSent(verdict)
     } catch {
-      // Feedback is best-effort; never bother the user about it.
+      setFeedbackError("Couldn't save your feedback — tap again to retry.")
     }
   }
 
@@ -491,6 +495,7 @@ export default function IdentifyClient() {
                   👎 None of these is my pill
                 </button>
               )}
+              {feedbackError && <p className="mt-1 text-xs text-red-600">{feedbackError}</p>}
             </div>
           )}
           <p className="text-xs text-slate-500 mt-3">{photoResult.disclaimer}</p>

@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 PHOTO_BUCKET = os.getenv("PILL_USER_PHOTO_BUCKET", "user_pill_photos")
+# Abuse limits for consented photo retention.
+MAX_CONSENT_UPLOADS_PER_DAY = int(os.getenv("PILL_CONSENT_UPLOADS_PER_DAY", "500"))
+STORED_PHOTO_MAX_SIDE = 1600  # px; stored photos are re-encoded JPEGs, never raw uploads
 
 
 class Feedback(BaseModel):
@@ -41,11 +44,12 @@ def record_capture(
     consent: bool,
     photos: list[bytes],
 ) -> str | None:
-    """Insert one identify_feedback row (+ consented photos). Never raises."""
+    """Insert one identify_feedback row, then (with consent) attach photos.
+
+    The row is written first so an upload can never leave orphaned objects;
+    if the upload fails the row simply has no photos. Never raises.
+    """
     capture_id = str(uuid.uuid4())
-    paths: list[str] = []
-    if consent and photos:
-        paths = _upload_photos(capture_id, photos)
     try:
         if not database.db_engine and not database.connect_to_database():
             return None
@@ -53,9 +57,9 @@ def record_capture(
             conn.execute(
                 text(
                     "INSERT INTO identify_feedback "
-                    "(capture_id, imprint_read, tokens, attrs_guess, top_slugs, consent, photo_paths) "
+                    "(capture_id, imprint_read, tokens, attrs_guess, top_slugs, consent) "
                     "VALUES (CAST(:id AS uuid), :read, CAST(:tokens AS jsonb), CAST(:attrs AS jsonb), "
-                    "CAST(:top AS jsonb), :consent, CAST(:paths AS jsonb))"
+                    "CAST(:top AS jsonb), :consent)"
                 ),
                 {
                     "id": capture_id,
@@ -64,12 +68,56 @@ def record_capture(
                     "attrs": json.dumps(attrs_guess or {}),
                     "top": json.dumps(top_slugs[:6]),
                     "consent": bool(consent),
-                    "paths": json.dumps(paths) if paths else None,
                 },
             )
-        return capture_id
     except Exception as e:  # feedback must never break identification
         logger.warning("identify_feedback insert failed: %s", e)
+        return None
+
+    if consent and photos and _consent_quota_available():
+        paths = _upload_photos(capture_id, photos)
+        if paths:
+            try:
+                with database.db_engine.begin() as conn:
+                    conn.execute(
+                        text("UPDATE identify_feedback SET photo_paths = CAST(:paths AS jsonb) "
+                             "WHERE capture_id = CAST(:id AS uuid)"),
+                        {"paths": json.dumps(paths), "id": capture_id},
+                    )
+            except Exception as e:
+                logger.warning("identify_feedback photo_paths update failed: %s", e)
+    return capture_id
+
+
+def _consent_quota_available() -> bool:
+    """Cap how many consented photo sets are stored per day (abuse guard)."""
+    try:
+        with database.db_engine.connect() as conn:
+            n = conn.execute(
+                text("SELECT count(*) FROM identify_feedback "
+                     "WHERE photo_paths IS NOT NULL AND created_at > now() - interval '1 day'")
+            ).scalar() or 0
+        if n >= MAX_CONSENT_UPLOADS_PER_DAY:
+            logger.warning("consent photo quota reached (%d/day); skipping upload", n)
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _bounded_jpeg(raw: bytes) -> bytes | None:
+    """Re-encode to a modest JPEG so stored photos are small and safe."""
+    import io
+
+    from PIL import Image
+
+    try:
+        img = Image.open(io.BytesIO(raw)).convert("RGB")
+        img.thumbnail((STORED_PHOTO_MAX_SIDE, STORED_PHOTO_MAX_SIDE))
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=88, optimize=True)
+        return buf.getvalue()
+    except Exception:
         return None
 
 
@@ -80,6 +128,9 @@ def _upload_photos(capture_id: str, photos: list[bytes]) -> list[str]:
         return []
     paths = []
     for i, raw in enumerate(photos[:2], start=1):
+        raw = _bounded_jpeg(raw)
+        if not raw:
+            continue
         path = f"{capture_id}/side{i}.jpg"
         try:
             r = requests.post(
