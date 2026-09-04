@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS public.identify_feedback (
     top_slugs         jsonb,
     consent           boolean NOT NULL DEFAULT false,
     photo_paths       jsonb,            -- storage object paths when consent = true
-    verdict           text,             -- 'up' | 'down' | NULL (no feedback yet)
+    verdict           text CHECK (verdict IN ('up', 'down')),  -- NULL = no feedback yet
     chosen_slug       text,             -- pill the user confirmed
     corrected_imprint text,             -- what the user typed if they edited the read
     reviewed          boolean NOT NULL DEFAULT false,

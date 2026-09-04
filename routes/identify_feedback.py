@@ -30,7 +30,7 @@ STORED_PHOTO_MAX_SIDE = 1600  # px; stored photos are re-encoded JPEGs, never ra
 
 
 class Feedback(BaseModel):
-    capture_id: str = Field(min_length=8, max_length=64)
+    capture_id: uuid.UUID
     verdict: str = Field(pattern="^(up|down)$")
     chosen_slug: str | None = Field(default=None, max_length=300)
     corrected_imprint: str | None = Field(default=None, max_length=80)
@@ -150,6 +150,10 @@ def _upload_photos(capture_id: str, photos: list[bytes]) -> list[str]:
 
 @router.post("/api/identify/feedback")
 def submit_feedback(payload: Feedback):
+    from routes.site_settings import read_flags
+
+    if not read_flags().get("photo_id_enabled"):
+        raise HTTPException(status_code=404, detail="Photo identification is not enabled")
     if not database.db_engine and not database.connect_to_database():
         raise HTTPException(status_code=500, detail="Database connection not available")
     try:
@@ -163,7 +167,7 @@ def submit_feedback(payload: Feedback):
                     "v": payload.verdict,
                     "slug": payload.chosen_slug,
                     "imp": payload.corrected_imprint,
-                    "id": payload.capture_id,
+                    "id": str(payload.capture_id),
                 },
             )
     except Exception as e:
