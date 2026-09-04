@@ -57,10 +57,6 @@ MAX_BYTES = int(os.getenv("PILL_TROCR_MAX_BYTES", str(20 * 1024 * 1024)))
 MAX_PIXELS = 40_000_000
 MAX_SIDE = 1600
 
-print("Loading imprint reader from", MODEL_DIR)
-processor = TrOCRProcessor.from_pretrained(MODEL_DIR)
-model = VisionEncoderDecoderModel.from_pretrained(MODEL_DIR)
-model.eval()
 # Device: Apple GPU (MPS) on Macs, CUDA on NVIDIA boxes, else CPU.
 if torch.backends.mps.is_available():
     DEVICE = "mps"
@@ -68,16 +64,38 @@ elif torch.cuda.is_available():
     DEVICE = "cuda"
 else:
     DEVICE = "cpu"
-model = model.to(DEVICE)
-print("Reader device:", DEVICE)
-# Saved config had use_cache=False (training setting) — re-enable KV cache for fast decoding.
-model.config.use_cache = True
-model.generation_config.use_cache = True
+# Half precision on the GPU: same reads in our tests, half the memory, ~2x faster.
+FP16 = os.getenv("PILL_TROCR_FP16", "1" if DEVICE != "cpu" else "0") == "1" and DEVICE != "cpu"
+DTYPE = torch.float16 if FP16 else torch.float32
+
+
+def _load_model(path: str):
+    print("Loading imprint reader from", path)
+    m = VisionEncoderDecoderModel.from_pretrained(path)
+    m.eval()
+    # Saved config had use_cache=False (training setting) — re-enable KV cache for fast decoding.
+    m.config.use_cache = True
+    m.generation_config.use_cache = True
+    if os.getenv("PILL_TROCR_INT8", "1") == "1" and DEVICE == "cpu":
+        # 8-bit weights for the linear layers: ~2-3x faster on CPU, tiny accuracy cost.
+        m = torch.quantization.quantize_dynamic(m, {torch.nn.Linear}, dtype=torch.qint8)
+    return m.to(DEVICE, dtype=DTYPE)
+
+
+processor = TrOCRProcessor.from_pretrained(MODEL_DIR)
+model = _load_model(MODEL_DIR)
+print("Reader device:", DEVICE, "fp16" if FP16 else "fp32")
 torch.set_num_threads(max(1, os.cpu_count() or 1))
-if os.getenv("PILL_TROCR_INT8", "1") == "1":
-    # 8-bit weights for the linear layers: ~2-3x faster on CPU, tiny accuracy cost.
-    model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
+# Optional second reader (the large fine-tune). It is slower but reads faint
+# debossed imprints the base model cannot; and it *abstains* (emits nothing)
+# when unsure instead of guessing. Per side, when its two crop reads agree it
+# overrides the base model's vote; otherwise the base result stands.
+MODEL2_DIR = os.getenv("PILL_TROCR_DIR2", "")
+model2 = _load_model(MODEL2_DIR) if MODEL2_DIR else None
+NUM_BEAMS2 = int(os.getenv("PILL_TROCR_BEAMS2", "2"))
 NUM_BEAMS = int(os.getenv("PILL_TROCR_BEAMS", "2"))
+if model2 is not None:
+    print("Second reader:", MODEL2_DIR, "beams", NUM_BEAMS2)
 if not READER_KEY:
     print("WARNING: PILL_OCR_KEY not set — /read accepts unauthenticated requests")
 print("Imprint reader ready; views=%s min_votes=%d" % (VIEWS, MIN_VOTES))
@@ -159,6 +177,8 @@ def _pill_box(img: Image.Image, thumb=192, scales=(0.12, 0.16, 0.2, 0.25, 0.3, 0
         return None
     xx, yy, side = hit
     box = _refine(np.asarray(small, dtype=np.float32), (xx, yy, side))
+    if box is None:
+        return None
     sx, sy = W / w, H / h
     x0, y0, x1, y1 = box
     return (int(x0 * sx), int(y0 * sy), int(x1 * sx), int(y1 * sy))
@@ -195,14 +215,17 @@ def _refine(rgb, win):
     seen = np.zeros_like(mask)
     stack = [(cy, cx)]; seen[cy, cx] = True
     ys, xs = [], []
-    limit = side * side * 4
+    limit = h * w
     while stack and len(ys) < limit:
         y, x = stack.pop(); ys.append(y); xs.append(x)
         for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
             if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not seen[ny, nx]:
                 seen[ny, nx] = True; stack.append((ny, nx))
-    if len(ys) >= limit or len(ys) < side * side * 0.15:
+    if len(ys) < side * side * 0.15:
         return (xx, yy, xx + side, yy + side)
+    if len(ys) > 0.5 * h * w:
+        # The "pill" is most of the frame: a close-up. Full-frame views are right.
+        return None
     ys, xs = np.array(ys), np.array(xs)
     by0, by1 = np.percentile(ys, [0.5, 99.5]); bx0, bx1 = np.percentile(xs, [0.5, 99.5])
     # square it around the centre
@@ -237,13 +260,15 @@ def _views(img: Image.Image) -> list[Image.Image]:
     return out or [img]
 
 
-def _read_batch(imgs: list[Image.Image]) -> list[str]:
+def _read_batch(imgs: list[Image.Image], m=None, beams: int | None = None) -> list[str]:
     """One batched decode for all views of all photos."""
-    pv = processor(images=imgs, return_tensors="pt").pixel_values.to(DEVICE)
+    m = model if m is None else m
+    beams = NUM_BEAMS if beams is None else beams
+    pv = processor(images=imgs, return_tensors="pt").pixel_values.to(DEVICE, dtype=DTYPE)
     with torch.no_grad():
         # min_new_tokens=1: greedy/small-beam otherwise sometimes stops before
         # emitting anything on faint imprints (seen on the Augmentin "3 2").
-        ids = model.generate(pv, max_length=24, num_beams=NUM_BEAMS, min_new_tokens=1, use_cache=True)
+        ids = m.generate(pv, max_length=24, num_beams=beams, min_new_tokens=1, use_cache=True)
     return [t.strip().upper() for t in processor.batch_decode(ids, skip_special_tokens=True)]
 
 
@@ -304,7 +329,8 @@ def _open_bounded(raw: bytes) -> Image.Image:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "device": DEVICE, "model": MODEL_DIR, "views": VIEWS, "pill_pads": PILL_PADS, "min_votes": MIN_VOTES}
+    return {"status": "ok", "device": DEVICE, "model": MODEL_DIR, "model2": MODEL2_DIR or None, "fp16": FP16,
+            "views": VIEWS, "pill_pads": PILL_PADS, "min_votes": MIN_VOTES}
 
 
 @app.post("/read")
@@ -341,6 +367,19 @@ async def read_imprint(
     raw_reads = _read_batch(batch) if batch else []
     views = [raw_reads[a:b] for a, b in spans]
     per_side = [_vote(v) for v in views]
+    views2: list[list[str]] = []
+    if model2 is not None and batch:
+        # Two middle views per photo (the tight pill crops when a pill was found).
+        picks = [list(range(a, b))[1:3] if b - a >= 3 else list(range(a, b)) for a, b in spans]
+        reads2 = _read_batch([batch[i] for idxs in picks for i in idxs], model2, NUM_BEAMS2)
+        pos = 0
+        for si, idxs in enumerate(picks):
+            side_reads = reads2[pos:pos + len(idxs)]
+            pos += len(idxs)
+            views2.append(side_reads)
+            toks = [_tokens(r) for r in side_reads if r.strip()]
+            if len(toks) >= 2 and all(set(t) == set(toks[0]) for t in toks[1:]):
+                per_side[si] = toks[0]
     tokens, seen = [], set()
     for side in per_side:
         for t in side:
@@ -348,7 +387,7 @@ async def read_imprint(
                 seen.add(t)
                 tokens.append(t)
     if LOG_READS:
-        print("read %d photo(s), %d views in %.2fs -> %s | %s" % (len(photos), n_views, time.time() - t0, tokens, views))
+        print("read %d photo(s), %d views in %.2fs -> %s | %s | large: %s" % (len(photos), n_views, time.time() - t0, tokens, views, views2))
     else:
         print("read %d photo(s), %d views in %.2fs" % (len(photos), n_views, time.time() - t0))
-    return {"tokens": tokens, "reads": [" ".join(s) for s in per_side], "views": views}
+    return {"tokens": tokens, "reads": [" ".join(s) for s in per_side], "views": views, "views2": views2}
