@@ -3,9 +3,12 @@
 POST /read  (multipart: photo, optional photo2)
     -> {"tokens": [...], "reads": [...], "views": [[...], ...]}
 
-Each photo is read from several *views* (full frame, centre crops, 180°
-rotation) in one batched decode, and the tokens are put to a vote: a token
-must show up in at least PILL_TROCR_MIN_VOTES views to survive. Phone photos
+Each photo is read from several *views* (full frame, a tight crop around the
+pill found in the frame, centre crops, 180° rotation) in one batched decode,
+and the tokens are put to a vote: a token must show up in at least
+PILL_TROCR_MIN_VOTES views to survive. The pill crop matters most on phone
+photos: the model was trained on catalog shots where the pill fills the
+frame, so a pill that is small in a big frame reads as a few blurry pixels. Phone photos
 (glare, blur, odd angles) make a single read hallucinate extra fragments
 ("BX DX 2 M" for a "BX 2" pill); phantoms rarely repeat across views, real
 imprints do. Tokens from both sides are pooled (order-insensitive), matching
@@ -21,6 +24,7 @@ import re
 import time
 from collections import Counter
 
+import numpy as np
 import torch
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from PIL import Image
@@ -32,10 +36,17 @@ READER_KEY = os.getenv("PILL_OCR_KEY", "")
 # Views read per photo, in priority order. c75 = centre crop keeping 75% of the
 # short side; r180 = full frame rotated half a turn (the model was trained on
 # upright catalog shots, so an upside-down pill often reads better this way).
+# Views when no pill could be located (fallback): full frame, centre crops,
+# half-turn. When a pill IS located, the views are crops around it at
+# PILL_PADS (fractions of its box; negative = slightly inside the pill, which
+# reads best because the imprint sits in the middle and the model was
+# trained on pills that fill the frame) plus one half-turn of the middle crop.
 VIEWS = list(dict.fromkeys(v.strip() for v in os.getenv("PILL_TROCR_VIEWS", "full,c75,c60,r180").split(",") if v.strip()))
+PILL_PADS = [float(x) for x in os.getenv("PILL_TROCR_PILL_PADS", "-0.10,-0.05,0.03").split(",")]
+PILL_PAD = 0.0  # box returned by _pill_box is the raw (unpadded) pill extent
+MIN_VOTES = int(os.getenv("PILL_TROCR_MIN_VOTES", "2"))
 # Per-request read logging is off by default (log volume / privacy); latency is always logged.
 LOG_READS = os.getenv("PILL_TROCR_LOG_READS", "") == "1"
-MIN_VOTES = int(os.getenv("PILL_TROCR_MIN_VOTES", "2"))
 # Abuse guards for direct callers (the API already bounds its uploads):
 # refuse oversized bodies before decoding, refuse absurd pixel counts before
 # decompressing, and normalise to MAX_SIDE so the 4 views are bounded work.
@@ -79,7 +90,69 @@ def _center(img: Image.Image, keep: float) -> Image.Image:
     return img.crop(((w - s) // 2, (h - s) // 2, (w + s) // 2, (h + s) // 2))
 
 
+def _otsu(values: np.ndarray) -> float:
+    """Otsu threshold over a 1-D array (no scipy/cv2 on the reader box)."""
+    hist, edges = np.histogram(values, bins=64)
+    mids = (edges[:-1] + edges[1:]) / 2
+    p = hist.astype(np.float64) / max(hist.sum(), 1)
+    w0 = np.cumsum(p)
+    w1 = 1.0 - w0
+    mu = np.cumsum(p * mids)
+    between = (mu[-1] * w0 - mu) ** 2 / np.maximum(w0 * w1, 1e-9)
+    return float(mids[int(np.argmax(between[:-1]))])
+
+
+def _pill_box(img: Image.Image) -> tuple[int, int, int, int] | None:
+    """Locate the pill: the blob that differs most from the frame's border colour.
+
+    Works on a 256px thumbnail: background = median colour of the border,
+    foreground = pixels whose colour distance from it passes an Otsu split.
+    A robust (1st-99th percentile) bounding box of the foreground ignores
+    stray specks. Returns a padded square box in full-image coordinates, or
+    None when nothing sensible stands out (nearly empty or nearly full frame).
+    """
+    W, H = img.size
+    small = img.copy()
+    small.thumbnail((256, 256))
+    a = np.asarray(small, dtype=np.float32)
+    h, w = a.shape[:2]
+    border = np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])
+    bg = np.median(border, axis=0)
+    dist = np.sqrt(((a - bg) ** 2).sum(axis=-1))
+    thr = max(_otsu(dist.ravel()), 18.0)
+    mask = dist > thr
+    frac = mask.mean()
+    if frac < 0.005 or frac > 0.6:
+        return None
+    ys, xs = np.nonzero(mask)
+    y0, y1 = np.percentile(ys, [1, 99])
+    x0, x1 = np.percentile(xs, [1, 99])
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    side = max(x1 - x0, y1 - y0) * (1 + 2 * PILL_PAD)
+    side = max(side, 24)
+    sx, sy = W / w, H / h
+    left = int(max(0, (cx - side / 2) * sx))
+    top = int(max(0, (cy - side / 2) * sy))
+    right = int(min(W, (cx + side / 2) * sx))
+    bottom = int(min(H, (cy + side / 2) * sy))
+    if right - left < 48 or bottom - top < 48:
+        return None
+    return left, top, right, bottom
+
+
+def _crop_pad(img: Image.Image, box: tuple[int, int, int, int], pad: float) -> Image.Image:
+    l, t, r, b = box
+    cx, cy = (l + r) / 2, (t + b) / 2
+    s = max(r - l, b - t) * (1 + 2 * pad)
+    return img.crop((int(max(0, cx - s / 2)), int(max(0, cy - s / 2)),
+                     int(min(img.width, cx + s / 2)), int(min(img.height, cy + s / 2))))
+
+
 def _views(img: Image.Image) -> list[Image.Image]:
+    box = _pill_box(img)
+    if box:
+        crops = [_crop_pad(img, box, p) for p in PILL_PADS]
+        return crops + [crops[len(crops) // 2].rotate(180)]
     out = []
     for v in VIEWS:
         if v == "full":
@@ -158,7 +231,7 @@ def _open_bounded(raw: bytes) -> Image.Image:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "device": DEVICE, "model": MODEL_DIR, "views": VIEWS, "min_votes": MIN_VOTES}
+    return {"status": "ok", "device": DEVICE, "model": MODEL_DIR, "views": VIEWS, "pill_pads": PILL_PADS, "min_votes": MIN_VOTES}
 
 
 @app.post("/read")
@@ -181,6 +254,7 @@ async def read_imprint(
         vs = _views(img)
         spans.append((len(batch), len(batch) + len(vs)))
         batch.extend(vs)
+    n_views = len(batch)
     raw_reads = _read_batch(batch) if batch else []
     views = [raw_reads[a:b] for a, b in spans]
     per_side = [_vote(v) for v in views]
@@ -191,7 +265,7 @@ async def read_imprint(
                 seen.add(t)
                 tokens.append(t)
     if LOG_READS:
-        print("read %d photo(s) x %d views in %.2fs -> %s | %s" % (len(photos), len(VIEWS), time.time() - t0, tokens, views))
+        print("read %d photo(s), %d views in %.2fs -> %s | %s" % (len(photos), n_views, time.time() - t0, tokens, views))
     else:
-        print("read %d photo(s) x %d views in %.2fs" % (len(photos), len(VIEWS), time.time() - t0))
+        print("read %d photo(s), %d views in %.2fs" % (len(photos), n_views, time.time() - t0))
     return {"tokens": tokens, "reads": [" ".join(s) for s in per_side], "views": views}
