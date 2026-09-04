@@ -18,14 +18,16 @@ import json
 import logging
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import numpy as np
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import text
 
 import database
 from routes.identify import IdentifyRequest, identify_pill
+from routes.identify_feedback import record_capture
 from routes.site_settings import read_flags
 from utils import process_image_filenames
 
@@ -40,10 +42,45 @@ ATTR_PATH = os.getenv("PILL_VISION_ATTRS", os.path.join(VISION_DIR, "pill_attr_h
 # In-house imprint reader (TrOCR fine-tune) service; unset/empty = disabled
 # (the endpoint then returns visual matches only).
 OCR_URL = os.getenv("PILL_OCR_URL", "")
-OCR_TIMEOUT = float(os.getenv("PILL_OCR_TIMEOUT", "300"))
+OCR_TIMEOUT = float(os.getenv("PILL_OCR_TIMEOUT", "60"))
 OCR_KEY = os.getenv("PILL_OCR_KEY", "")  # shared secret expected by the reader service
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 TOP_K = 6
+# Per-client rate limit for photo identification (each call costs reader + model time).
+RATE_LIMIT_PER_HOUR = int(os.getenv("PILL_PHOTO_RATE_LIMIT_PER_HOUR", "30"))
+_rate_lock = threading.Lock()
+_rate_hits: dict[str, list[float]] = {}
+
+
+def _client_ip(request: Request) -> str:
+    """Best-effort client address for rate limiting.
+
+    Cloudflare sets CF-Connecting-IP (trusted). Otherwise use the LAST
+    X-Forwarded-For hop — appended by our own proxy — since earlier entries
+    are client-controlled and trivially spoofable.
+    """
+    cf = request.headers.get("cf-connecting-ip", "").strip()
+    if cf:
+        return cf
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[-1].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_rate_limit(ip: str) -> None:
+    import time
+
+    now = time.time()
+    with _rate_lock:
+        hits = [t for t in _rate_hits.get(ip, []) if now - t < 3600]
+        if len(hits) >= RATE_LIMIT_PER_HOUR:
+            raise HTTPException(status_code=429, detail="Too many identifications; please try again later.")
+        hits.append(now)
+        _rate_hits[ip] = hits
+        if len(_rate_hits) > 10000:  # keep the table bounded
+            for k in [k for k, v in _rate_hits.items() if not v or now - v[-1] > 3600]:
+                _rate_hits.pop(k, None)
 
 # CLIP normalization constants
 _MEAN = np.array([0.48145466, 0.4578275, 0.40821073], dtype=np.float32)
@@ -51,6 +88,10 @@ _STD = np.array([0.26862954, 0.26130258, 0.27577711], dtype=np.float32)
 
 _lock = threading.Lock()
 _state: dict = {"loaded": False, "session": None, "vectors": None, "meta": None}
+# Identifications run on their own small pool so they can never starve the
+# default executor (used by /health and the rest of the API). Extra requests
+# queue here instead of piling onto shared workers.
+_EXECUTOR = ThreadPoolExecutor(max_workers=int(os.getenv("PILL_PHOTO_WORKERS", "2")), thread_name_prefix="pill-id")
 
 _DISCLAIMER = (
     "Visual matches are informational only and not a medical identification. "
@@ -63,9 +104,16 @@ def _load():
     with _lock:
         if _state["loaded"]:
             return
-        from services.model_assets import ensure_pill_vision_assets
+        from services.model_assets import assets_present, ensure_pill_vision_assets
 
-        ensure_pill_vision_assets()
+        if not assets_present():
+            # Don't block a user request on a 115 MB download: the startup
+            # prefetch handles it; until then answer quickly.
+            if not ensure_pill_vision_assets(wait=False):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Visual identification is warming up; please try again in a minute.",
+                )
         if not (os.path.exists(MODEL_PATH) and os.path.exists(INDEX_PATH)):
             raise HTTPException(
                 status_code=503,
@@ -190,11 +238,23 @@ def _rotations(img):
     return [img.rotate(angle, fillcolor=_CATALOG_BG) for angle in (0, 180)]
 
 
-def _side_sims(image_bytes: bytes) -> tuple[np.ndarray, "Image"]:
-    """Per-index similarities for one photo plus its normalized pill crop."""
+MAX_IMAGE_PIXELS = 40_000_000  # ~6300x6300; phone photos are far below this
+
+
+def _open_image(image_bytes: bytes):
+    """Open an upload safely: reject absurd pixel counts before decoding."""
     from PIL import Image
 
-    src = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = Image.open(io.BytesIO(image_bytes))  # lazy: header only
+    w, h = img.size
+    if w * h > MAX_IMAGE_PIXELS:
+        raise HTTPException(status_code=422, detail="Image dimensions too large")
+    return img.convert("RGB")
+
+
+def _side_sims(image_bytes: bytes) -> tuple[np.ndarray, "Image"]:
+    """Per-index similarities for one photo plus its normalized pill crop."""
+    src = _open_image(image_bytes)
     candidates = _find_pill_candidates(src)
     variants = []
     for pill in candidates:
@@ -273,8 +333,12 @@ def _rerank_by_attrs(matches: list[dict], shape_p: dict, color_p: dict) -> list[
 
 @router.post("/api/identify/photo")
 async def identify_photo(
-    photo: UploadFile = File(...), photo2: UploadFile | None = File(default=None)
+    request: Request,
+    photo: UploadFile = File(...),
+    photo2: UploadFile | None = File(default=None),
+    consent: str | None = Form(default=None),
 ):
+    _check_rate_limit(_client_ip(request))
     """Match one or two photos (front/back). With two, each pill's score is the
     best of: either side alone, or the averaged two-side embedding."""
     # The beta switch (Admin → Settings) gates the API too, not just the UI.
@@ -290,8 +354,23 @@ async def identify_photo(
     if not raws:
         raise HTTPException(status_code=422, detail="Empty upload")
 
-    # Everything below is CPU-bound (ONNX, DB); keep it off the event loop.
-    return await asyncio.to_thread(_identify_sync, raws)
+    # Everything below is CPU-bound (ONNX, DB); keep it off the event loop
+    # and off the shared default executor.
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(_EXECUTOR, _identify_sync, raws)
+
+    # Learning loop: log the identification (photos kept only with explicit consent).
+    keep_photos = str(consent or "").lower() in ("1", "true", "yes", "on")
+    result["capture_id"] = await asyncio.to_thread(
+        record_capture,
+        result.get("imprint_read", ""),
+        (result.get("imprint_read") or "").split(),
+        result.get("attrs_guess") or {},
+        [m["slug"] for m in result.get("matches", [])],
+        keep_photos,
+        raws if keep_photos else [],
+    )
+    return result
 
 
 async def _read_bounded(up: UploadFile) -> bytes:
@@ -348,7 +427,7 @@ def _identify_sync(raws: list[bytes]) -> dict:
             _load()
             from PIL import Image
 
-            src = Image.open(io.BytesIO(raws[0])).convert("RGB")
+            src = _open_image(raws[0])
             crop = _find_pill_candidates(src, keep=1)[0]
             emb = _run_model(_catalog_style_single(crop))
             shape_p, color_p = _attr_probs(emb, "shape"), _attr_probs(emb, "color")
@@ -363,15 +442,24 @@ def _identify_sync(raws: list[bytes]) -> dict:
     if imprint_matches and imprint_matches[0]["similarity"] >= 0.85:
         return {"matches": imprint_matches[:TOP_K], "imprint_read": imprint_read, "attrs_guess": attrs_guess, "disclaimer": _DISCLAIMER}
 
-    # 3) Otherwise visual matching fills in / breaks ties.
+    # 3) Otherwise visual matching fills in / breaks ties. If the visual
+    #    stage is unavailable, still return whatever the imprint gave us.
     side_sims = []
     pills = []
-    _load()
+    try:
+        _load()
+    except HTTPException:
+        if imprint_matches:
+            return {"matches": imprint_matches[:TOP_K], "imprint_read": imprint_read,
+                    "attrs_guess": attrs_guess, "disclaimer": _DISCLAIMER}
+        raise
     for raw in raws:
         try:
             sims_one, pill_crop = _side_sims(raw)
             side_sims.append(sims_one)
             pills.append(pill_crop)
+        except HTTPException:
+            raise
         except Exception:
             logger.warning("pill-vision embed failed", exc_info=True)
             raise HTTPException(status_code=422, detail="Could not read that image")

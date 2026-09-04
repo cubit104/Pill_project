@@ -40,6 +40,7 @@ interface PhotoResponse {
   matches: PhotoMatch[]
   imprint_read?: string
   attrs_guess?: { shape?: string; color?: string }
+  capture_id?: string | null
   disclaimer: string
 }
 
@@ -111,6 +112,8 @@ export default function IdentifyClient() {
   const [matching, setMatching] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [photoResult, setPhotoResult] = useState<PhotoResponse | null>(null)
+  const [consent, setConsent] = useState(false)
+  const [feedbackSent, setFeedbackSent] = useState<'up' | 'down' | null>(null)
 
   // Manual (typed imprint) flow
   const [searching, setSearching] = useState(false)
@@ -182,6 +185,8 @@ export default function IdentifyClient() {
       const form = new FormData()
       form.append('photo', files.front)
       form.append('photo2', files.back)
+      if (consent) form.append('consent', '1')
+      setFeedbackSent(null)
       const res = await fetch(`${apiBase()}/api/identify/photo`, { method: 'POST', body: form })
       if (!res.ok) {
         const detail = await res.json().then((j) => j?.detail).catch(() => null)
@@ -198,6 +203,29 @@ export default function IdentifyClient() {
       setError(`Photo identification failed: ${msg}. You can type the imprint below instead.`)
     } finally {
       setMatching(false)
+    }
+  }
+
+  const [feedbackError, setFeedbackError] = useState<string | null>(null)
+
+  const sendFeedback = async (verdict: 'up' | 'down', chosenSlug?: string) => {
+    if (!photoResult?.capture_id || feedbackSent) return
+    setFeedbackError(null)
+    try {
+      const res = await fetch(`${apiBase()}/api/identify/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          capture_id: photoResult.capture_id,
+          verdict,
+          chosen_slug: chosenSlug ?? null,
+          corrected_imprint: tokensText !== (photoResult.imprint_read ?? '') ? tokensText.slice(0, 80) : null,
+        }),
+      })
+      if (!res.ok) throw new Error(`Feedback not saved (${res.status})`)
+      setFeedbackSent(verdict)
+    } catch {
+      setFeedbackError("Couldn't save your feedback — tap again to retry.")
     }
   }
 
@@ -261,6 +289,19 @@ export default function IdentifyClient() {
         surface in good light, get close so it <span className="font-semibold">fills the circle</span>, hold
         steady, and photograph <span className="font-semibold">both sides</span>.
       </div>
+
+      <label className="mb-4 flex items-start gap-2 text-sm text-slate-600 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={consent}
+          onChange={(e) => setConsent(e.target.checked)}
+          className="mt-1 h-4 w-4 accent-emerald-700"
+        />
+        <span>
+          Keep my photos to help PillSeek improve <span className="text-slate-400">(optional)</span>. Photos are
+          stored privately, with no personal details, and used only to train our pill reader.
+        </span>
+      </label>
 
       {/* Photo capture */}
       <div className="grid grid-cols-2 gap-4 mb-4">
@@ -404,7 +445,16 @@ export default function IdentifyClient() {
           <h2 className="text-xl font-semibold text-slate-900 mb-3">Matches from your photo</h2>
           <ul className="space-y-3">
             {photoResult.matches.map((m) => (
-              <li key={m.slug}>
+              <li key={m.slug} className="relative">
+                {photoResult.capture_id && !feedbackSent && (
+                  <button
+                    onClick={() => sendFeedback('up', m.slug)}
+                    className="absolute -top-2 right-3 z-10 rounded-full border border-emerald-300 bg-white px-2 py-0.5 text-[11px] font-medium text-emerald-800 hover:bg-emerald-50"
+                    title="Confirm this is your pill"
+                  >
+                    👍 This is my pill
+                  </button>
+                )}
                 <Link
                   href={`/pill/${encodeURIComponent(m.slug)}`}
                   className="flex gap-4 items-center rounded-xl border border-slate-200 p-3 hover:border-emerald-400 hover:shadow-sm transition-all"
@@ -436,6 +486,18 @@ export default function IdentifyClient() {
               </li>
             ))}
           </ul>
+          {photoResult.capture_id && (
+            <div className="mt-3 text-sm">
+              {feedbackSent ? (
+                <span className="text-emerald-700">Thanks — your feedback helps us improve.</span>
+              ) : (
+                <button onClick={() => sendFeedback('down')} className="text-slate-500 hover:text-slate-800 underline">
+                  👎 None of these is my pill
+                </button>
+              )}
+              {feedbackError && <p className="mt-1 text-xs text-red-600">{feedbackError}</p>}
+            </div>
+          )}
           <p className="text-xs text-slate-500 mt-3">{photoResult.disclaimer}</p>
         </div>
       )}

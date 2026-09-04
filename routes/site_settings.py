@@ -29,7 +29,23 @@ class FeatureUpdate(BaseModel):
     photo_id_enabled: bool | None = None
 
 
+_cache: dict = {"at": 0.0, "flags": None}
+CACHE_S = 30.0
+
+
 def read_flags() -> dict:
+    """Flags for the public site; cached briefly since every page load asks."""
+    import time
+
+    now = time.time()
+    if _cache["flags"] is not None and now - _cache["at"] < CACHE_S:
+        return dict(_cache["flags"])
+    flags = _read_flags_uncached()
+    _cache["flags"], _cache["at"] = dict(flags), now
+    return flags
+
+
+def _read_flags_uncached() -> dict:
     flags = dict(DEFAULTS)
     if not database.db_engine and not database.connect_to_database():
         return flags
@@ -75,4 +91,5 @@ def update_features(payload: FeatureUpdate, admin: dict = Depends(require_role("
     except Exception as e:
         logger.error("failed to update site_settings: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Could not save settings (is the site_settings migration applied?)")
+    _cache["flags"] = None
     return read_flags()

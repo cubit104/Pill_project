@@ -75,16 +75,27 @@ _DISCLAIMER = (
 )
 
 
+_MAX_TOKENS = 12
+_MAX_TOKEN_LEN = 24
+
+
 def _clean_tokens(raw_tokens: List[str]) -> List[str]:
-    """Uppercase, strip non-alphanumerics, drop empties and duplicates (order kept)."""
+    """Uppercase, strip non-alphanumerics, drop empties and duplicates (order kept).
+
+    Bounded to _MAX_TOKENS fragments of _MAX_TOKEN_LEN chars: every token
+    becomes a regex scan over pillfinder, so unbounded input would let one
+    request run thousands of scans.
+    """
     seen = set()
     cleaned = []
     for token in raw_tokens:
-        for part in re.split(r"[;,\s]+", str(token).strip().upper()):
-            part = re.sub(r"[^A-Z0-9./-]", "", part)
+        for part in re.split(r"[;,\s]+", str(token)[:200].strip().upper()):
+            part = re.sub(r"[^A-Z0-9./-]", "", part)[:_MAX_TOKEN_LEN]
             if part and part not in seen:
                 seen.add(part)
                 cleaned.append(part)
+            if len(cleaned) >= _MAX_TOKENS:
+                return cleaned
     return cleaned
 
 
