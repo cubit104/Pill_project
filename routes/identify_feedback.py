@@ -74,34 +74,44 @@ def record_capture(
         logger.warning("identify_feedback insert failed: %s", e)
         return None
 
-    if consent and photos and _consent_quota_available():
+    if consent and photos and _reserve_consent_slot(capture_id):
         paths = _upload_photos(capture_id, photos)
-        if paths:
-            try:
-                with database.db_engine.begin() as conn:
-                    conn.execute(
-                        text("UPDATE identify_feedback SET photo_paths = CAST(:paths AS jsonb) "
-                             "WHERE capture_id = CAST(:id AS uuid)"),
-                        {"paths": json.dumps(paths), "id": capture_id},
-                    )
-            except Exception as e:
-                logger.warning("identify_feedback photo_paths update failed: %s", e)
+        try:
+            with database.db_engine.begin() as conn:
+                # Replace the reservation marker with the real paths (or clear it).
+                conn.execute(
+                    text("UPDATE identify_feedback SET photo_paths = CAST(:paths AS jsonb) "
+                         "WHERE capture_id = CAST(:id AS uuid)"),
+                    {"paths": json.dumps(paths) if paths else None, "id": capture_id},
+                )
+        except Exception as e:
+            logger.warning("identify_feedback photo_paths update failed: %s", e)
     return capture_id
 
 
-def _consent_quota_available() -> bool:
-    """Cap how many consented photo sets are stored per day (abuse guard)."""
+def _reserve_consent_slot(capture_id: str) -> bool:
+    """Atomically reserve one of today's consented-photo slots (abuse guard).
+
+    Counts under an advisory lock and writes a '[]' reservation marker in the
+    same transaction, so concurrent requests cannot all slip under the cap.
+    """
     try:
-        with database.db_engine.connect() as conn:
+        with database.db_engine.begin() as conn:
+            conn.execute(text("SELECT pg_advisory_xact_lock(hashtext('identify_feedback_consent_quota'))"))
             n = conn.execute(
                 text("SELECT count(*) FROM identify_feedback "
                      "WHERE photo_paths IS NOT NULL AND created_at > now() - interval '1 day'")
             ).scalar() or 0
-        if n >= MAX_CONSENT_UPLOADS_PER_DAY:
-            logger.warning("consent photo quota reached (%d/day); skipping upload", n)
-            return False
+            if n >= MAX_CONSENT_UPLOADS_PER_DAY:
+                logger.warning("consent photo quota reached (%d/day); skipping upload", n)
+                return False
+            conn.execute(
+                text("UPDATE identify_feedback SET photo_paths = '[]'::jsonb WHERE capture_id = CAST(:id AS uuid)"),
+                {"id": capture_id},
+            )
         return True
-    except Exception:
+    except Exception as e:
+        logger.warning("consent quota reservation failed: %s", e)
         return False
 
 
@@ -163,8 +173,11 @@ def submit_feedback(payload: Feedback):
         with database.db_engine.begin() as conn:
             res = conn.execute(
                 text(
+                    # chosen_slug must be one of the candidates we actually showed
+                    # for this capture; anything else is rejected (no label injection).
                     "UPDATE identify_feedback SET verdict = :v, chosen_slug = :slug, "
-                    "corrected_imprint = :imp WHERE capture_id = CAST(:id AS uuid)"
+                    "corrected_imprint = :imp WHERE capture_id = CAST(:id AS uuid) "
+                    "AND (:slug IS NULL OR top_slugs ? CAST(:slug AS text))"
                 ),
                 {
                     "v": payload.verdict,
@@ -177,5 +190,5 @@ def submit_feedback(payload: Feedback):
         logger.warning("feedback update failed: %s", e)
         raise HTTPException(status_code=500, detail="Could not save feedback")
     if res.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Unknown capture")
+        raise HTTPException(status_code=404, detail="Unknown capture or pill not among its candidates")
     return {"ok": True}

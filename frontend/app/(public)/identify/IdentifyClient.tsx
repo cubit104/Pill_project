@@ -172,8 +172,10 @@ export default function IdentifyClient() {
       if (prev[side]) URL.revokeObjectURL(prev[side] as string)
       return { ...prev, [side]: URL.createObjectURL(file) }
     })
-    const files = { ...photoFilesRef.current, [side]: await shrinkForUpload(file) }
-    photoFilesRef.current = files
+    const shrunk = await shrinkForUpload(file)
+    // Merge after the await: the other side may have finished in the meantime.
+    photoFilesRef.current = { ...photoFilesRef.current, [side]: shrunk }
+    const files = photoFilesRef.current
     // Identify only once both sides are captured — imprints are often split across sides.
     if (!files.front || !files.back) {
       setPhotoResult(null)
