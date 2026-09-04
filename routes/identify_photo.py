@@ -21,11 +21,12 @@ import threading
 
 import httpx
 import numpy as np
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from sqlalchemy import text
 
 import database
 from routes.identify import IdentifyRequest, identify_pill
+from routes.identify_feedback import record_capture
 from routes.site_settings import read_flags
 from utils import process_image_filenames
 
@@ -273,7 +274,9 @@ def _rerank_by_attrs(matches: list[dict], shape_p: dict, color_p: dict) -> list[
 
 @router.post("/api/identify/photo")
 async def identify_photo(
-    photo: UploadFile = File(...), photo2: UploadFile | None = File(default=None)
+    photo: UploadFile = File(...),
+    photo2: UploadFile | None = File(default=None),
+    consent: str | None = Form(default=None),
 ):
     """Match one or two photos (front/back). With two, each pill's score is the
     best of: either side alone, or the averaged two-side embedding."""
@@ -291,7 +294,20 @@ async def identify_photo(
         raise HTTPException(status_code=422, detail="Empty upload")
 
     # Everything below is CPU-bound (ONNX, DB); keep it off the event loop.
-    return await asyncio.to_thread(_identify_sync, raws)
+    result = await asyncio.to_thread(_identify_sync, raws)
+
+    # Learning loop: log the identification (photos kept only with explicit consent).
+    keep_photos = str(consent or "").lower() in ("1", "true", "yes", "on")
+    result["capture_id"] = await asyncio.to_thread(
+        record_capture,
+        result.get("imprint_read", ""),
+        (result.get("imprint_read") or "").split(),
+        result.get("attrs_guess") or {},
+        [m["slug"] for m in result.get("matches", [])],
+        keep_photos,
+        raws if keep_photos else [],
+    )
+    return result
 
 
 async def _read_bounded(up: UploadFile) -> bytes:

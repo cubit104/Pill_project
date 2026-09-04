@@ -17,7 +17,7 @@ export default function IdentifyPage() {
       <p className="text-slate-600 mb-6">
         Snap a photo of each side of the pill. Our own reader, trained on PillSeek&apos;s pill photo
         library, reads the imprint and matches it against 14,000+ medications. Photos are analyzed
-        in memory and <strong>never stored</strong>.
+        in memory and <strong>never stored</strong> unless you choose to share them to improve the reader.
       </p>
       <IdentifyClient />
     </main>
