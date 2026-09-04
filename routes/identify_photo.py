@@ -289,11 +289,22 @@ def _token_variants(tokens: list[str], side_reads: list[str] | None = None) -> l
             bases.append(side)
 
     variants: list[list[str]] = []
+
+    def add(v):
+        if v and v not in variants:
+            variants.append(v)
+
     for b in bases:
         for v in (b, split(b), ["".join(b)] if len(b) > 1 else None):
-            if v and v not in variants:
-                variants.append(v)
-    return variants[:8]
+            add(v)
+    # Leave-one-out: a phone read often carries one phantom fragment
+    # ("BX DX 2" for a "BX 2" pill). Dropping each token in turn lets the true
+    # pill score a full match; shape/colour re-ranking then breaks ties.
+    for b in bases:
+        if 3 <= len(b) <= 5:
+            for i in range(len(b)):
+                add(b[:i] + b[i + 1:])
+    return variants[:12]
 
 
 def _attr_probs(emb: np.ndarray, kind: str) -> dict[str, float]:
