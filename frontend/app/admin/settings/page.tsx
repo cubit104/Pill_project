@@ -128,22 +128,22 @@ export default function AdminSettingsPage() {
             <p className="text-xs text-gray-500 mb-3">
               Fast: base model only (~1.5 s). Accurate: adds the large model on the best crops (~3 s; reads faint imprints).
             </p>
-            <div className="inline-flex rounded-md border border-gray-300 overflow-hidden" role="radiogroup" aria-label="Imprint reader mode">
+            <fieldset className="flex gap-6" disabled={saving || readerMode === null}>
+              <legend className="sr-only">Imprint reader mode</legend>
               {(['fast', 'accurate'] as const).map((m) => (
-                <button
-                  key={m}
-                  role="radio"
-                  aria-checked={readerMode === m}
-                  disabled={saving || readerMode === null}
-                  onClick={() => readerMode !== m && void saveFlags({ photo_id_reader_mode: m })}
-                  className={`px-4 py-1.5 text-sm font-medium disabled:opacity-50 ${
-                    readerMode === m ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
+                <label key={m} className="inline-flex items-center gap-2 text-sm text-gray-800 cursor-pointer disabled:opacity-50">
+                  <input
+                    type="radio"
+                    name="reader-mode"
+                    value={m}
+                    checked={readerMode === m}
+                    onChange={() => void saveFlags({ photo_id_reader_mode: m })}
+                    className="h-4 w-4 text-emerald-600 focus:ring-emerald-500"
+                  />
                   {m === 'fast' ? 'Fast' : 'Accurate'}
-                </button>
+                </label>
               ))}
-            </div>
+            </fieldset>
           </div>
           {flagError && <p className="mt-2 text-sm text-red-600">{flagError}</p>}
         </div>

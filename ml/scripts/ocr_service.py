@@ -342,6 +342,9 @@ async def read_imprint(
 ):
     if READER_KEY and x_reader_key != READER_KEY:
         raise HTTPException(status_code=401, detail="bad reader key")
+    mode = mode.strip().lower()
+    if mode not in ("fast", "accurate"):
+        raise HTTPException(status_code=422, detail="mode must be 'fast' or 'accurate'")
     t0 = time.time()
     photos: list[Image.Image] = []
     for up in [photo] + ([photo2] if photo2 is not None else []):
