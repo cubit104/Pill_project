@@ -3,8 +3,8 @@
 POST /read  (multipart: photo, optional photo2)
     -> {"tokens": [...], "reads": [...], "views": [[...], ...]}
 
-Each photo is read from several *views* (full frame, a tight crop around the
-pill found in the frame, centre crops, 180° rotation) in one batched decode,
+Each photo is read from several *views* (tight crops around the pill located
+in the frame, or full frame + centre crops when none is found) in one batched decode,
 and the tokens are put to a vote: a token must show up in at least
 PILL_TROCR_MIN_VOTES views to survive. The pill crop matters most on phone
 photos: the model was trained on catalog shots where the pill fills the
@@ -47,6 +47,9 @@ PILL_PAD = 0.0  # box returned by _pill_box is the raw (unpadded) pill extent
 MIN_VOTES = int(os.getenv("PILL_TROCR_MIN_VOTES", "2"))
 # Per-request read logging is off by default (log volume / privacy); latency is always logged.
 LOG_READS = os.getenv("PILL_TROCR_LOG_READS", "") == "1"
+# Debugging aid: when set, every request's photos and the views actually read
+# are written there (local disk only). Leave unset in normal operation.
+DEBUG_DIR = os.getenv("PILL_TROCR_DEBUG_DIR", "")
 # Abuse guards for direct callers (the API already bounds its uploads):
 # refuse oversized bodies before decoding, refuse absurd pixel counts before
 # decompressing, and normalise to MAX_SIDE so the 4 views are bounded work.
@@ -90,54 +93,122 @@ def _center(img: Image.Image, keep: float) -> Image.Image:
     return img.crop(((w - s) // 2, (h - s) // 2, (w + s) // 2, (h + s) // 2))
 
 
-def _otsu(values: np.ndarray) -> float:
-    """Otsu threshold over a 1-D array (no scipy/cv2 on the reader box)."""
-    hist, edges = np.histogram(values, bins=64)
-    mids = (edges[:-1] + edges[1:]) / 2
-    p = hist.astype(np.float64) / max(hist.sum(), 1)
-    w0 = np.cumsum(p)
-    w1 = 1.0 - w0
-    mu = np.cumsum(p * mids)
-    between = (mu[-1] * w0 - mu) ** 2 / np.maximum(w0 * w1, 1e-9)
-    return float(mids[int(np.argmax(between[:-1]))])
+def _integral(a):
+    s = np.cumsum(np.cumsum(a, axis=0), axis=1)
+    return np.pad(s, ((1, 0), (1, 0)))
 
 
-def _pill_box(img: Image.Image) -> tuple[int, int, int, int] | None:
-    """Locate the pill: the blob that differs most from the frame's border colour.
+def _box_sum(I, y0, x0, side):
+    """Sum over [y0:y0+side, x0:x0+side] for arrays of y0/x0 (vectorized)."""
+    return I[y0 + side, x0 + side] - I[y0, x0 + side] - I[y0 + side, x0] + I[y0, x0]
 
-    Works on a 256px thumbnail: background = median colour of the border,
-    foreground = pixels whose colour distance from it passes an Otsu split.
-    A robust (1st-99th percentile) bounding box of the foreground ignores
-    stray specks. Returns a padded square box in full-image coordinates, or
-    None when nothing sensible stands out (nearly empty or nearly full frame).
+
+def _pill_box(img: Image.Image, thumb=192, scales=(0.12, 0.16, 0.2, 0.25, 0.3, 0.36, 0.44, 0.55), min_score=1.2):
+    """Locate the pill: a smooth, compact blob that contrasts with a textured background.
+
+    Scans square windows at several scales over a small thumbnail (integral
+    images, ~30 ms): score = |brightness contrast, window centre vs ring| +
+    texture contrast (ring rougher than centre). Wood grain, fabric and palm
+    lines are rough; pills are smooth. The winning window is then grown to
+    the pill's real extent by a colour split + flood fill (_refine). Returns
+    a box in full-image coordinates, or None when nothing convincing is found.
     """
     W, H = img.size
     small = img.copy()
-    small.thumbnail((256, 256))
-    a = np.asarray(small, dtype=np.float32)
-    h, w = a.shape[:2]
-    border = np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])
-    bg = np.median(border, axis=0)
-    dist = np.sqrt(((a - bg) ** 2).sum(axis=-1))
-    thr = max(_otsu(dist.ravel()), 18.0)
-    mask = dist > thr
-    frac = mask.mean()
-    if frac < 0.005 or frac > 0.6:
+    small.thumbnail((thumb, thumb))
+    g = np.asarray(small.convert("L"), dtype=np.float32) / 255.0
+    h, w = g.shape
+    # texture = local gradient magnitude (wood grain, fabric, palm lines are high; pills are low)
+    gx = np.abs(np.diff(g, axis=1, prepend=g[:, :1]))
+    gy = np.abs(np.diff(g, axis=0, prepend=g[:1, :]))
+    tex = gx + gy
+    Ib, It = _integral(g), _integral(tex)
+    sb, st = g.std() + 1e-6, tex.std() + 1e-6
+    best = (-1e9, None)
+    for f in scales:
+        side = int(min(h, w) * f)
+        inner = max(4, int(side * 0.7))          # central part of the window: mostly pill if it fits
+        off = (side - inner) // 2
+        ring = int(side * 0.5)                   # margin around the window: background
+        stride = max(1, side // 8)
+        ys = np.arange(0, h - side + 1, stride)
+        xs = np.arange(0, w - side + 1, stride)
+        Y, X = np.meshgrid(ys, xs, indexing="ij")
+        # inner stats
+        b_in = _box_sum(Ib, Y + off, X + off, inner) / (inner * inner)
+        t_in = _box_sum(It, Y + off, X + off, inner) / (inner * inner)
+        # ring = expanded box minus window (clipped to image)
+        y0 = np.clip(Y - ring, 0, h); x0 = np.clip(X - ring, 0, w)
+        y1 = np.clip(Y + side + ring, 0, h); x1 = np.clip(X + side + ring, 0, w)
+        big_area = (y1 - y0) * (x1 - x0)
+        big_b = Ib[y1, x1] - Ib[y0, x1] - Ib[y1, x0] + Ib[y0, x0]
+        big_t = It[y1, x1] - It[y0, x1] - It[y1, x0] + It[y0, x0]
+        win_b = _box_sum(Ib, Y, X, side)
+        win_t = _box_sum(It, Y, X, side)
+        ring_area = np.maximum(big_area - side * side, 1)
+        b_ring = (big_b - win_b) / ring_area
+        t_ring = (big_t - win_t) / ring_area
+        score = np.abs(b_in - b_ring) / sb + (t_ring - t_in) / st
+        i = int(np.argmax(score))
+        sc = float(score.ravel()[i])
+        if sc > best[0]:
+            yy, xx = int(Y.ravel()[i]), int(X.ravel()[i])
+            best = (sc, (xx, yy, side))
+    sc, hit = best
+    if hit is None or sc < min_score:
         return None
-    ys, xs = np.nonzero(mask)
-    y0, y1 = np.percentile(ys, [1, 99])
-    x0, x1 = np.percentile(xs, [1, 99])
-    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    side = max(x1 - x0, y1 - y0) * (1 + 2 * PILL_PAD)
-    side = max(side, 24)
+    xx, yy, side = hit
+    box = _refine(np.asarray(small, dtype=np.float32), (xx, yy, side))
     sx, sy = W / w, H / h
-    left = int(max(0, (cx - side / 2) * sx))
-    top = int(max(0, (cy - side / 2) * sy))
-    right = int(min(W, (cx + side / 2) * sx))
-    bottom = int(min(H, (cy + side / 2) * sy))
-    if right - left < 48 or bottom - top < 48:
-        return None
-    return left, top, right, bottom
+    x0, y0, x1, y1 = box
+    return (int(x0 * sx), int(y0 * sy), int(x1 * sx), int(y1 * sy))
+
+
+def _refine(rgb, win):
+    """Grow the detected window to the pill's real extent.
+
+    Nearest-centroid colour split (pill colour = median of the window's
+    centre, background = median of the ring around it), then a flood fill
+    from the window centre over the 'pill' mask. Falls back to the window
+    when the region looks implausible.
+    """
+    h, w = rgb.shape[:2]
+    xx, yy, side = win
+    inner = max(4, int(side * 0.6)); off = (side - inner) // 2
+    core = rgb[yy + off:yy + off + inner, xx + off:xx + off + inner].reshape(-1, 3)
+    ring = int(side * 0.5)
+    y0, x0 = max(0, yy - ring), max(0, xx - ring)
+    y1, x1 = min(h, yy + side + ring), min(w, xx + side + ring)
+    big = rgb[y0:y1, x0:x1].copy()
+    big[yy - y0:yy - y0 + side, xx - x0:xx - x0 + side] = np.nan
+    ringpx = big.reshape(-1, 3); ringpx = ringpx[~np.isnan(ringpx[:, 0])]
+    pill_c = np.median(core, axis=0); bg_c = np.median(ringpx, axis=0)
+    if np.linalg.norm(pill_c - bg_c) < 20:
+        return (xx, yy, xx + side, yy + side)
+    d_pill = np.linalg.norm(rgb - pill_c, axis=-1)
+    d_bg = np.linalg.norm(rgb - bg_c, axis=-1)
+    mask = d_pill < d_bg
+    # flood fill from the window centre (4-neighbour), bounded to a plausible area
+    cy, cx = yy + side // 2, xx + side // 2
+    if not mask[cy, cx]:
+        return (xx, yy, xx + side, yy + side)
+    seen = np.zeros_like(mask)
+    stack = [(cy, cx)]; seen[cy, cx] = True
+    ys, xs = [], []
+    limit = side * side * 4
+    while stack and len(ys) < limit:
+        y, x = stack.pop(); ys.append(y); xs.append(x)
+        for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+            if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not seen[ny, nx]:
+                seen[ny, nx] = True; stack.append((ny, nx))
+    if len(ys) >= limit or len(ys) < side * side * 0.15:
+        return (xx, yy, xx + side, yy + side)
+    ys, xs = np.array(ys), np.array(xs)
+    by0, by1 = np.percentile(ys, [0.5, 99.5]); bx0, bx1 = np.percentile(xs, [0.5, 99.5])
+    # square it around the centre
+    s = max(by1 - by0, bx1 - bx0) + 1
+    cy2, cx2 = (by0 + by1) / 2, (bx0 + bx1) / 2
+    return (int(max(0, cx2 - s / 2)), int(max(0, cy2 - s / 2)), int(min(w, cx2 + s / 2)), int(min(h, cy2 + s / 2)))
 
 
 def _crop_pad(img: Image.Image, box: tuple[int, int, int, int], pad: float) -> Image.Image:
@@ -150,6 +221,8 @@ def _crop_pad(img: Image.Image, box: tuple[int, int, int, int], pad: float) -> I
 
 def _views(img: Image.Image) -> list[Image.Image]:
     box = _pill_box(img)
+    if LOG_READS:
+        print("pill box:", box, "in", img.size)
     if box:
         crops = [_crop_pad(img, box, p) for p in PILL_PADS]
         return crops + [crops[len(crops) // 2].rotate(180)]
@@ -255,6 +328,16 @@ async def read_imprint(
         spans.append((len(batch), len(batch) + len(vs)))
         batch.extend(vs)
     n_views = len(batch)
+    if DEBUG_DIR:
+        try:
+            os.makedirs(DEBUG_DIR, exist_ok=True)
+            stamp = time.strftime("%H%M%S")
+            for i, im in enumerate(photos):
+                im.save(os.path.join(DEBUG_DIR, f"{stamp}_photo{i + 1}.jpg"), quality=90)
+            for i, im in enumerate(batch):
+                im.save(os.path.join(DEBUG_DIR, f"{stamp}_view{i + 1}.jpg"), quality=90)
+        except Exception as e:
+            print("debug dump failed:", e)
     raw_reads = _read_batch(batch) if batch else []
     views = [raw_reads[a:b] for a, b in spans]
     per_side = [_vote(v) for v in views]
