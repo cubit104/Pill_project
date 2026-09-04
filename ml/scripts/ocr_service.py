@@ -1,6 +1,6 @@
 """PillSeek imprint reader service (in-house TrOCR fine-tune).
 
-POST /read  (multipart: photo, optional photo2)
+POST /read  (multipart: photo, optional photo2, optional mode=fast|accurate)
     -> {"tokens": [...], "reads": [...], "views": [[...], ...]}
 
 Each photo is read from several *views* (tight crops around the pill located
@@ -26,7 +26,7 @@ from collections import Counter
 
 import numpy as np
 import torch
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from PIL import Image
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
@@ -337,6 +337,7 @@ def health():
 async def read_imprint(
     photo: UploadFile = File(...),
     photo2: UploadFile | None = File(default=None),
+    mode: str = Form(default="accurate"),  # "fast" skips the large model
     x_reader_key: str | None = Header(default=None),
 ):
     if READER_KEY and x_reader_key != READER_KEY:
@@ -368,7 +369,7 @@ async def read_imprint(
     views = [raw_reads[a:b] for a, b in spans]
     per_side = [_vote(v) for v in views]
     views2: list[list[str]] = []
-    if model2 is not None and batch:
+    if model2 is not None and batch and mode != "fast":
         # Two middle views per photo (the tight pill crops when a pill was found).
         picks = [list(range(a, b))[1:3] if b - a >= 3 else list(range(a, b)) for a, b in spans]
         reads2 = _read_batch([batch[i] for idxs in picks for i in idxs], model2, NUM_BEAMS2)
@@ -387,7 +388,7 @@ async def read_imprint(
                 seen.add(t)
                 tokens.append(t)
     if LOG_READS:
-        print("read %d photo(s), %d views in %.2fs -> %s | %s | large: %s" % (len(photos), n_views, time.time() - t0, tokens, views, views2))
+        print("read %d photo(s), %d views, mode=%s in %.2fs -> %s | %s | large: %s" % (len(photos), n_views, mode, time.time() - t0, tokens, views, views2))
     else:
-        print("read %d photo(s), %d views in %.2fs" % (len(photos), n_views, time.time() - t0))
+        print("read %d photo(s), %d views, mode=%s in %.2fs" % (len(photos), n_views, mode, time.time() - t0))
     return {"tokens": tokens, "reads": [" ".join(s) for s in per_side], "views": views, "views2": views2}

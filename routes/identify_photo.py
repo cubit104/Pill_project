@@ -605,8 +605,9 @@ async def _read_imprint(raws: list[bytes]) -> tuple[list[str], list[str]]:
         headers = {"User-Agent": "PillSeek-API/1.0 (+https://pillseek.com)"}
         if OCR_KEY:
             headers["X-Reader-Key"] = OCR_KEY
+        mode = read_flags().get("photo_id_reader_mode", "accurate")
         async with httpx.AsyncClient(timeout=OCR_TIMEOUT) as client:
-            r = await client.post(OCR_URL, files=files, headers=headers)
+            r = await client.post(OCR_URL, files=files, data={"mode": mode}, headers=headers)
         r.raise_for_status()
         j = r.json()
         tokens = [t for t in j.get("tokens", []) if t][:12]
