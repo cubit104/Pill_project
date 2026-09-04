@@ -112,7 +112,10 @@ def _bounded_jpeg(raw: bytes) -> bytes | None:
     from PIL import Image
 
     try:
-        img = Image.open(io.BytesIO(raw)).convert("RGB")
+        img = Image.open(io.BytesIO(raw))
+        if img.size[0] * img.size[1] > 40_000_000:
+            return None
+        img = img.convert("RGB")
         img.thumbnail((STORED_PHOTO_MAX_SIDE, STORED_PHOTO_MAX_SIDE))
         buf = io.BytesIO()
         img.save(buf, "JPEG", quality=88, optimize=True)

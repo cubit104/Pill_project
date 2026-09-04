@@ -4,7 +4,7 @@ import IdentifyClient from './IdentifyClient'
 export const metadata: Metadata = {
   title: 'Identify a Pill by Photo — Free Camera Pill Identifier',
   description:
-    'Take a photo of both sides of a pill and identify it. Free camera-based pill identification by imprint, color, and shape. Photos are analyzed in memory and never stored.',
+    'Take a photo of both sides of a pill and identify it. Free camera-based pill identification by imprint, color, and shape. Photos are analyzed in memory and only kept if you choose to share them.',
   alternates: { canonical: '/identify' },
 }
 

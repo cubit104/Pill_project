@@ -219,7 +219,7 @@ export default function IdentifyClient() {
           capture_id: photoResult.capture_id,
           verdict,
           chosen_slug: chosenSlug ?? null,
-          corrected_imprint: tokensText !== (photoResult.imprint_read ?? '') ? tokensText : null,
+          corrected_imprint: tokensText !== (photoResult.imprint_read ?? '') ? tokensText.slice(0, 80) : null,
         }),
       })
       if (!res.ok) throw new Error(`Feedback not saved (${res.status})`)

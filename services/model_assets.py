@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 ASSETS = ("pill_encoder_int8.onnx", "index_prod.npz", "pill_attr_heads.npz")
 _lock = threading.Lock()
 _done = False
+_last_failure = 0.0
+FAILURE_BACKOFF_S = 120.0
 
 
 def _target_dir() -> str:
@@ -34,13 +36,39 @@ def assets_present() -> bool:
     return all(os.path.exists(os.path.join(d, name)) for name in ASSETS)
 
 
-def ensure_pill_vision_assets() -> bool:
-    """Download any missing asset. Returns True when all assets are present."""
-    global _done
-    with _lock:
+def ensure_pill_vision_assets(wait: bool = True) -> bool:
+    """Download any missing asset. Returns True when all assets are present.
+
+    wait=False returns immediately (False) if another thread is already
+    downloading, or if a download failed within FAILURE_BACKOFF_S — so a
+    request handler never blocks on, or repeatedly retries, the download.
+    """
+    global _done, _last_failure
+    import time
+
+    if _done or assets_present():
+        _done = True
+        return True
+    if not wait and time.time() - _last_failure < FAILURE_BACKOFF_S:
+        return False
+    acquired = _lock.acquire(blocking=wait)
+    if not acquired:
+        return False
+    try:
         if _done or assets_present():
             _done = True
             return True
+        ok = _download_all()
+        if not ok:
+            _last_failure = time.time()
+        return ok
+    finally:
+        _lock.release()
+
+
+def _download_all() -> bool:
+    global _done
+    if True:
 
         base = (os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL") or "").rstrip("/")
         key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
