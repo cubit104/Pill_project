@@ -14,6 +14,7 @@ unaffected.
 
 import asyncio
 import io
+import itertools
 import json
 import logging
 import os
@@ -263,8 +264,22 @@ def _side_sims(image_bytes: bytes) -> tuple[np.ndarray, "Image"]:
     return per_variant.max(axis=0), candidates[0]
 
 
-def _token_variants(tokens: list[str], side_reads: list[str] | None = None) -> list[list[str]]:
-    """Ways the reader's text may map onto catalog tokenization.
+# Scores from leave-one-out variants are scaled by this, so a pill that only
+# matches after discarding a read token can never reach the 0.85 exact-hit
+# shortcut: the visual stage still runs and must confirm it.
+_LOO_WEIGHT = 0.8
+_MAX_VARIANTS = 16
+# A leave-one-out imprint hit counts as visually confirmed when its pill is
+# within this many places of the visual ranking.
+_VISUAL_CONFIRM_RANK = 25
+# Variant lookups are independent SQL queries; run them side by side on their
+# own pool (never on _EXECUTOR: an identification already occupies one of
+# those workers and would deadlock waiting on itself).
+_VARIANT_EXECUTOR = ThreadPoolExecutor(max_workers=int(os.getenv("PILL_VARIANT_WORKERS", "6")), thread_name_prefix="pill-var")
+
+
+def _token_variants(tokens: list[str], side_reads: list[str] | None = None) -> list[tuple[list[str], float]]:
+    """Ways the reader's text may map onto catalog tokenization, with a weight.
 
     Catalog stores "S;10" while the reader may say "S10"; a logo side may be
     misread as a plausible code ("A-011"). So we try: the combined read, each
@@ -288,12 +303,28 @@ def _token_variants(tokens: list[str], side_reads: list[str] | None = None) -> l
         if side and side not in bases:
             bases.append(side)
 
-    variants: list[list[str]] = []
+    variants: list[tuple[list[str], float]] = []
+    seen: list[list[str]] = []
+
+    def add(v, weight):
+        if v and v not in seen:
+            seen.append(v)
+            variants.append((v, weight))
+
     for b in bases:
         for v in (b, split(b), ["".join(b)] if len(b) > 1 else None):
-            if v and v not in variants:
-                variants.append(v)
-    return variants[:8]
+            add(v, 1.0)
+    # Leave-one-out: a phone read often carries one phantom fragment
+    # ("BX DX 2" for a "BX 2" pill). Dropping each token in turn lets the true
+    # pill surface, but down-weighted (_LOO_WEIGHT) so it is never treated as
+    # an exact hit: the visual stage must confirm it. Interleaved across bases
+    # (combined read, side 1, side 2) so the cap never starves a later side.
+    loo_lists = [[b[:i] + b[i + 1:] for i in range(len(b))] for b in bases if 3 <= len(b) <= 5]
+    for round_ in itertools.zip_longest(*loo_lists):
+        for v in round_:
+            if v:
+                add(v, _LOO_WEIGHT)
+    return variants[:_MAX_VARIANTS]
 
 
 def _attr_probs(emb: np.ndarray, kind: str) -> dict[str, float]:
@@ -396,17 +427,23 @@ def _identify_sync(raws: list[bytes]) -> dict:
     if tokens:
         imprint_read = " ".join(tokens)
         try:
-            best: dict[str, object] = {}
-            for variant in _token_variants(tokens, side_reads):
-                text_result = identify_pill(IdentifyRequest(imprint_tokens=variant, limit=TOP_K))
+            best: dict[str, tuple[float, object, float]] = {}
+            variants = _token_variants(tokens, side_reads)
+            results = list(_VARIANT_EXECUTOR.map(
+                lambda vw: identify_pill(IdentifyRequest(imprint_tokens=vw[0], limit=TOP_K)), variants))
+            for (variant, weight), text_result in zip(variants, results):
                 for c in text_result.candidates:
-                    if c.score >= 0.5 and (c.slug not in best or c.score > best[c.slug].score):
-                        best[c.slug] = c
-            for c in sorted(best.values(), key=lambda c: -c.score):
+                    if c.score < 0.5:  # inclusion is judged on the raw text score
+                        continue
+                    score = c.score * weight  # ranking / shortcut use the weighted one
+                    if c.slug not in best or score > best[c.slug][0]:
+                        best[c.slug] = (score, c, weight)
+            for score, c, weight in sorted(best.values(), key=lambda sc: -sc[0]):
                 imprint_matches.append(
                     {
                         "slug": c.slug,
-                        "similarity": c.score,
+                        "similarity": score,
+                        "lossy": weight < 1.0,
                         "medicine_name": c.medicine_name,
                         "splimprint": c.splimprint,
                         "color": c.color,
@@ -439,8 +476,9 @@ def _identify_sync(raws: list[bytes]) -> dict:
             logger.warning("attribute re-rank failed", exc_info=True)
 
     # 2) Exact imprint hit → done; skip the (slow) visual matching entirely.
+    #    (Leave-one-out hits are capped at _LOO_WEIGHT and can't get here.)
     if imprint_matches and imprint_matches[0]["similarity"] >= 0.85:
-        return {"matches": imprint_matches[:TOP_K], "imprint_read": imprint_read, "attrs_guess": attrs_guess, "disclaimer": _DISCLAIMER}
+        return {"matches": _public(imprint_matches[:TOP_K]), "imprint_read": imprint_read, "attrs_guess": attrs_guess, "disclaimer": _DISCLAIMER}
 
     # 3) Otherwise visual matching fills in / breaks ties. If the visual
     #    stage is unavailable, still return whatever the imprint gave us.
@@ -450,7 +488,10 @@ def _identify_sync(raws: list[bytes]) -> dict:
         _load()
     except HTTPException:
         if imprint_matches:
-            return {"matches": imprint_matches[:TOP_K], "imprint_read": imprint_read,
+            # No visual confirmation possible: full-read hits before any
+            # leave-one-out guess, whatever their scores.
+            ordered = sorted(imprint_matches, key=lambda m: (m["lossy"], -m["similarity"]))
+            return {"matches": _public(ordered[:TOP_K]), "imprint_read": imprint_read,
                     "attrs_guess": attrs_guess, "disclaimer": _DISCLAIMER}
         raise
     for raw in raws:
@@ -531,9 +572,26 @@ def _identify_sync(raws: list[bytes]) -> dict:
     for m in matches:
         m["source"] = "visual"
 
+    # Leave-one-out imprint hits are only guesses: keep them ahead of the
+    # visual results when the photo itself ranks that pill near the top,
+    # otherwise push them behind the visual matches.
+    visual_rank: dict[str, int] = {}
+    for i in ranked:
+        slug = _state["meta"][i]["slug"]
+        if slug not in visual_rank:
+            visual_rank[slug] = len(visual_rank)
+            if len(visual_rank) >= _VISUAL_CONFIRM_RANK:
+                break
+    confirmed = [m for m in imprint_matches if not m["lossy"] or m["slug"] in visual_rank]
+    unconfirmed = [m for m in imprint_matches if m["lossy"] and m["slug"] not in visual_rank]
     seen_slugs = {m["slug"] for m in imprint_matches}
-    fused = imprint_matches + [m for m in matches if m["slug"] not in seen_slugs]
-    return {"matches": fused[:TOP_K + 2], "imprint_read": imprint_read, "attrs_guess": attrs_guess, "disclaimer": _DISCLAIMER}
+    fused = confirmed + [m for m in matches if m["slug"] not in seen_slugs] + unconfirmed
+    return {"matches": _public(fused[:TOP_K + 2]), "imprint_read": imprint_read, "attrs_guess": attrs_guess, "disclaimer": _DISCLAIMER}
+
+
+def _public(matches: list[dict]) -> list[dict]:
+    """Drop internal bookkeeping before the matches leave the API."""
+    return [{k: v for k, v in m.items() if k != "lossy"} for m in matches]
 
 
 async def _read_imprint(raws: list[bytes]) -> tuple[list[str], list[str]]:
