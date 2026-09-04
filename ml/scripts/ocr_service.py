@@ -32,7 +32,9 @@ READER_KEY = os.getenv("PILL_OCR_KEY", "")
 # Views read per photo, in priority order. c75 = centre crop keeping 75% of the
 # short side; r180 = full frame rotated half a turn (the model was trained on
 # upright catalog shots, so an upside-down pill often reads better this way).
-VIEWS = [v.strip() for v in os.getenv("PILL_TROCR_VIEWS", "full,c75,c60,r180").split(",") if v.strip()]
+VIEWS = list(dict.fromkeys(v.strip() for v in os.getenv("PILL_TROCR_VIEWS", "full,c75,c60,r180").split(",") if v.strip()))
+# Per-request read logging is off by default (log volume / privacy); latency is always logged.
+LOG_READS = os.getenv("PILL_TROCR_LOG_READS", "") == "1"
 MIN_VOTES = int(os.getenv("PILL_TROCR_MIN_VOTES", "2"))
 # Abuse guards for direct callers (the API already bounds its uploads):
 # refuse oversized bodies before decoding, refuse absurd pixel counts before
@@ -73,7 +75,7 @@ _TOKEN_RE = re.compile(r"[^A-Z0-9./-]")
 
 def _center(img: Image.Image, keep: float) -> Image.Image:
     w, h = img.size
-    s = int(min(w, h) * keep)
+    s = max(1, int(min(w, h) * keep))
     return img.crop(((w - s) // 2, (h - s) // 2, (w + s) // 2, (h + s) // 2))
 
 
@@ -188,5 +190,8 @@ async def read_imprint(
             if t not in seen:
                 seen.add(t)
                 tokens.append(t)
-    print("read %d photo(s) x %d views in %.2fs -> %s | %s" % (len(photos), len(VIEWS), time.time() - t0, tokens, views))
+    if LOG_READS:
+        print("read %d photo(s) x %d views in %.2fs -> %s | %s" % (len(photos), len(VIEWS), time.time() - t0, tokens, views))
+    else:
+        print("read %d photo(s) x %d views in %.2fs" % (len(photos), len(VIEWS), time.time() - t0))
     return {"tokens": tokens, "reads": [" ".join(s) for s in per_side], "views": views}
