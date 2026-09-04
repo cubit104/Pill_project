@@ -511,6 +511,10 @@ def _identify_sync(raws: list[bytes]) -> dict:
     matches = []
     for slug, sim in top:
         row = details.get(slug)
+        if row is None:
+            # Not in the live published set (unpublished/deleted since the
+            # index was built) — never surface a link that would 404.
+            continue
         matches.append(
             {
                 "slug": slug,

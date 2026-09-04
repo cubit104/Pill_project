@@ -43,6 +43,15 @@ export default function Header() {
           )}
         </nav>
 
+        {photoIdEnabled && (
+          <Link
+            href="/identify"
+            className="sm:hidden ml-auto mr-1 inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800 hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            aria-label="Identify a pill by photo (new)"
+          >
+            📷 Photo ID
+          </Link>
+        )}
         <button
           className="sm:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           onClick={() => setMenuOpen((prev) => !prev)}
