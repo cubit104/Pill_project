@@ -263,8 +263,14 @@ def _side_sims(image_bytes: bytes) -> tuple[np.ndarray, "Image"]:
     return per_variant.max(axis=0), candidates[0]
 
 
-def _token_variants(tokens: list[str], side_reads: list[str] | None = None) -> list[list[str]]:
-    """Ways the reader's text may map onto catalog tokenization.
+# Scores from leave-one-out variants are scaled by this, so a pill that only
+# matches after discarding a read token can never reach the 0.85 exact-hit
+# shortcut: the visual stage still runs and must confirm it.
+_LOO_WEIGHT = 0.8
+
+
+def _token_variants(tokens: list[str], side_reads: list[str] | None = None) -> list[tuple[list[str], float]]:
+    """Ways the reader's text may map onto catalog tokenization, with a weight.
 
     Catalog stores "S;10" while the reader may say "S10"; a logo side may be
     misread as a plausible code ("A-011"). So we try: the combined read, each
@@ -288,22 +294,25 @@ def _token_variants(tokens: list[str], side_reads: list[str] | None = None) -> l
         if side and side not in bases:
             bases.append(side)
 
-    variants: list[list[str]] = []
+    variants: list[tuple[list[str], float]] = []
+    seen: list[list[str]] = []
 
-    def add(v):
-        if v and v not in variants:
-            variants.append(v)
+    def add(v, weight):
+        if v and v not in seen:
+            seen.append(v)
+            variants.append((v, weight))
 
     for b in bases:
         for v in (b, split(b), ["".join(b)] if len(b) > 1 else None):
-            add(v)
+            add(v, 1.0)
     # Leave-one-out: a phone read often carries one phantom fragment
     # ("BX DX 2" for a "BX 2" pill). Dropping each token in turn lets the true
-    # pill score a full match; shape/colour re-ranking then breaks ties.
+    # pill surface, but down-weighted (_LOO_WEIGHT) so it is never treated as
+    # an exact hit: shape/colour re-ranking and the visual stage decide.
     for b in bases:
         if 3 <= len(b) <= 5:
             for i in range(len(b)):
-                add(b[:i] + b[i + 1:])
+                add(b[:i] + b[i + 1:], _LOO_WEIGHT)
     return variants[:12]
 
 
@@ -407,17 +416,18 @@ def _identify_sync(raws: list[bytes]) -> dict:
     if tokens:
         imprint_read = " ".join(tokens)
         try:
-            best: dict[str, object] = {}
-            for variant in _token_variants(tokens, side_reads):
+            best: dict[str, tuple[float, object]] = {}
+            for variant, weight in _token_variants(tokens, side_reads):
                 text_result = identify_pill(IdentifyRequest(imprint_tokens=variant, limit=TOP_K))
                 for c in text_result.candidates:
-                    if c.score >= 0.5 and (c.slug not in best or c.score > best[c.slug].score):
-                        best[c.slug] = c
-            for c in sorted(best.values(), key=lambda c: -c.score):
+                    score = c.score * weight
+                    if score >= 0.5 and (c.slug not in best or score > best[c.slug][0]):
+                        best[c.slug] = (score, c)
+            for score, c in sorted(best.values(), key=lambda sc: -sc[0]):
                 imprint_matches.append(
                     {
                         "slug": c.slug,
-                        "similarity": c.score,
+                        "similarity": score,
                         "medicine_name": c.medicine_name,
                         "splimprint": c.splimprint,
                         "color": c.color,

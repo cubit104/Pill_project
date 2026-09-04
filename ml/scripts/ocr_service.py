@@ -34,6 +34,12 @@ READER_KEY = os.getenv("PILL_OCR_KEY", "")
 # upright catalog shots, so an upside-down pill often reads better this way).
 VIEWS = [v.strip() for v in os.getenv("PILL_TROCR_VIEWS", "full,c75,c60,r180").split(",") if v.strip()]
 MIN_VOTES = int(os.getenv("PILL_TROCR_MIN_VOTES", "2"))
+# Abuse guards for direct callers (the API already bounds its uploads):
+# refuse oversized bodies before decoding, refuse absurd pixel counts before
+# decompressing, and normalise to MAX_SIDE so the 4 views are bounded work.
+MAX_BYTES = int(os.getenv("PILL_TROCR_MAX_BYTES", str(20 * 1024 * 1024)))
+MAX_PIXELS = 40_000_000
+MAX_SIDE = 1600
 
 print("Loading imprint reader from", MODEL_DIR)
 processor = TrOCRProcessor.from_pretrained(MODEL_DIR)
@@ -56,6 +62,8 @@ if os.getenv("PILL_TROCR_INT8", "1") == "1":
     # 8-bit weights for the linear layers: ~2-3x faster on CPU, tiny accuracy cost.
     model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
 NUM_BEAMS = int(os.getenv("PILL_TROCR_BEAMS", "2"))
+if not READER_KEY:
+    print("WARNING: PILL_OCR_KEY not set — /read accepts unauthenticated requests")
 print("Imprint reader ready; views=%s min_votes=%d" % (VIEWS, MIN_VOTES))
 
 app = FastAPI(title="PillSeek imprint reader")
@@ -121,6 +129,31 @@ def _vote(view_reads: list[str]) -> list[str]:
     return best
 
 
+async def _read_bounded(up: UploadFile) -> bytes:
+    chunks, total = [], 0
+    while True:
+        chunk = await up.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_BYTES:
+            raise HTTPException(status_code=413, detail="Photo too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _open_bounded(raw: bytes) -> Image.Image:
+    try:
+        img = Image.open(io.BytesIO(raw))  # lazy: header only
+    except Exception:
+        raise HTTPException(status_code=422, detail="Not an image")
+    if img.size[0] * img.size[1] > MAX_PIXELS:
+        raise HTTPException(status_code=422, detail="Image dimensions too large")
+    img = img.convert("RGB")
+    img.thumbnail((MAX_SIDE, MAX_SIDE))
+    return img
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "device": DEVICE, "model": MODEL_DIR, "views": VIEWS, "min_votes": MIN_VOTES}
@@ -137,9 +170,9 @@ async def read_imprint(
     t0 = time.time()
     photos: list[Image.Image] = []
     for up in [photo] + ([photo2] if photo2 is not None else []):
-        raw = await up.read()
+        raw = await _read_bounded(up)
         if raw:
-            photos.append(Image.open(io.BytesIO(raw)).convert("RGB"))
+            photos.append(_open_bounded(raw))
     batch: list[Image.Image] = []
     spans: list[tuple[int, int]] = []
     for img in photos:
