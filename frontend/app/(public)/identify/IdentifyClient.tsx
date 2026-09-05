@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import type { FiltersResponse } from '../../types'
+import CameraCapture from './CameraCapture'
 
 // ---- Types -----------------------------------------------------------------
 
@@ -112,7 +113,13 @@ export default function IdentifyClient() {
   const [matching, setMatching] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [photoResult, setPhotoResult] = useState<PhotoResponse | null>(null)
-  const [consent, setConsent] = useState(false)
+  // Photos are kept by default (the checkbox is visible and can be unticked); they are the
+  // only way the reader learns real phone conditions.
+  const [consent, setConsent] = useState(true)
+  // In-page camera (circle guide + zoom). Falls back to the file picker when unavailable.
+  const [camera, setCamera] = useState<SideKey | null>(null)
+  const [cameraSupported, setCameraSupported] = useState(true)
+  const [cameraNote, setCameraNote] = useState<string | null>(null)
   const [feedbackSent, setFeedbackSent] = useState<'up' | 'down' | null>(null)
 
   // Manual (typed imprint) flow
@@ -231,6 +238,26 @@ export default function IdentifyClient() {
     }
   }
 
+  const onCameraCapture = (side: SideKey, file: File) => {
+    setCamera(null)
+    void handlePhoto(side, file)
+    const other: SideKey = side === 'front' ? 'back' : 'front'
+    if (!photoFilesRef.current[other] && !previewsRef.current[other]) {
+      // Straight on to the other side (a short beat so the first preview shows up).
+      setTimeout(() => setCamera(other), 400)
+    }
+  }
+
+  const openCamera = (side: SideKey) => {
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      setCameraSupported(false)
+      setCameraNote('Camera needs a secure (https) page; using the photo picker instead.')
+      return
+    }
+    setCameraNote(null)
+    setCamera(side)
+  }
+
   const handleIdentify = async () => {
     const imprint_tokens = tokensText
       .split(/[\s,;]+/)
@@ -288,7 +315,7 @@ export default function IdentifyClient() {
       {/* Capture tips */}
       <div className="mb-4 rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm text-slate-700">
         <span className="font-semibold text-slate-900">For best results:</span> put the pill on a plain
-        surface in good light, get close so it <span className="font-semibold">fills the circle</span>, hold
+        surface in good light, zoom until it <span className="font-semibold">fills the circle</span>, hold
         steady, and photograph <span className="font-semibold">both sides</span>.
       </div>
 
@@ -305,44 +332,78 @@ export default function IdentifyClient() {
         </span>
       </label>
 
+      {camera && (
+        <CameraCapture
+          title={camera === 'front' ? 'Side 1 of 2' : 'Side 2 of 2 — flip the pill'}
+          hint="Fit the pill inside the circle. Zoom in if it looks small."
+          onCapture={(file) => onCameraCapture(camera, file)}
+          onClose={() => setCamera(null)}
+          onUnavailable={(reason) => {
+            setCamera(null)
+            setCameraSupported(false)
+            setCameraNote(`Camera view unavailable (${reason}); using the photo picker instead.`)
+          }}
+        />
+      )}
+      {cameraNote && <p className="mb-3 text-xs text-slate-500">{cameraNote}</p>}
+
       {/* Photo capture */}
       <div className="grid grid-cols-2 gap-4 mb-4">
-        {(['front', 'back'] as SideKey[]).map((side) => (
-          <label
-            key={side}
-            className={`relative border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-colors ${
-              previews[side] ? 'border-emerald-400 bg-emerald-50/40' : 'border-emerald-300 hover:bg-emerald-50'
-            }`}
-          >
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              disabled={matching}
-              onChange={(e) => handlePhoto(side, e.target.files?.[0] ?? null)}
+        {(['front', 'back'] as SideKey[]).map((side) => {
+          const tile = previews[side] ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previews[side] as string}
+              alt={`Pill ${side === 'front' ? 'side 1' : 'side 2'}`}
+              className="mx-auto h-36 w-36 object-cover rounded-xl"
             />
-            {previews[side] ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={previews[side] as string}
-                alt={`Pill ${side === 'front' ? 'side 1' : 'side 2'}`}
-                className="mx-auto h-36 w-36 object-cover rounded-xl"
-              />
-            ) : (
-              <div className="py-4 flex flex-col items-center">
-                {/* Framing guide */}
-                <div className="h-28 w-28 rounded-full border-4 border-emerald-300/80 flex items-center justify-center text-3xl select-none">
-                  <span aria-hidden>📷</span>
-                </div>
-                <p className="mt-3 font-medium text-slate-700">
-                  {side === 'front' ? 'Side 1' : 'Side 2 (flip it)'}
-                </p>
-                <p className="text-xs text-slate-500">Tap to use your camera</p>
+          ) : (
+            <div className="py-4 flex flex-col items-center">
+              {/* Framing guide */}
+              <div className="h-28 w-28 rounded-full border-4 border-emerald-300/80 flex items-center justify-center text-3xl select-none">
+                <span aria-hidden>📷</span>
               </div>
-            )}
-          </label>
-        ))}
+              <p className="mt-3 font-medium text-slate-700">{side === 'front' ? 'Side 1' : 'Side 2 (flip it)'}</p>
+              <p className="text-xs text-slate-500">Tap to use your camera</p>
+            </div>
+          )
+          const tileClass = `relative w-full border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-colors ${
+            previews[side] ? 'border-emerald-400 bg-emerald-50/40' : 'border-emerald-300 hover:bg-emerald-50'
+          }`
+          return (
+            <div key={side}>
+              {cameraSupported ? (
+                <button type="button" className={tileClass} disabled={matching} onClick={() => openCamera(side)}>
+                  {tile}
+                </button>
+              ) : (
+                <label className={`block ${tileClass}`}>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    disabled={matching}
+                    onChange={(e) => handlePhoto(side, e.target.files?.[0] ?? null)}
+                  />
+                  {tile}
+                </label>
+              )}
+              {cameraSupported && (
+                <label className="mt-1 block text-center text-xs text-slate-500 cursor-pointer hover:text-emerald-700">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={matching}
+                    onChange={(e) => handlePhoto(side, e.target.files?.[0] ?? null)}
+                  />
+                  or upload a photo
+                </label>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       {/* Flow status */}

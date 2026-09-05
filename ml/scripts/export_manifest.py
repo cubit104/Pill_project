@@ -11,7 +11,8 @@ import json
 import os
 import sys
 
-REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Pill_project")
+# repo root = two levels above ml/scripts/
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO)
 os.chdir(REPO)
 
@@ -30,21 +31,20 @@ with database.db_engine.connect() as conn:
         text(
             "SELECT slug, splimprint, splcolor_text, splshape_text, image_filename, medicine_name "
             "FROM pillfinder WHERE deleted_at IS NULL AND published = true "
-            "AND image_filename IS NOT NULL AND image_filename <> '' "
-            "AND splimprint IS NOT NULL AND splimprint <> ''"
+            "AND image_filename IS NOT NULL AND image_filename <> ''"
         )
     ).fetchall()
 
 manifest = []
 for slug, imprint, color, shape, image_filename, name in rows:
-    for url in get_image_urls(image_filename)[:4]:
+    for url in get_image_urls(image_filename):  # every catalog photo of the pill
         if "placeholder" in url:
             continue
         manifest.append(
             {
                 "url": url,
                 "slug": slug,
-                "imprint": imprint.strip(),
+                "imprint": (imprint or "").strip(),  # "" = no imprint: teaches the reader to stay silent
                 "color": (color or "").strip(),
                 "shape": (shape or "").strip(),
                 "name": (name or "").strip(),
