@@ -26,8 +26,10 @@ def code(src):
 # The production pill locator, copied verbatim into cell 10 so phone-photo tests match the reader.
 _READER = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "ml", "scripts", "ocr_service.py")
 _src = open(_READER, encoding="utf-8").read()
-LOCATOR = (_src[_src.index("def _integral("):_src.index("def _crop_pad(")].rstrip() + "\n"
-           + _src[_src.index("def _crop_pad("):_src.index("def _views(")].rstrip() + "\n").replace('"""', '\"\"\"')
+LOCATOR = (
+    _src[_src.index("def _integral("):_src.index("def _crop_pad(")].rstrip() + "\n"
+    + _src[_src.index("def _crop_pad("):_src.index("def _views(")].rstrip() + "\n"
+)
 
 md("""# PillSeek — imprint reader v2 (phone-tolerant TrOCR, base + large in one run)
 Runtime → Change runtime type → **A100 GPU**. Run cells top to bottom (or Runtime → Run all).
@@ -81,6 +83,11 @@ def sb_put(local, path):
                 time.sleep(3)
             if r.status_code >= 300: raise RuntimeError(f'upload {path} part {i} failed: {r.status_code} {r.text[:200]}')
             i += 1
+    # Remove leftover higher-numbered parts from an earlier, larger upload of the same object.
+    folder, name = os.path.dirname(path), os.path.basename(path)
+    stale = [f'{folder}/{n}' for n in sb_list(folder) if n.startswith(name + '.part') and int(n.rsplit('.part', 1)[1]) >= i]
+    if stale:
+        requests.delete(f'{SB_URL}/storage/v1/object/{BUCKET}', headers=H, json={'prefixes': stale}, timeout=120).raise_for_status()
     print(f'  -> {path} ({os.path.getsize(local)//2**20} MB, {i} parts, {time.time()-t:.0f}s)')
 try:
     print('bucket ok; pill-reader/:', sb_list('pill-reader'))

@@ -120,6 +120,10 @@ export default function IdentifyClient() {
   const [camera, setCamera] = useState<SideKey | null>(null)
   const [cameraSupported, setCameraSupported] = useState(true)
   const [cameraNote, setCameraNote] = useState<string | null>(null)
+  const nextSideTimer = useRef<number | null>(null)
+  useEffect(() => () => {
+    if (nextSideTimer.current) window.clearTimeout(nextSideTimer.current)
+  }, [])
   const [feedbackSent, setFeedbackSent] = useState<'up' | 'down' | null>(null)
 
   // Manual (typed imprint) flow
@@ -242,9 +246,14 @@ export default function IdentifyClient() {
     setCamera(null)
     void handlePhoto(side, file)
     const other: SideKey = side === 'front' ? 'back' : 'front'
+    if (nextSideTimer.current) window.clearTimeout(nextSideTimer.current)
     if (!photoFilesRef.current[other] && !previewsRef.current[other]) {
-      // Straight on to the other side (a short beat so the first preview shows up).
-      setTimeout(() => setCamera(other), 400)
+      // Straight on to the other side (a short beat so the first preview shows up);
+      // re-checked when it fires in case that side was filled meanwhile.
+      nextSideTimer.current = window.setTimeout(() => {
+        nextSideTimer.current = null
+        if (!photoFilesRef.current[other] && !previewsRef.current[other]) setCamera(other)
+      }, 400)
     }
   }
 
@@ -327,8 +336,8 @@ export default function IdentifyClient() {
           className="mt-1 h-4 w-4 accent-emerald-700"
         />
         <span>
-          Keep my photos to help PillSeek improve <span className="text-slate-400">(optional)</span>. Photos are
-          stored privately, with no personal details, and used only to train our pill reader.
+          Keep my photos to help PillSeek improve. Untick to keep them private. Photos are stored without any
+          personal details and used only to train our pill reader.
         </span>
       </label>
 

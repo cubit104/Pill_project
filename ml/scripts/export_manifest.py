@@ -11,7 +11,7 @@ import json
 import os
 import sys
 
-# repo root = two levels above ml/scripts/
+# repo root = three levels up from this file (ml/scripts/export_manifest.py)
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO)
 os.chdir(REPO)

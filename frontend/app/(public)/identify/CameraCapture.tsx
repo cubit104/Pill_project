@@ -25,14 +25,19 @@ interface Props {
   onUnavailable: (reason: string) => void
 }
 
-const GUIDE_FRACTION = 0.68 // circle diameter relative to the shorter side of the view
+const GUIDE_FRACTION = 0.68 // circle diameter relative to the shorter side of the preview box
 const CROP_PAD = 0.12 // extra margin around the circle in the saved image
 const MAX_SIDE = 1600 // saved image size cap (matches the upload path)
 
 export default function CameraCapture({ title, hint, onCapture, onClose, onUnavailable }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const mountedRef = useRef(true)
   const [ready, setReady] = useState(false)
+  // Size of the preview box; the guide circle AND the saved crop are both derived from it.
+  const [box, setBox] = useState({ w: 0, h: 0 })
+  const guidePx = GUIDE_FRACTION * Math.min(box.w, box.h)
   const [zoom, setZoom] = useState(1)
   const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number; hardware: boolean }>({
     min: 1,
@@ -42,9 +47,30 @@ export default function CameraCapture({ title, hint, onCapture, onClose, onUnava
   })
   const [busy, setBusy] = useState(false)
 
+  // Track the preview box size (header/controls take space, so it is not the viewport).
+  useEffect(() => {
+    const el = boxRef.current
+    if (!el) return
+    const update = () => setBox({ w: el.clientWidth, h: el.clientHeight })
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Close on Escape.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   // Open the rear camera at the highest resolution it offers.
   useEffect(() => {
     let cancelled = false
+    mountedRef.current = true
     const open = async () => {
       if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
         onUnavailable('Camera not supported in this browser')
@@ -76,12 +102,14 @@ export default function CameraCapture({ title, hint, onCapture, onClose, onUnava
         }
         setReady(true)
       } catch (e) {
+        if (cancelled) return // closed before the camera answered: no late callbacks
         onUnavailable(e instanceof Error ? e.message : 'Camera unavailable')
       }
     }
     void open()
     return () => {
       cancelled = true
+      mountedRef.current = false
       streamRef.current?.getTracks().forEach((t) => t.stop())
       streamRef.current = null
     }
@@ -109,14 +137,14 @@ export default function CameraCapture({ title, hint, onCapture, onClose, onUnava
     try {
       const natW = video.videoWidth
       const natH = video.videoHeight
-      const dispW = video.clientWidth
-      const dispH = video.clientHeight
-      if (!natW || !natH || !dispW || !dispH) throw new Error('Camera frame not ready')
+      const dispW = box.w
+      const dispH = box.h
+      if (!natW || !natH || !dispW || !dispH || !guidePx) throw new Error('Camera frame not ready')
       // object-fit: cover — the visible part of the frame is a centred region scaled by `scale`,
       // then the digital zoom (CSS scale about the centre) shrinks the visible region further.
+      // guidePx is the very circle drawn on screen, so what the user framed is what gets saved.
       const scale = Math.max(dispW / natW, dispH / natH) * digitalZoom
-      const guideDisp = GUIDE_FRACTION * Math.min(dispW, dispH)
-      const cropSide = Math.min(natW, natH, (guideDisp / scale) * (1 + 2 * CROP_PAD))
+      const cropSide = Math.min(natW, natH, (guidePx / scale) * (1 + 2 * CROP_PAD))
       const sx = Math.max(0, natW / 2 - cropSide / 2)
       const sy = Math.max(0, natH / 2 - cropSide / 2)
       const outSide = Math.min(MAX_SIDE, Math.round(cropSide))
@@ -130,27 +158,28 @@ export default function CameraCapture({ title, hint, onCapture, onClose, onUnava
       if (!blob) throw new Error('Could not save the photo')
       onCapture(new File([blob], `pill-${Date.now()}.jpg`, { type: 'image/jpeg' }))
     } catch (e) {
+      if (!mountedRef.current) return
       onUnavailable(e instanceof Error ? e.message : 'Capture failed')
     } finally {
-      setBusy(false)
+      if (mountedRef.current) setBusy(false)
     }
   }
 
   // Rendered on document.body so no ancestor transform/overflow can shrink the overlay.
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-label={title}>
+    <div className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-modal="true" aria-label={title}>
       <div className="flex items-center justify-between px-4 py-3">
         <div>
           <p className="font-semibold">{title}</p>
           <p className="text-xs text-white/70">{hint}</p>
         </div>
-        <button type="button" onClick={onClose} className="rounded-md px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20">
+        <button type="button" onClick={onClose} autoFocus className="rounded-md px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20">
           Cancel
         </button>
       </div>
 
-      <div className="relative flex-1 overflow-hidden">
+      <div ref={boxRef} className="relative flex-1 overflow-hidden">
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
         <video
           ref={videoRef}
@@ -164,12 +193,12 @@ export default function CameraCapture({ title, hint, onCapture, onClose, onUnava
         <div
           className="pointer-events-none absolute inset-0"
           style={{
-            background: `radial-gradient(circle at center, transparent calc(${(GUIDE_FRACTION * 50).toFixed(1)}vmin - 2px), rgba(0,0,0,0.55) calc(${(GUIDE_FRACTION * 50).toFixed(1)}vmin))`,
+            background: `radial-gradient(circle at center, transparent ${Math.max(0, guidePx / 2 - 2)}px, rgba(0,0,0,0.55) ${guidePx / 2}px)`,
           }}
         />
         <div
           className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-emerald-400/90"
-          style={{ width: `${GUIDE_FRACTION * 100}vmin`, height: `${GUIDE_FRACTION * 100}vmin` }}
+          style={{ width: guidePx, height: guidePx }}
         />
         {!ready && (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-white/80">Starting camera…</div>
