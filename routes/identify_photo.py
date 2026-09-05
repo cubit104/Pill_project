@@ -29,7 +29,7 @@ from sqlalchemy import text
 import database
 from routes.identify import IdentifyRequest, identify_pill
 from routes.identify_feedback import record_capture
-from routes.site_settings import read_flags
+from routes.site_settings import _read_flags_uncached, read_flags
 from utils import process_image_filenames
 
 logger = logging.getLogger(__name__)
@@ -250,6 +250,8 @@ def _open_image(image_bytes: bytes):
     w, h = img.size
     if w * h > MAX_IMAGE_PIXELS:
         raise HTTPException(status_code=422, detail="Image dimensions too large")
+    if min(w, h) < 32:
+        raise HTTPException(status_code=422, detail="Image too small to read")
     return img.convert("RGB")
 
 
@@ -605,8 +607,11 @@ async def _read_imprint(raws: list[bytes]) -> tuple[list[str], list[str]]:
         headers = {"User-Agent": "PillSeek-API/1.0 (+https://pillseek.com)"}
         if OCR_KEY:
             headers["X-Reader-Key"] = OCR_KEY
+        # Read the mode fresh (one tiny query per identification): the 30 s flag cache is
+        # per worker, and an admin change must apply to every worker at once.
+        mode = _read_flags_uncached().get("photo_id_reader_mode", "accurate")
         async with httpx.AsyncClient(timeout=OCR_TIMEOUT) as client:
-            r = await client.post(OCR_URL, files=files, headers=headers)
+            r = await client.post(OCR_URL, files=files, data={"mode": mode}, headers=headers)
         r.raise_for_status()
         j = r.json()
         tokens = [t for t in j.get("tokens", []) if t][:12]

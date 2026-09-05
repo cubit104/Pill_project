@@ -10,21 +10,28 @@ import { createClient } from '../lib/supabase'
 
 export default function AdminSettingsPage() {
   const router = useRouter()
+  type ReaderMode = 'original' | 'fast' | 'accurate'
   const [photoId, setPhotoId] = useState<boolean | null>(null)
+  const [readerMode, setReaderMode] = useState<ReaderMode | null>(null)
   const [saving, setSaving] = useState(false)
   const [flagError, setFlagError] = useState<string | null>(null)
+
+  const applyFlags = (f: { photo_id_enabled?: unknown; photo_id_reader_mode?: unknown }) => {
+    setPhotoId(Boolean(f.photo_id_enabled))
+    setReaderMode(f.photo_id_reader_mode === 'fast' || f.photo_id_reader_mode === 'original' ? f.photo_id_reader_mode : 'accurate')
+  }
 
   const loadFlags = async () => {
     try {
       const res = await fetch('/api/features')
-      if (res.ok) setPhotoId(Boolean((await res.json()).photo_id_enabled))
+      if (res.ok) applyFlags(await res.json())
     } catch {
       setPhotoId(false)
+      setReaderMode('accurate')
     }
   }
 
-  const togglePhotoId = async () => {
-    if (photoId === null) return
+  const saveFlags = async (patch: { photo_id_enabled?: boolean; photo_id_reader_mode?: ReaderMode }) => {
     setSaving(true)
     setFlagError(null)
     try {
@@ -33,18 +40,22 @@ export default function AdminSettingsPage() {
       const res = await fetch('/api/admin/features', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-        body: JSON.stringify({ photo_id_enabled: !photoId }),
+        body: JSON.stringify(patch),
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
         throw new Error(j?.detail || `Failed (${res.status})`)
       }
-      setPhotoId(Boolean((await res.json()).photo_id_enabled))
+      applyFlags(await res.json())
     } catch (e) {
       setFlagError(e instanceof Error ? e.message : 'Could not save')
     } finally {
       setSaving(false)
     }
+  }
+
+  const togglePhotoId = () => {
+    if (photoId !== null) void saveFlags({ photo_id_enabled: !photoId })
   }
 
   useEffect(() => {
@@ -111,6 +122,30 @@ export default function AdminSettingsPage() {
           >
             {photoId === null ? 'Loading…' : saving ? 'Saving…' : photoId ? 'ON — click to turn off' : 'OFF — click to turn on'}
           </button>
+
+          <div className="mt-5 border-t border-gray-100 pt-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-1">Imprint reader</h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Original: large model reads the full photo once per side, base only if large is silent (day-one behaviour).
+              Fast: base with crops + voting (~1.5 s). Accurate: base crops + voting, large overrides when sure (~3 s).
+            </p>
+            <fieldset className="flex gap-6" disabled={saving || readerMode === null}>
+              <legend className="sr-only">Imprint reader mode</legend>
+              {(['original', 'fast', 'accurate'] as const).map((m) => (
+                <label key={m} className="inline-flex items-center gap-2 text-sm text-gray-800 cursor-pointer disabled:opacity-50">
+                  <input
+                    type="radio"
+                    name="reader-mode"
+                    value={m}
+                    checked={readerMode === m}
+                    onChange={() => void saveFlags({ photo_id_reader_mode: m })}
+                    className="h-4 w-4 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  {m === 'original' ? 'Original' : m === 'fast' ? 'Fast' : 'Accurate'}
+                </label>
+              ))}
+            </fieldset>
+          </div>
           {flagError && <p className="mt-2 text-sm text-red-600">{flagError}</p>}
         </div>
 

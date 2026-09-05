@@ -1,7 +1,7 @@
 """Site feature flags: public read, superuser write.
 
-GET  /api/features               -> {"photo_id_enabled": bool}
-PUT  /api/admin/features         -> body {"photo_id_enabled": bool}
+GET  /api/features               -> {"photo_id_enabled": bool, "photo_id_reader_mode": "original"|"fast"|"accurate"}
+PUT  /api/admin/features         -> body {"photo_id_enabled": bool, "photo_id_reader_mode": "original"|"fast"|"accurate"} (any subset)
 
 Backed by public.site_settings (supabase/migrations/20260903000000_create_site_settings.sql).
 If the table is missing, reads fall back to defaults (feature off) so the
@@ -10,6 +10,8 @@ site keeps working before the migration runs.
 
 import json
 import logging
+import threading
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -21,28 +23,64 @@ from routes.admin.auth import require_role
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-DEFAULTS = {"photo_id_enabled": False}
+# photo_id_reader_mode:
+#   "original" = day-one behaviour: large model reads the full frame once per side;
+#                base only fills in a side where large stays silent. No crops, no voting.
+#   "fast"     = base model only, crops + voting (~1.5 s)
+#   "accurate" = base crops + voting, large overrides when its crops agree (~3 s)
+READER_MODES = ("original", "fast", "accurate")
+DEFAULTS = {"photo_id_enabled": False, "photo_id_reader_mode": "accurate"}
 FLAG_KEYS = tuple(DEFAULTS)
 
 
 class FeatureUpdate(BaseModel):
     photo_id_enabled: bool | None = None
+    photo_id_reader_mode: Literal["original", "fast", "accurate"] | None = None
 
 
-_cache: dict = {"at": 0.0, "flags": None}
+def _coerce(key: str, value):
+    """Stored JSON -> typed setting; anything malformed falls back to the default."""
+    default = DEFAULTS[key]
+    if isinstance(default, bool):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+            return value.strip().lower() == "true"
+        return default  # "no", "0", None, objects... -> default, never a surprise ON
+    if key == "photo_id_reader_mode":
+        return value if value in READER_MODES else default
+    return value
+
+
+_cache: dict = {"at": 0.0, "flags": None, "gen": 0}
+_cache_lock = threading.Lock()
 CACHE_S = 30.0
 
 
 def read_flags() -> dict:
-    """Flags for the public site; cached briefly since every page load asks."""
+    """Flags for the public site; cached briefly since every page load asks.
+
+    A generation counter makes invalidation race-free: a read that started
+    before an admin write cannot repopulate the cache with the old values.
+    """
     import time
 
-    now = time.time()
-    if _cache["flags"] is not None and now - _cache["at"] < CACHE_S:
-        return dict(_cache["flags"])
+    with _cache_lock:
+        now = time.time()
+        if _cache["flags"] is not None and now - _cache["at"] < CACHE_S:
+            return dict(_cache["flags"])
+        gen = _cache["gen"]
     flags = _read_flags_uncached()
-    _cache["flags"], _cache["at"] = dict(flags), now
+    with _cache_lock:
+        if gen == _cache["gen"]:  # nothing was written while we were reading
+            _cache["flags"], _cache["at"] = dict(flags), time.time()
     return flags
+
+
+def _invalidate_flags() -> None:
+    with _cache_lock:
+        _cache["gen"] += 1
+        _cache["flags"] = None
 
 
 def _read_flags_uncached() -> dict:
@@ -57,8 +95,11 @@ def _read_flags_uncached() -> dict:
             ).fetchall()
         for key, value in rows:
             if isinstance(value, str):
-                value = json.loads(value)
-            flags[key] = bool(value)
+                try:
+                    value = json.loads(value)
+                except ValueError:
+                    pass  # a bare string stored without JSON quoting
+            flags[key] = _coerce(key, value)
     except Exception as e:  # table may not exist yet
         logger.warning("site_settings unavailable, using defaults: %s", e)
     return flags
@@ -91,5 +132,5 @@ def update_features(payload: FeatureUpdate, admin: dict = Depends(require_role("
     except Exception as e:
         logger.error("failed to update site_settings: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Could not save settings (is the site_settings migration applied?)")
-    _cache["flags"] = None
+    _invalidate_flags()
     return read_flags()
