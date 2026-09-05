@@ -59,20 +59,29 @@ def sb_list(prefix):
 def sb_exists(path): return os.path.basename(path) in sb_list(os.path.dirname(path))
 PART = 80 * 2**20   # Supabase stalls on big single uploads; everything goes up/down in 80 MB parts
 def sb_get(path, local):
-    \"\"\"Download bucket object (stored as .partNNN pieces) -> local file. False if absent.\"\"\"
+    \"\"\"Download bucket object (stored as .partNNN pieces) -> local file. False if absent or incomplete.\"\"\"
     folder, name = os.path.dirname(path), os.path.basename(path)
-    names = sorted(n for n in sb_list(folder) if n == name or n.startswith(name + '.part'))
-    if not names: return False
+    listing = sb_list(folder)
+    if name + '.done' not in listing: return False          # no marker = never completed: ignore leftovers
+    done = requests.get(f'{SB_URL}/storage/v1/object/{BUCKET}/{path}.done', headers=H, timeout=60); done.raise_for_status()
+    n_parts, total = [int(x) for x in done.text.split()]
+    names = [f'{name}.part{i:03d}' for i in range(n_parts)]
+    if any(n not in listing for n in names): return False
     t = time.time(); os.makedirs(os.path.dirname(local) or '.', exist_ok=True)
     with open(local + '.tmp', 'wb') as out:
         for n in names:
             with requests.get(f'{SB_URL}/storage/v1/object/{BUCKET}/{folder}/{n}', headers=H, stream=True, timeout=600) as r:
                 r.raise_for_status()
                 for chunk in r.iter_content(1 << 20): out.write(chunk)
+    if os.path.getsize(local + '.tmp') != total:
+        os.remove(local + '.tmp'); print(f'  !! {path}: size mismatch, cache ignored'); return False
     os.replace(local + '.tmp', local); print(f'  <- {path} ({os.path.getsize(local)//2**20} MB, {len(names)} parts, {time.time()-t:.0f}s)'); return True
 def sb_put(local, path):
     \"\"\"Upload local file -> bucket as 80 MB parts (overwrites).\"\"\"
     t = time.time(); i = 0
+    folder, name = os.path.dirname(path), os.path.basename(path)
+    if name + '.done' in sb_list(folder):   # invalidate the old copy before touching its parts
+        requests.delete(f'{SB_URL}/storage/v1/object/{BUCKET}', headers=H, json={'prefixes': [f'{path}.done']}, timeout=60)
     with open(local, 'rb') as f:
         while True:
             chunk = f.read(PART)
@@ -84,10 +93,12 @@ def sb_put(local, path):
             if r.status_code >= 300: raise RuntimeError(f'upload {path} part {i} failed: {r.status_code} {r.text[:200]}')
             i += 1
     # Remove leftover higher-numbered parts from an earlier, larger upload of the same object.
-    folder, name = os.path.dirname(path), os.path.basename(path)
     stale = [f'{folder}/{n}' for n in sb_list(folder) if n.startswith(name + '.part') and int(n.rsplit('.part', 1)[1]) >= i]
     if stale:
         requests.delete(f'{SB_URL}/storage/v1/object/{BUCKET}', headers=H, json={'prefixes': stale}, timeout=120).raise_for_status()
+    # Marker written last: readers ignore the object until every part is in place.
+    r = requests.post(f'{SB_URL}/storage/v1/object/{BUCKET}/{path}.done', headers={**H, 'x-upsert': 'true', 'Content-Type': 'text/plain'}, data=f'{i} {os.path.getsize(local)}', timeout=60)
+    if r.status_code >= 300: raise RuntimeError(f'marker for {path} failed: {r.status_code} {r.text[:200]}')
     print(f'  -> {path} ({os.path.getsize(local)//2**20} MB, {i} parts, {time.time()-t:.0f}s)')
 try:
     print('bucket ok; pill-reader/:', sb_list('pill-reader'))
@@ -436,9 +447,13 @@ for SIZE in SIZES:
         REPORT[f'{SIZE} BEFORE phone'] = score(model, processor, eval_phone, f'{SIZE} BEFORE training: phone-style')
     if done < EPOCHS[SIZE]:
         dl = DataLoader(DS(train_rows, processor), batch_size=BATCH[SIZE], shuffle=True, num_workers=8, drop_last=True, persistent_workers=True)
-        remaining = EPOCHS[SIZE] - done
         opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=0.01)
-        sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=LR, total_steps=remaining * len(dl), pct_start=0.1 if done == 0 else 0.02)
+        sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=LR, total_steps=EPOCHS[SIZE] * len(dl), pct_start=0.1)
+        state_path = os.path.join(CKPT, 'optim.pt')
+        if done and os.path.exists(state_path):   # resume the same optimisation trajectory, not a fresh one
+            st = torch.load(state_path, map_location='cuda')
+            opt.load_state_dict(st['opt']); sched.load_state_dict(st['sched'])
+            print(f'{SIZE}: optimizer + LR schedule restored at step {sched.last_epoch}')
         for ep in range(done, EPOCHS[SIZE]):
             model.train(); tot = 0.0; t0 = time.time()
             for step, (pv, labels) in enumerate(dl):
@@ -449,6 +464,7 @@ for SIZE in SIZES:
                 if (step + 1) % 100 == 0: print(f'{SIZE} epoch {ep+1} step {step+1}/{len(dl)} loss {tot/(step+1):.3f}')
             print(f'=== {SIZE} epoch {ep+1}/{EPOCHS[SIZE]} avg loss {tot/len(dl):.3f} ({(time.time()-t0)/60:.0f} min) ===')
             model.save_pretrained(CKPT); open(os.path.join(CKPT, 'epochs_done'), 'w').write(str(ep + 1))   # resume point
+            torch.save({'opt': opt.state_dict(), 'sched': sched.state_dict()}, os.path.join(CKPT, 'optim.pt'))
             shutil.make_archive(CKPT, 'zip', '/content', f'ckpt_{SIZE}'); sb_put(CKPT + '.zip', f'{CACHE}/ckpt_{SIZE}.zip')
         del dl
     model.eval()

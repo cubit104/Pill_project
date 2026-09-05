@@ -58,13 +58,35 @@ export default function CameraCapture({ title, hint, onCapture, onClose, onUnava
     return () => ro.disconnect()
   }, [])
 
-  // Close on Escape.
+  // Modal keyboard behaviour: Escape closes, Tab stays inside, focus returns to the opener.
+  const dialogRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !dialogRef.current) return
+      const items = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+      )
+      if (items.length === 0) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      opener?.focus?.()
+    }
   }, [onClose])
 
   // Open the rear camera at the highest resolution it offers.
@@ -168,7 +190,7 @@ export default function CameraCapture({ title, hint, onCapture, onClose, onUnava
   // Rendered on document.body so no ancestor transform/overflow can shrink the overlay.
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-modal="true" aria-label={title}>
+    <div ref={dialogRef} className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-modal="true" aria-label={title}>
       <div className="flex items-center justify-between px-4 py-3">
         <div>
           <p className="font-semibold">{title}</p>
