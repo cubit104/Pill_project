@@ -143,9 +143,13 @@ def _pill_box(img: Image.Image, thumb=192, scales=(0.12, 0.16, 0.2, 0.25, 0.3, 0
     Ib, It = _integral(g), _integral(tex)
     sb, st = g.std() + 1e-6, tex.std() + 1e-6
     best = (-1e9, None)
+    if min(h, w) < 16:
+        return None  # too small to hold a pill; the fallback views handle it
     for f in scales:
         side = int(min(h, w) * f)
-        inner = max(4, int(side * 0.7))          # central part of the window: mostly pill if it fits
+        if side < 8:
+            continue
+        inner = min(side, max(4, int(side * 0.7)))   # central part of the window: mostly pill if it fits
         off = (side - inner) // 2
         ring = int(side * 0.5)                   # margin around the window: background
         stride = max(1, side // 8)
@@ -322,6 +326,8 @@ def _open_bounded(raw: bytes) -> Image.Image:
         raise HTTPException(status_code=422, detail="Not an image")
     if img.size[0] * img.size[1] > MAX_PIXELS:
         raise HTTPException(status_code=422, detail="Image dimensions too large")
+    if min(img.size) < 32:
+        raise HTTPException(status_code=422, detail="Image too small to read")
     img = img.convert("RGB")
     img.thumbnail((MAX_SIDE, MAX_SIDE))
     return img
@@ -331,21 +337,20 @@ def _read_original(photos: list[Image.Image], t0: float) -> dict:
     """Day-one behaviour: one full-frame read per side (centre crop only if that came
     back empty). Large model first; base only for a side where large stays silent.
     No pill locator, no multi-view voting, no overriding."""
-    primary, beams = (model2, NUM_BEAMS2) if model2 is not None else (model, NUM_BEAMS)
+    # Large first (when loaded), base only as the fallback for a silent side.
+    candidates = [(model2, NUM_BEAMS2, "large")] if model2 is not None else []
+    candidates.append((model, NUM_BEAMS, "base"))
     reads, used = [], []
     for img in photos:
         crop = _center(img, 0.6)
-        text = ""
-        for m, b, name in ((primary, beams, "large" if model2 is not None else "base"), (model, NUM_BEAMS, "base")):
+        text, picked = "", "none"
+        for m, b, name in candidates:
             r = _read_batch([img, crop], m, b)
             text = r[0] if _tokens(r[0]) else r[1]
             if _tokens(text):
-                used.append(name)
+                picked = name
                 break
-            if m is model:
-                break
-        else:
-            used.append("none")
+        used.append(picked)
         reads.append(text)
     tokens, seen = [], set()
     for r in reads:
