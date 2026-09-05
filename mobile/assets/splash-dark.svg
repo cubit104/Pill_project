@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2732" height="2732" viewBox="0 0 2732 2732">
+  <rect width="2732" height="2732" fill="#0b1220"/>
+  <g transform="translate(1093.0,907.0) scale(0.533203125)">
+    <clipPath id="rr"><rect width="1024" height="1024" rx="230"/></clipPath>
+    <g clip-path="url(#rr)">
+  <defs>
+    <radialGradient id="hl" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.08"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="#059669"/>
+  <rect width="1024" height="1024" fill="url(#hl)"/>
+      <g transform="translate(437,417)">
+  <g id="art" transform="scale(0.98)">
+    <!-- capsule -->
+    <g transform="translate(-45,-70) rotate(-35)">
+      <rect x="-255" y="-92" width="510" height="184" rx="92" fill="rgba(0,0,0,0.18)" transform="translate(14,18)"/>
+      <clipPath id="capL"><rect x="-260" y="-100" width="260" height="200"/></clipPath>
+      <clipPath id="capR"><rect x="0" y="-100" width="260" height="200"/></clipPath>
+      <rect x="-255" y="-92" width="510" height="184" rx="92" fill="#ffffff" clip-path="url(#capL)"/>
+      <rect x="-255" y="-92" width="510" height="184" rx="92" fill="#047857" clip-path="url(#capR)"/>
+      <rect x="-255" y="-92" width="510" height="184" rx="92" fill="none" stroke="#ffffff" stroke-width="16"/>
+      <rect x="-150" y="-52" width="120" height="26" rx="13" fill="#ffffff" opacity="0.55"/>
+      <rect x="60" y="-52" width="120" height="26" rx="13" fill="#ffffff" opacity="0.28"/>
+    </g>
+    <!-- magnifier -->
+    <g transform="translate(105,95)">
+      <line x1="150" y1="150" x2="230" y2="230" stroke="rgba(0,0,0,0.18)" stroke-width="56" stroke-linecap="round" transform="translate(12,16)"/>
+      <circle cx="0" cy="0" r="128" fill="rgba(0,0,0,0.18)" transform="translate(12,16)"/>
+      <circle cx="0" cy="0" r="128" fill="#059669"/>
+      <circle cx="0" cy="0" r="128" fill="#ecfdf5" opacity="0.28"/>
+      <circle cx="0" cy="0" r="128" fill="none" stroke="#ffffff" stroke-width="40"/>
+      <line x1="118" y1="118" x2="232" y2="232" stroke="#ffffff" stroke-width="56" stroke-linecap="round"/>
+      <line x1="118" y1="118" x2="232" y2="232" stroke="#0f172a" stroke-width="56" stroke-linecap="round" opacity="0.15" transform="translate(0,12)"/>
+      <circle cx="-48" cy="-52" r="22" fill="#ffffff" opacity="0.6"/>
+    </g>
+  </g></g>
+    </g>
+  </g>
+  <text x="1366" y="1720" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="800" font-size="230" letter-spacing="-6">
+    <tspan fill="#f8fafc">Pill</tspan><tspan fill="#059669">Seek</tspan>
+  </text>
+  <text x="1366" y="1830" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="500" font-size="72" fill="#94a3b8">Free pill identifier</text>
+</svg>

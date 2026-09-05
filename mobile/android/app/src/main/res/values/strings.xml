@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PillSeek</string>
+    <string name="title_activity_main">PillSeek</string>
+    <string name="package_name">com.pillseek.app</string>
+    <string name="custom_url_scheme">com.pillseek.app</string>
+</resources>

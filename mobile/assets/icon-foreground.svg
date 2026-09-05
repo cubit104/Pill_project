@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <g transform="translate(437,417)">
+  <g id="art" transform="scale(0.88)">
+    <!-- capsule -->
+    <g transform="translate(-45,-70) rotate(-35)">
+      <rect x="-255" y="-92" width="510" height="184" rx="92" fill="rgba(0,0,0,0.18)" transform="translate(14,18)"/>
+      <clipPath id="capL"><rect x="-260" y="-100" width="260" height="200"/></clipPath>
+      <clipPath id="capR"><rect x="0" y="-100" width="260" height="200"/></clipPath>
+      <rect x="-255" y="-92" width="510" height="184" rx="92" fill="#ffffff" clip-path="url(#capL)"/>
+      <rect x="-255" y="-92" width="510" height="184" rx="92" fill="#047857" clip-path="url(#capR)"/>
+      <rect x="-255" y="-92" width="510" height="184" rx="92" fill="none" stroke="#ffffff" stroke-width="16"/>
+      <rect x="-150" y="-52" width="120" height="26" rx="13" fill="#ffffff" opacity="0.55"/>
+      <rect x="60" y="-52" width="120" height="26" rx="13" fill="#ffffff" opacity="0.28"/>
+    </g>
+    <!-- magnifier -->
+    <g transform="translate(105,95)">
+      <line x1="150" y1="150" x2="230" y2="230" stroke="rgba(0,0,0,0.18)" stroke-width="56" stroke-linecap="round" transform="translate(12,16)"/>
+      <circle cx="0" cy="0" r="128" fill="rgba(0,0,0,0.18)" transform="translate(12,16)"/>
+      <circle cx="0" cy="0" r="128" fill="#059669"/>
+      <circle cx="0" cy="0" r="128" fill="#ecfdf5" opacity="0.28"/>
+      <circle cx="0" cy="0" r="128" fill="none" stroke="#ffffff" stroke-width="40"/>
+      <line x1="118" y1="118" x2="232" y2="232" stroke="#ffffff" stroke-width="56" stroke-linecap="round"/>
+      <line x1="118" y1="118" x2="232" y2="232" stroke="#0f172a" stroke-width="56" stroke-linecap="round" opacity="0.15" transform="translate(0,12)"/>
+      <circle cx="-48" cy="-52" r="22" fill="#ffffff" opacity="0.6"/>
+    </g>
+  </g></g>
+</svg>

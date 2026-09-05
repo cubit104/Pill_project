@@ -1,0 +1,278 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Design tokens. Tailwind maps its colour names onto these variables
+   (see tailwind.config.js), so every component reads from one place.
+   --------------------------------------------------------------------------- */
+:root {
+  --brand: #059669;
+  --brand-pressed: #047857;
+  --brand-tint: #ecfdf5;
+  --brand-fg: #ffffff;
+  --ink: #0f172a;
+  --body: #334155;
+  --muted: #64748b;
+  --surface: #ffffff;
+  --elevated: #ffffff;
+  --canvas: #f8fafc;
+  --border: #e2e8f0;
+  --danger: #dc2626;
+  --danger-tint: #fef2f2;
+  --warn: #b45309;
+  --warn-tint: #fffbeb;
+  --overlay: rgba(15, 23, 42, 0.45);
+  --skeleton-a: #e2e8f0;
+  --skeleton-b: #f1f5f9;
+  --tab-blur: rgba(255, 255, 255, 0.86);
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --tabbar-h: 56px;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand: #10b981;
+    --brand-pressed: #059669;
+    --brand-tint: rgba(16, 185, 129, 0.14);
+    --brand-fg: #052e21;
+    --ink: #f1f5f9;
+    --body: #cbd5e1;
+    --muted: #94a3b8;
+    --surface: #111a2e;
+    --elevated: #172238;
+    --canvas: #0b1220;
+    --border: #1f2a44;
+    --danger: #f87171;
+    --danger-tint: rgba(248, 113, 113, 0.12);
+    --warn: #fbbf24;
+    --warn-tint: rgba(251, 191, 36, 0.12);
+    --overlay: rgba(2, 6, 23, 0.6);
+    --skeleton-a: #1f2a44;
+    --skeleton-b: #172238;
+    --tab-blur: rgba(17, 26, 46, 0.86);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+   --------------------------------------------------------------------------- */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  background: var(--canvas);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--body);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Roboto, 'Segoe UI', sans-serif;
+  font-size: 17px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+input,
+textarea,
+[contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Allow copying names / imprints from result rows */
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+}
+
+/* Focus rings only for keyboard users */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+/* Native camera preview sits *behind* the WebView (toBack: true). While it is
+   open every ancestor must be transparent so the feed shows through. */
+html.camera-open,
+html.camera-open body,
+html.camera-open #root {
+  background: transparent !important;
+}
+html.camera-open .app-shell {
+  visibility: hidden;
+}
+
+/* ---------------------------------------------------------------------------
+   Reusable primitives (kept in CSS so Tailwind classes stay short)
+   --------------------------------------------------------------------------- */
+.screen {
+  min-height: 100%;
+  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 16px);
+}
+
+.large-title {
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.section-label {
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.pressable {
+  transition: transform 150ms ease-out, background-color 150ms ease-out, opacity 150ms ease-out;
+}
+.pressable:active {
+  transform: scale(0.98);
+}
+
+.hairline {
+  border: 1px solid var(--border);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.12);
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--skeleton-a) 25%, var(--skeleton-b) 50%, var(--skeleton-a) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+  border-radius: 10px;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-bar {
+  background: var(--tab-blur);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-top: 1px solid var(--border);
+}
+
+.sheet-backdrop {
+  background: var(--overlay);
+}
+
+/* Toggle switch */
+.switch {
+  width: 51px;
+  height: 31px;
+  border-radius: 999px;
+  background: var(--border);
+  position: relative;
+  transition: background-color 200ms ease-out;
+  flex: none;
+}
+.switch[aria-checked='true'] {
+  background: var(--brand);
+}
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  transition: transform 200ms ease-out;
+}
+.switch[aria-checked='true']::after {
+  transform: translateX(20px);
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .pressable:active {
+    transform: none;
+  }
+}
