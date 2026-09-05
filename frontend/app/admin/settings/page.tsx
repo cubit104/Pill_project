@@ -10,7 +10,7 @@ import { createClient } from '../lib/supabase'
 
 export default function AdminSettingsPage() {
   const router = useRouter()
-  type ReaderMode = 'fast' | 'accurate'
+  type ReaderMode = 'original' | 'fast' | 'accurate'
   const [photoId, setPhotoId] = useState<boolean | null>(null)
   const [readerMode, setReaderMode] = useState<ReaderMode | null>(null)
   const [saving, setSaving] = useState(false)
@@ -18,7 +18,7 @@ export default function AdminSettingsPage() {
 
   const applyFlags = (f: { photo_id_enabled?: unknown; photo_id_reader_mode?: unknown }) => {
     setPhotoId(Boolean(f.photo_id_enabled))
-    setReaderMode(f.photo_id_reader_mode === 'fast' ? 'fast' : 'accurate')
+    setReaderMode(f.photo_id_reader_mode === 'fast' || f.photo_id_reader_mode === 'original' ? f.photo_id_reader_mode : 'accurate')
   }
 
   const loadFlags = async () => {
@@ -126,11 +126,12 @@ export default function AdminSettingsPage() {
           <div className="mt-5 border-t border-gray-100 pt-4">
             <h3 className="text-sm font-semibold text-gray-900 mb-1">Imprint reader</h3>
             <p className="text-xs text-gray-500 mb-3">
-              Fast: base model only (~1.5 s). Accurate: adds the large model on the best crops (~3 s; reads faint imprints).
+              Original: large model reads the full photo once per side, base only if large is silent (day-one behaviour).
+              Fast: base with crops + voting (~1.5 s). Accurate: base crops + voting, large overrides when sure (~3 s).
             </p>
             <fieldset className="flex gap-6" disabled={saving || readerMode === null}>
               <legend className="sr-only">Imprint reader mode</legend>
-              {(['fast', 'accurate'] as const).map((m) => (
+              {(['original', 'fast', 'accurate'] as const).map((m) => (
                 <label key={m} className="inline-flex items-center gap-2 text-sm text-gray-800 cursor-pointer disabled:opacity-50">
                   <input
                     type="radio"
@@ -140,7 +141,7 @@ export default function AdminSettingsPage() {
                     onChange={() => void saveFlags({ photo_id_reader_mode: m })}
                     className="h-4 w-4 text-emerald-600 focus:ring-emerald-500"
                   />
-                  {m === 'fast' ? 'Fast' : 'Accurate'}
+                  {m === 'original' ? 'Original' : m === 'fast' ? 'Fast' : 'Accurate'}
                 </label>
               ))}
             </fieldset>

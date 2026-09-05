@@ -1,7 +1,7 @@
 """Site feature flags: public read, superuser write.
 
-GET  /api/features               -> {"photo_id_enabled": bool, "photo_id_reader_mode": "fast"|"accurate"}
-PUT  /api/admin/features         -> body {"photo_id_enabled": bool, "photo_id_reader_mode": "fast"|"accurate"} (any subset)
+GET  /api/features               -> {"photo_id_enabled": bool, "photo_id_reader_mode": "original"|"fast"|"accurate"}
+PUT  /api/admin/features         -> body {"photo_id_enabled": bool, "photo_id_reader_mode": "original"|"fast"|"accurate"} (any subset)
 
 Backed by public.site_settings (supabase/migrations/20260903000000_create_site_settings.sql).
 If the table is missing, reads fall back to defaults (feature off) so the
@@ -23,16 +23,19 @@ from routes.admin.auth import require_role
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# photo_id_reader_mode: "fast" = base imprint model only (~1.5 s);
-# "accurate" = base + large model on the best crops (~3 s, reads faint debosses).
-READER_MODES = ("fast", "accurate")
+# photo_id_reader_mode:
+#   "original" = day-one behaviour: large model reads the full frame once per side;
+#                base only fills in a side where large stays silent. No crops, no voting.
+#   "fast"     = base model only, crops + voting (~1.5 s)
+#   "accurate" = base crops + voting, large overrides when its crops agree (~3 s)
+READER_MODES = ("original", "fast", "accurate")
 DEFAULTS = {"photo_id_enabled": False, "photo_id_reader_mode": "accurate"}
 FLAG_KEYS = tuple(DEFAULTS)
 
 
 class FeatureUpdate(BaseModel):
     photo_id_enabled: bool | None = None
-    photo_id_reader_mode: Literal["fast", "accurate"] | None = None
+    photo_id_reader_mode: Literal["original", "fast", "accurate"] | None = None
 
 
 def _coerce(key: str, value):

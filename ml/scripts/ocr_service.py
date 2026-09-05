@@ -1,6 +1,6 @@
 """PillSeek imprint reader service (in-house TrOCR fine-tune).
 
-POST /read  (multipart: photo, optional photo2, optional mode=fast|accurate)
+POST /read  (multipart: photo, optional photo2, optional mode=original|fast|accurate)
     -> {"tokens": [...], "reads": [...], "views": [[...], ...]}
 
 Each photo is read from several *views* (tight crops around the pill located
@@ -327,6 +327,39 @@ def _open_bounded(raw: bytes) -> Image.Image:
     return img
 
 
+def _read_original(photos: list[Image.Image], t0: float) -> dict:
+    """Day-one behaviour: one full-frame read per side (centre crop only if that came
+    back empty). Large model first; base only for a side where large stays silent.
+    No pill locator, no multi-view voting, no overriding."""
+    primary, beams = (model2, NUM_BEAMS2) if model2 is not None else (model, NUM_BEAMS)
+    reads, used = [], []
+    for img in photos:
+        crop = _center(img, 0.6)
+        text = ""
+        for m, b, name in ((primary, beams, "large" if model2 is not None else "base"), (model, NUM_BEAMS, "base")):
+            r = _read_batch([img, crop], m, b)
+            text = r[0] if _tokens(r[0]) else r[1]
+            if _tokens(text):
+                used.append(name)
+                break
+            if m is model:
+                break
+        else:
+            used.append("none")
+        reads.append(text)
+    tokens, seen = [], set()
+    for r in reads:
+        for t in _tokens(r):
+            if t not in seen:
+                seen.add(t)
+                tokens.append(t)
+    if LOG_READS:
+        print("read %d photo(s), mode=original in %.2fs -> %s | %s | by %s" % (len(photos), time.time() - t0, tokens, reads, used))
+    else:
+        print("read %d photo(s), mode=original in %.2fs" % (len(photos), time.time() - t0))
+    return {"tokens": tokens, "reads": reads, "views": [[r] for r in reads], "views2": []}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "device": DEVICE, "model": MODEL_DIR, "model2": MODEL2_DIR or None, "fp16": FP16,
@@ -337,20 +370,22 @@ def health():
 async def read_imprint(
     photo: UploadFile = File(...),
     photo2: UploadFile | None = File(default=None),
-    mode: str = Form(default="accurate"),  # "fast" skips the large model
+    mode: str = Form(default="accurate"),  # original = day-one full-frame read; fast = base crops+vote; accurate = base+large
     x_reader_key: str | None = Header(default=None),
 ):
     if READER_KEY and x_reader_key != READER_KEY:
         raise HTTPException(status_code=401, detail="bad reader key")
     mode = mode.strip().lower()
-    if mode not in ("fast", "accurate"):
-        raise HTTPException(status_code=422, detail="mode must be 'fast' or 'accurate'")
+    if mode not in ("original", "fast", "accurate"):
+        raise HTTPException(status_code=422, detail="mode must be 'original', 'fast' or 'accurate'")
     t0 = time.time()
     photos: list[Image.Image] = []
     for up in [photo] + ([photo2] if photo2 is not None else []):
         raw = await _read_bounded(up)
         if raw:
             photos.append(_open_bounded(raw))
+    if mode == "original":
+        return _read_original(photos, t0)
     batch: list[Image.Image] = []
     spans: list[tuple[int, int]] = []
     for img in photos:
