@@ -413,7 +413,10 @@ export interface PillDetail {
   pharma_class: string | null
   status_rx_otc: string | null
   ndc: string | null
+  ndc9: string | null
+  ndc11: string | null
   rxcui: string | null
+  spl_set_id: string | null
   images: string[]
   indication: { plain_text?: string | null; source?: string | null } | null
   pronunciation: string | null
@@ -421,6 +424,21 @@ export interface PillDetail {
   has_dosage: boolean
   has_adverse_reactions: boolean
   has_medguide: boolean
+}
+
+export interface PricePoint {
+  effective_date: string
+  price_per_unit: number
+}
+
+export interface PriceAlternative {
+  ndc: string | null
+  name: string
+  kind: string | null
+  price_per_unit: number | null
+  unit: string | null
+  is_cheapest: boolean
+  effective_date: string | null
 }
 
 export interface PriceSnapshot {
@@ -432,6 +450,9 @@ export interface PriceSnapshot {
   is_estimate: boolean
   display_disclaimer: string | null
   effective_date: string | null
+  /** Up to 52 weeks of pharmacy cost, oldest first. */
+  history: PricePoint[]
+  alternatives: PriceAlternative[]
 }
 
 export interface SimilarPill {
@@ -473,7 +494,10 @@ export async function getPill(slug: string, signal?: AbortSignal): Promise<PillD
     pharma_class: str(raw.pharma_class),
     status_rx_otc: str(raw.status_rx_otc),
     ndc: str(raw.ndc),
+    ndc9: str(raw.ndc9),
+    ndc11: str(raw.ndc11),
     rxcui: str(raw.rxcui),
+    spl_set_id: str(raw.spl_set_id),
     images,
     indication: raw.indication && typeof raw.indication === 'object' ? (raw.indication as PillDetail['indication']) : null,
     pronunciation: str(raw.pronunciation),
@@ -499,6 +523,21 @@ export async function getPriceSnapshot(slug: string, signal?: AbortSignal): Prom
       is_estimate: raw.is_estimate === true,
       display_disclaimer: str(raw.display_disclaimer),
       effective_date: str(raw.effective_date),
+      history: (Array.isArray(raw.history_52w) ? (raw.history_52w as Array<Record<string, unknown>>) : [])
+        .map((h) => ({ effective_date: str(h.effective_date) ?? '', price_per_unit: num(h.price_per_unit) }))
+        .filter((h): h is PricePoint => h.effective_date !== '' && h.price_per_unit !== null)
+        .sort((a, b) => a.effective_date.localeCompare(b.effective_date)),
+      alternatives: (Array.isArray(raw.alternatives) ? (raw.alternatives as Array<Record<string, unknown>>) : [])
+        .filter((a) => typeof a.name === 'string')
+        .map((a) => ({
+          ndc: str(a.ndc),
+          name: a.name as string,
+          kind: str(a.kind),
+          price_per_unit: num(a.price_per_unit),
+          unit: str(a.unit),
+          is_cheapest: a.is_cheapest === true,
+          effective_date: str(a.effective_date),
+        })),
     }
   } catch (err) {
     if (err instanceof ApiError && err.kind === 'cancelled') throw err
@@ -529,7 +568,122 @@ export async function getSimilar(slug: string, signal?: AbortSignal): Promise<Si
   }
 }
 
-/** Website URLs for the deep guide sections (opened in the in-app browser). */
-export function pillSectionUrl(slug: string, section: 'dosage' | 'adverse-reactions' | 'interactions' | 'price'): string {
+/** Website URLs for the guide sections (the "open on pillseek.com" action). */
+export function pillSectionUrl(
+  slug: string,
+  section: 'dosage' | 'adverse-reactions' | 'interactions' | 'price' | 'medication-guide' | 'professional-information',
+): string {
   return `${pillPageUrl(slug)}/${section}`
+}
+
+// ---- FDA label sections (rendered natively by SectionScreen) ---------------
+
+export interface LabelMeta {
+  source_url: string | null
+  fetched_at: string | null
+  boxed_warning_html: string | null
+}
+
+export interface DosageContent extends LabelMeta {
+  dosage_administration: string | null
+  dosage_forms_and_strengths: string | null
+}
+
+export interface AdverseReactionsContent extends LabelMeta {
+  adverse_reactions: string | null
+}
+
+/** GET /api/pill/{slug}/dosage — 404 when the label has no dosage section. */
+export async function getDosage(slug: string, signal?: AbortSignal): Promise<DosageContent> {
+  const raw = await request<Record<string, unknown>>(`/api/pill/${encodeURIComponent(slug)}/dosage`, { signal, timeoutMs: 30_000 })
+  return {
+    dosage_administration: str(raw.dosage_administration),
+    dosage_forms_and_strengths: str(raw.dosage_forms_and_strengths),
+    boxed_warning_html: str(raw.boxed_warning_html),
+    source_url: str(raw.source_url),
+    fetched_at: str(raw.fetched_at),
+  }
+}
+
+/** GET /api/pill/{slug}/adverse-reactions */
+export async function getAdverseReactions(slug: string, signal?: AbortSignal): Promise<AdverseReactionsContent> {
+  const raw = await request<Record<string, unknown>>(`/api/pill/${encodeURIComponent(slug)}/adverse-reactions`, { signal, timeoutMs: 30_000 })
+  return {
+    adverse_reactions: str(raw.adverse_reactions) ?? str(raw.side_effects),
+    boxed_warning_html: str(raw.boxed_warning_html),
+    source_url: str(raw.source_url),
+    fetched_at: str(raw.fetched_at),
+  }
+}
+
+export interface GuideQuestion {
+  question: string
+  answer: string
+}
+
+export interface GuideContent extends LabelMeta {
+  display_name: string | null
+  generic_name: string | null
+  drug_class: string | null
+  has_medguide: boolean
+  medguide_html: string | null
+  /** Plain-language Q&A summary built from the label (fallback when no medguide). */
+  summary: GuideQuestion[]
+  summary_notice: string | null
+  professional_html: string | null
+  professional_highlights_html: string | null
+  professional_sections: Array<[string, string]>
+}
+
+export interface GuideOptions {
+  medguide?: boolean
+  professional?: boolean
+}
+
+/**
+ * Medication guide / prescribing information for a pill. The API keys guides
+ * by label identifiers, so we try set id → NDC11 → RxCUI → NDC9 like the site.
+ */
+export async function getGuide(pill: PillDetail, options: GuideOptions, signal?: AbortSignal): Promise<GuideContent> {
+  const q = new URLSearchParams({ include_boxed_warning: 'true' })
+  if (options.medguide) q.set('include_medguide', 'true')
+  if (options.professional) q.set('include_professional', 'true')
+  const paths: string[] = []
+  if (pill.spl_set_id) paths.push(`/api/drugs/by-setid/${encodeURIComponent(pill.spl_set_id)}/guide`)
+  if (pill.ndc11) paths.push(`/api/drugs/by-ndc/${encodeURIComponent(pill.ndc11)}/guide`)
+  if (pill.rxcui) paths.push(`/api/drugs/${encodeURIComponent(pill.rxcui)}/guide`)
+  if (pill.ndc9 && pill.ndc9 !== pill.ndc11) paths.push(`/api/drugs/by-ndc/${encodeURIComponent(pill.ndc9)}/guide`)
+  if (paths.length === 0) throw new ApiError('not_found', 'No FDA label is linked to this pill.')
+
+  let lastError: unknown = null
+  for (const path of paths) {
+    try {
+      const raw = await request<Record<string, unknown>>(`${path}?${q.toString()}`, { signal, timeoutMs: 45_000 })
+      const summaryRaw =
+        raw.medication_summary_json && typeof raw.medication_summary_json === 'object' ? (raw.medication_summary_json as Record<string, unknown>) : null
+      const questions = summaryRaw && Array.isArray(summaryRaw.questions) ? (summaryRaw.questions as Array<Record<string, unknown>>) : []
+      const sections = Array.isArray(raw.professional_sections)
+        ? (raw.professional_sections as unknown[]).filter((x): x is [string, string] => Array.isArray(x) && typeof x[0] === 'string' && typeof x[1] === 'string')
+        : []
+      return {
+        display_name: str(raw.display_name) ?? str(raw.brand_name) ?? str(raw.name),
+        generic_name: str(raw.generic_name),
+        drug_class: str(raw.drug_class),
+        has_medguide: raw.has_medguide === true,
+        medguide_html: str(raw.medguide_html),
+        summary: questions.map((x) => ({ question: str(x.question) ?? '', answer: str(x.answer) ?? '' })).filter((x) => x.question && x.answer),
+        summary_notice: summaryRaw ? str(summaryRaw.notice) : null,
+        professional_html: str(raw.professional_html),
+        professional_highlights_html: str(raw.professional_highlights_html),
+        professional_sections: sections,
+        boxed_warning_html: str(raw.boxed_warning_html),
+        source_url: str(raw.source_url),
+        fetched_at: str(raw.fetched_at),
+      }
+    } catch (err) {
+      if (err instanceof ApiError && (err.kind === 'cancelled' || err.kind === 'offline')) throw err
+      lastError = err // e.g. 404 for this identifier: try the next one
+    }
+  }
+  throw lastError instanceof ApiError ? lastError : new ApiError('not_found', 'No FDA label found for this drug.')
 }

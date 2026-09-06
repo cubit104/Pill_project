@@ -195,3 +195,85 @@ export function ExternalIcon(props: IconProps) {
     </svg>
   )
 }
+
+export function HomeIcon(props: IconProps) {
+  return (
+    <svg {...base(props.size, props)}>
+      <path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19z" />
+      <path d="M9.5 20.5v-6h5v6" />
+    </svg>
+  )
+}
+
+/** Pill with letters: search by imprint. */
+export function ImprintIcon(props: IconProps) {
+  return (
+    <svg {...base(props.size, props)}>
+      <rect x="3" y="7" width="18" height="10" rx="5" />
+      <path d="M7.5 14v-3.2a1.3 1.3 0 0 1 2.6 0V14M7.5 12.3h2.6M12.5 10v4h1.8a1.2 1.2 0 0 0 0-2.4h-1.8M16.8 10v4" />
+    </svg>
+  )
+}
+
+/** Barcode: NDC lookup. */
+export function BarcodeIcon(props: IconProps) {
+  return (
+    <svg {...base(props.size, props)}>
+      <path d="M4 6v12M7.5 6v12M10 6v8M13 6v12M16 6v8M19.5 6v12M10 17h.01M16 17h.01" />
+    </svg>
+  )
+}
+
+/** Open book: medication guide. */
+export function BookIcon(props: IconProps) {
+  return (
+    <svg {...base(props.size, props)}>
+      <path d="M12 6.5c-1.6-1.3-3.7-1.7-8-1.5v13c4.3-.2 6.4.2 8 1.5 1.6-1.3 3.7-1.7 8-1.5V5c-4.3-.2-6.4.2-8 1.5z" />
+      <path d="M12 6.5v13" />
+    </svg>
+  )
+}
+
+/** Clipboard with Rx: professional / prescribing information. */
+export function RxIcon(props: IconProps) {
+  return (
+    <svg {...base(props.size, props)}>
+      <rect x="5" y="4.5" width="14" height="16" rx="2" />
+      <path d="M9 3.5h6v2H9z" />
+      <path d="M9 16.5v-7h2.4a1.7 1.7 0 0 1 0 3.4H9M11.4 12.9 14 16.5M14 12.9l-2.6 3.6" />
+    </svg>
+  )
+}
+
+/** Tablet split with a clock: dosage. */
+export function DoseIcon(props: IconProps) {
+  return (
+    <svg {...base(props.size, props)}>
+      <circle cx="9" cy="12" r="6" />
+      <path d="M5 8.5 13 15.5" />
+      <circle cx="17.5" cy="16.5" r="3.5" />
+      <path d="M17.5 15v1.7l1.2.8" />
+    </svg>
+  )
+}
+
+/** Coin: price guide. */
+export function PriceIcon(props: IconProps) {
+  return (
+    <svg {...base(props.size, props)}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.2v9.6M14.6 9.6c0-1-1.2-1.6-2.6-1.6s-2.6.6-2.6 1.6c0 2.1 5.2 1.6 5.2 3.8 0 1-1.2 1.7-2.6 1.7s-2.6-.7-2.6-1.7" />
+    </svg>
+  )
+}
+
+/** Two overlapping capsules with a warning: interactions. */
+export function InteractionsIcon(props: IconProps) {
+  return (
+    <svg {...base(props.size, props)}>
+      <circle cx="9" cy="10" r="5.5" />
+      <circle cx="15" cy="14" r="5.5" />
+      <path d="M12 6.5v4M12 13h.01" strokeWidth="2.2" />
+    </svg>
+  )
+}

@@ -20,6 +20,8 @@ import {
   type SimilarPill,
 } from '../lib/api'
 import { useBackHandler } from '../lib/backstack'
+import { money } from '../lib/format'
+import { sectionPath } from '../lib/goals'
 import { hapticTick, openUrl } from '../lib/native'
 
 /** DEA schedule → short badge text, or null when not controlled / unknown. */
@@ -33,11 +35,6 @@ function scheduleBadge(raw: string | null): string | null {
     'schedule i': 'I', 'schedule ii': 'II', 'schedule iii': 'III', 'schedule iv': 'IV', 'schedule v': 'V',
   }
   return map[v] ? `Schedule ${map[v]}` : null
-}
-
-function money(v: number | null): string {
-  if (v === null) return '—'
-  return v.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: v >= 100 ? 0 : 2 })
 }
 
 function Row({ label, value, mono }: { label: string; value: string | null; mono?: boolean }) {
@@ -132,7 +129,7 @@ export default function PillScreen({ slug }: { slug: string }) {
   const [reloadKey, setReloadKey] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/identify', { replace: true }))
+  const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/home', { replace: true }))
   useBackHandler(true, goBack)
 
   useEffect(() => {
@@ -290,7 +287,7 @@ export default function PillScreen({ slug }: { slug: string }) {
                   </p>
                   <button
                     type="button"
-                    onClick={() => void openUrl(pillSectionUrl(slug, 'price'))}
+                    onClick={() => navigate(sectionPath(slug, 'price'))}
                     className="pressable mt-2 inline-flex min-h-[40px] items-center gap-1 text-[14px] font-semibold text-brand"
                   >
                     Compare prices &amp; alternatives <ChevronRightIcon size={16} />
@@ -360,17 +357,17 @@ export default function PillScreen({ slug }: { slug: string }) {
               </section>
             )}
 
-            {/* Guide sections (full label content lives on the website, opened in-app) */}
-            {(pill.has_dosage || pill.has_adverse_reactions || pill.has_medguide) && (
-              <section>
-                <SectionLabel>Patient guide</SectionLabel>
-                <Card padded={false} className="divide-y divide-line overflow-hidden">
-                  {pill.has_dosage && <LinkRow label="Dosage & administration" hint="How it's taken, forms and strengths" onClick={() => void openUrl(pillSectionUrl(slug, 'dosage'))} external />}
-                  {pill.has_adverse_reactions && <LinkRow label="Side effects" hint="Adverse reactions from the FDA label" onClick={() => void openUrl(pillSectionUrl(slug, 'adverse-reactions'))} external />}
-                  <LinkRow label="Drug interactions" hint="Check against other medicines" onClick={() => void openUrl(pillSectionUrl(slug, 'interactions'))} external />
-                </Card>
-              </section>
-            )}
+            {/* Label sections, rendered natively by SectionScreen */}
+            <section>
+              <SectionLabel>Patient guide</SectionLabel>
+              <Card padded={false} className="divide-y divide-line overflow-hidden">
+                {pill.has_medguide && <LinkRow label="Medication guide" hint="What to know before and while taking it" onClick={() => navigate(sectionPath(slug, 'medication-guide'))} />}
+                {pill.has_dosage && <LinkRow label="Dosage & administration" hint="How it's taken, forms and strengths" onClick={() => navigate(sectionPath(slug, 'dosage'))} />}
+                {pill.has_adverse_reactions && <LinkRow label="Side effects" hint="Adverse reactions from the FDA label" onClick={() => navigate(sectionPath(slug, 'adverse-reactions'))} />}
+                <LinkRow label="Prescribing information" hint="Full FDA label for professionals" onClick={() => navigate(sectionPath(slug, 'professional-information'))} />
+                <LinkRow label="Drug interactions" hint="Check against other medicines" onClick={() => void openUrl(pillSectionUrl(slug, 'interactions'))} external />
+              </Card>
+            </section>
 
             {/* Similar pills */}
             {similar.length > 0 && (

@@ -128,6 +128,39 @@ button {
   outline-offset: 2px;
   border-radius: 8px;
 }
+/* Text fields draw their own focus border (TextField), so no outline on the input itself */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+/* TextField renders its own clear button; hide the WebKit one so there aren't two */
+input[type='search']::-webkit-search-cancel-button,
+input[type='search']::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
+/* Home grid duotone icons (see components/TileIcons.tsx) */
+.tile-icon {
+  --ti-ink: #065f46;
+  --ti-accent: #34d399;
+  --ti-fill: #d1fae5;
+  --ti-hole: var(--surface);
+}
+.tile-icon--inverse {
+  --ti-ink: #ffffff;
+  --ti-accent: rgba(255, 255, 255, 0.75);
+  --ti-fill: rgba(255, 255, 255, 0.22);
+  --ti-hole: var(--brand);
+}
+@media (prefers-color-scheme: dark) {
+  .tile-icon {
+    --ti-ink: #a7f3d0;
+    --ti-accent: #34d399;
+    --ti-fill: rgba(52, 211, 153, 0.16);
+  }
+}
 
 img {
   max-width: 100%;
@@ -275,4 +308,133 @@ html.camera-open .app-shell {
   .pressable:active {
     transform: none;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   FDA label content rendered natively (SectionScreen)
+   --------------------------------------------------------------------------- */
+.label-html {
+  -webkit-user-select: text;
+  user-select: text;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--body);
+  overflow-wrap: anywhere;
+}
+.label-html > :first-child,
+.label-html section > :first-child,
+.label-html article > :first-child {
+  margin-top: 0;
+}
+.label-html > :last-child {
+  margin-bottom: 0;
+}
+.label-html h2,
+.label-html h3,
+.label-html h4,
+.label-html h5,
+.label-html h6 {
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 20px 0 6px;
+  line-height: 1.3;
+}
+.label-html h2 {
+  font-size: 19px;
+}
+.label-html h3 {
+  font-size: 17px;
+}
+.label-html h4,
+.label-html h5,
+.label-html h6 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.label-html p {
+  margin: 8px 0;
+}
+.label-html ul,
+.label-html ol {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+.label-html ul {
+  list-style: disc;
+}
+.label-html ol {
+  list-style: decimal;
+}
+.label-html li {
+  margin: 5px 0;
+}
+.label-html li::marker {
+  color: var(--brand);
+}
+.label-html strong,
+.label-html b {
+  font-weight: 600;
+  color: var(--ink);
+}
+.label-html dl {
+  margin: 8px 0;
+}
+.label-html dt {
+  font-weight: 600;
+  color: var(--ink);
+  margin-top: 8px;
+}
+.label-html dd {
+  margin: 2px 0 0 0;
+}
+.label-html blockquote {
+  margin: 10px 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--border);
+}
+.label-html table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-overflow-scrolling: touch;
+}
+.label-html caption {
+  text-align: left;
+  font-weight: 600;
+  color: var(--ink);
+  padding-bottom: 6px;
+}
+.label-html th,
+.label-html td {
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+  min-width: 72px;
+}
+.label-html th {
+  background: var(--canvas);
+  color: var(--ink);
+  font-weight: 600;
+}
+.label-html sup,
+.label-html sub {
+  font-size: 0.75em;
+}
+/* Boxed warning: high-contrast card */
+.label-html--warning {
+  color: var(--ink);
+}
+.label-html--warning h2,
+.label-html--warning h3 {
+  color: var(--danger);
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 12px;
 }

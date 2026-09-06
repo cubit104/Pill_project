@@ -1,4 +1,5 @@
 import { useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Card, { SectionLabel } from '../components/Card'
 import Disclaimer from '../components/Disclaimer'
 import { CameraIcon, ChevronRightIcon, ExternalIcon, RefreshIcon, SearchIcon, SparkleIcon } from '../components/Icons'
@@ -6,6 +7,7 @@ import ScreenHeader from '../components/ScreenHeader'
 import Toggle from '../components/Toggle'
 import { SITE_URL } from '../lib/api'
 import { appVersion, openUrl, platform } from '../lib/native'
+import { useBackHandler } from '../lib/backstack'
 import { useSettings } from '../lib/settings'
 
 const STEPS = [
@@ -21,8 +23,11 @@ const LINKS = [
   { label: 'Contact us', url: `${SITE_URL}/contact` },
 ] as const
 
-export default function AboutScreen() {
+export default function AboutScreen({ active = true }: { active?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
+  const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/home', { replace: true }))
+  useBackHandler(active, goBack)
   const { features, loading, error, reload, consent, setConsent } = useSettings()
 
   const readerStatus = loading
@@ -35,7 +40,7 @@ export default function AboutScreen() {
 
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto">
-      <ScreenHeader title="About" scrollRef={scrollRef} />
+      <ScreenHeader title="About" scrollRef={scrollRef} onBack={goBack} />
       <main className="screen mx-auto max-w-lg space-y-6 px-4 pt-2" style={{ paddingLeft: 'max(16px, var(--safe-left))', paddingRight: 'max(16px, var(--safe-right))' }}>
         <Card className="flex flex-col items-center py-7 text-center">
           <img src="/logo-mark.svg" alt="" width={72} height={72} className="h-[72px] w-[72px]" />

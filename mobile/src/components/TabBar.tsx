@@ -1,12 +1,12 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { CameraIcon, ClockIcon, InfoIcon, SearchIcon } from './Icons'
+import { CameraIcon, ClockIcon, HomeIcon, SearchIcon } from './Icons'
 import { hapticTick } from '../lib/native'
 
 export const TABS = [
+  { to: '/home', label: 'Home', Icon: HomeIcon },
   { to: '/identify', label: 'Identify', Icon: CameraIcon },
   { to: '/search', label: 'Search', Icon: SearchIcon },
   { to: '/recent', label: 'Recent', Icon: ClockIcon },
-  { to: '/about', label: 'About', Icon: InfoIcon },
 ] as const
 
 export default function TabBar() {
@@ -19,7 +19,8 @@ export default function TabBar() {
     >
       <ul className="mx-auto flex h-14 max-w-lg items-stretch">
         {TABS.map(({ to, label, Icon }) => {
-          const active = location.pathname.startsWith(to)
+          // About lives under Home (reached from its grid), so Home stays lit there.
+          const active = location.pathname.startsWith(to) || (to === '/home' && location.pathname.startsWith('/about'))
           return (
             <li key={to} className="flex-1">
               <NavLink

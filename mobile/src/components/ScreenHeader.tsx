@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { ChevronRightIcon } from './Icons'
 
 interface Props {
   title: string
@@ -8,13 +9,15 @@ interface Props {
   /** Content pinned under the title, inside the sticky bar (search field). */
   children?: ReactNode
   scrollRef: React.RefObject<HTMLDivElement | null>
+  /** Renders a Back button on the left (screens pushed from Home rather than tabs). */
+  onBack?: () => void
 }
 
 /**
  * Large title that collapses into a compact bar when the screen scrolls.
  * The whole header is sticky; only the big title fades/shrinks.
  */
-export default function ScreenHeader({ title, subtitle, trailing, children, scrollRef }: Props) {
+export default function ScreenHeader({ title, subtitle, trailing, children, scrollRef, onBack }: Props) {
   const [collapsed, setCollapsed] = useState(false)
 
   useEffect(() => {
@@ -40,6 +43,17 @@ export default function ScreenHeader({ title, subtitle, trailing, children, scro
       style={{ paddingTop: 'var(--safe-top)', paddingLeft: 'var(--safe-left)', paddingRight: 'var(--safe-right)' }}
     >
       <div className="relative mx-auto max-w-lg px-4">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back"
+            className="pressable absolute left-1 top-0 z-10 flex h-11 min-w-[44px] items-center gap-0.5 rounded-full px-2 text-[17px] font-medium text-brand"
+          >
+            <ChevronRightIcon size={22} className="rotate-180" />
+            Back
+          </button>
+        )}
         {/* Compact bar */}
         <div
           className={`flex h-11 items-center justify-center transition-opacity duration-fast ${
@@ -53,7 +67,7 @@ export default function ScreenHeader({ title, subtitle, trailing, children, scro
         <div
           className={`flex items-end justify-between gap-3 overflow-hidden transition-all duration-base ${
             collapsed ? 'max-h-0 opacity-0' : 'max-h-24 pb-2 opacity-100'
-          }`}
+          } ${onBack ? 'pt-11' : ''}`}
         >
           <div className="min-w-0">
             <h1 className="large-title truncate">{title}</h1>
