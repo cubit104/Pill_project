@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import Button from '../components/Button'
 import Card, { SectionLabel } from '../components/Card'
 import Disclaimer from '../components/Disclaimer'
+import ReviewedBy from '../components/ReviewedBy'
 import ErrorCard from '../components/ErrorCard'
 import { ChevronRightIcon, ExternalIcon, InfoIcon, PillIcon } from '../components/Icons'
 import { PillThumb, TextBadge, titleCase } from '../components/PillRow'
@@ -14,7 +14,6 @@ import {
   getPriceSnapshot,
   getSimilar,
   pillPageUrl,
-  pillSectionUrl,
   type PillDetail,
   type PriceSnapshot,
   type SimilarPill,
@@ -22,6 +21,7 @@ import {
 import { useBackHandler } from '../lib/backstack'
 import { money } from '../lib/format'
 import { sectionPath } from '../lib/goals'
+import { interactionsPath } from '../lib/interactions'
 import { hapticTick, openUrl } from '../lib/native'
 
 /** DEA schedule → short badge text, or null when not controlled / unknown. */
@@ -192,14 +192,7 @@ export default function PillScreen({ slug }: { slug: string }) {
           Back
         </button>
         <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">{pill?.drug_name ?? 'Pill'}</p>
-        <button
-          type="button"
-          onClick={() => void openUrl(pillPageUrl(slug))}
-          aria-label="Open on pillseek.com"
-          className="pressable flex h-11 w-11 items-center justify-center rounded-full text-brand"
-        >
-          <ExternalIcon size={20} />
-        </button>
+        <span className="w-11" aria-hidden />
       </div>
 
       <main
@@ -242,6 +235,8 @@ export default function PillScreen({ slug }: { slug: string }) {
                 </button>
               )}
             </div>
+
+            <ReviewedBy lastVerified={pill.updated_at} />
 
             {/* Identification */}
             <section>
@@ -365,7 +360,7 @@ export default function PillScreen({ slug }: { slug: string }) {
                 {pill.has_dosage && <LinkRow label="Dosage & administration" hint="How it's taken, forms and strengths" onClick={() => navigate(sectionPath(slug, 'dosage'))} />}
                 {pill.has_adverse_reactions && <LinkRow label="Side effects" hint="Adverse reactions from the FDA label" onClick={() => navigate(sectionPath(slug, 'adverse-reactions'))} />}
                 <LinkRow label="Prescribing information" hint="Full FDA label for professionals" onClick={() => navigate(sectionPath(slug, 'professional-information'))} />
-                <LinkRow label="Drug interactions" hint="Check against other medicines" onClick={() => void openUrl(pillSectionUrl(slug, 'interactions'))} external />
+                <LinkRow label="Drug interactions" hint="Check against other medicines" onClick={() => navigate(interactionsPath(pill.generic_name ?? pill.drug_name))} />
               </Card>
             </section>
 
@@ -400,11 +395,6 @@ export default function PillScreen({ slug }: { slug: string }) {
               </p>
             </Card>
             <Disclaimer compact />
-            <div className="flex justify-center">
-              <Button variant="ghost" size="sm" icon={<ExternalIcon size={16} />} onClick={() => void openUrl(pillPageUrl(slug))}>
-                Open full page on pillseek.com
-              </Button>
-            </div>
           </>
         )}
       </main>

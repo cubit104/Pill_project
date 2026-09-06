@@ -2,11 +2,10 @@ import { useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Card, { SectionLabel } from '../components/Card'
 import Disclaimer from '../components/Disclaimer'
-import { CameraIcon, ChevronRightIcon, ExternalIcon, RefreshIcon, SearchIcon, SparkleIcon } from '../components/Icons'
+import { CameraIcon, ChevronRightIcon, RefreshIcon, SearchIcon, SparkleIcon } from '../components/Icons'
 import ScreenHeader from '../components/ScreenHeader'
 import Toggle from '../components/Toggle'
-import { SITE_URL } from '../lib/api'
-import { appVersion, openUrl, platform } from '../lib/native'
+import { appVersion, hapticTick, platform } from '../lib/native'
 import { useBackHandler } from '../lib/backstack'
 import { useSettings } from '../lib/settings'
 
@@ -17,10 +16,11 @@ const STEPS = [
 ] as const
 
 const LINKS = [
-  { label: 'Privacy policy', url: `${SITE_URL}/privacy` },
-  { label: 'Terms of use', url: `${SITE_URL}/terms` },
-  { label: 'Medical disclaimer', url: `${SITE_URL}/disclaimer` },
-  { label: 'Contact us', url: `${SITE_URL}/contact` },
+  { label: 'Editorial team', hint: 'Who reviews PillSeek content', to: '/editorial-team' },
+  { label: 'Contact us', hint: 'Questions, data corrections, feedback', to: '/contact' },
+  { label: 'Privacy policy', to: '/legal/privacy' },
+  { label: 'Terms of use', to: '/legal/terms' },
+  { label: 'Medical disclaimer', to: '/legal/disclaimer' },
 ] as const
 
 export default function AboutScreen({ active = true }: { active?: boolean }) {
@@ -95,20 +95,23 @@ export default function AboutScreen({ active = true }: { active?: boolean }) {
         </section>
 
         <section>
-          <SectionLabel>Legal</SectionLabel>
+          <SectionLabel>More</SectionLabel>
           <Card padded={false} className="divide-y divide-line">
             {LINKS.map((l) => (
               <button
-                key={l.url}
+                key={l.to}
                 type="button"
-                onClick={() => void openUrl(l.url)}
-                className="pressable flex min-h-[48px] w-full items-center justify-between px-4 text-left text-[17px] text-ink active:bg-brand-tint"
+                onClick={() => {
+                  void hapticTick()
+                  navigate(l.to)
+                }}
+                className="pressable flex min-h-[48px] w-full items-center justify-between gap-3 px-4 py-2.5 text-left active:bg-brand-tint"
               >
-                <span>{l.label}</span>
-                <span className="flex items-center gap-1 text-muted">
-                  <ExternalIcon size={16} />
-                  <ChevronRightIcon size={18} className="text-line" />
+                <span className="min-w-0">
+                  <span className="block text-[17px] text-ink">{l.label}</span>
+                  {'hint' in l && <span className="block text-[13px] text-muted">{l.hint}</span>}
                 </span>
+                <ChevronRightIcon size={18} className="flex-none text-line" />
               </button>
             ))}
           </Card>

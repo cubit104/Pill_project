@@ -7,6 +7,8 @@ import { Preferences } from '@capacitor/preferences'
 const KEY_RECENT = 'pillseek.recent.v1'
 const KEY_CONSENT = 'pillseek.consent.v1'
 const KEY_LAST_TAB = 'pillseek.lastTab.v1'
+const KEY_WELCOME = 'pillseek.welcomeSeen.v1'
+const KEY_INTERACTIONS = 'pillseek.interactionDrugs.v1'
 
 export const RECENT_LIMIT = 20
 
@@ -137,4 +139,40 @@ export async function saveLastTab(path: string): Promise<void> {
 export function newId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+export async function loadWelcomeSeen(): Promise<boolean> {
+  try {
+    const { value } = await Preferences.get({ key: KEY_WELCOME })
+    return value === '1'
+  } catch {
+    return true // never trap the user on the welcome screen if storage fails
+  }
+}
+
+export async function saveWelcomeSeen(): Promise<void> {
+  try {
+    await Preferences.set({ key: KEY_WELCOME, value: '1' })
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Medicines the user last entered in the interactions checker. */
+export async function loadInteractionDrugs(): Promise<string[]> {
+  try {
+    const { value } = await Preferences.get({ key: KEY_INTERACTIONS })
+    const parsed: unknown = value ? JSON.parse(value) : []
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export async function saveInteractionDrugs(drugs: string[]): Promise<void> {
+  try {
+    await Preferences.set({ key: KEY_INTERACTIONS, value: JSON.stringify(drugs.slice(0, 10)) })
+  } catch {
+    /* ignore */
+  }
 }

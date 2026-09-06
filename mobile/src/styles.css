@@ -432,3 +432,15 @@ html.camera-open .app-shell {
   letter-spacing: 0.04em;
   margin-top: 12px;
 }
+
+/* In-label cross-references ("see Warnings and Precautions") are tappable jumps */
+.label-html a {
+  color: var(--brand);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand) 45%, transparent);
+  text-underline-offset: 3px;
+}
+.label-html [id] {
+  scroll-margin-top: 128px;
+}

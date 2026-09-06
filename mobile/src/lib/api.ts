@@ -424,6 +424,8 @@ export interface PillDetail {
   has_dosage: boolean
   has_adverse_reactions: boolean
   has_medguide: boolean
+  /** When the pill record was last refreshed from FDA sources (the "last verified" date). */
+  updated_at: string | null
 }
 
 export interface PricePoint {
@@ -505,7 +507,42 @@ export async function getPill(slug: string, signal?: AbortSignal): Promise<PillD
     has_dosage: raw.has_dosage === true,
     has_adverse_reactions: raw.has_adverse_reactions === true,
     has_medguide: raw.has_medguide === true,
+    updated_at: str(raw.updated_at),
   }
+}
+
+// ---- Editorial team (byline) ---------------------------------------------
+
+export interface Reviewer {
+  slug: string | null
+  name: string
+  credentials: string | null
+  role: string | null
+  avatar_url: string | null
+}
+
+let reviewerPromise: Promise<Reviewer | null> | null = null
+
+/**
+ * The medical reviewer shown in the "Reviewed by" byline, like the website
+ * (prefers role medical_reviewer, else the first active member). Fetched once
+ * per session; a failure resolves to null so bylines fall back to the team.
+ */
+export function getReviewer(): Promise<Reviewer | null> {
+  if (!reviewerPromise) {
+    reviewerPromise = request<unknown>('/api/editorial-team', { timeoutMs: 10_000 })
+      .then((raw) => {
+        const list = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>).filter((r) => r && typeof r.name === 'string' && r.is_active !== false) : []
+        const pick = list.find((r) => typeof r.role === 'string' && r.role.toLowerCase() === 'medical_reviewer') ?? list[0]
+        if (!pick) return null
+        return { slug: str(pick.slug), name: pick.name as string, credentials: str(pick.credentials), role: str(pick.role), avatar_url: str(pick.avatar_url) }
+      })
+      .catch(() => {
+        reviewerPromise = null // let a later screen retry
+        return null
+      })
+  }
+  return reviewerPromise
 }
 
 /** GET /api/snapshot/{slug} — weekly NADAC-based price snapshot; null when none. */
@@ -686,4 +723,156 @@ export async function getGuide(pill: PillDetail, options: GuideOptions, signal?:
     }
   }
   throw lastError instanceof ApiError ? lastError : new ApiError('not_found', 'No FDA label found for this drug.')
+}
+
+// ---- Interactions checker ------------------------------------------------
+
+export interface InteractionPair {
+  drug1: string
+  drug2: string
+  severity: string | null
+  description: string | null
+  interaction_text: string | null
+  management: string | null
+  confidence: string | null
+  found: boolean
+  message: string | null
+}
+
+export interface FoodInteraction {
+  selected_drug: string
+  food_name: string
+  level: string
+  interaction: string | null
+  management: string | null
+}
+
+export interface DiseaseInteraction {
+  selected_drug: string
+  disease_name: string
+  level: string
+  text: string | null
+}
+
+export interface InteractionCheck {
+  drugs: string[]
+  pairs: InteractionPair[]
+  food_interactions: FoodInteraction[]
+  disease_interactions: DiseaseInteraction[]
+  summary: { severity: { major: number; moderate: number; minor: number; unknown: number } }
+}
+
+/** GET /api/interactions/suggestions — drug-name prefix matches. */
+export async function getInteractionSuggestions(q: string, signal?: AbortSignal): Promise<string[]> {
+  const raw = await request<unknown>(`/api/interactions/suggestions?q=${encodeURIComponent(q)}&limit=8`, { signal, timeoutMs: 10_000 })
+  return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []
+}
+
+/** POST /api/interactions/check — every pair among the given medicines, plus food/condition notes. */
+export async function checkInteractions(drugs: string[], signal?: AbortSignal): Promise<InteractionCheck> {
+  const raw = await request<Record<string, unknown>>('/api/interactions/check', {
+    method: 'POST',
+    body: JSON.stringify({ drugs }),
+    headers: { 'Content-Type': 'application/json' },
+    signal,
+    timeoutMs: 45_000,
+  })
+  const list = <T,>(v: unknown, map: (o: Record<string, unknown>) => T | null): T[] =>
+    Array.isArray(v) ? (v as unknown[]).map((o) => (o && typeof o === 'object' ? map(o as Record<string, unknown>) : null)).filter((x): x is T => x !== null) : []
+  const sev = raw.summary && typeof raw.summary === 'object' ? ((raw.summary as Record<string, unknown>).severity as Record<string, unknown> | undefined) : undefined
+  const n = (v: unknown) => (typeof v === 'number' ? v : 0)
+  return {
+    drugs: Array.isArray(raw.drugs) ? (raw.drugs as unknown[]).filter((x): x is string => typeof x === 'string') : drugs,
+    pairs: list(raw.pairs, (o) =>
+      typeof o.drug1 === 'string' && typeof o.drug2 === 'string'
+        ? {
+            drug1: o.drug1,
+            drug2: o.drug2,
+            severity: str(o.severity),
+            description: str(o.description),
+            interaction_text: str(o.interaction_text),
+            management: str(o.management),
+            confidence: str(o.confidence),
+            found: o.found === true,
+            message: str(o.message),
+          }
+        : null,
+    ),
+    food_interactions: list(raw.food_interactions, (o) =>
+      typeof o.selected_drug === 'string' && typeof o.food_name === 'string'
+        ? { selected_drug: o.selected_drug, food_name: o.food_name, level: str(o.level) ?? 'unknown', interaction: str(o.interaction), management: str(o.management) }
+        : null,
+    ),
+    disease_interactions: list(raw.disease_interactions, (o) =>
+      typeof o.selected_drug === 'string' && typeof o.disease_name === 'string'
+        ? { selected_drug: o.selected_drug, disease_name: o.disease_name, level: str(o.level) ?? 'unknown', text: str(o.text) }
+        : null,
+    ),
+    summary: { severity: { major: n(sev?.major), moderate: n(sev?.moderate), minor: n(sev?.minor), unknown: n(sev?.unknown) } },
+  }
+}
+
+// ---- Editorial team + contact ----------------------------------------------
+
+export interface TeamMember extends Reviewer {
+  specialty: string | null
+  bio: string | null
+  linkedin_url: string | null
+  license_info: string | null
+  education: Array<{ degree?: string; institution?: string; url?: string }>
+  registrations: Array<{ title?: string; board?: string; url?: string }>
+}
+
+function safeHttpUrl(v: unknown): string | undefined {
+  const s = str(v)
+  return s && /^https?:\/\//i.test(s) ? s : undefined
+}
+
+/** GET /api/editorial-team — active members, medical reviewer first. */
+export async function getEditorialTeam(signal?: AbortSignal): Promise<TeamMember[]> {
+  const raw = await request<unknown>('/api/editorial-team', { signal, timeoutMs: 15_000 })
+  const list = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>).filter((r) => r && typeof r.name === 'string' && r.is_active !== false) : []
+  const rows = (v: unknown) => (Array.isArray(v) ? (v as Array<Record<string, unknown>>).filter((x) => x && typeof x === 'object') : [])
+  const members = list.map<TeamMember>((r) => ({
+    slug: str(r.slug),
+    name: r.name as string,
+    credentials: str(r.credentials),
+    role: str(r.role),
+    avatar_url: str(r.avatar_url),
+    specialty: str(r.specialty),
+    bio: str(r.bio),
+    linkedin_url: safeHttpUrl(r.linkedin_url) ?? null,
+    license_info: str(r.license_info),
+    education: rows(r.education).map((e) => ({ degree: str(e.degree) ?? undefined, institution: str(e.institution) ?? undefined, url: safeHttpUrl(e.url) })),
+    registrations: rows(r.registrations).map((e) => ({ title: str(e.title) ?? undefined, board: str(e.board) ?? undefined, url: safeHttpUrl(e.url) })),
+  }))
+  return members.sort((a, b) => Number(b.role?.toLowerCase() === 'medical_reviewer') - Number(a.role?.toLowerCase() === 'medical_reviewer'))
+}
+
+export interface ContactMessage {
+  name: string
+  email: string
+  subject: string
+  body: string
+}
+
+/**
+ * POST pillseek.com/api/contact — the website's own route (it emails the team),
+ * so this always goes to the site rather than the API base.
+ */
+export async function sendContactMessage(msg: ContactMessage, signal?: AbortSignal): Promise<string> {
+  let res: Response
+  try {
+    res = await fetch(`${SITE_URL}/api/contact`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-PillSeek-App': Capacitor.getPlatform() },
+      body: JSON.stringify(msg),
+      signal,
+    })
+  } catch (err) {
+    throw mapFetchError(err, false)
+  }
+  const data = (await res.json().catch(() => ({}))) as { error?: unknown; message?: unknown }
+  if (!res.ok) throw new ApiError('bad_request', typeof data.error === 'string' ? data.error : 'Unable to send your message right now. Please try again later.')
+  return typeof data.message === 'string' ? data.message : 'Thanks — your message has been sent.'
 }

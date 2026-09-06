@@ -2,22 +2,25 @@
  * FDA label HTML → app-friendly HTML. The API returns DailyMed fragments with
  * anchors, ids, classes and cross-references meant for the website. The app
  * renders them inside native-styled cards, so this strips everything except a
- * small set of structural tags, keeps text intact, and removes "[see …]" and
- * "(5.1)" section cross-references that lead nowhere in the app.
+ * small set of structural tags and keeps text intact. Cross-references
+ * ("[see Warnings and Precautions (5.1)]") stay as in-label links (href="#id")
+ * that the screen turns into jumps; the "(5.1)" numbering is removed.
  *
  * String-based (no DOM) so it runs in tests and never touches document.
  */
 
-// Structural wrappers (section/article/aside/div) are unwrapped: the app supplies its own
+// Structural wrappers (section/article/aside/div/span) are unwrapped: the app supplies its own
 // cards, and slicing a label into sections must not leave dangling wrapper tags.
 const KEEP_TAGS = new Set([
-  'p', 'br', 'ul', 'ol', 'li', 'strong', 'b', 'em', 'i', 'u', 'sup', 'sub',
+  'a', 'p', 'br', 'ul', 'ol', 'li', 'strong', 'b', 'em', 'i', 'u', 'sup', 'sub',
   'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
   'dl', 'dt', 'dd', 'blockquote', 'caption',
 ])
 const DROP_WITH_CONTENT = [
   'script', 'style', 'img', 'svg', 'iframe', 'object', 'embed', 'button', 'form', 'input', 'select', 'textarea', 'nav', 'header', 'footer',
 ]
+const ID_RE = /\bid\s*=\s*["']([A-Za-z0-9_.:-]+)["']/i
+const HASH_HREF_RE = /\bhref\s*=\s*["']#([A-Za-z0-9_.:-]+)["']/i
 
 function stripDangerousBlocks(html: string): string {
   return DROP_WITH_CONTENT.reduce((h, tag) => {
@@ -26,7 +29,12 @@ function stripDangerousBlocks(html: string): string {
   }, html).replace(/<!--[\s\S]*?-->/g, '')
 }
 
-/** Drop every attribute except table spans; unwrap tags we don't keep. */
+/** External / non-anchor links become plain text; only in-label "#id" links survive. */
+function unwrapExternalLinks(html: string): string {
+  return html.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, (whole, attrs: string, text: string) => (HASH_HREF_RE.test(attrs) ? whole : text))
+}
+
+/** Drop every attribute except table spans, heading ids and in-label hrefs; unwrap tags we don't keep. */
 function normaliseTags(html: string): string {
   return html.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g, (whole, rawName: string, attrs: string) => {
     const name = rawName.toLowerCase()
@@ -41,18 +49,23 @@ function normaliseTags(html: string): string {
       const row = /\browspan\s*=\s*["']?(\d+)/i.exec(attrs)
       if (col) kept += ` colspan="${col[1]}"`
       if (row) kept += ` rowspan="${row[1]}"`
+    } else if (/^h[2-6]$/.test(name)) {
+      const id = ID_RE.exec(attrs)
+      if (id) kept += ` id="${id[1]}"`
+    } else if (name === 'a') {
+      const href = HASH_HREF_RE.exec(attrs)
+      if (!href) return ' '
+      kept += ` href="#${href[1]}"`
     }
     return `<${name}${kept}>`
   })
 }
 
-/** Remove FDA cross-references: "[see Warnings (5.1)]", "(2.1, 2.2)", bare "(7)". */
-function stripCrossRefs(html: string): string {
+/** Remove FDA section numbering in cross-references: "(2.1)", "(5.1, 5.2)", bare "(7)", and "(<a>6.1</a>)". */
+function stripSectionNumbers(html: string): string {
   return html
-    .replace(/<em>\s*\[see[\s\S]*?\]\s*<\/em>/gi, '')
-    .replace(/\[see[\s\S]*?\]/gi, '')
+    .replace(/\s*\(\s*(?:<a href="#[^"]*">\s*\d+(?:\.\d+)?\s*<\/a>\s*,?\s*)+\)/g, '')
     .replace(/\s*\(\s*\d+(?:\.\d+)?(?:\s*,\s*\d+(?:\.\d+)?)*\s*\)/g, '')
-    .replace(/<em>\s*<\/em>/gi, '')
 }
 
 export interface CleanOptions {
@@ -64,21 +77,24 @@ export function cleanLabelHtml(input: string | null | undefined, options: CleanO
   if (!input) return ''
   let html = stripDangerousBlocks(input)
   // Titles come from the API as h1 inside medguide_html; demote so the card hierarchy holds.
-  html = html.replace(/<(\/?)h1\b[^>]*>/gi, '<$1h2>')
+  html = html.replace(/<(\/?)h1\b([^>]*)>/gi, '<$1h2$2>')
+  html = unwrapExternalLinks(html)
   html = normaliseTags(html)
-  html = stripCrossRefs(html)
-  if (options.dropLeadingHeading) html = html.replace(/^\s*<h2>[\s\S]*?<\/h2>/i, '')
+  html = stripSectionNumbers(html)
+  if (options.dropLeadingHeading) html = html.replace(/^\s*<h2[^>]*>[\s\S]*?<\/h2>/i, '')
   // "2.1 General Dosing Information" → "General Dosing Information"
-  html = html.replace(/(<h[2-6]>)\s*\d+(?:\.\d+)*\s+/g, '$1')
+  html = html.replace(/(<h[2-6][^>]*>)\s*\d+(?:\.\d+)*\s+/g, '$1')
   html = html
     .replace(/\s+([.,;:])/g, '$1')
-    .replace(/<(p|li|span|em|strong|i|b)>\s*<\/\1>/gi, '')
+    .replace(/<a href="#[^"]*">\s*<\/a>/gi, '')
+    .replace(/<(p|li|em|strong|i|b)>\s*<\/\1>/gi, '')
     .replace(/(?:<br>\s*){2,}/gi, '<br>')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/\n\s*\n+/g, '\n')
-    .replace(/>\s+</g, '><')
-    .replace(/\s+(<\/(?:p|li|h[2-6]|td|th|dt|dd|caption|blockquote|span|strong|em|b|i)>)/g, '$1')
-    .replace(/(<(?:p|li|h[2-6]|td|th|dt|dd|caption|blockquote)>)\s+/g, '$1')
+    // Whitespace between block tags is noise; between inline tags ("[see </a><a>") it is a word gap.
+    .replace(/(<\/?(?:p|ul|ol|li|h[2-6]|table|thead|tbody|tfoot|tr|td|th|dl|dt|dd|blockquote|caption|br)(?:\s[^>]*)?>)\s+</g, '$1<')
+    .replace(/\s+(<\/(?:p|li|h[2-6]|td|th|dt|dd|caption|blockquote|strong|em|b|i)>)/g, '$1')
+    .replace(/(<(?:p|li|h[2-6][^>]*|td|th|dt|dd|caption|blockquote)>)\s+/g, '$1')
     .trim()
   return html
 }
@@ -118,4 +134,22 @@ export function splitLabelSections(html: string | null | undefined, ids: Array<[
       return { id: s.id, title: s.title, html: cleanLabelHtml(html.slice(s.headingEnd, end)) }
     })
     .filter((s) => s.html.length > 0)
+}
+
+/**
+ * Which top-level section a cross-reference id lives in: the section itself, a
+ * subsection heading inside it, or (DailyMed convention) the longest section id
+ * that prefixes the reference, e.g. "warnings-precautions-bleeding" → "warnings-precautions".
+ */
+export function findSectionForRef(sections: LabelSection[], ref: string): LabelSection | null {
+  const exact = sections.find((s) => s.id === ref)
+  if (exact) return exact
+  const needle = ` id="${ref}"`
+  const inside = sections.find((s) => s.html.includes(needle))
+  if (inside) return inside
+  let best: LabelSection | null = null
+  for (const s of sections) {
+    if (ref.startsWith(`${s.id}-`) && (!best || s.id.length > best.id.length)) best = s
+  }
+  return best
 }

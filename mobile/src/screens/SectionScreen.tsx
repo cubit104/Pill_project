@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import Card, { SectionLabel } from '../components/Card'
 import Chip, { ChipRow } from '../components/Chip'
 import Disclaimer from '../components/Disclaimer'
+import ReviewedBy from '../components/ReviewedBy'
 import EmptyState from '../components/EmptyState'
 import ErrorCard from '../components/ErrorCard'
 import { AlertIcon, ChevronRightIcon, ExternalIcon } from '../components/Icons'
 import { TextBadge } from '../components/PillRow'
 import PriceSparkline from '../components/PriceSparkline'
+import Sheet from '../components/Sheet'
 import { Skeleton } from '../components/Skeleton'
 import {
   ApiError,
@@ -26,7 +28,8 @@ import {
 import { useBackHandler } from '../lib/backstack'
 import { money, shortDate } from '../lib/format'
 import { SECTIONS, sectionPath, type Section } from '../lib/goals'
-import { cleanLabelHtml, splitLabelSections } from '../lib/labelHtml'
+import { interactionsPath } from '../lib/interactions'
+import { cleanLabelHtml, findSectionForRef, splitLabelSections, type LabelSection } from '../lib/labelHtml'
 import { hapticTick, openUrl } from '../lib/native'
 
 type Content =
@@ -63,24 +66,58 @@ function subtitle(pill: PillDetail): string {
   return parts.join(' · ')
 }
 
-/** Sanitised label HTML inside a card. */
-function LabelHtml({ html, warning = false, dropLeadingHeading = false }: { html: string | null; warning?: boolean; dropLeadingHeading?: boolean }) {
+/** A cross-reference inside label text was tapped: id is the target heading id. */
+type RefHandler = (id: string) => void
+
+/** Sanitised label HTML inside a card; in-label links become jumps via `onRef`. */
+function LabelHtml({ html, warning = false, dropLeadingHeading = false, onRef }: { html: string | null; warning?: boolean; dropLeadingHeading?: boolean; onRef?: RefHandler }) {
   const clean = useMemo(() => cleanLabelHtml(html, { dropLeadingHeading }), [html, dropLeadingHeading])
   if (!clean) return null
-  return <div className={`label-html ${warning ? 'label-html--warning' : ''}`} dangerouslySetInnerHTML={{ __html: clean }} />
+  return (
+    <div
+      className={`label-html ${warning ? 'label-html--warning' : ''}`}
+      onClick={(e) => {
+        const a = (e.target as HTMLElement).closest('a[href^="#"]')
+        if (!a) return
+        e.preventDefault()
+        const id = decodeURIComponent((a.getAttribute('href') ?? '').slice(1))
+        if (id && onRef) onRef(id)
+      }}
+      dangerouslySetInnerHTML={{ __html: clean }}
+    />
+  )
 }
 
-/** Tap-to-expand card row (prescribing information sections, highlights). */
-function Collapsible({ title, hint, defaultOpen = false, children }: { title: string; hint?: string; defaultOpen?: boolean; children: ReactNode }) {
-  const [open, setOpen] = useState(defaultOpen)
+/** Tap-to-expand card row (prescribing information sections, highlights). Controlled when `open` is given. */
+function Collapsible({
+  title,
+  hint,
+  defaultOpen = false,
+  open: openProp,
+  onToggle,
+  id,
+  children,
+}: {
+  title: string
+  hint?: string
+  defaultOpen?: boolean
+  open?: boolean
+  onToggle?: () => void
+  id?: string
+  children: ReactNode
+}) {
+  const [openState, setOpenState] = useState(defaultOpen)
+  const open = openProp ?? openState
+  const toggle = () => {
+    void hapticTick()
+    if (onToggle) onToggle()
+    else setOpenState((v) => !v)
+  }
   return (
-    <div>
+    <div id={id} className="scroll-mt-32">
       <button
         type="button"
-        onClick={() => {
-          void hapticTick()
-          setOpen((v) => !v)
-        }}
+        onClick={toggle}
         aria-expanded={open}
         className="pressable flex min-h-[52px] w-full items-center gap-3 px-4 py-3 text-left active:bg-brand-tint"
       >
@@ -95,7 +132,7 @@ function Collapsible({ title, hint, defaultOpen = false, children }: { title: st
   )
 }
 
-function BoxedWarning({ html }: { html: string | null }) {
+function BoxedWarning({ html, onRef }: { html: string | null; onRef?: RefHandler }) {
   if (!html) return null
   return (
     <Card tone="danger" padded={false} className="overflow-hidden">
@@ -104,7 +141,7 @@ function BoxedWarning({ html }: { html: string | null }) {
         hint="The FDA's most serious warning · tap to read"
         defaultOpen={false}
       >
-        <LabelHtml html={html} warning />
+        <LabelHtml html={html} warning onRef={onRef} />
       </Collapsible>
     </Card>
   )
@@ -138,15 +175,15 @@ function NothingHere({ label, onOpenSite }: { label: string; onOpenSite: () => v
   )
 }
 
-function DosageBody({ data }: { data: DosageContent }) {
+function DosageBody({ data, onRef }: { data: DosageContent; onRef: RefHandler }) {
   return (
     <>
-      <BoxedWarning html={data.boxed_warning_html} />
+      <BoxedWarning html={data.boxed_warning_html} onRef={onRef} />
       {data.dosage_forms_and_strengths && (
         <section>
           <SectionLabel>Forms &amp; strengths</SectionLabel>
           <Card>
-            <LabelHtml html={data.dosage_forms_and_strengths} />
+            <LabelHtml html={data.dosage_forms_and_strengths} onRef={onRef} />
           </Card>
         </section>
       )}
@@ -154,7 +191,7 @@ function DosageBody({ data }: { data: DosageContent }) {
         <section>
           <SectionLabel>Dosage &amp; administration</SectionLabel>
           <Card>
-            <LabelHtml html={data.dosage_administration} dropLeadingHeading />
+            <LabelHtml html={data.dosage_administration} dropLeadingHeading onRef={onRef} />
           </Card>
         </section>
       )}
@@ -162,14 +199,14 @@ function DosageBody({ data }: { data: DosageContent }) {
   )
 }
 
-function SideEffectsBody({ data }: { data: AdverseReactionsContent }) {
+function SideEffectsBody({ data, onRef }: { data: AdverseReactionsContent; onRef: RefHandler }) {
   return (
     <>
-      <BoxedWarning html={data.boxed_warning_html} />
+      <BoxedWarning html={data.boxed_warning_html} onRef={onRef} />
       <section>
         <SectionLabel>From the FDA label</SectionLabel>
         <Card>
-          <LabelHtml html={data.adverse_reactions} dropLeadingHeading />
+          <LabelHtml html={data.adverse_reactions} dropLeadingHeading onRef={onRef} />
         </Card>
       </section>
       <Card tone="warn" className="flex items-start gap-3">
@@ -182,15 +219,15 @@ function SideEffectsBody({ data }: { data: AdverseReactionsContent }) {
   )
 }
 
-function MedGuideBody({ data }: { data: GuideContent }) {
+function MedGuideBody({ data, onRef }: { data: GuideContent; onRef: RefHandler }) {
   if (data.medguide_html) {
     return (
       <>
-        <BoxedWarning html={data.boxed_warning_html} />
+        <BoxedWarning html={data.boxed_warning_html} onRef={onRef} />
         <section>
           <SectionLabel>Medication guide</SectionLabel>
           <Card>
-            <LabelHtml html={data.medguide_html} dropLeadingHeading />
+            <LabelHtml html={data.medguide_html} dropLeadingHeading onRef={onRef} />
           </Card>
         </section>
       </>
@@ -199,7 +236,7 @@ function MedGuideBody({ data }: { data: GuideContent }) {
   if (data.summary.length > 0) {
     return (
       <>
-        <BoxedWarning html={data.boxed_warning_html} />
+        <BoxedWarning html={data.boxed_warning_html} onRef={onRef} />
         {data.summary_notice && (
           <Card tone="tint" className="text-[14px] leading-relaxed text-body">
             {data.summary_notice}
@@ -220,19 +257,70 @@ function MedGuideBody({ data }: { data: GuideContent }) {
   return null
 }
 
-function ProfessionalBody({ data }: { data: GuideContent }) {
-  const sections = useMemo(
+interface ProfessionalProps {
+  data: GuideContent
+  /** Reference that could not be resolved inside this label (bubbles up to the screen). */
+  onRef: RefHandler
+  /** Heading id to open and scroll to (from a tapped cross-reference or ?ref=). */
+  focusRef: string | null
+  onFocusHandled: () => void
+  contentsOpen: boolean
+  onCloseContents: () => void
+  scrollRoot: React.RefObject<HTMLDivElement | null>
+}
+
+function ProfessionalBody({ data, onRef, focusRef, onFocusHandled, contentsOpen, onCloseContents, scrollRoot }: ProfessionalProps) {
+  const sections = useMemo<LabelSection[]>(
     () => splitLabelSections(data.professional_html, data.professional_sections).filter((s) => s.id !== 'boxed-warning'),
     [data.professional_html, data.professional_sections],
   )
+  const [openIds, setOpenIds] = useState<Set<string>>(() => new Set())
+  const [highlightsOpen, setHighlightsOpen] = useState(true)
+
+  const toggle = (id: string) =>
+    setOpenIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  /** Open the section holding `ref` and scroll to the exact heading (or the section header). */
+  const jumpTo = useCallback(
+    (ref: string): boolean => {
+      const target = findSectionForRef(sections, ref)
+      if (!target) return false
+      setOpenIds((prev) => (prev.has(target.id) ? prev : new Set(prev).add(target.id)))
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const root = scrollRoot.current
+          const el = (root?.querySelector(`#${CSS.escape(ref)}`) ?? root?.querySelector(`#sec-${CSS.escape(target.id)}`)) as HTMLElement | null
+          el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }),
+      )
+      return true
+    },
+    [sections, scrollRoot],
+  )
+
+  useEffect(() => {
+    if (!focusRef) return
+    if (!jumpTo(focusRef)) onRef(focusRef)
+    onFocusHandled()
+  }, [focusRef, jumpTo, onRef, onFocusHandled])
+
+  const handleRef: RefHandler = (id) => {
+    if (!jumpTo(id)) onRef(id)
+  }
+
   if (!data.professional_html && !data.professional_highlights_html) return null
   return (
     <>
-      <BoxedWarning html={data.boxed_warning_html} />
+      <BoxedWarning html={data.boxed_warning_html} onRef={handleRef} />
       {data.professional_highlights_html && (
         <Card padded={false} className="overflow-hidden">
-          <Collapsible title="Highlights" hint="Key points from the prescribing information" defaultOpen>
-            <LabelHtml html={data.professional_highlights_html} dropLeadingHeading />
+          <Collapsible title="Highlights" hint="Key points from the prescribing information" open={highlightsOpen} onToggle={() => setHighlightsOpen((v) => !v)}>
+            <LabelHtml html={data.professional_highlights_html} dropLeadingHeading onRef={handleRef} />
           </Collapsible>
         </Card>
       )}
@@ -240,9 +328,9 @@ function ProfessionalBody({ data }: { data: GuideContent }) {
         <section>
           <SectionLabel>Full prescribing information</SectionLabel>
           <Card padded={false} className="divide-y divide-line overflow-hidden">
-            {sections.map((s) => (
-              <Collapsible key={s.id} title={s.title}>
-                <LabelHtml html={s.html} />
+            {sections.map((s, i) => (
+              <Collapsible key={s.id} id={`sec-${s.id}`} title={`${i + 1}. ${s.title}`} open={openIds.has(s.id)} onToggle={() => toggle(s.id)}>
+                <LabelHtml html={s.html} onRef={handleRef} />
               </Collapsible>
             ))}
           </Card>
@@ -250,10 +338,54 @@ function ProfessionalBody({ data }: { data: GuideContent }) {
       ) : (
         data.professional_html && (
           <Card>
-            <LabelHtml html={data.professional_html} />
+            <LabelHtml html={data.professional_html} onRef={handleRef} />
           </Card>
         )
       )}
+
+      <Sheet open={contentsOpen} onClose={onCloseContents} title="Contents">
+        <div className="mb-2 flex gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              void hapticTick()
+              setOpenIds(new Set(sections.map((s) => s.id)))
+            }}
+            className="pressable flex-1 rounded-full bg-brand-tint px-3 py-2 text-[14px] font-semibold text-brand"
+          >
+            Expand all
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void hapticTick()
+              setOpenIds(new Set())
+            }}
+            className="pressable flex-1 rounded-full bg-brand-tint px-3 py-2 text-[14px] font-semibold text-brand"
+          >
+            Collapse all
+          </button>
+        </div>
+        <ol className="-mx-2 max-h-[60vh] divide-y divide-line overflow-y-auto">
+          {sections.map((s, i) => (
+            <li key={s.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  void hapticTick()
+                  onCloseContents()
+                  jumpTo(s.id)
+                }}
+                className="pressable flex min-h-[48px] w-full items-center gap-3 rounded-xl px-2 text-left text-[16px] text-ink active:bg-brand-tint"
+              >
+                <span className="tabular w-6 flex-none text-right text-[14px] text-muted">{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate">{s.title}</span>
+                {openIds.has(s.id) && <span className="text-[12px] font-medium text-brand">Open</span>}
+              </button>
+            </li>
+          ))}
+        </ol>
+      </Sheet>
     </>
   )
 }
@@ -354,6 +486,33 @@ export default function SectionScreen({ slug, section }: { slug: string; section
   const [error, setError] = useState<ApiError | null>(null)
   const [loading, setLoading] = useState(true)
   const [reloadKey, setReloadKey] = useState(0)
+  const [params] = useSearchParams()
+  const refParam = params.get('ref')
+  // Cross-reference to open once the prescribing information has loaded.
+  const [focusRef, setFocusRef] = useState<string | null>(refParam)
+  useEffect(() => {
+    if (refParam) setFocusRef(refParam)
+  }, [refParam])
+  const onFocusHandled = useCallback(() => setFocusRef(null), [])
+  const [contentsOpen, setContentsOpen] = useState(false)
+
+  /** A "[see …]" link: same screen if the heading is here, else open it in Prescribing information. */
+  const handleRef = useCallback(
+    (id: string) => {
+      const el = scrollRef.current?.querySelector(`#${CSS.escape(id)}`) as HTMLElement | null
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+      if (section === 'professional-information') {
+        setFocusRef(id)
+        return
+      }
+      void hapticTick()
+      navigate(`${sectionPath(slug, 'professional-information')}?ref=${encodeURIComponent(id)}`)
+    },
+    [section, slug, navigate],
+  )
 
   const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/home', { replace: true }))
   useBackHandler(true, goBack)
@@ -429,14 +588,19 @@ export default function SectionScreen({ slug, section }: { slug: string; section
             Back
           </button>
           <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">{pill?.drug_name ?? 'Pill'}</p>
-          <button
-            type="button"
-            onClick={() => void openUrl(siteUrl)}
-            aria-label="Open on pillseek.com"
-            className="pressable flex h-11 w-11 items-center justify-center rounded-full text-brand"
-          >
-            <ExternalIcon size={20} />
-          </button>
+          {section === 'professional-information' && content?.kind === 'professional-information' && (
+            <button
+              type="button"
+              onClick={() => {
+                void hapticTick()
+                setContentsOpen(true)
+              }}
+              className="pressable flex h-11 items-center rounded-full px-3 text-[15px] font-semibold text-brand"
+            >
+              Contents
+            </button>
+          )}
+        <span className="w-11" aria-hidden />
         </div>
         <div className="mx-auto max-w-lg px-2 pb-2">
           <ChipRow label="Section">
@@ -445,8 +609,8 @@ export default function SectionScreen({ slug, section }: { slug: string; section
                 {SECTIONS[s].short}
               </Chip>
             ))}
-            <Chip selected={false} onClick={() => void openUrl(pillSectionUrl(slug, 'interactions'))} label="Interactions (opens pillseek.com)">
-              Interactions <ExternalIcon size={14} className="text-muted" />
+            <Chip selected={false} onClick={() => navigate(interactionsPath(pill?.generic_name ?? pill?.drug_name ?? ''))}>
+              Interactions
             </Chip>
           </ChipRow>
         </div>
@@ -459,6 +623,7 @@ export default function SectionScreen({ slug, section }: { slug: string; section
         <div className="px-1">
           <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">{meta.label}</h1>
           {pill && <p className="mt-1 text-[15px] text-muted">{subtitle(pill)}</p>}
+          {labelMeta && !loading && <ReviewedBy lastVerified={labelMeta.fetched_at} className="-mx-1 mt-2" />}
         </div>
 
         {loading && !pillError && <SectionSkeleton />}
@@ -475,10 +640,20 @@ export default function SectionScreen({ slug, section }: { slug: string; section
 
         {content && !loading && !emptyContent && pill && (
           <>
-            {content.kind === 'dosage' && <DosageBody data={content.data} />}
-            {content.kind === 'adverse-reactions' && <SideEffectsBody data={content.data} />}
-            {content.kind === 'medication-guide' && <MedGuideBody data={content.data} />}
-            {content.kind === 'professional-information' && <ProfessionalBody data={content.data} />}
+            {content.kind === 'dosage' && <DosageBody data={content.data} onRef={handleRef} />}
+            {content.kind === 'adverse-reactions' && <SideEffectsBody data={content.data} onRef={handleRef} />}
+            {content.kind === 'medication-guide' && <MedGuideBody data={content.data} onRef={handleRef} />}
+            {content.kind === 'professional-information' && (
+              <ProfessionalBody
+                data={content.data}
+                onRef={handleRef}
+                focusRef={focusRef}
+                onFocusHandled={onFocusHandled}
+                contentsOpen={contentsOpen}
+                onCloseContents={() => setContentsOpen(false)}
+                scrollRoot={scrollRef}
+              />
+            )}
             {content.kind === 'price' && content.data && <PriceBody data={content.data} pill={pill} />}
 
             {labelMeta && (

@@ -18,9 +18,8 @@ import {
   SideEffectsTile,
   type TileIconProps,
 } from '../components/TileIcons'
-import { SITE_URL } from '../lib/api'
 import { goalSearchPath } from '../lib/goals'
-import { hapticTick, openUrl } from '../lib/native'
+import { hapticTick } from '../lib/native'
 import { loadRecent, type RecentItem } from '../lib/storage'
 
 interface Tile {
@@ -42,7 +41,7 @@ const TILES: Tile[] = [
   { label: 'Medication guide', Icon: MedGuideTile, go: goalSearchPath('medication-guide') },
   { label: 'Professional info', Icon: ProInfoTile, go: goalSearchPath('professional-information') },
   { label: 'Price guide', Icon: PriceTile, go: goalSearchPath('price') },
-  { label: 'Interactions', Icon: InteractionsTile, go: () => void openUrl(`${SITE_URL}/interactions`), external: true },
+  { label: 'Interactions', Icon: InteractionsTile, go: '/interactions' },
   { label: 'Recent', Icon: RecentTile, go: '/recent' },
   { label: 'About', Icon: AboutTile, go: '/about' },
 ]

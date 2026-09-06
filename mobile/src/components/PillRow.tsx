@@ -89,6 +89,7 @@ export function ScoreBadge({ value, label, tone = 'brand' }: { value: number; la
     brand: 'bg-brand-tint text-brand',
     neutral: 'bg-[color-mix(in_srgb,var(--border)_70%,transparent)] text-body',
     amber: 'bg-[var(--warn-tint)] text-[var(--warn)]',
+    danger: 'bg-[var(--danger-tint)] text-danger',
   }
   return (
     <span className={`flex flex-col items-end rounded-xl px-2.5 py-1.5 ${styles[tone]}`}>
@@ -98,11 +99,12 @@ export function ScoreBadge({ value, label, tone = 'brand' }: { value: number; la
   )
 }
 
-export function TextBadge({ children, tone = 'brand' }: { children: ReactNode; tone?: 'brand' | 'neutral' | 'amber' }) {
+export function TextBadge({ children, tone = 'brand' }: { children: ReactNode; tone?: 'brand' | 'neutral' | 'amber' | 'danger' }) {
   const styles = {
     brand: 'bg-brand-tint text-brand',
     neutral: 'bg-[color-mix(in_srgb,var(--border)_70%,transparent)] text-body',
     amber: 'bg-[var(--warn-tint)] text-[var(--warn)]',
+    danger: 'bg-[var(--danger-tint)] text-danger',
   }
   return <span className={`rounded-full px-2.5 py-1 text-[12px] font-semibold ${styles[tone]}`}>{children}</span>
 }
