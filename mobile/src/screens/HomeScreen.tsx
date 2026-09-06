@@ -28,14 +28,12 @@ interface Tile {
   Icon: ComponentType<TileIconProps>
   /** In-app route, or a function for anything else (in-app browser). */
   go: string | (() => void)
-  /** Filled brand tile for the headline feature. */
-  accent?: boolean
   /** Opens in the in-app browser rather than a native screen. */
   external?: boolean
 }
 
 const TILES: Tile[] = [
-  { label: 'Photo ID', Icon: CameraTile, go: '/identify', accent: true },
+  { label: 'Photo ID', Icon: CameraTile, go: '/identify' },
   { label: 'Imprint search', Icon: ImprintTile, go: '/search?type=imprint' },
   { label: 'Drug name', Icon: DrugNameTile, go: '/search?type=drug' },
   { label: 'NDC lookup', Icon: NdcTile, go: '/search?type=ndc' },
@@ -129,14 +127,10 @@ export default function HomeScreen({ active = true }: { active?: boolean }) {
               <button
                 type="button"
                 onClick={() => go(tile.go)}
-                className="pressable flex w-full flex-col items-center gap-2 rounded-2xl px-1 py-2 text-center active:bg-brand-tint"
+                className="pressable flex w-full flex-col items-center gap-1.5 rounded-2xl px-1 py-3 text-center active:bg-brand-tint"
               >
-                <span
-                  className={`tile-icon flex h-[68px] w-[68px] items-center justify-center rounded-[22px] ${
-                    tile.accent ? 'tile-icon--inverse bg-brand shadow-[0_8px_20px_-8px_var(--brand)]' : 'card'
-                  }`}
-                >
-                  <tile.Icon size={44} />
+                <span className="tile-icon flex h-[64px] w-[64px] items-center justify-center">
+                  <tile.Icon size={58} />
                 </span>
                 <span className="text-[14px] font-medium leading-tight text-ink">
                   {tile.label}

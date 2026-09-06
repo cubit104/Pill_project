@@ -148,12 +148,6 @@ input[type='search']::-webkit-search-decoration {
   --ti-fill: #d1fae5;
   --ti-hole: var(--surface);
 }
-.tile-icon--inverse {
-  --ti-ink: #ffffff;
-  --ti-accent: rgba(255, 255, 255, 0.75);
-  --ti-fill: rgba(255, 255, 255, 0.22);
-  --ti-hole: var(--brand);
-}
 @media (prefers-color-scheme: dark) {
   .tile-icon {
     --ti-ink: #a7f3d0;
