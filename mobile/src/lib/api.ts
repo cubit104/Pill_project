@@ -287,7 +287,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     const res = await fetch(`${apiBase()}${path}`, {
       method: options.method ?? 'GET',
       body: options.body ?? null,
-      headers: { Accept: 'application/json', ...(options.headers ?? {}) },
+      // X-PillSeek-App lets the Cloudflare WAF skip bot challenges for the app (rule keyed on this header).
+      headers: { Accept: 'application/json', 'X-PillSeek-App': Capacitor.getPlatform(), ...(options.headers ?? {}) },
       signal: controller.signal,
     })
     if (!res.ok) {
@@ -388,4 +389,147 @@ export function tokenizeImprint(text: string): string[] {
     .map((t) => t.trim())
     .filter(Boolean)
     .slice(0, 12)
+}
+
+// ---- Pill detail (in-app pill page) -----------------------------------------
+
+export interface PillDetail {
+  slug: string
+  drug_name: string
+  generic_name: string | null
+  brand_names_all: string[]
+  brand_or_generic: 'brand' | 'generic' | null
+  strength: string | null
+  imprint: string | null
+  color: string | null
+  shape: string | null
+  size: string | null
+  dosage_form: string | null
+  route: string | null
+  manufacturer: string | null
+  ingredients: string | null
+  inactive_ingredients: string | null
+  dea_schedule: string | null
+  pharma_class: string | null
+  status_rx_otc: string | null
+  ndc: string | null
+  rxcui: string | null
+  images: string[]
+  indication: { plain_text?: string | null; source?: string | null } | null
+  pronunciation: string | null
+  audio_url: string | null
+  has_dosage: boolean
+  has_adverse_reactions: boolean
+  has_medguide: boolean
+}
+
+export interface PriceSnapshot {
+  price_per_unit: number | null
+  unit: string | null
+  total_acquisition_cost: number | null
+  fair_retail_low: number | null
+  fair_retail_high: number | null
+  is_estimate: boolean
+  display_disclaimer: string | null
+  effective_date: string | null
+}
+
+export interface SimilarPill {
+  slug: string
+  drug_name: string
+  strength: string | null
+  imprint: string | null
+  color: string | null
+  shape: string | null
+  image_url: string | null
+}
+
+function str(v: unknown): string | null {
+  return typeof v === 'string' && v.trim() ? v.trim() : null
+}
+
+/** GET /api/pill/{slug} — normalised to the fields the app shows. */
+export async function getPill(slug: string, signal?: AbortSignal): Promise<PillDetail> {
+  const raw = await request<Record<string, unknown>>(`/api/pill/${encodeURIComponent(slug)}`, { signal })
+  const images = Array.isArray(raw.images) ? (raw.images as unknown[]).filter((x): x is string => typeof x === 'string') : []
+  const bog = raw.brand_or_generic
+  return {
+    slug: str(raw.slug) ?? slug,
+    drug_name: str(raw.drug_name) ?? str(raw.medicine_name) ?? 'Unknown pill',
+    generic_name: str(raw.generic_name),
+    brand_names_all: Array.isArray(raw.brand_names_all) ? (raw.brand_names_all as unknown[]).filter((x): x is string => typeof x === 'string') : [],
+    brand_or_generic: bog === 'brand' || bog === 'generic' ? bog : null,
+    strength: str(raw.strength),
+    imprint: str(raw.imprint),
+    color: str(raw.color),
+    shape: str(raw.shape),
+    size: str(raw.size),
+    dosage_form: str(raw.dosage_form),
+    route: str(raw.route),
+    manufacturer: str(raw.manufacturer),
+    ingredients: str(raw.ingredients),
+    inactive_ingredients: str(raw.inactive_ingredients),
+    dea_schedule: str(raw.dea_schedule),
+    pharma_class: str(raw.pharma_class),
+    status_rx_otc: str(raw.status_rx_otc),
+    ndc: str(raw.ndc),
+    rxcui: str(raw.rxcui),
+    images,
+    indication: raw.indication && typeof raw.indication === 'object' ? (raw.indication as PillDetail['indication']) : null,
+    pronunciation: str(raw.pronunciation),
+    audio_url: str(raw.audio_url),
+    has_dosage: raw.has_dosage === true,
+    has_adverse_reactions: raw.has_adverse_reactions === true,
+    has_medguide: raw.has_medguide === true,
+  }
+}
+
+/** GET /api/snapshot/{slug} — weekly NADAC-based price snapshot; null when none. */
+export async function getPriceSnapshot(slug: string, signal?: AbortSignal): Promise<PriceSnapshot | null> {
+  try {
+    const raw = await request<Record<string, unknown>>(`/api/snapshot/${encodeURIComponent(slug)}`, { signal, timeoutMs: 12_000 })
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+    if (num(raw.price_per_unit) === null && num(raw.fair_retail_low) === null) return null
+    return {
+      price_per_unit: num(raw.price_per_unit),
+      unit: str(raw.unit),
+      total_acquisition_cost: num(raw.total_acquisition_cost),
+      fair_retail_low: num(raw.fair_retail_low),
+      fair_retail_high: num(raw.fair_retail_high),
+      is_estimate: raw.is_estimate === true,
+      display_disclaimer: str(raw.display_disclaimer),
+      effective_date: str(raw.effective_date),
+    }
+  } catch (err) {
+    if (err instanceof ApiError && err.kind === 'cancelled') throw err
+    return null // prices are a nice-to-have on the pill page
+  }
+}
+
+/** GET /api/pill/{slug}/similar */
+export async function getSimilar(slug: string, signal?: AbortSignal): Promise<SimilarPill[]> {
+  try {
+    const raw = await request<{ similar?: unknown }>(`/api/pill/${encodeURIComponent(slug)}/similar`, { signal, timeoutMs: 12_000 })
+    if (!Array.isArray(raw.similar)) return []
+    return (raw.similar as Record<string, unknown>[])
+      .filter((s) => typeof s.slug === 'string' && typeof s.drug_name === 'string')
+      .slice(0, 8)
+      .map((s) => ({
+        slug: s.slug as string,
+        drug_name: s.drug_name as string,
+        strength: str(s.strength),
+        imprint: str(s.imprint),
+        color: str(s.color),
+        shape: str(s.shape),
+        image_url: str(s.image_url),
+      }))
+  } catch (err) {
+    if (err instanceof ApiError && err.kind === 'cancelled') throw err
+    return []
+  }
+}
+
+/** Website URLs for the deep guide sections (opened in the in-app browser). */
+export function pillSectionUrl(slug: string, section: 'dosage' | 'adverse-reactions' | 'interactions' | 'price'): string {
+  return `${pillPageUrl(slug)}/${section}`
 }

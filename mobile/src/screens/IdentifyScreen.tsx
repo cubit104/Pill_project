@@ -19,7 +19,6 @@ import {
   getFilters,
   identify,
   identifyPhoto,
-  pillPageUrl,
   sendFeedback,
   tokenizeImprint,
   type FiltersResponse,
@@ -27,7 +26,7 @@ import {
   type PhotoIdentifyResponse,
 } from '../lib/api'
 import { CameraUnavailableError, getFallbackPhoto, isPreviewSupported, makeThumbnail, type CapturedPhoto } from '../lib/camera'
-import { hapticNotify, openUrl } from '../lib/native'
+import { hapticNotify } from '../lib/native'
 import { useSettings } from '../lib/settings'
 import { addRecent, newId } from '../lib/storage'
 import CameraScreen, { type Side } from './CameraScreen'
@@ -369,7 +368,7 @@ export default function IdentifyScreen({ active = true }: { active?: boolean }) 
                       tone={m.source === 'imprint' ? 'brand' : 'neutral'}
                     />
                   }
-                  onPress={() => void openUrl(pillPageUrl(m.slug))}
+                  onPress={() => navigate(`/pill/${encodeURIComponent(m.slug)}`)}
                   footer={
                     result.capture_id && (!feedback || chosenSlug === m.slug) ? (
                       <button
@@ -486,7 +485,7 @@ export default function IdentifyScreen({ active = true }: { active?: boolean }) 
                     color={c.color}
                     shape={c.shape}
                     badge={<TextBadge tone={QUALITY_TONE[c.match_quality]}>{QUALITY_LABEL[c.match_quality]}</TextBadge>}
-                    onPress={() => void openUrl(pillPageUrl(c.slug))}
+                    onPress={() => navigate(`/pill/${encodeURIComponent(c.slug)}`)}
                   />
                 ))}
               </div>

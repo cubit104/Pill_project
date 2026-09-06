@@ -9,8 +9,7 @@ import ScreenHeader from '../components/ScreenHeader'
 import Sheet from '../components/Sheet'
 import { ListSkeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
-import { pillPageUrl } from '../lib/api'
-import { hapticImpact, openUrl } from '../lib/native'
+import { hapticImpact } from '../lib/native'
 import { clearRecent, loadRecent, removeRecent, type RecentItem } from '../lib/storage'
 
 const DELETE_W = 88
@@ -215,7 +214,7 @@ export default function RecentScreen({ active = true }: { active?: boolean }) {
         rerunSearch(item)
         return
       }
-      if (item.topSlug) void openUrl(pillPageUrl(item.topSlug))
+      if (item.topSlug) navigate(`/pill/${encodeURIComponent(item.topSlug)}`)
       else navigate('/identify')
     },
     [navigate, rerunSearch],
@@ -284,7 +283,7 @@ export default function RecentScreen({ active = true }: { active?: boolean }) {
               </Button>
             )}
             {selected.topSlug ? (
-              <Button full variant="secondary" onClick={() => { void openUrl(pillPageUrl(selected.topSlug as string)); setSelected(null) }}>
+              <Button full variant="secondary" onClick={() => { navigate(`/pill/${encodeURIComponent(selected.topSlug as string)}`); setSelected(null) }}>
                 Open {selected.topName ?? 'pill page'}
               </Button>
             ) : selected.kind === 'photo' ? (

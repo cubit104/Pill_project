@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { HashRouter, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { App as CapApp } from '@capacitor/app'
 import OfflineBanner from './components/OfflineBanner'
@@ -10,6 +10,7 @@ import { SettingsProvider } from './lib/settings'
 import { saveLastTab } from './lib/storage'
 import AboutScreen from './screens/AboutScreen'
 import IdentifyScreen from './screens/IdentifyScreen'
+import PillScreen from './screens/PillScreen'
 import RecentScreen from './screens/RecentScreen'
 import SearchScreen from './screens/SearchScreen'
 
@@ -76,23 +77,34 @@ function isTab(p: string): p is Tab {
  */
 function Shell() {
   const { pathname } = useLocation()
-  if (!isTab(pathname)) return <Navigate to="/identify" replace />
-  const active: Tab = pathname
+  // Remember which tab is underneath while a pill page is pushed on top.
+  const lastTab = useRef<Tab>('/identify')
+  if (isTab(pathname)) lastTab.current = pathname
+  const pillSlug = pathname.startsWith('/pill/') ? decodeURIComponent(pathname.slice('/pill/'.length)) : null
+  if (!isTab(pathname) && !pillSlug) return <Navigate to="/identify" replace />
+  const active: Tab = isTab(pathname) ? pathname : lastTab.current
   const panes: Array<[Tab, React.ReactNode]> = [
-    ['/identify', <IdentifyScreen key="identify" active={active === '/identify'} />],
-    ['/search', <SearchScreen key="search" active={active === '/search'} />],
-    ['/recent', <RecentScreen key="recent" active={active === '/recent'} />],
+    // A tab counts as active only while it is actually on screen (not under a pill page),
+    // so its URL syncing and reloads pause while the pill page owns the URL.
+    ['/identify', <IdentifyScreen key="identify" active={active === '/identify' && pillSlug === null} />],
+    ['/search', <SearchScreen key="search" active={active === '/search' && pillSlug === null} />],
+    ['/recent', <RecentScreen key="recent" active={active === '/recent' && pillSlug === null} />],
     ['/about', <AboutScreen key="about" />],
   ]
   return (
     <div className="app-shell flex h-full flex-col bg-canvas">
       <OfflineBanner />
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
         {panes.map(([tab, node]) => (
-          <div key={tab} className="h-full" hidden={tab !== active} inert={tab !== active ? true : undefined}>
+          <div key={tab} className="h-full" hidden={tab !== active || pillSlug !== null} inert={tab !== active || pillSlug !== null ? true : undefined}>
             {node}
           </div>
         ))}
+        {pillSlug !== null && (
+          <div className="absolute inset-0 z-30">
+            <PillScreen key={pillSlug} slug={pillSlug} />
+          </div>
+        )}
       </div>
       <TabBar />
       <NativeBridges />

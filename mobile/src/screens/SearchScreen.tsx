@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import Button from '../components/Button'
 import Card from '../components/Card'
 import Chip, { ChipRow, ColorDot } from '../components/Chip'
@@ -12,9 +12,9 @@ import ScreenHeader from '../components/ScreenHeader'
 import SegmentedControl from '../components/SegmentedControl'
 import { ListSkeleton } from '../components/Skeleton'
 import TextField from '../components/TextField'
-import { ApiError, getFilters, pillPageUrl, search, type FiltersResponse, type SearchResult } from '../lib/api'
+import { ApiError, getFilters, search, type FiltersResponse, type SearchResult } from '../lib/api'
 import { useDebouncedValue } from '../lib/hooks'
-import { hideKeyboard, openUrl } from '../lib/native'
+import { hideKeyboard } from '../lib/native'
 import { addRecent, newId } from '../lib/storage'
 
 type Mode = 'imprint' | 'drug' | 'ndc'
@@ -40,6 +40,7 @@ function isMode(v: string | null): v is Mode {
 export default function SearchScreen({ active = true }: { active?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [params, setParams] = useSearchParams()
+  const navigate = useNavigate()
 
   const [mode, setMode] = useState<Mode>(() => (isMode(params.get('type')) ? (params.get('type') as Mode) : 'imprint'))
   const [q, setQ] = useState(() => params.get('q') ?? '')
@@ -195,7 +196,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
 
   const openResult = (r: SearchResult) => {
     saveToRecent(r)
-    if (r.slug) void openUrl(pillPageUrl(r.slug))
+    if (r.slug) navigate(`/pill/${encodeURIComponent(r.slug)}`)
   }
 
   const changeMode = (m: Mode) => {
