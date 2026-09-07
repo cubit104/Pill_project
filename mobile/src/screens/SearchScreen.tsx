@@ -20,6 +20,7 @@ import {
   lookupDrugs,
   search,
   suggestDrugs,
+  suggestImprints,
   suggestNdc,
   type DrugRow,
   type FiltersResponse,
@@ -111,6 +112,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
   const [focused, setFocused] = useState(false)
   const [drugSuggestions, setDrugSuggestions] = useState<DrugRow[]>([])
   const [ndcSuggestions, setNdcSuggestions] = useState<NdcSuggestion[]>([])
+  const [imprintSuggestions, setImprintSuggestions] = useState<string[]>([])
   const [picker, setPicker] = useState<Picker | null>(null)
   const pickerAbort = useRef<AbortController | null>(null)
   const lastSavedRef = useRef<string>('')
@@ -177,13 +179,18 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
   // Live suggestions under the field (drug names, or NDC codes with names).
   useEffect(() => {
     const term = suggestQ.trim()
-    if (mode === 'imprint' || term.length < 2) {
+    if (term.length < 2) {
       setDrugSuggestions([])
       setNdcSuggestions([])
+      setImprintSuggestions([])
       return
     }
     const ctrl = new AbortController()
-    if (mode === 'drug') {
+    if (mode === 'imprint') {
+      suggestImprints(term, ctrl.signal)
+        .then((s) => !ctrl.signal.aborted && setImprintSuggestions(s.filter((x) => x.toUpperCase() !== term.toUpperCase())))
+        .catch(() => {})
+    } else if (mode === 'drug') {
       suggestDrugs(term, ctrl.signal)
         .then((s) => !ctrl.signal.aborted && setDrugSuggestions(s))
         .catch(() => {})
@@ -373,6 +380,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
 
   const showDrugSuggestions = mode === 'drug' && focused && q.trim().length >= 2 && drugSuggestions.length > 0
   const showNdcSuggestions = mode === 'ndc' && focused && q.replace(/\D/g, '').length >= 3 && ndcSuggestions.length > 0
+  const showImprintSuggestions = mode === 'imprint' && focused && q.trim().length >= 2 && imprintSuggestions.length > 0
 
   let content: React.ReactNode
   if (loading) {
@@ -498,8 +506,26 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
                 }
               }}
             />
-            {(showDrugSuggestions || showNdcSuggestions) && (
+            {(showDrugSuggestions || showNdcSuggestions || showImprintSuggestions) && (
               <ul className="card absolute inset-x-0 top-full z-30 mt-1 max-h-72 divide-y divide-line overflow-y-auto" role="listbox" aria-label="Suggestions">
+                {showImprintSuggestions &&
+                  imprintSuggestions.map((imp) => (
+                    <li key={imp} role="option" aria-selected={false}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void hapticTick()
+                          setQ(imp)
+                          setImprintSuggestions([])
+                          dismissKeyboard()
+                        }}
+                        className="pressable flex min-h-[44px] w-full items-center gap-3 px-4 text-left active:bg-brand-tint"
+                      >
+                        <SearchIcon size={16} className="flex-none text-muted" />
+                        <span className="tabular font-mono text-[16px] font-semibold text-ink">{imp}</span>
+                      </button>
+                    </li>
+                  ))}
                 {showDrugSuggestions &&
                   drugSuggestions.map((d) => (
                     <li key={d.key} role="option" aria-selected={false}>

@@ -988,3 +988,9 @@ export async function getDrugPills(name: string, strength: string | null, signal
   })
   return { results, total: typeof raw.total === 'number' ? raw.total : results.length }
 }
+
+/** GET /suggestions?type=imprint — imprint codes matching what was typed (same endpoint as the website's search box). */
+export async function suggestImprints(q: string, signal?: AbortSignal): Promise<string[]> {
+  const raw = await request<unknown>(`/suggestions?q=${encodeURIComponent(q)}&type=imprint`, { signal, timeoutMs: 8_000 })
+  return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : []
+}
