@@ -85,35 +85,31 @@ def get_suggestions(
     # Imprint suggestions
     elif search_type == "imprint":
         logger.info("→ branch: imprint")
-        norm_imp = normalize_imprint(norm_q)
-        if not norm_imp:
+        # Type-ahead: every token but the last must appear as a whole token; the token
+        # being typed is a prefix. "u 11" → U;11, U 116, U 117… Case and separators
+        # (space ; ,) never matter: both sides are upper-cased and normalised.
+        typed = [t for t in re.split(r"[;,\s]+", norm_q.upper()) if t][:6]
+        if not typed:
             return []
-        tokens = norm_imp.split()
+        *complete, partial = typed
+        conditions = [f"{_NORMALIZED_IMPRINT_SQL} ~ ('(^| )' || :partial)"]
+        params: dict = {"partial": re.escape(partial), "lim": MAX_SUGGESTIONS * 3}
+        for i, tok in enumerate(complete):
+            conditions.append(f"{_NORMALIZED_IMPRINT_SQL} ~ ('(^| )' || :tok{i} || '( |$)')")
+            params[f"tok{i}"] = re.escape(tok)
         with database.db_engine.connect() as conn:
-            if len(tokens) == 1:
-                sql = text(f"""
-                    SELECT DISTINCT splimprint
-                        FROM pillfinder
-                        WHERE deleted_at IS NULL
-                        AND published = true
-                        AND splimprint IS NOT NULL
-                        AND {_NORMALIZED_IMPRINT_SQL} ~ ('(^| )' || UPPER(:token) || '( |$)')
-                        ORDER BY splimprint
-                        LIMIT :lim
-                """)
-                rows = conn.execute(sql, {"token": re.escape(tokens[0]), "lim": MAX_SUGGESTIONS})
-            else:
-                sql = text(f"""
-                    SELECT DISTINCT splimprint
-                        FROM pillfinder
-                        WHERE deleted_at IS NULL
-                        AND published = true
-                        AND splimprint IS NOT NULL
-                        AND {_SORTED_IMPRINT_SQL} = UPPER(:sorted_imp)
-                        ORDER BY splimprint
-                        LIMIT :lim
-                """)
-                rows = conn.execute(sql, {"sorted_imp": norm_imp, "lim": MAX_SUGGESTIONS})
+            sql = text(f"""
+                SELECT splimprint
+                    FROM pillfinder
+                    WHERE deleted_at IS NULL
+                    AND published = true
+                    AND splimprint IS NOT NULL
+                    AND {" AND ".join(conditions)}
+                    GROUP BY splimprint
+                    ORDER BY length(splimprint), splimprint
+                    LIMIT :lim
+            """)
+            rows = conn.execute(sql, params)
             out = []
             seen = set()
             for r in rows:
@@ -122,6 +118,8 @@ def get_suggestions(
                 if norm2 and norm2 not in seen:
                     seen.add(norm2)
                     out.append(imp)
+                    if len(out) >= MAX_SUGGESTIONS:
+                        break
             return out
 
     # Drug-name suggestions
