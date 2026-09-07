@@ -11,10 +11,21 @@ import PillRow, { PillThumb, titleCase } from '../components/PillRow'
 import ScreenHeader from '../components/ScreenHeader'
 import SegmentedControl from '../components/SegmentedControl'
 import Sheet from '../components/Sheet'
-import { ListSkeleton } from '../components/Skeleton'
+import { ListSkeleton, Skeleton } from '../components/Skeleton'
 import TextField from '../components/TextField'
-import { ApiError, getFilters, search, type FiltersResponse, type SearchResult } from '../lib/api'
-import { groupByDrug, strengthLabel, type DrugGroup } from '../lib/drugGroups'
+import {
+  ApiError,
+  getDrugPills,
+  getFilters,
+  lookupDrugs,
+  search,
+  suggestDrugs,
+  suggestNdc,
+  type DrugRow,
+  type FiltersResponse,
+  type NdcSuggestion,
+  type SearchResult,
+} from '../lib/api'
 import { GOALS, goalPillPath, isGoal, type Goal } from '../lib/goals'
 import { useDebouncedValue } from '../lib/hooks'
 import { hapticTick, hideKeyboard } from '../lib/native'
@@ -40,6 +51,36 @@ function isMode(v: string | null): v is Mode {
   return v === 'imprint' || v === 'drug' || v === 'ndc'
 }
 
+/** Bottom sheet state for the drug → strength → pill flow. */
+type Picker =
+  | { kind: 'strengths'; drug: DrugRow }
+  | { kind: 'pills'; drug: DrugRow; strength: string | null; pills: SearchResult[]; loading: boolean; error: ApiError | null }
+
+function DrugRowButton({ drug, onPress, compact = false }: { drug: DrugRow; onPress: () => void; compact?: boolean }) {
+  const sub = [drug.brand_names && drug.brand_names.toLowerCase() !== drug.name.toLowerCase() ? drug.brand_names : null, drug.ingredients && drug.ingredients.toLowerCase() !== drug.name.toLowerCase() ? titleCase(drug.ingredients) : null]
+    .filter(Boolean)
+    .join(' · ')
+  return (
+    <button
+      type="button"
+      onClick={onPress}
+      className={`pressable flex w-full items-center gap-3 px-4 text-left active:bg-brand-tint ${compact ? 'min-h-[48px] py-2' : 'min-h-[60px] py-3'}`}
+    >
+      <span className="min-w-0 flex-1">
+        <span className={`block truncate font-semibold text-ink ${compact ? 'text-[16px]' : 'text-[17px]'}`}>{drug.name}</span>
+        {!compact && sub && <span className="block truncate text-[14px] text-muted">{sub}</span>}
+        {drug.strengths.length > 0 && (
+          <span className={`block truncate text-body ${compact ? 'text-[13px]' : 'mt-0.5 text-[14px]'}`}>
+            {drug.strengths.join(' · ')}
+            {drug.pill_count > 1 && <span className="text-muted"> · {drug.pill_count} pills</span>}
+          </span>
+        )}
+      </span>
+      <ChevronRightIcon size={20} className="flex-none text-muted" />
+    </button>
+  )
+}
+
 export default function SearchScreen({ active = true }: { active?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [params, setParams] = useSearchParams()
@@ -52,9 +93,11 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
   // Set by Home tiles ("Side effects", "Dosage"…): a result opens straight at that section.
   const [goal, setGoal] = useState<Goal | null>(() => (isGoal(params.get('goal')) ? (params.get('goal') as Goal) : null))
   const debouncedQ = useDebouncedValue(q, 300)
+  const suggestQ = useDebouncedValue(q, 150)
 
   const [filters, setFilters] = useState<FiltersResponse>({ colors: [], shapes: [] })
   const [results, setResults] = useState<SearchResult[]>([])
+  const [drugs, setDrugs] = useState<DrugRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -64,8 +107,11 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
   const [fallbackTerm, setFallbackTerm] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  // Drug with several strengths tapped in drug/NDC mode: pick one in a sheet.
-  const [picker, setPicker] = useState<DrugGroup | null>(null)
+  const [focused, setFocused] = useState(false)
+  const [drugSuggestions, setDrugSuggestions] = useState<DrugRow[]>([])
+  const [ndcSuggestions, setNdcSuggestions] = useState<NdcSuggestion[]>([])
+  const [picker, setPicker] = useState<Picker | null>(null)
+  const pickerAbort = useRef<AbortController | null>(null)
   const lastSavedRef = useRef<string>('')
   // The last query string this screen wrote to the URL; anything else in the
   // URL came from outside (deep link, Recent) and is adopted as new state.
@@ -115,6 +161,27 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
     }
   }, [active, debounceSettled, activeQuery, mode, color, shape, goal, params, setParams])
 
+  // Live suggestions under the field (drug names, or NDC codes with names).
+  useEffect(() => {
+    const term = suggestQ.trim()
+    if (mode === 'imprint' || term.length < 2) {
+      setDrugSuggestions([])
+      setNdcSuggestions([])
+      return
+    }
+    const ctrl = new AbortController()
+    if (mode === 'drug') {
+      suggestDrugs(term, ctrl.signal)
+        .then((s) => !ctrl.signal.aborted && setDrugSuggestions(s))
+        .catch(() => {})
+    } else {
+      suggestNdc(term, ctrl.signal)
+        .then((s) => !ctrl.signal.aborted && setNdcSuggestions(s))
+        .catch(() => {})
+    }
+    return () => ctrl.abort()
+  }, [mode, suggestQ])
+
   const runSearch = useCallback(
     async (targetPage: number, append: boolean) => {
       abortRef.current?.abort()
@@ -126,29 +193,44 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
         setError(null)
       }
       try {
-        const data = await search(
-          {
-            q: activeQuery,
-            type: mode,
-            color: mode === 'imprint' ? color || undefined : undefined,
-            shape: mode === 'imprint' ? shape || undefined : undefined,
-            page: targetPage,
-            perPage: PER_PAGE,
-          },
-          ctrl.signal,
-        )
-        if (ctrl.signal.aborted) return
-        setResults((prev) => (append ? [...prev, ...data.results] : data.results))
-        setTotal(data.total)
-        setPage(data.page)
-        setTotalPages(data.total_pages)
-        setFallbackTerm(data.fallback_used ? data.fallback_term : null)
+        if (mode === 'drug') {
+          const data = await lookupDrugs(activeQuery, targetPage, ctrl.signal)
+          if (ctrl.signal.aborted) return
+          setDrugs((prev) => (append ? [...prev, ...data.results] : data.results))
+          setResults([])
+          setTotal(data.total)
+          setPage(data.page)
+          setTotalPages(data.total_pages)
+          setFallbackTerm(null)
+        } else {
+          const data = await search(
+            {
+              q: activeQuery,
+              type: mode,
+              color: mode === 'imprint' ? color || undefined : undefined,
+              shape: mode === 'imprint' ? shape || undefined : undefined,
+              page: targetPage,
+              perPage: PER_PAGE,
+            },
+            ctrl.signal,
+          )
+          if (ctrl.signal.aborted) return
+          setResults((prev) => (append ? [...prev, ...data.results] : data.results))
+          setDrugs([])
+          setTotal(data.total)
+          setPage(data.page)
+          setTotalPages(data.total_pages)
+          setFallbackTerm(data.fallback_used ? data.fallback_term : null)
+        }
       } catch (err) {
         if (ctrl.signal.aborted) return
         const e = err instanceof ApiError ? err : new ApiError('unknown', 'Search failed. Please try again.')
         if (e.kind === 'cancelled') return
         setError(e)
-        if (!append) setResults([])
+        if (!append) {
+          setResults([])
+          setDrugs([])
+        }
       } finally {
         if (!ctrl.signal.aborted) {
           setLoading(false)
@@ -163,6 +245,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
     if (!hasSearch) {
       abortRef.current?.abort()
       setResults([])
+      setDrugs([])
       setTotal(0)
       setError(null)
       setLoading(false)
@@ -172,7 +255,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
   }, [hasSearch, runSearch])
 
   const saveToRecent = useCallback(
-    (top: SearchResult | null) => {
+    (top: { drug_name: string; slug: string | null; image_url: string | null } | null) => {
       if (!hasSearch) return
       const key = `${mode}|${activeQuery}|${color}|${shape}`
       if (lastSavedRef.current === key) return
@@ -200,32 +283,59 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
     void hideKeyboard()
   }
 
-  const openResult = (r: SearchResult) => {
+  const openSlug = (slug: string | null, top: { drug_name: string; slug: string | null; image_url: string | null } | null) => {
     dismissKeyboard()
     setPicker(null)
-    saveToRecent(r)
-    if (r.slug) navigate(goalPillPath(r.slug, goal))
+    saveToRecent(top)
+    if (slug) navigate(goalPillPath(slug, goal))
     // The goal banner has done its job once a result is opened.
     if (goal) setGoal(null)
   }
 
-  const openGroup = (g: DrugGroup) => {
+  const openResult = (r: SearchResult) => openSlug(r.slug, r)
+
+  /** Load one drug's pills (optionally one strength); open directly when there is only one. */
+  const loadPills = (drug: DrugRow, strength: string | null, openIfSingle: boolean) => {
+    pickerAbort.current?.abort()
+    const ctrl = new AbortController()
+    pickerAbort.current = ctrl
+    setPicker({ kind: 'pills', drug, strength, pills: [], loading: true, error: null })
+    getDrugPills(drug.name, strength, ctrl.signal)
+      .then(({ results: pills }) => {
+        if (ctrl.signal.aborted) return
+        const first = pills[0]
+        if ((openIfSingle && pills.length === 1 && first) || (goal && first)) {
+          openSlug(first.slug, { drug_name: drug.name, slug: first.slug, image_url: first.image_url ?? drug.image_url })
+          return
+        }
+        setPicker({ kind: 'pills', drug, strength, pills, loading: false, error: null })
+      })
+      .catch((err: unknown) => {
+        if (ctrl.signal.aborted) return
+        setPicker({ kind: 'pills', drug, strength, pills: [], loading: false, error: err instanceof ApiError ? err : new ApiError('unknown', 'Could not load pills.') })
+      })
+  }
+
+  const openDrug = (drug: DrugRow) => {
     void hapticTick()
-    const first = g.items[0]
-    if (!first) return
-    // One pill, or a per-drug section (same label for every strength): open straight away.
-    if (g.items.length === 1 || goal) openResult(first)
-    else {
-      dismissKeyboard()
-      setPicker(g)
+    dismissKeyboard()
+    // Per-drug sections (dosage, side effects…) read the same label whatever the strength.
+    if (goal || drug.strengths.length <= 1) {
+      loadPills(drug, null, true)
+      return
     }
+    setPicker({ kind: 'strengths', drug })
   }
 
   const changeMode = (m: Mode) => {
     setMode(m)
     setResults([])
+    setDrugs([])
     setError(null)
   }
+
+  const showDrugSuggestions = mode === 'drug' && focused && q.trim().length >= 2 && drugSuggestions.length > 0
+  const showNdcSuggestions = mode === 'ndc' && focused && q.replace(/\D/g, '').length >= 3 && ndcSuggestions.length > 0
 
   let content: React.ReactNode
   if (loading) {
@@ -242,13 +352,13 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
             mode === 'imprint'
               ? 'Type the letters or numbers printed on the pill, and narrow it down by colour and shape.'
               : mode === 'drug'
-                ? 'Search by brand or generic drug name.'
-                : 'Enter the National Drug Code from the packaging.'
+                ? 'Start typing a brand or generic name and pick it from the list.'
+                : 'Type the National Drug Code from the packaging; matches appear as you type.'
           }
         />
       </Card>
     )
-  } else if (results.length === 0) {
+  } else if ((mode === 'drug' ? drugs : results).length === 0) {
     content = (
       <Card padded={false}>
         <EmptyState
@@ -273,10 +383,11 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
       </Card>
     )
   } else {
+    const shown = mode === 'drug' ? drugs.length : results.length
     content = (
       <div className="space-y-3">
         <p className="tabular px-1 text-[14px] text-muted">
-          {total.toLocaleString()} {total === 1 ? 'result' : 'results'}
+          {total.toLocaleString()} {mode === 'drug' ? (total === 1 ? 'drug' : 'drugs') : total === 1 ? 'result' : 'results'}
           {activeQuery && (
             <>
               {' '}
@@ -290,8 +401,9 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
           </Card>
         )}
         <div className="card divide-y divide-line overflow-hidden">
-          {mode === 'imprint'
-            ? results.map((r, i) => (
+          {mode === 'drug'
+            ? drugs.map((d) => <DrugRowButton key={d.key} drug={d} onPress={() => openDrug(d)} />)
+            : results.map((r, i) => (
                 <PillRow
                   key={`${r.slug ?? r.ndc ?? i}-${i}`}
                   image={r.image_url}
@@ -302,31 +414,11 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
                   shape={r.shape}
                   onPress={() => openResult(r)}
                 />
-              ))
-            : groupByDrug(results).map((g) => (
-                <button
-                  key={g.key}
-                  type="button"
-                  onClick={() => openGroup(g)}
-                  className="pressable flex min-h-[60px] w-full items-center gap-3 px-4 py-3 text-left active:bg-brand-tint"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[17px] font-semibold text-ink">{g.name}</span>
-                    {g.generic && <span className="block truncate text-[14px] text-muted">{g.generic}</span>}
-                    {g.strengths.length > 0 && (
-                      <span className="mt-0.5 block truncate text-[14px] text-body">
-                        {g.strengths.join(' · ')}
-                        {g.items.length > 1 && <span className="text-muted"> · {g.items.length} pills</span>}
-                      </span>
-                    )}
-                  </span>
-                  <ChevronRightIcon size={20} className="flex-none text-muted" />
-                </button>
               ))}
         </div>
         {page < totalPages && (
           <Button full variant="secondary" loading={loadingMore} onClick={() => void runSearch(page + 1, true)}>
-            Load more ({(total - results.length).toLocaleString()} left)
+            Load more ({(total - shown).toLocaleString()} left)
           </Button>
         )}
         <Disclaimer compact />
@@ -346,26 +438,63 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
       <ScreenHeader title="Search" scrollRef={scrollRef}>
         <div className="space-y-3">
           <SegmentedControl label="Search type" options={MODES} value={mode} onChange={changeMode} />
-          <TextField
-            ref={inputRef}
-            label={PLACEHOLDER[mode]}
-            value={q}
-            onChange={setQ}
-            placeholder={PLACEHOLDER[mode]}
-            leading={<SearchIcon size={20} />}
-            type="search"
-            inputMode={mode === 'ndc' ? 'numeric' : 'search'}
-            autoCapitalize={mode === 'imprint' ? 'characters' : 'words'}
-            autoCorrect="off"
-            spellCheck={false}
-            enterKeyHint="search"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                dismissKeyboard()
-                saveToRecent(results[0] ?? null)
-              }
-            }}
-          />
+          <div className="relative">
+            <TextField
+              ref={inputRef}
+              label={PLACEHOLDER[mode]}
+              value={q}
+              onChange={setQ}
+              placeholder={PLACEHOLDER[mode]}
+              leading={<SearchIcon size={20} />}
+              type="search"
+              inputMode={mode === 'ndc' ? 'numeric' : 'search'}
+              autoCapitalize={mode === 'imprint' ? 'characters' : 'words'}
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="search"
+              onFocus={() => setFocused(true)}
+              onBlur={() => setTimeout(() => setFocused(false), 150)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  dismissKeyboard()
+                  saveToRecent(mode === 'drug' ? (drugs[0] ? { drug_name: drugs[0].name, slug: drugs[0].slug, image_url: drugs[0].image_url } : null) : results[0] ?? null)
+                }
+              }}
+            />
+            {(showDrugSuggestions || showNdcSuggestions) && (
+              <ul className="card absolute inset-x-0 top-full z-30 mt-1 max-h-72 divide-y divide-line overflow-y-auto" role="listbox" aria-label="Suggestions">
+                {showDrugSuggestions &&
+                  drugSuggestions.map((d) => (
+                    <li key={d.key} role="option" aria-selected={false}>
+                      <DrugRowButton drug={d} compact onPress={() => openDrug(d)} />
+                    </li>
+                  ))}
+                {showNdcSuggestions &&
+                  ndcSuggestions.map((n) => (
+                    <li key={n.ndc} role="option" aria-selected={false}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void hapticTick()
+                          openSlug(n.slug, { drug_name: n.drug_name, slug: n.slug, image_url: n.image_url })
+                        }}
+                        className="pressable flex min-h-[52px] w-full items-center gap-3 px-4 py-2 text-left active:bg-brand-tint"
+                      >
+                        <PillThumb src={n.image_url} alt="" size={36} />
+                        <span className="min-w-0 flex-1">
+                          <span className="tabular block font-mono text-[15px] font-semibold text-ink">{n.ndc}</span>
+                          <span className="block truncate text-[13px] text-muted">
+                            {n.drug_name}
+                            {n.strength ? ` · ${n.strength}` : ''}
+                          </span>
+                        </span>
+                        <ChevronRightIcon size={18} className="flex-none text-muted" />
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
           {mode === 'imprint' && filters.colors.length > 0 && (
             <div className="space-y-1.5">
               <ChipRow label="Colour">
@@ -410,28 +539,89 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
         )}
         {content}
       </main>
-      <Sheet open={picker !== null} onClose={() => setPicker(null)} title={picker?.name}>
-        {picker && (
-          <div className="-mx-2 divide-y divide-line">
-            {picker.items.map((r, i) => (
-              <button
-                key={`${r.slug ?? r.ndc ?? i}-${i}`}
-                type="button"
-                onClick={() => openResult(r)}
-                className="pressable flex min-h-[64px] w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left active:bg-brand-tint"
-              >
-                <PillThumb src={r.image_url} alt="" size={48} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[17px] font-semibold text-ink">{strengthLabel(r.strength) ?? r.drug_name}</span>
-                  <span className="block truncate text-[14px] text-muted">
-                    {[r.imprint ? `Imprint ${r.imprint}` : null, [r.color, r.shape].filter(Boolean).map((x) => titleCase(String(x))).join(' · ') || null]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
-                </span>
-                <ChevronRightIcon size={20} className="flex-none text-muted" />
-              </button>
-            ))}
+
+      {/* Drug → strength → pill */}
+      <Sheet
+        open={picker !== null}
+        onClose={() => {
+          pickerAbort.current?.abort()
+          setPicker(null)
+        }}
+        title={picker ? (picker.kind === 'pills' && picker.strength ? `${picker.drug.name} ${picker.strength}` : picker.drug.name) : undefined}
+      >
+        {picker?.kind === 'strengths' && (
+          <div className="-mx-2">
+            <p className="px-2 pb-2 text-[14px] text-muted">Choose a strength</p>
+            <div className="divide-y divide-line">
+              {picker.drug.strengths.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => {
+                    void hapticTick()
+                    loadPills(picker.drug, s, true)
+                  }}
+                  className="pressable flex min-h-[52px] w-full items-center gap-3 rounded-xl px-2 text-left text-[17px] font-medium text-ink active:bg-brand-tint"
+                >
+                  <span className="min-w-0 flex-1">{s}</span>
+                  <ChevronRightIcon size={20} className="flex-none text-muted" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {picker?.kind === 'pills' && (
+          <div className="-mx-2 max-h-[65vh] overflow-y-auto">
+            {picker.loading && (
+              <div className="space-y-2 px-2 py-2">
+                <Skeleton className="h-14 w-full rounded-xl" />
+                <Skeleton className="h-14 w-full rounded-xl" />
+              </div>
+            )}
+            {picker.error && (
+              <div className="px-2">
+                <ErrorCard error={picker.error} onRetry={() => loadPills(picker.drug, picker.strength, false)} />
+              </div>
+            )}
+            {!picker.loading && !picker.error && (
+              <>
+                {picker.drug.strengths.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setPicker({ kind: 'strengths', drug: picker.drug })}
+                    className="pressable mb-1 inline-flex min-h-[36px] items-center gap-1 px-2 text-[14px] font-semibold text-brand"
+                  >
+                    <ChevronRightIcon size={16} className="rotate-180" /> Other strengths
+                  </button>
+                )}
+                {picker.pills.length === 0 && <p className="px-2 py-6 text-center text-[15px] text-muted">No pills listed for this strength.</p>}
+                <div className="divide-y divide-line">
+                  {picker.pills.map((r, i) => (
+                    <button
+                      key={`${r.slug ?? r.ndc ?? i}-${i}`}
+                      type="button"
+                      onClick={() => openResult(r)}
+                      className="pressable flex min-h-[64px] w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left active:bg-brand-tint"
+                    >
+                      <PillThumb src={r.image_url} alt="" size={48} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[16px] font-semibold text-ink">{r.imprint ? `Imprint ${r.imprint}` : r.strength ?? r.drug_name}</span>
+                        <span className="block truncate text-[13px] text-muted">
+                          {[
+                            !picker.strength && r.strength ? r.strength : null,
+                            [r.color, r.shape].filter(Boolean).map((x) => titleCase(String(x))).join(' · ') || null,
+                            r.manufacturer ?? null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      </span>
+                      <ChevronRightIcon size={20} className="flex-none text-muted" />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
       </Sheet>

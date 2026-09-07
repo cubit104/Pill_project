@@ -5,7 +5,7 @@ import OfflineBanner from './components/OfflineBanner'
 import TabBar from './components/TabBar'
 import { ToastProvider } from './components/Toast'
 import { BackStackProvider, useBackStack } from './lib/backstack'
-import { applyStatusBar, hideSplash, isNative } from './lib/native'
+import { applyStatusBar, hideSplash, installKeyboardListeners, isNative } from './lib/native'
 import { SettingsProvider } from './lib/settings'
 import { isLegalKind } from './content/legal'
 import { parsePillPath } from './lib/goals'
@@ -35,7 +35,11 @@ function NativeBridges() {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const onTheme = () => void applyStatusBar('auto')
     mq.addEventListener('change', onTheme)
-    return () => mq.removeEventListener('change', onTheme)
+    const removeKeyboard = installKeyboardListeners()
+    return () => {
+      mq.removeEventListener('change', onTheme)
+      removeKeyboard()
+    }
   }, [])
 
   useEffect(() => {

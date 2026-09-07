@@ -23,8 +23,9 @@ const config: CapacitorConfig = {
       style: 'DEFAULT',
     },
     Keyboard: {
-      resize: KeyboardResize.Native,
-      resizeOnFullScreen: true,
+      // Overlay: the keyboard slides over the page instead of shrinking the WebView
+      // (see native.ts installKeyboardListeners for the --kb padding).
+      resize: KeyboardResize.None,
     },
   },
   ios: {

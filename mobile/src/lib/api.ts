@@ -46,6 +46,8 @@ export interface SearchResult {
   rxcui: string | null
   slug: string | null
   strength: string | null
+  /** Labeller, when known (drug-level pill lists). */
+  manufacturer?: string | null
   image_url: string | null
   images: string[]
   has_multiple_images: boolean
@@ -875,4 +877,103 @@ export async function sendContactMessage(msg: ContactMessage, signal?: AbortSign
   const data = (await res.json().catch(() => ({}))) as { error?: unknown; message?: unknown }
   if (!res.ok) throw new ApiError('bad_request', typeof data.error === 'string' ? data.error : 'Unable to send your message right now. Please try again later.')
   return typeof data.message === 'string' ? data.message : 'Thanks — your message has been sent.'
+}
+
+// ---- Drug-level search (routes/drug_search.py) ------------------------------
+
+/** One drug (all strengths) from GET /api/drugs/lookup or /suggest. */
+export interface DrugRow {
+  name: string
+  key: string
+  brand_names: string | null
+  ingredients: string | null
+  strengths: string[]
+  pill_count: number
+  image_url: string | null
+  slug: string | null
+  rxcui: string | null
+}
+
+export interface DrugLookup {
+  results: DrugRow[]
+  total: number
+  page: number
+  total_pages: number
+}
+
+export interface NdcSuggestion {
+  ndc: string
+  drug_name: string
+  strength: string | null
+  imprint: string | null
+  slug: string | null
+  image_url: string | null
+}
+
+function drugRow(o: Record<string, unknown>): DrugRow | null {
+  if (typeof o.name !== 'string' || typeof o.key !== 'string') return null
+  return {
+    name: o.name,
+    key: o.key,
+    brand_names: str(o.brand_names),
+    ingredients: str(o.ingredients),
+    strengths: Array.isArray(o.strengths) ? (o.strengths as unknown[]).filter((s): s is string => typeof s === 'string') : [],
+    pill_count: typeof o.pill_count === 'number' ? o.pill_count : 0,
+    image_url: str(o.image_url),
+    slug: str(o.slug),
+    rxcui: str(o.rxcui),
+  }
+}
+
+function rowsOf<T>(v: unknown, map: (o: Record<string, unknown>) => T | null): T[] {
+  return Array.isArray(v) ? (v as unknown[]).map((o) => (o && typeof o === 'object' ? map(o as Record<string, unknown>) : null)).filter((x): x is T => x !== null) : []
+}
+
+/** GET /api/drugs/lookup — drugs matching a name, one row per drug. */
+export async function lookupDrugs(q: string, page = 1, signal?: AbortSignal): Promise<DrugLookup> {
+  const raw = await request<Record<string, unknown>>(`/api/drugs/lookup?q=${encodeURIComponent(q)}&page=${page}&per_page=25`, { signal })
+  const n = (v: unknown, d: number) => (typeof v === 'number' ? v : d)
+  return { results: rowsOf(raw.results, drugRow), total: n(raw.total, 0), page: n(raw.page, page), total_pages: n(raw.total_pages, 1) }
+}
+
+/** GET /api/drugs/suggest?mode=drug — live drug-name suggestions. */
+export async function suggestDrugs(q: string, signal?: AbortSignal): Promise<DrugRow[]> {
+  const raw = await request<Record<string, unknown>>(`/api/drugs/suggest?q=${encodeURIComponent(q)}&mode=drug&limit=8`, { signal, timeoutMs: 8_000 })
+  return rowsOf(raw.drugs, drugRow)
+}
+
+/** GET /api/drugs/suggest?mode=ndc — NDC codes starting with the typed digits. */
+export async function suggestNdc(q: string, signal?: AbortSignal): Promise<NdcSuggestion[]> {
+  const raw = await request<Record<string, unknown>>(`/api/drugs/suggest?q=${encodeURIComponent(q)}&mode=ndc&limit=8`, { signal, timeoutMs: 8_000 })
+  return rowsOf(raw.ndcs, (o) =>
+    typeof o.ndc === 'string' && typeof o.drug_name === 'string'
+      ? { ndc: o.ndc, drug_name: o.drug_name, strength: str(o.strength), imprint: str(o.imprint), slug: str(o.slug), image_url: str(o.image_url) }
+      : null,
+  )
+}
+
+/** GET /api/drugs/pills — the pills of one drug (optionally one strength), as search rows. */
+export async function getDrugPills(name: string, strength: string | null, signal?: AbortSignal): Promise<{ results: SearchResult[]; total: number }> {
+  const qs = new URLSearchParams({ name, per_page: '100' })
+  if (strength) qs.set('strength', strength)
+  const raw = await request<Record<string, unknown>>(`/api/drugs/pills?${qs.toString()}`, { signal })
+  const results = rowsOf(raw.results, (o) => {
+    if (typeof o.drug_name !== 'string') return null
+    const images = Array.isArray(o.images) ? (o.images as unknown[]).filter((x): x is string => typeof x === 'string') : []
+    return {
+      drug_name: o.drug_name,
+      imprint: str(o.imprint) ?? '',
+      color: str(o.color),
+      shape: str(o.shape),
+      ndc: str(o.ndc),
+      rxcui: str(o.rxcui),
+      slug: str(o.slug),
+      strength: str(o.strength),
+      manufacturer: str(o.manufacturer),
+      image_url: str(o.image_url),
+      images,
+      has_multiple_images: images.length > 1,
+    }
+  })
+  return { results, total: typeof raw.total === 'number' ? raw.total : results.length }
 }

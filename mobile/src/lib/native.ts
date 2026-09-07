@@ -93,3 +93,31 @@ export function appVersion(): string {
   const v = import.meta.env.VITE_APP_VERSION as string | undefined
   return v || '1.0.0'
 }
+
+/**
+ * Keyboard overlay mode: the WebView keeps its size (capacitor.config.ts sets
+ * resize: None) so the page never jumps; instead we publish the keyboard height
+ * as a CSS variable (--kb) that scroll containers add as bottom padding, and
+ * nudge the focused field into view.
+ */
+export function installKeyboardListeners(): () => void {
+  if (!isNative()) return () => {}
+  const root = document.documentElement
+  const set = (px: number) => root.style.setProperty('--kb', `${Math.max(0, Math.round(px))}px`)
+  const subs = [
+    Keyboard.addListener('keyboardWillShow', (info) => set(info.keyboardHeight)),
+    Keyboard.addListener('keyboardDidShow', (info) => {
+      set(info.keyboardHeight)
+      const el = document.activeElement as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+        requestAnimationFrame(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }))
+      }
+    }),
+    Keyboard.addListener('keyboardWillHide', () => set(0)),
+    Keyboard.addListener('keyboardDidHide', () => set(0)),
+  ]
+  return () => {
+    for (const s of subs) void s.then((h) => h.remove())
+    set(0)
+  }
+}

@@ -177,7 +177,8 @@ html.camera-open .app-shell {
    --------------------------------------------------------------------------- */
 .screen {
   min-height: 100%;
-  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 16px);
+  /* --kb is the keyboard height in overlay mode (native.ts), 0 when hidden */
+  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 16px + var(--kb, 0px));
 }
 
 .large-title {
