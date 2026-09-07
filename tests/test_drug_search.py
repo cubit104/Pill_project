@@ -17,7 +17,10 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-key")
 
 @pytest.fixture()
 def client():
-    with patch("main.connect_to_database", return_value=True), patch("main.warmup_system", return_value=None):
+    with patch("main.connect_to_database", return_value=True), patch("main.warmup_system", return_value=None), patch(
+        "routes.pill_views.get_pill_views_table_status",
+        return_value={"pill_views_table_exists": True, "row_count": 0},
+    ):
         from fastapi.testclient import TestClient
         import main as app_module
 

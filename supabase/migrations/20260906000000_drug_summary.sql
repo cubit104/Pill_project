@@ -79,8 +79,11 @@ CREATE INDEX IF NOT EXISTS drug_summary_key_prefix_idx        ON public.drug_sum
 CREATE INDEX IF NOT EXISTS drug_summary_key_trgm_idx          ON public.drug_summary USING gin (key gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS drug_summary_pill_count_idx        ON public.drug_summary (pill_count DESC);
 
--- NDC prefix suggestions type digits without dashes; ndc11 already has this index.
-CREATE INDEX IF NOT EXISTS idx_pf_ndc9_nodash ON public.pillfinder (replace(ndc9, '-', ''));
+-- NDC prefix suggestions type digits without dashes. text_pattern_ops so LIKE 'digits%'
+-- can use the btree under any collation (the existing ndc11 index lacks it).
+DROP INDEX IF EXISTS public.idx_pf_ndc9_nodash;
+CREATE INDEX IF NOT EXISTS idx_pf_ndc9_nodash_pattern  ON public.pillfinder ((replace(ndc9, '-', '')) text_pattern_ops);
+CREATE INDEX IF NOT EXISTS idx_pf_ndc11_nodash_pattern ON public.pillfinder ((replace(ndc11, '-', '')) text_pattern_ops);
 
 -- Single-row staleness flag, flipped by a statement trigger on pillfinder.
 CREATE TABLE IF NOT EXISTS public.drug_summary_state (
