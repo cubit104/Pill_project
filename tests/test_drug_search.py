@@ -141,21 +141,7 @@ def test_suggest_drug_returns_summary_rows(client, monkeypatch):
 
 
 def test_suggest_rejects_unknown_mode(client):
-    assert client.get("/api/drugs/suggest?q=abc&mode=color").status_code == 422
-
-
-def test_suggest_imprint_prefix_on_last_token_and_dedupes(client, monkeypatch):
-    conn = _mock_conn(monkeypatch, [_result(rows=[("U;11", "Ursodiol", 1), ("U 116", "TOPAMAX", 2), ("U;116", "Topiramate", 3), ("U 117", "Topamax", 1)])])
-    res = client.get("/api/drugs/suggest?q=u%2011&mode=imprint&limit=3")
-    assert res.status_code == 200
-    body = res.json()
-    assert body["mode"] == "imprint"
-    assert [i["imprint"] for i in body["imprints"]] == ["U;11", "U 116", "U 117"]  # U;116 deduped against U 116
-    assert body["imprints"][1]["drug_name"] == "TOPAMAX" and body["imprints"][1]["pill_count"] == 2
-    params = conn.execute.call_args_list[0].args[1]
-    assert params["t0"] == "U" and params["partial"] == "11"
-    sql = str(conn.execute.call_args_list[0].args[0])
-    assert "'(^| )' || :t0 || '( |$)'" in sql and "'(^| )' || :partial)" in sql
+    assert client.get("/api/drugs/suggest?q=abc&mode=imprint").status_code == 422
 
 
 def test_drug_pills_filters_by_strength_and_shapes_rows(client, monkeypatch):
