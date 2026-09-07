@@ -39,11 +39,12 @@ class _Row:
         return self._values[i]
 
 
-DRUG_KEYS = ["key", "name", "brand_names", "ingredients", "pill_count", "strengths", "image_filename", "slug", "rxcui"]
+DRUG_KEYS = ["key", "name", "brand_names", "ingredients", "pill_count", "strengths", "strength_details", "image_filename", "slug", "rxcui"]
 
 
 def _drug_row(name="Lisinopril", strengths=("2.5 mg", "5 mg", "10 mg"), count=134):
-    return _Row([name.lower(), name, "Prinivil", "LISINOPRIL", count, list(strengths), "00093227234.jpg", "lisinopril-20-mg", "314076"], DRUG_KEYS)
+    details = [{"label": s, "pill_count": 1 if i == 0 else 7, "image_filename": "a.jpg" if i == 0 else None, "slug": f"{name.lower()}-{i}"} for i, s in enumerate(strengths)]
+    return _Row([name.lower(), name, "Prinivil", "LISINOPRIL", count, list(strengths), details, "00093227234.jpg", "lisinopril-20-mg", "314076"], DRUG_KEYS)
 
 
 def _mock_conn(monkeypatch, execute_side_effect):
@@ -82,6 +83,9 @@ def test_lookup_groups_drugs_and_paginates(client, monkeypatch):
     assert first["strengths"] == ["2.5 mg", "5 mg", "10 mg"]
     assert first["pill_count"] == 134
     assert first["image_url"].endswith("/00093227234.jpg")
+    assert [d["label"] for d in first["strength_details"]] == ["2.5 mg", "5 mg", "10 mg"]
+    assert first["strength_details"][0]["pill_count"] == 1 and first["strength_details"][0]["image_url"].endswith("/a.jpg")
+    assert first["strength_details"][1]["image_url"] is None and first["strength_details"][1]["slug"] == "lisinopril-1"
     # no refresh was attempted because the view was fresh
     executed_sql = " ".join(str(c.args[0]) for c in conn.execute.call_args_list)
     assert "refresh_drug_summary" not in executed_sql
