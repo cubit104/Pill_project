@@ -40,12 +40,20 @@ MAX_SUGGESTIONS = 20
 # ---- Response models --------------------------------------------------------
 
 
+class StrengthDetail(BaseModel):
+    label: str
+    pill_count: int = 0
+    image_url: Optional[str] = None
+    slug: Optional[str] = None
+
+
 class DrugRow(BaseModel):
     name: str
     key: str
     brand_names: Optional[str] = None
     ingredients: Optional[str] = None
     strengths: List[str] = []
+    strength_details: List[StrengthDetail] = []
     pill_count: int = 0
     image_url: Optional[str] = None
     slug: Optional[str] = None
@@ -125,6 +133,16 @@ def _drug_row(r) -> DrugRow:
         brand_names=m.get("brand_names"),
         ingredients=m.get("ingredients"),
         strengths=list(m.get("strengths") or []),
+        strength_details=[
+            StrengthDetail(
+                label=str(d.get("label") or ""),
+                pill_count=int(d.get("pill_count") or 0),
+                image_url=_image_url(d.get("image_filename")),
+                slug=d.get("slug"),
+            )
+            for d in (m.get("strength_details") or [])
+            if isinstance(d, dict) and d.get("label")
+        ],
         pill_count=int(m.get("pill_count") or 0),
         image_url=_image_url(m.get("image_filename")),
         slug=m.get("slug"),
