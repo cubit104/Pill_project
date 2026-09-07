@@ -943,8 +943,8 @@ export async function suggestDrugs(q: string, signal?: AbortSignal): Promise<Dru
 }
 
 /** GET /api/drugs/suggest?mode=ndc — NDC codes starting with the typed digits. */
-export async function suggestNdc(q: string, signal?: AbortSignal): Promise<NdcSuggestion[]> {
-  const raw = await request<Record<string, unknown>>(`/api/drugs/suggest?q=${encodeURIComponent(q)}&mode=ndc&limit=8`, { signal, timeoutMs: 8_000 })
+export async function suggestNdc(q: string, signal?: AbortSignal, limit = 8): Promise<NdcSuggestion[]> {
+  const raw = await request<Record<string, unknown>>(`/api/drugs/suggest?q=${encodeURIComponent(q)}&mode=ndc&limit=${limit}`, { signal, timeoutMs: 8_000 })
   return rowsOf(raw.ndcs, (o) =>
     typeof o.ndc === 'string' && typeof o.drug_name === 'string'
       ? { ndc: o.ndc, drug_name: o.drug_name, strength: str(o.strength), imprint: str(o.imprint), slug: str(o.slug), image_url: str(o.image_url) }

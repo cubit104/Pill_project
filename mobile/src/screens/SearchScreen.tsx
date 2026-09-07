@@ -202,6 +202,30 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
           setPage(data.page)
           setTotalPages(data.total_pages)
           setFallbackTerm(null)
+        } else if (mode === 'ndc') {
+          // An NDC is one package: list the codes that start with the typed digits.
+          const codes = activeQuery.replace(/\D/g, '').length >= 3 ? await suggestNdc(activeQuery, ctrl.signal, 20) : []
+          if (ctrl.signal.aborted) return
+          setResults(
+            codes.map((n) => ({
+              drug_name: n.drug_name,
+              imprint: n.imprint ?? '',
+              color: null,
+              shape: null,
+              ndc: n.ndc,
+              rxcui: null,
+              slug: n.slug,
+              strength: n.strength,
+              image_url: n.image_url,
+              images: n.image_url ? [n.image_url] : [],
+              has_multiple_images: false,
+            })),
+          )
+          setDrugs([])
+          setTotal(codes.length)
+          setPage(1)
+          setTotalPages(1)
+          setFallbackTerm(null)
         } else {
           const data = await search(
             {
