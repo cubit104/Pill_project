@@ -27,7 +27,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 
 import database
-from utils import process_image_filenames
+from utils import normalize_imprint, process_image_filenames
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,8 @@ router = APIRouter(prefix="/api/drugs", tags=["drug-search"])
 
 CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=600"
 MAX_SUGGESTIONS = 20
+# Same normalisation the imprint search uses (routes/search.py): "U;116" and "U 116" both → "U 116".
+_NORM_IMPRINT_SQL = "UPPER(REGEXP_REPLACE(COALESCE(splimprint, ''), '[;,\s]+', ' ', 'g'))"
 
 
 # ---- Response models --------------------------------------------------------
@@ -78,10 +80,17 @@ class NdcSuggestion(BaseModel):
     image_url: Optional[str] = None
 
 
+class ImprintSuggestion(BaseModel):
+    imprint: str
+    drug_name: str
+    pill_count: int = 0
+
+
 class SuggestResponse(BaseModel):
     mode: str
     drugs: List[DrugRow] = []
     ndcs: List[NdcSuggestion] = []
+    imprints: List[ImprintSuggestion] = []
 
 
 class PillRow(BaseModel):
@@ -239,7 +248,7 @@ def lookup_drugs(
 def suggest(
     response: Response,
     q: str = Query(..., min_length=1, max_length=100),
-    mode: str = Query("drug", pattern="^(drug|ndc)$"),
+    mode: str = Query("drug", pattern="^(drug|ndc|imprint)$"),
     limit: int = Query(8, ge=1, le=MAX_SUGGESTIONS),
 ):
     """Live suggestions while typing.
@@ -248,9 +257,53 @@ def suggest(
       app can open the strength picker straight from the dropdown.
     * ``mode=ndc``  – NDC codes starting with the typed digits (dashes ignored), each
       with the drug name and strength; one row per pill.
+    * ``mode=imprint`` – imprints containing every complete token, with the last
+      token as a prefix ("u 11" → U;11, U 116, U 117…), unlike the website's
+      ``/suggestions`` which needs an exact token set once you type a second token.
     """
     response.headers["Cache-Control"] = CACHE_CONTROL
     engine = _engine()
+    if mode == "imprint":
+        tokens = [t for t in re.split(r"[;,\s]+", q.strip().upper()) if t][:6]
+        if not tokens:
+            return SuggestResponse(mode="imprint")
+        partial, complete = tokens[-1], tokens[:-1]
+        conds: List[str] = []
+        params: dict = {"lim": limit * 3}
+        for i, tok in enumerate(complete):
+            conds.append(f"{_NORM_IMPRINT_SQL} ~ ('(^| )' || :t{i} || '( |$)')")
+            params[f"t{i}"] = re.escape(tok)
+        conds.append(f"{_NORM_IMPRINT_SQL} ~ ('(^| )' || :partial)")
+        params["partial"] = re.escape(partial)
+        try:
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    text(
+                        f"""
+                        SELECT splimprint, MIN(medicine_name), COUNT(*)::int
+                        FROM public.pillfinder
+                        WHERE deleted_at IS NULL AND published = true AND splimprint IS NOT NULL
+                          AND {' AND '.join(conds)}
+                        GROUP BY splimprint
+                        ORDER BY length(splimprint), splimprint
+                        LIMIT :lim
+                        """
+                    ),
+                    params,
+                ).fetchall()
+        except ProgrammingError as exc:
+            raise HTTPException(status_code=503, detail="Database unavailable") from exc
+        seen: set = set()
+        out: List[ImprintSuggestion] = []
+        for imp, name, count in rows:
+            key = normalize_imprint(imp or "")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(ImprintSuggestion(imprint=(imp or "").strip(), drug_name=name or "", pill_count=int(count or 0)))
+            if len(out) >= limit:
+                break
+        return SuggestResponse(mode="imprint", imprints=out)
     if mode == "ndc":
         digits = re.sub(r"[^0-9]", "", q)
         if len(digits) < 3:

@@ -22,7 +22,7 @@ def test_normalize_imprint_is_order_insensitive_and_sorted():
     assert normalize_imprint("1171 75") == "1171 75"
 
 
-def test_suggestions_imprint_single_token_uses_word_boundary_regex():
+def test_suggestions_imprint_single_token_is_a_prefix_match():
     conn = MagicMock()
     conn.execute.return_value = [("75;1171",)]
     engine = _make_engine_with_connection(conn)
@@ -33,11 +33,12 @@ def test_suggestions_imprint_single_token_uses_word_boundary_regex():
     assert result == ["75;1171"]
     sql = str(conn.execute.call_args[0][0])
     params = conn.execute.call_args[0][1]
-    assert "~ ('(^| )' || UPPER(:token) || '( |$)')" in sql
-    assert params["token"] == "1171"
+    assert "~ ('(^| )' || :partial)" in sql
+    assert ":tok0" not in sql
+    assert params["partial"] == "1171"
 
 
-def test_suggestions_imprint_multi_token_uses_sorted_exact_match():
+def test_suggestions_imprint_multi_token_whole_tokens_then_prefix():
     conn = MagicMock()
     conn.execute.return_value = [("75;1171",), ("1171 75",)]
     engine = _make_engine_with_connection(conn)
@@ -45,12 +46,25 @@ def test_suggestions_imprint_multi_token_uses_sorted_exact_match():
     with patch.object(search_routes.database, "db_engine", engine):
         result = search_routes.get_suggestions(q="75 1171", search_type="imprint")
 
-    assert result == ["75;1171"]
+    assert result == ["75;1171"]  # "1171 75" is the same imprint, deduped
     sql = str(conn.execute.call_args[0][0])
     params = conn.execute.call_args[0][1]
-    assert "string_agg(tok, ' ' ORDER BY tok)" in sql
-    assert "= UPPER(:sorted_imp)" in sql
-    assert params["sorted_imp"] == "1171 75"
+    assert "~ ('(^| )' || :tok0 || '( |$)')" in sql
+    assert "~ ('(^| )' || :partial)" in sql
+    assert params["tok0"] == "75" and params["partial"] == "1171"
+
+
+def test_suggestions_imprint_typeahead_last_token_prefix_case_and_separator_insensitive():
+    conn = MagicMock()
+    conn.execute.return_value = [("U;11",), ("U 116",), ("U;116",), ("U 117",)]
+    engine = _make_engine_with_connection(conn)
+
+    with patch.object(search_routes.database, "db_engine", engine):
+        result = search_routes.get_suggestions(q="u;11", search_type="imprint")
+
+    assert result == ["U;11", "U 116", "U 117"]
+    params = conn.execute.call_args[0][1]
+    assert params["tok0"] == "U" and params["partial"] == "11"
 
 
 def test_api_search_imprint_single_token_uses_boundary_regex_condition():
