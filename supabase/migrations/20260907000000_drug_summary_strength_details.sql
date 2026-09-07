@@ -23,16 +23,27 @@ WITH base AS (
       AND btrim(medicine_name) <> ''
 ),
 per_strength AS (
+    -- One representative pill per strength: thumbnail and slug come from the SAME
+    -- row (one with a slug, preferably with an image), so the picture matches what opens.
     SELECT
         key,
         strength,
-        COUNT(*)::int                                                                     AS pill_count,
-        (array_agg(image_filename ORDER BY (image_filename IS NULL), slug))[1]            AS image_filename,
-        (array_agg(slug ORDER BY slug) FILTER (WHERE slug IS NOT NULL))[1]                AS slug,
-        NULLIF(substring(strength FROM '\d+(?:\.\d+)?'), '')::numeric                     AS num
-    FROM base
-    WHERE strength IS NOT NULL
-    GROUP BY key, strength
+        pill_count,
+        pick ->> 'image_filename' AS image_filename,
+        pick ->> 'slug'           AS slug,
+        num
+    FROM (
+        SELECT
+            key,
+            strength,
+            COUNT(*)::int AS pill_count,
+            (array_agg(jsonb_build_object('image_filename', image_filename, 'slug', slug)
+                       ORDER BY (slug IS NULL), (image_filename IS NULL), slug))[1] AS pick,
+            NULLIF(substring(strength FROM '\d+(?:\.\d+)?'), '')::numeric AS num
+        FROM base
+        WHERE strength IS NOT NULL
+        GROUP BY key, strength
+    ) g
 ),
 strengths AS (
     -- Distinct dose labels per drug, ordered numerically ("2.5 mg" before "10 mg").
