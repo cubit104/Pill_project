@@ -66,6 +66,7 @@ function DrugRowButton({ drug, onPress, compact = false }: { drug: DrugRow; onPr
       onClick={onPress}
       className={`pressable flex w-full items-center gap-3 px-4 text-left active:bg-brand-tint ${compact ? 'min-h-[48px] py-2' : 'min-h-[60px] py-3'}`}
     >
+      {!compact && <PillThumb src={drug.image_url} alt="" size={48} />}
       <span className="min-w-0 flex-1">
         <span className={`block truncate font-semibold text-ink ${compact ? 'text-[16px]' : 'text-[17px]'}`}>{drug.name}</span>
         {!compact && sub && <span className="block truncate text-[14px] text-muted">{sub}</span>}
@@ -588,18 +589,27 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
         {picker?.kind === 'strengths' && (
           <div className="-mx-2">
             <p className="px-2 pb-2 text-[14px] text-muted">Choose a strength</p>
-            <div className="divide-y divide-line">
-              {picker.drug.strengths.map((s) => (
+            <div className="max-h-[60vh] divide-y divide-line overflow-y-auto">
+              {(picker.drug.strength_details.length > 0
+                ? picker.drug.strength_details
+                : picker.drug.strengths.map((label) => ({ label, pill_count: 0, image_url: null, slug: null }))
+              ).map((d) => (
                 <button
-                  key={s}
+                  key={d.label}
                   type="button"
                   onClick={() => {
                     void hapticTick()
-                    loadPills(picker.drug, s, true)
+                    // Exactly one pill in this strength: open it without another list.
+                    if (d.pill_count === 1 && d.slug) openSlug(d.slug, { drug_name: picker.drug.name, slug: d.slug, image_url: d.image_url ?? picker.drug.image_url })
+                    else loadPills(picker.drug, d.label, true)
                   }}
-                  className="pressable flex min-h-[52px] w-full items-center gap-3 rounded-xl px-2 text-left text-[17px] font-medium text-ink active:bg-brand-tint"
+                  className="pressable flex min-h-[60px] w-full items-center gap-3 rounded-xl px-2 py-2 text-left active:bg-brand-tint"
                 >
-                  <span className="min-w-0 flex-1">{s}</span>
+                  <PillThumb src={d.image_url} alt="" size={48} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[17px] font-semibold text-ink">{d.label}</span>
+                    {d.pill_count > 0 && <span className="block text-[13px] text-muted">{d.pill_count === 1 ? '1 pill' : `${d.pill_count} pills`}</span>}
+                  </span>
                   <ChevronRightIcon size={20} className="flex-none text-muted" />
                 </button>
               ))}

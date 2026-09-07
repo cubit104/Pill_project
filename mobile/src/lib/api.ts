@@ -882,12 +882,20 @@ export async function sendContactMessage(msg: ContactMessage, signal?: AbortSign
 // ---- Drug-level search (routes/drug_search.py) ------------------------------
 
 /** One drug (all strengths) from GET /api/drugs/lookup or /suggest. */
+export interface StrengthDetail {
+  label: string
+  pill_count: number
+  image_url: string | null
+  slug: string | null
+}
+
 export interface DrugRow {
   name: string
   key: string
   brand_names: string | null
   ingredients: string | null
   strengths: string[]
+  strength_details: StrengthDetail[]
   pill_count: number
   image_url: string | null
   slug: string | null
@@ -918,6 +926,9 @@ function drugRow(o: Record<string, unknown>): DrugRow | null {
     brand_names: str(o.brand_names),
     ingredients: str(o.ingredients),
     strengths: Array.isArray(o.strengths) ? (o.strengths as unknown[]).filter((s): s is string => typeof s === 'string') : [],
+    strength_details: rowsOf(o.strength_details, (d) =>
+      typeof d.label === 'string' ? { label: d.label, pill_count: typeof d.pill_count === 'number' ? d.pill_count : 0, image_url: str(d.image_url), slug: str(d.slug) } : null,
+    ),
     pill_count: typeof o.pill_count === 'number' ? o.pill_count : 0,
     image_url: str(o.image_url),
     slug: str(o.slug),
