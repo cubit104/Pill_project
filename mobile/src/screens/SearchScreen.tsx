@@ -113,9 +113,13 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
   const [picker, setPicker] = useState<Picker | null>(null)
   const pickerAbort = useRef<AbortController | null>(null)
   const lastSavedRef = useRef<string>('')
-  // The last query string this screen wrote to the URL; anything else in the
-  // URL came from outside (deep link, Recent) and is adopted as new state.
-  const writtenRef = useRef<string | null>(null)
+  // URL bookkeeping. `seenRef` is the last query string this screen accepted as its own
+  // (adopted or written). When we write a new one, the router updates asynchronously:
+  // `pendingRef` is what we asked for and `staleRef` the URL that was current at that
+  // moment, which must be ignored until the pending one lands (or a clear would refill).
+  const seenRef = useRef<string>(params.toString())
+  const pendingRef = useRef<string | null>(null)
+  const staleRef = useRef<string | null>(null)
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -133,14 +137,21 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
   // again"): adopt it *during render* so the sync effect below sees the new state and never
   // overwrites the incoming URL with stale state. A bare /search (tab bar) keeps what the user had.
   const incoming = params.toString()
-  if (active && incoming && incoming !== writtenRef.current) {
-    writtenRef.current = incoming
-    const t = params.get('type')
-    setMode(isMode(t) ? t : 'imprint')
-    setQ(params.get('q') ?? '')
-    setColor(params.get('color') ?? '')
-    setShape(params.get('shape') ?? '')
-    setGoal(isGoal(params.get('goal')) ? (params.get('goal') as Goal) : null)
+  if (pendingRef.current !== null && incoming === pendingRef.current) {
+    // Our own write has landed.
+    pendingRef.current = null
+    staleRef.current = null
+    seenRef.current = incoming
+  } else if (active && incoming !== seenRef.current && incoming !== staleRef.current) {
+    seenRef.current = incoming
+    if (incoming) {
+      const t = params.get('type')
+      setMode(isMode(t) ? t : 'imprint')
+      setQ(params.get('q') ?? '')
+      setColor(params.get('color') ?? '')
+      setShape(params.get('shape') ?? '')
+      setGoal(isGoal(params.get('goal')) ? (params.get('goal') as Goal) : null)
+    }
   }
 
   // Keep the URL in sync so the tab is deep-link friendly (only while this tab is showing:
@@ -156,7 +167,8 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
     if (goal) next.set('goal', goal)
     const str = next.toString()
     if (str !== params.toString()) {
-      writtenRef.current = str
+      staleRef.current = params.toString()
+      pendingRef.current = str
       setParams(next, { replace: true })
     }
   }, [active, debounceSettled, activeQuery, mode, color, shape, goal, params, setParams])
