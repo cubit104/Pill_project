@@ -112,7 +112,7 @@ def list_users(admin: dict = Depends(require_superuser)):
     try:
         with database.db_engine.connect() as conn:
             rows = conn.execute(
-                text("SELECT id::text, role, full_name FROM profiles")
+                text("SELECT id::text, role, full_name FROM profiles WHERE role <> 'member'")
             ).fetchall()
         profiles = {str(r[0]): {"role": r[1], "full_name": r[2]} for r in rows}
     except SQLAlchemyError as e:
@@ -121,10 +121,14 @@ def list_users(admin: dict = Depends(require_superuser)):
 
     result = []
     for uid, auth_u in auth_users.items():
-        prof = profiles.get(uid, {})
-        raw_role = prof.get("role") or "reviewer"
+        prof = profiles.get(uid)
+        if not prof:
+            continue  # public 'member' accounts and profile-less users are not admins
+        raw_role = prof.get("role")
         if raw_role == "superadmin":
             raw_role = "superuser"
+        if raw_role not in ("superuser", "editor", "reviewer"):
+            continue
         result.append({
             "id": uid,
             "email": auth_u.get("email", ""),
