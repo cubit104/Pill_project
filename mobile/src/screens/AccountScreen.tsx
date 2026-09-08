@@ -159,8 +159,8 @@ export default function AccountScreen() {
         ) : (
           <>
             <div className="px-1">
-              <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">Sign in</h1>
-              <p className="mt-1 text-[15px] leading-relaxed text-muted">No password. We email you a 6-digit code.</p>
+              <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">Sign in or create account</h1>
+              <p className="mt-1 text-[15px] leading-relaxed text-muted">No password or sign-up form. We email you a 6-digit code; a new account is created the first time.</p>
             </div>
             <Card className="space-y-3">
               {step === 'email' ? (
