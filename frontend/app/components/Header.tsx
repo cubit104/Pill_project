@@ -36,6 +36,7 @@ export default function Header() {
         <nav className="hidden sm:flex items-center gap-8" aria-label="Main navigation">
           <Link href="/" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">Home</Link>
           <Link href="/search" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">Search</Link>
+          <Link href="/cabinet" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">My cabinet</Link>
           {photoIdEnabled && (
             <Link href="/identify" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">
               📷 Photo ID{newBadge}
@@ -71,6 +72,7 @@ export default function Header() {
         <nav id="mobile-menu" className="sm:hidden bg-white border-t border-slate-100 px-4 py-3 flex flex-col gap-3" aria-label="Mobile navigation">
           <Link href="/" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2 border-b border-slate-100" onClick={() => setMenuOpen(false)}>Home</Link>
           <Link href="/search" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2 border-b border-slate-100" onClick={() => setMenuOpen(false)}>Search</Link>
+          <Link href="/cabinet" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2 border-b border-slate-100" onClick={() => setMenuOpen(false)}>My cabinet</Link>
           {photoIdEnabled && (
             <Link href="/identify" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2" onClick={() => setMenuOpen(false)}>
               📷 Photo ID{newBadge}

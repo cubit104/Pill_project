@@ -20,6 +20,7 @@ const baseNavItems = [
 ]
 
 const superuserNavItems = [
+  { href: '/admin/members', label: 'Members', icon: Users },
   { href: '/admin/settings', label: 'Settings', icon: Settings },
 ]
 
