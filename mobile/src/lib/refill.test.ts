@@ -53,7 +53,8 @@ describe('refillStatus', () => {
   it('flags soon and out', () => {
     expect(refillStatus({ ...base, pills_on_hand: 8 }, daily, now)?.level).toBe('soon')
     expect(refillLabel(refillStatus({ ...base, pills_on_hand: 8 }, daily, now)!)).toBe('Refill soon · 4 days left')
-    const out = refillStatus({ ...base, pills_on_hand: 1 }, daily, now)
+    expect(refillStatus({ ...base, pills_on_hand: 1 }, daily, now)?.level).toBe('soon')
+    const out = refillStatus({ ...base, pills_on_hand: 0 }, daily, now)
     expect(out?.level).toBe('out')
     expect(refillLabel(out!)).toBe('Out of pills')
   })
