@@ -112,7 +112,7 @@ def list_users(admin: dict = Depends(require_superuser)):
     try:
         with database.db_engine.connect() as conn:
             rows = conn.execute(
-                text("SELECT id::text, role, full_name FROM profiles")
+                text("SELECT id::text, role, full_name FROM profiles WHERE role <> 'member'")
             ).fetchall()
         profiles = {str(r[0]): {"role": r[1], "full_name": r[2]} for r in rows}
     except SQLAlchemyError as e:
