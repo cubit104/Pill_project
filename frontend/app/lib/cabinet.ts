@@ -80,6 +80,12 @@ export interface CabinetItem {
   notes: string | null
   position: number
   created_at: string
+  /** Refill tracking (see lib/refill.ts). */
+  pills_on_hand: number | null
+  pills_counted_at: string | null
+  pills_per_day: number | null
+  fill_quantity: number | null
+  refill_notify_days: number
 }
 
 export interface Reminder {
@@ -94,7 +100,7 @@ export interface Reminder {
   timezone: string | null
 }
 
-const ITEM_COLS = 'id, slug, nickname, notes, position, created_at'
+const ITEM_COLS = 'id, slug, nickname, notes, position, created_at, pills_on_hand, pills_counted_at, pills_per_day, fill_quantity, refill_notify_days'
 const REMINDER_COLS = 'id, cabinet_item_id, times, days, dose, enabled, timezone'
 
 function fail(prefix: string, error: { message: string } | null): never {
@@ -124,7 +130,9 @@ export async function isInCabinet(slug: string): Promise<boolean> {
   return Boolean(data)
 }
 
-export async function updateCabinetItem(id: string, patch: Partial<Pick<CabinetItem, 'nickname' | 'notes' | 'position'>>): Promise<void> {
+export type CabinetPatch = Partial<Omit<CabinetItem, 'id' | 'slug' | 'created_at'>>
+
+export async function updateCabinetItem(id: string, patch: CabinetPatch): Promise<void> {
   const { error } = await cabinetSupabase().from('cabinet_items').update(patch).eq('id', id)
   if (error) fail('Could not save', error)
 }
