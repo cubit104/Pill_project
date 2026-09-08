@@ -14,7 +14,7 @@ import {
   NdcTile,
   PriceTile,
   ProInfoTile,
-  RecentTile,
+  CabinetTile,
   SideEffectsTile,
   type TileIconProps,
 } from '../components/TileIcons'
@@ -42,7 +42,7 @@ const TILES: Tile[] = [
   { label: 'Professional info', Icon: ProInfoTile, go: goalSearchPath('professional-information') },
   { label: 'Price guide', Icon: PriceTile, go: goalSearchPath('price') },
   { label: 'Interactions', Icon: InteractionsTile, go: '/interactions' },
-  { label: 'Recent', Icon: RecentTile, go: '/recent' },
+  { label: 'My cabinet', Icon: CabinetTile, go: '/cabinet' },
   { label: 'About', Icon: AboutTile, go: '/about' },
 ]
 

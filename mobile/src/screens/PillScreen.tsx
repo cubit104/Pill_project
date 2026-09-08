@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Card, { SectionLabel } from '../components/Card'
 import Disclaimer from '../components/Disclaimer'
+import CabinetButton from '../components/CabinetButton'
 import ReviewedBy from '../components/ReviewedBy'
 import ErrorCard from '../components/ErrorCard'
 import { ChevronRightIcon, ExternalIcon, InfoIcon, PillIcon } from '../components/Icons'
@@ -237,6 +238,9 @@ export default function PillScreen({ slug }: { slug: string }) {
             </div>
 
             <ReviewedBy lastVerified={pill.updated_at} />
+            <div className="px-1">
+              <CabinetButton slug={slug} />
+            </div>
 
             {/* Identification */}
             <section>

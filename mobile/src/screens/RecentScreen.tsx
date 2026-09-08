@@ -242,6 +242,7 @@ export default function RecentScreen({ active = true }: { active?: boolean }) {
         title="Recent"
         subtitle="Your last 20 identifications and searches"
         scrollRef={scrollRef}
+        onBack={() => (window.history.length > 1 ? navigate(-1) : navigate('/cabinet', { replace: true }))}
         trailing={
           items && items.length > 0 ? (
             <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)}>

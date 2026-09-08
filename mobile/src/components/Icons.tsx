@@ -277,3 +277,34 @@ export function InteractionsIcon(props: IconProps) {
     </svg>
   )
 }
+
+/** Medicine cabinet: box with a pill inside. */
+export function CabinetIcon(props: IconProps) {
+  return (
+    <svg {...base(props.size, props)}>
+      <rect x="3.5" y="7" width="17" height="13" rx="2.5" />
+      <path d="M3.5 11h17M8 7V5.5A1.5 1.5 0 0 1 9.5 4h5A1.5 1.5 0 0 1 16 5.5V7" />
+      <rect x="9" y="13.5" width="6" height="3" rx="1.5" transform="rotate(-30 12 15)" />
+    </svg>
+  )
+}
+
+/** Bell: reminders. */
+export function BellIcon(props: IconProps) {
+  return (
+    <svg {...base(props.size, props)}>
+      <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" />
+      <path d="M10 20a2 2 0 0 0 4 0" />
+    </svg>
+  )
+}
+
+/** Person: account. */
+export function UserIcon(props: IconProps) {
+  return (
+    <svg {...base(props.size, props)}>
+      <circle cx="12" cy="8.5" r="4" />
+      <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+    </svg>
+  )
+}

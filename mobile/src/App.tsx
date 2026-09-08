@@ -6,11 +6,14 @@ import TabBar from './components/TabBar'
 import { ToastProvider } from './components/Toast'
 import { BackStackProvider, useBackStack } from './lib/backstack'
 import { applyStatusBar, hideSplash, installKeyboardListeners, isNative } from './lib/native'
+import { AccountProvider } from './lib/account'
 import { SettingsProvider } from './lib/settings'
 import { isLegalKind } from './content/legal'
 import { parsePillPath } from './lib/goals'
 import { loadWelcomeSeen, saveLastTab, saveWelcomeSeen } from './lib/storage'
 import AboutScreen from './screens/AboutScreen'
+import AccountScreen from './screens/AccountScreen'
+import CabinetScreen from './screens/CabinetScreen'
 import ContactScreen from './screens/ContactScreen'
 import EditorialScreen from './screens/EditorialScreen'
 import HomeScreen from './screens/HomeScreen'
@@ -83,7 +86,7 @@ function NativeBridges() {
   return null
 }
 
-const TABS = ['/home', '/identify', '/search', '/recent', '/about'] as const
+const TABS = ['/home', '/identify', '/search', '/cabinet', '/recent', '/about'] as const
 type Tab = (typeof TABS)[number]
 
 function isTab(p: string): p is Tab {
@@ -117,8 +120,9 @@ function Shell() {
   const legalKind = pathname.startsWith('/legal/') ? pathname.slice('/legal/'.length) : null
   const legal = isLegalKind(legalKind) ? legalKind : null
   const contact = pathname === '/contact'
+  const accountPage = pathname === '/account'
   // Anything pushed over the tabs: the tab panes hide and go inert underneath.
-  const overlay = pillRoute !== null || interactions || editorial || legal !== null || contact
+  const overlay = pillRoute !== null || interactions || editorial || legal !== null || contact || accountPage
   if (!isTab(pathname) && !overlay) return <Navigate to="/home" replace />
   const active: Tab = isTab(pathname) ? pathname : lastTab.current
   const panes: Array<[Tab, React.ReactNode]> = [
@@ -127,6 +131,7 @@ function Shell() {
     ['/home', <HomeScreen key="home" active={active === '/home' && !overlay} />],
     ['/identify', <IdentifyScreen key="identify" active={active === '/identify' && !overlay} />],
     ['/search', <SearchScreen key="search" active={active === '/search' && !overlay} />],
+    ['/cabinet', <CabinetScreen key="cabinet" active={active === '/cabinet' && !overlay} />],
     ['/recent', <RecentScreen key="recent" active={active === '/recent' && !overlay} />],
     ['/about', <AboutScreen key="about" active={active === '/about' && !overlay} />],
   ]
@@ -159,6 +164,11 @@ function Shell() {
             <ContactScreen />
           </div>
         )}
+        {accountPage && (
+          <div className="absolute inset-0 z-30">
+            <AccountScreen />
+          </div>
+        )}
         {pillRoute && (
           <div className="absolute inset-0 z-30">
             {pillRoute.section ? (
@@ -186,7 +196,9 @@ export default function App() {
       <BackStackProvider>
         <SettingsProvider>
           <ToastProvider>
-            <Shell />
+            <AccountProvider>
+              <Shell />
+            </AccountProvider>
           </ToastProvider>
         </SettingsProvider>
       </BackStackProvider>

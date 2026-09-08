@@ -163,3 +163,15 @@ export function AboutTile(p: TileIconProps) {
     </Duo>
   )
 }
+
+/** Medicine box with a capsule: my cabinet. */
+export function CabinetTile(p: TileIconProps) {
+  return (
+    <Duo {...p}>
+      <rect x="6" y="15" width="36" height="25" rx="5" fill={FILL} />
+      <path d="M6 23h36M17 15v-3.5A3.5 3.5 0 0 1 20.5 8h7a3.5 3.5 0 0 1 3.5 3.5V15" />
+      <rect x="15.5" y="27.5" width="17" height="8" rx="4" fill={HOLE} stroke={ACCENT} transform="rotate(-20 24 31.5)" />
+      <path d="M24 27.5v8" stroke={ACCENT} transform="rotate(-20 24 31.5)" />
+    </Duo>
+  )
+}
