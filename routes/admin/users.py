@@ -115,6 +115,13 @@ def list_users(admin: dict = Depends(require_superuser)):
                 text("SELECT id::text, role, full_name FROM profiles WHERE role <> 'member'")
             ).fetchall()
         profiles = {str(r[0]): {"role": r[1], "full_name": r[2]} for r in rows}
+        # Legacy admins (pre-profiles) live only in admin_users; include them too.
+        with database.db_engine.connect() as conn:
+            legacy = conn.execute(
+                text("SELECT id::text, role, full_name FROM admin_users WHERE is_active = true")
+            ).fetchall()
+        for r in legacy:
+            profiles.setdefault(str(r[0]), {"role": r[1], "full_name": r[2]})
     except SQLAlchemyError as e:
         logger.error(f"list_users profiles DB error: {e}")
         profiles = {}
