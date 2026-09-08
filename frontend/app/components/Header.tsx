@@ -3,17 +3,19 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 
-export default function Header() {
+export default function Header({ photoIdEnabled: initialPhotoId = false }: { photoIdEnabled?: boolean }) {
   const [menuOpen, setMenuOpen] = useState(false)
-  const [photoIdEnabled, setPhotoIdEnabled] = useState(false)
+  const [photoIdEnabled, setPhotoIdEnabled] = useState(initialPhotoId)
 
-  // Camera identification is a beta feature switched on/off from Admin → Settings.
+  // Camera identification is a beta feature switched on/off from Admin → Settings. The layout
+  // reads the flag on the server; this only fills in when that fetch failed or was cached off.
   useEffect(() => {
+    if (initialPhotoId) return
     fetch('/api/features')
       .then((r) => (r.ok ? r.json() : null))
-      .then((f) => setPhotoIdEnabled(Boolean(f?.photo_id_enabled)))
+      .then((f) => f?.photo_id_enabled && setPhotoIdEnabled(true))
       .catch(() => {})
-  }, [])
+  }, [initialPhotoId])
 
   const newBadge = (
     <span className="ml-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 align-middle">New</span>

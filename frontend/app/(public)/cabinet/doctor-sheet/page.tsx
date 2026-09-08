@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import DoctorSheetClient from './DoctorSheetClient'
 
 export const metadata: Metadata = {
-  title: 'Doctor Sheet — My Medications | PillSeek',
+  title: 'Doctor Sheet — My Medications',
   description: 'A printable list of the medicines in your PillSeek cabinet to share with your doctor or pharmacist.',
   alternates: { canonical: '/cabinet/doctor-sheet' },
   robots: { index: false, follow: false },
