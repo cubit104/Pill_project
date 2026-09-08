@@ -10,8 +10,12 @@
 import { Preferences } from '@capacitor/preferences'
 import { createClient, type Session, type SupabaseClient, type User } from '@supabase/supabase-js'
 
-const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? ''
-const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? ''
+// Defaults are the production project; the anon key is public by design (it ships in the
+// website too) and only ever grants what row-level security allows. Override via .env.
+const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || 'https://uqdwcxizabmxwflkbfrb.supabase.co'
+const anonKey =
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxZHdjeGl6YWJteHdmbGtiZnJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMyOTc1MzcsImV4cCI6MjA1ODg3MzUzN30.hdOFAF_-n07ltuIPBoIVHMDiUKQZUEKBTQozmtczzg8'
 
 /** True when the app was built with Supabase credentials; otherwise account features hide. */
 export const accountsEnabled = Boolean(url && anonKey)
