@@ -64,16 +64,17 @@ export function effectiveRate(item: Pick<RefillFields, 'pills_per_day'>, reminde
 
 /** Null when the user has not entered a count, or no rate is known. */
 export function refillStatus(item: RefillFields, reminder: ScheduleLike | null | undefined, now = new Date()): RefillStatus | null {
-  if (item.pills_on_hand === null || item.pills_on_hand === undefined) return null
+  if (item.pills_on_hand === null || item.pills_on_hand === undefined || !Number.isFinite(item.pills_on_hand)) return null
   const perDay = effectiveRate(item, reminder)
-  if (!perDay) return null
+  if (!perDay || !Number.isFinite(perDay) || perDay <= 0) return null
   const counted = item.pills_counted_at ? new Date(item.pills_counted_at) : now
   const elapsedDays = Math.max(0, (now.getTime() - counted.getTime()) / 86_400_000)
   const remaining = Math.max(0, item.pills_on_hand - elapsedDays * perDay)
   const daysLeft = Math.floor(remaining / perDay)
   const runsOut = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysLeft)
   const notifyAt = new Date(runsOut.getFullYear(), runsOut.getMonth(), runsOut.getDate() - item.refill_notify_days, 9, 0, 0, 0)
-  const level: RefillStatus['level'] = remaining < perDay ? 'out' : daysLeft <= item.refill_notify_days ? 'soon' : 'ok'
+  // 'out' only when nothing is left; under a day of supply still counts as 'soon'.
+  const level: RefillStatus['level'] = remaining <= 0 ? 'out' : remaining < perDay || daysLeft <= item.refill_notify_days ? 'soon' : 'ok'
   return { remaining: Math.round(remaining * 10) / 10, perDay, daysLeft, runsOut, notifyAt, level }
 }
 

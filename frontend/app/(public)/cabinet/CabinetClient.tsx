@@ -289,7 +289,10 @@ function RefillEditor({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const num = (v: string) => (v.trim() === '' ? null : Number(v))
+  const num = (v: string) => {
+    const n = Number(v.trim())
+    return v.trim() === '' || !Number.isFinite(n) ? null : n
+  }
   const preview = refillStatus(
     { pills_on_hand: num(onHand), pills_counted_at: null, pills_per_day: num(perDay), fill_quantity: num(fill), refill_notify_days: Number(notify) || 0 },
     reminder,
