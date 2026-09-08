@@ -63,8 +63,8 @@ def _engine(members, log):
 
 
 MEMBERS = [
-    ("u-1", "amy@example.com", NOW, NOW, False, 3, 1),
-    ("u-2", "bob@example.com", NOW, None, True, 0, 0),
+    ("11111111-1111-4111-8111-111111111111", "amy@example.com", NOW, NOW, False, 3, 1),
+    ("22222222-2222-4222-8222-222222222222", "bob@example.com", NOW, None, True, 0, 0),
 ]
 
 
@@ -115,10 +115,10 @@ def test_deactivate_member_bans_and_audits():
     with patch("routes.admin.members._sb_put") as sb_put, patch("routes.admin.members._supabase_url", return_value="https://x.supabase.co"):
         sb_put.return_value = MagicMock(status_code=200)
         with _client() as (client, log):
-            resp = client.post("/api/admin/members/u-1/deactivate")
+            resp = client.post("/api/admin/members/11111111-1111-4111-8111-111111111111/deactivate")
     assert resp.status_code == 200
-    assert resp.json() == {"id": "u-1", "disabled": True}
-    sb_put.assert_called_once_with("/auth/v1/admin/users/u-1", {"ban_duration": "876600h"})
+    assert resp.json() == {"id": "11111111-1111-4111-8111-111111111111", "disabled": True}
+    sb_put.assert_called_once_with("/auth/v1/admin/users/11111111-1111-4111-8111-111111111111", {"ban_duration": "876600h"})
     audit = [p for s, p in log if "insert into audit_log" in s]
     assert audit and audit[0]["action"] == "deactivate_member"
 
@@ -127,25 +127,34 @@ def test_reactivate_member_lifts_ban():
     with patch("routes.admin.members._sb_put") as sb_put, patch("routes.admin.members._supabase_url", return_value="https://x.supabase.co"):
         sb_put.return_value = MagicMock(status_code=200)
         with _client() as (client, _log):
-            resp = client.post("/api/admin/members/u-2/reactivate")
+            resp = client.post("/api/admin/members/22222222-2222-4222-8222-222222222222/reactivate")
     assert resp.status_code == 200
-    sb_put.assert_called_once_with("/auth/v1/admin/users/u-2", {"ban_duration": "none"})
+    sb_put.assert_called_once_with("/auth/v1/admin/users/22222222-2222-4222-8222-222222222222", {"ban_duration": "none"})
 
 
 def test_deactivate_unknown_or_admin_account_is_404():
     """Admin accounts are not members, so the lookup finds nothing and nothing is banned."""
     with patch("routes.admin.members._sb_put") as sb_put, patch("routes.admin.members._supabase_url", return_value="https://x.supabase.co"):
         with _client() as (client, _log):
-            resp = client.post("/api/admin/members/admin-9/deactivate")
+            resp = client.post("/api/admin/members/8d7e6c5b-4a39-4a28-9c17-0605f4e3d2c1/deactivate")
     assert resp.status_code == 404
     sb_put.assert_not_called()
+
+
+def test_non_uuid_member_id_is_404_not_500():
+    with patch("routes.admin.members._sb_put") as sb_put, patch("routes.admin.members._supabase_url", return_value="https://x.supabase.co"):
+        with _client() as (client, log):
+            resp = client.post("/api/admin/members/not-a-uuid/deactivate")
+    assert resp.status_code == 404
+    sb_put.assert_not_called()
+    assert not any("from auth.users" in s for s, _ in log)
 
 
 def test_supabase_failure_is_502():
     with patch("routes.admin.members._sb_put") as sb_put, patch("routes.admin.members._supabase_url", return_value="https://x.supabase.co"):
         sb_put.return_value = MagicMock(status_code=500)
         with _client() as (client, _log):
-            resp = client.post("/api/admin/members/u-1/deactivate")
+            resp = client.post("/api/admin/members/11111111-1111-4111-8111-111111111111/deactivate")
     assert resp.status_code == 502
 
 

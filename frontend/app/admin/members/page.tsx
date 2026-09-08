@@ -65,6 +65,7 @@ export default function AdminMembersPage() {
     setError('')
     const token = await getToken()
     if (!token) {
+      setLoading(false)
       router.push('/admin/login')
       return
     }
@@ -94,6 +95,10 @@ export default function AdminMembersPage() {
     setError('')
     try {
       const token = await getToken()
+      if (!token) {
+        router.push('/admin/login')
+        return
+      }
       const res = await fetch(`/api/admin/members/${m.id}/${m.disabled ? 'reactivate' : 'deactivate'}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },

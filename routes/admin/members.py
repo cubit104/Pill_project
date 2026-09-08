@@ -12,6 +12,7 @@ member keeps their data and can be reactivated. Deleting an account is the
 member's own action (delete_own_account) or a manual Supabase operation.
 """
 import logging
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -124,6 +125,10 @@ def list_members(
 def _set_member_disabled(request: Request, admin: dict, member_id: str, disabled: bool) -> dict:
     if not _supabase_url():
         raise HTTPException(status_code=500, detail="NEXT_PUBLIC_SUPABASE_URL not configured")
+    try:
+        uuid.UUID(member_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Member not found")
     _ensure_db()
     # Only genuine members can be toggled here; admin accounts go through /users.
     try:
