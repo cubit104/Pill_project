@@ -121,10 +121,14 @@ def list_users(admin: dict = Depends(require_superuser)):
 
     result = []
     for uid, auth_u in auth_users.items():
-        prof = profiles.get(uid, {})
-        raw_role = prof.get("role") or "reviewer"
+        prof = profiles.get(uid)
+        if not prof:
+            continue  # public 'member' accounts and profile-less users are not admins
+        raw_role = prof.get("role")
         if raw_role == "superadmin":
             raw_role = "superuser"
+        if raw_role not in ("superuser", "editor", "reviewer"):
+            continue
         result.append({
             "id": uid,
             "email": auth_u.get("email", ""),

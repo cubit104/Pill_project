@@ -24,6 +24,12 @@ BEGIN
 END
 $$;
 
+-- Ensure the trigger exists (it did on the live project; fresh environments need it).
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
 -- ---------------------------------------------------------------------------
 -- 2. Cabinet
 -- ---------------------------------------------------------------------------
@@ -119,7 +125,8 @@ BEGIN
         RAISE EXCEPTION 'not signed in';
     END IF;
     SELECT role::text INTO r FROM public.profiles WHERE id = uid;
-    IF r IN ('superuser', 'editor', 'reviewer') THEN
+    IF r IN ('superuser', 'superadmin', 'editor', 'reviewer')
+       OR EXISTS (SELECT 1 FROM public.admin_users a WHERE a.id = uid) THEN   -- legacy admin table too
         RAISE EXCEPTION 'admin accounts cannot self-delete';
     END IF;
     DELETE FROM auth.users WHERE id = uid;

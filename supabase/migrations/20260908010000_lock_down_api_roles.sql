@@ -38,9 +38,14 @@ GRANT EXECUTE ON FUNCTION public.delete_own_account() TO authenticated;
 -- (infinite recursion when read through PostgREST) and nothing reads it via the API.
 
 -- 3. Row-level security everywhere -------------------------------------------
+-- Safe only because the backend connects as a BYPASSRLS role (postgres on Supabase);
+-- refuse to run where that is not the case so admin writes can never be blocked.
 DO $$
 DECLARE t record;
 BEGIN
+    IF NOT (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
+        RAISE EXCEPTION 'migration must run as a BYPASSRLS role (role % lacks it)', current_user;
+    END IF;
     FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND NOT rowsecurity LOOP
         EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t.tablename);
     END LOOP;
