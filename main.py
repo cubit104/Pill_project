@@ -122,6 +122,7 @@ except Exception as e:
 from routes import search, details, filters, ndc, sitemap, health, similar, prices, trending, snapshot, interactions  # noqa: E402
 from routes import pill_images, conditions, medication_guide, pill_views, pronunciation  # noqa: E402
 from routes import reviewers_public, identify, identify_photo, site_settings, identify_feedback  # noqa: E402
+from routes import drug_search  # noqa: E402
 from routes.admin import pills as admin_pills, drafts as admin_drafts, images as admin_images  # noqa: E402
 from routes.admin import audit as admin_audit, users as admin_users, stats as admin_stats  # noqa: E402
 from routes.admin import duplicates as admin_duplicates  # noqa: E402
@@ -131,6 +132,7 @@ from routes.admin import posthog as admin_posthog  # noqa: E402
 from routes.admin import guide as admin_guide  # noqa: E402
 from routes.admin import medication_guide_backfill as admin_medication_guide_backfill  # noqa: E402
 from routes.admin import reviewers as admin_reviewers  # noqa: E402
+from routes.admin import members as admin_members  # noqa: E402
 from routes import reviewers as public_reviewers  # noqa: E402
 
 app.include_router(search.router)
@@ -144,6 +146,7 @@ app.include_router(prices.router)
 app.include_router(snapshot.router)
 app.include_router(trending.router)
 app.include_router(interactions.router)
+app.include_router(drug_search.router)
 app.include_router(medication_guide.router)
 app.include_router(pill_views.router)
 app.include_router(pronunciation.router)
@@ -169,6 +172,7 @@ app.include_router(admin_posthog.router)
 app.include_router(admin_guide.router)
 app.include_router(admin_medication_guide_backfill.router)
 app.include_router(admin_reviewers.router)
+app.include_router(admin_members.router)
 app.include_router(public_reviewers.router)
 
 

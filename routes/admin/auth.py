@@ -47,11 +47,15 @@ def _verify_jwt(token: str) -> Optional[dict]:
         return None
 
 
-def _normalise_role(raw_role: Optional[str]) -> str:
-    """Map legacy 'superadmin' → 'superuser'; pass other values through."""
+def _normalise_role(raw_role: Optional[str]) -> Optional[str]:
+    """Map legacy 'superadmin' → 'superuser'; pass other values through.
+
+    No default: a profile without an admin role (e.g. a public 'member' account
+    from the app) must never be treated as an admin.
+    """
     if raw_role == "superadmin":
         return "superuser"
-    return raw_role or "reviewer"
+    return raw_role or None
 
 
 def get_admin_user(
@@ -129,7 +133,8 @@ def get_admin_user(
         except Exception as e:
             logger.debug(f"admin_users lookup failed: {e}")
 
-    if role is None:
+    # Only real admin roles pass; public accounts ('member') and unknown values are rejected.
+    if role is None or role not in _expand_roles(VALID_ROLES):
         raise HTTPException(status_code=403, detail="Not an admin user")
 
     if not is_active:

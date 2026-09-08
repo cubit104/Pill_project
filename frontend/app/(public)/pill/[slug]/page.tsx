@@ -18,6 +18,7 @@ import { resolveImageUrls } from '../../../lib/image-url'
 import { fetchPriceSnapshot, fetchInitialPriceData } from './price/priceData'
 import { snapshotToPriceCardInitialData } from './pricing/priceCardData'
 import ReviewedBy from '../../../components/ReviewedBy'
+import CabinetSaveButton from './CabinetSaveButton'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -474,6 +475,9 @@ export default async function PillDetailPage(
         priceInitialData={priceInitialData}
       >
         <ReviewedBy lastVerifiedIso={lastUpdatedIso} />
+        <div className="mt-3">
+          <CabinetSaveButton slug={slug} />
+        </div>
       </PillDetailClient>
     </>
   )

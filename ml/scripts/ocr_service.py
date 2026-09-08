@@ -64,12 +64,14 @@ elif torch.cuda.is_available():
     DEVICE = "cuda"
 else:
     DEVICE = "cpu"
-# Half precision on the GPU: same reads in our tests, half the memory, ~2x faster.
+# Half precision on the GPU for the LARGE model only (halves its memory, ~2x faster).
+# The base model stays full precision: it is the one that must not lose accuracy.
 FP16 = os.getenv("PILL_TROCR_FP16", "1" if DEVICE != "cpu" else "0") == "1" and DEVICE != "cpu"
-DTYPE = torch.float16 if FP16 else torch.float32
+DTYPE = torch.float32
+DTYPE2 = torch.float16 if FP16 else torch.float32
 
 
-def _load_model(path: str):
+def _load_model(path: str, dtype=torch.float32):
     print("Loading imprint reader from", path)
     m = VisionEncoderDecoderModel.from_pretrained(path)
     m.eval()
@@ -79,19 +81,19 @@ def _load_model(path: str):
     if os.getenv("PILL_TROCR_INT8", "1") == "1" and DEVICE == "cpu":
         # 8-bit weights for the linear layers: ~2-3x faster on CPU, tiny accuracy cost.
         m = torch.quantization.quantize_dynamic(m, {torch.nn.Linear}, dtype=torch.qint8)
-    return m.to(DEVICE, dtype=DTYPE)
+    return m.to(DEVICE, dtype=dtype)
 
 
 processor = TrOCRProcessor.from_pretrained(MODEL_DIR)
-model = _load_model(MODEL_DIR)
-print("Reader device:", DEVICE, "fp16" if FP16 else "fp32")
+model = _load_model(MODEL_DIR, DTYPE)
+print("Reader device:", DEVICE, "base fp32, large", "fp16" if FP16 else "fp32")
 torch.set_num_threads(max(1, os.cpu_count() or 1))
 # Optional second reader (the large fine-tune). It is slower but reads faint
 # debossed imprints the base model cannot; and it *abstains* (emits nothing)
 # when unsure instead of guessing. Per side, when its two crop reads agree it
 # overrides the base model's vote; otherwise the base result stands.
 MODEL2_DIR = os.getenv("PILL_TROCR_DIR2", "")
-model2 = _load_model(MODEL2_DIR) if MODEL2_DIR else None
+model2 = _load_model(MODEL2_DIR, DTYPE2) if MODEL2_DIR else None
 NUM_BEAMS2 = int(os.getenv("PILL_TROCR_BEAMS2", "2"))
 NUM_BEAMS = int(os.getenv("PILL_TROCR_BEAMS", "2"))
 if model2 is not None:
@@ -252,7 +254,7 @@ def _views(img: Image.Image) -> list[Image.Image]:
         print("pill box:", box, "in", img.size)
     if box:
         crops = [_crop_pad(img, box, p) for p in PILL_PADS]
-        return crops + [crops[len(crops) // 2].rotate(180)]
+        return crops + [crops[len(crops) // 2].rotate(180), img]
     out = []
     for v in VIEWS:
         if v == "full":
@@ -268,7 +270,7 @@ def _read_batch(imgs: list[Image.Image], m=None, beams: int | None = None) -> li
     """One batched decode for all views of all photos."""
     m = model if m is None else m
     beams = NUM_BEAMS if beams is None else beams
-    pv = processor(images=imgs, return_tensors="pt").pixel_values.to(DEVICE, dtype=DTYPE)
+    pv = processor(images=imgs, return_tensors="pt").pixel_values.to(DEVICE, dtype=next(m.parameters()).dtype)
     with torch.no_grad():
         # min_new_tokens=1: greedy/small-beam otherwise sometimes stops before
         # emitting anything on faint imprints (seen on the Augmentin "3 2").
@@ -335,23 +337,26 @@ def _open_bounded(raw: bytes) -> Image.Image:
 
 def _read_original(photos: list[Image.Image], t0: float) -> dict:
     """Day-one behaviour: one full-frame read per side (centre crop only if that came
-    back empty). Large model first; base only for a side where large stays silent.
-    No pill locator, no multi-view voting, no overriding."""
-    # Large first (when loaded), base only as the fallback for a silent side.
-    candidates = [(model2, NUM_BEAMS2, "large")] if model2 is not None else []
-    candidates.append((model, NUM_BEAMS, "base"))
-    reads, used = [], []
-    for img in photos:
-        crop = _center(img, 0.6)
-        text, picked = "", "none"
-        for m, b, name in candidates:
-            r = _read_batch([img, crop], m, b)
-            text = r[0] if _tokens(r[0]) else r[1]
-            if _tokens(text):
-                picked = name
-                break
-        used.append(picked)
-        reads.append(text)
+    back empty). Large model first. Its silence is trusted: if large read at least one
+    side, a silent side is reported blank (base would only invent something there).
+    Base reads both sides only when large is silent on every side."""
+
+    def read_sides(m, beams):
+        out = []
+        for img in photos:
+            r = _read_batch([img, _center(img, 0.6)], m, beams)
+            out.append(r[0] if _tokens(r[0]) else r[1])
+        return out
+
+    if model2 is not None:
+        reads = read_sides(model2, NUM_BEAMS2)
+        used = ["large" if _tokens(r) else "blank" for r in reads]
+        if not any(_tokens(r) for r in reads):
+            reads = read_sides(model, NUM_BEAMS)
+            used = ["base" if _tokens(r) else "none" for r in reads]
+    else:
+        reads = read_sides(model, NUM_BEAMS)
+        used = ["base" if _tokens(r) else "none" for r in reads]
     tokens, seen = [], set()
     for r in reads:
         for t in _tokens(r):
