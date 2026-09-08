@@ -17,11 +17,13 @@ import {
   requestEmailCode,
   saveReminder,
   signOut,
+  updateCabinetItem,
   verifyEmailCode,
   type CabinetItem,
   type CabinetUser,
   type Reminder,
 } from '../../lib/cabinet'
+import { effectiveRate, refillLabel, refillStatus, scheduleRate } from '../../lib/refill'
 
 interface PillInfo {
   slug: string
@@ -266,6 +268,120 @@ function ReminderEditor({
 
 // ---------------------------------------------------------------------------
 
+function RefillEditor({
+  item,
+  name,
+  reminder,
+  onSaved,
+  onClose,
+}: {
+  item: CabinetItem
+  name: string
+  reminder: Reminder | null
+  onSaved: (patch: Partial<CabinetItem>) => void
+  onClose: () => void
+}) {
+  const fromSchedule = scheduleRate(reminder)
+  const [onHand, setOnHand] = useState(item.pills_on_hand === null ? '' : String(item.pills_on_hand))
+  const [perDay, setPerDay] = useState(item.pills_per_day === null ? '' : String(item.pills_per_day))
+  const [fill, setFill] = useState(item.fill_quantity === null ? '' : String(item.fill_quantity))
+  const [notify, setNotify] = useState(String(item.refill_notify_days))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const num = (v: string) => {
+    const n = Number(v.trim())
+    return v.trim() === '' || !Number.isFinite(n) ? null : n
+  }
+  const preview = refillStatus(
+    { pills_on_hand: num(onHand), pills_counted_at: null, pills_per_day: num(perDay), fill_quantity: num(fill), refill_notify_days: Number(notify) || 0 },
+    reminder,
+  )
+
+  const save = async (refilled = false) => {
+    const count = refilled ? num(fill) : num(onHand)
+    if (count === null || !Number.isFinite(count) || count < 0) {
+      setError(refilled ? 'Enter how many pills a refill gives you.' : 'Enter how many pills you have.')
+      return
+    }
+    if (!effectiveRate({ pills_per_day: num(perDay) }, reminder)) {
+      setError('Set a reminder or enter pills per day so we can count down.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    const fillQty = num(fill)
+    const patch = {
+      pills_on_hand: Math.round(count),
+      pills_counted_at: new Date().toISOString(),
+      pills_per_day: num(perDay),
+      fill_quantity: fillQty === null ? null : Math.round(fillQty),
+      refill_notify_days: Math.min(60, Math.max(0, Math.round(Number(notify) || 0))),
+    }
+    try {
+      await updateCabinetItem(item.id, patch)
+      onSaved(patch)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save')
+      setBusy(false)
+    }
+  }
+
+  const clear = async () => {
+    setBusy(true)
+    const patch = { pills_on_hand: null, pills_counted_at: null, pills_per_day: null, fill_quantity: null }
+    try {
+      await updateCabinetItem(item.id, patch)
+      onSaved(patch)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save')
+      setBusy(false)
+    }
+  }
+
+  const field = (id: string, label: string, value: string, set: (v: string) => void, placeholder: string, mode: 'numeric' | 'decimal' = 'numeric') => (
+    <div>
+      <label htmlFor={id} className="block text-sm font-medium text-slate-700">{label}</label>
+      <input id={id} inputMode={mode} value={value} onChange={(e) => set(e.target.value)} placeholder={placeholder} className={`${inputClass} mt-1`} />
+    </div>
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Refill tracking">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <h3 className="text-lg font-bold text-slate-900">Refill · {name}</h3>
+        <p className="mt-1 text-sm text-slate-600">Tell us how many pills you have and we count down. The PillSeek app nudges you before you run out.</p>
+        <div className="mt-4 space-y-3">
+          {field('refill-on-hand', 'Pills I have now', onHand, setOnHand, 'e.g. 30')}
+          {field('refill-per-day', fromSchedule ? `Pills per day (from your reminder: ${Math.round(fromSchedule * 100) / 100})` : 'Pills per day', perDay, setPerDay, fromSchedule ? 'Leave blank to use the reminder' : 'e.g. 2', 'decimal')}
+          <div className="grid grid-cols-2 gap-3">
+            {field('refill-fill', 'Pills per refill', fill, setFill, 'e.g. 90')}
+            {field('refill-notify', 'Warn me (days before)', notify, setNotify, '5')}
+          </div>
+          {preview && (
+            <p className={`rounded-lg px-3 py-2 text-sm ${preview.level === 'ok' ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900'}`}>
+              About <strong>{preview.daysLeft} days</strong> of supply. Runs out around {preview.runsOut.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.
+            </p>
+          )}
+        </div>
+        {error && <p className="mt-3 text-sm text-red-600" role="alert">{error}</p>}
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          {item.pills_on_hand !== null && (
+            <button type="button" disabled={busy} onClick={() => void clear()} className="mr-auto text-sm font-medium text-slate-500 hover:underline">Stop tracking</button>
+          )}
+          {item.pills_on_hand !== null && (
+            <button type="button" disabled={busy || num(fill) === null} onClick={() => void save(true)} className={secondaryBtn}>I refilled</button>
+          )}
+          <button type="button" disabled={busy} onClick={onClose} className={secondaryBtn}>Cancel</button>
+          <button type="button" disabled={busy} onClick={() => void save(false)} className={primaryBtn}>{busy ? 'Saving…' : 'Save'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
 export default function CabinetClient() {
   const [user, setUser] = useState<CabinetUser | null | undefined>(undefined)
   const [items, setItems] = useState<CabinetItem[]>([])
@@ -275,6 +391,7 @@ export default function CabinetClient() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [editing, setEditing] = useState<CabinetItem | null>(null)
+  const [refilling, setRefilling] = useState<CabinetItem | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Session bootstrap; also listens for sign-out in another tab.
@@ -431,6 +548,7 @@ export default function CabinetClient() {
           {items.map((item) => {
             const pill = pills[item.slug]
             const r = remindersByItem[item.id]
+            const refill = refillStatus(item, r ?? null)
             return (
               <li key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex gap-4">
@@ -449,15 +567,23 @@ export default function CabinetClient() {
                     <p className="truncate text-sm text-slate-600">
                       {[pill?.strength, pill?.imprint && `Imprint ${pill.imprint}`].filter(Boolean).join(' · ') || 'Loading details…'}
                     </p>
-                    {r && (
-                      <p className="mt-1 inline-block rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
-                        {r.times.map(formatTime).join(', ')} · {formatDays(r.days)}{r.dose ? ` · ${r.dose}` : ''}
-                      </p>
-                    )}
+                    <p className="mt-1 flex flex-wrap gap-1">
+                      {r && (
+                        <span className="inline-block rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
+                          {r.times.map(formatTime).join(', ')} · {formatDays(r.days)}{r.dose ? ` · ${r.dose}` : ''}
+                        </span>
+                      )}
+                      {refill && (
+                        <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${refill.level === 'ok' ? 'bg-slate-100 text-slate-700' : refill.level === 'soon' ? 'bg-amber-100 text-amber-900' : 'bg-red-100 text-red-800'}`}>
+                          {refillLabel(refill)}
+                        </span>
+                      )}
+                    </p>
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button type="button" onClick={() => setEditing(item)} className={secondaryBtn}>{r ? 'Edit reminder' : 'Remind me'}</button>
+                  <button type="button" onClick={() => setRefilling(item)} className={secondaryBtn}>{item.pills_on_hand === null ? 'Track refills' : 'Refill'}</button>
                   <button type="button" onClick={() => void remove(item)} className="inline-flex items-center rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Remove</button>
                 </div>
               </li>
@@ -474,6 +600,10 @@ export default function CabinetClient() {
         ) : (
           <p className="text-center text-sm text-slate-500">Add a different medicine to check interactions.</p>
         )
+      )}
+
+      {items.length > 0 && (
+        <Link href="/cabinet/doctor-sheet" className={`${secondaryBtn} w-full`}>Doctor sheet · print or share my list</Link>
       )}
 
       <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -503,6 +633,19 @@ export default function CabinetClient() {
             setEditing(null)
           }}
           onClose={() => setEditing(null)}
+        />
+      )}
+
+      {refilling && (
+        <RefillEditor
+          item={refilling}
+          name={pills[refilling.slug]?.name ?? refilling.slug}
+          reminder={remindersByItem[refilling.id] ?? null}
+          onSaved={(patch) => {
+            setItems((xs) => xs.map((x) => (x.id === refilling.id ? { ...x, ...patch } : x)))
+            setRefilling(null)
+          }}
+          onClose={() => setRefilling(null)}
         />
       )}
 

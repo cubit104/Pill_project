@@ -29,6 +29,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
     // /search is noindex,follow — omit from sitemap to avoid mixed signals
     {
+      url: `${SITE_URL}/medicine-cabinet`,
+      changeFrequency: 'monthly',
+      priority: 0.7,
+    },
+    {
+      url: `${SITE_URL}/identify`,
+      changeFrequency: 'monthly',
+      priority: 0.7,
+    },
+    {
       url: `${SITE_URL}/about`,
       changeFrequency: 'monthly',
       priority: 0.6,

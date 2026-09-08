@@ -36,6 +36,8 @@ export default function Footer() {
             <h3 className="text-sm font-semibold text-emerald-900 mb-3">Browse Pills</h3>
             <ul className="space-y-2">
               <li><Link href="/search" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">Search All Pills</Link></li>
+              <li><Link href="/identify" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">Identify by Photo</Link></li>
+              <li><Link href="/medicine-cabinet" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">Medicine Cabinet</Link></li>
               <li><Link href="/color/white" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">White Pills</Link></li>
               <li><Link href="/shape/round" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">Round Pills</Link></li>
               <li><Link href="/shape/oval" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">Oval Pills</Link></li>
