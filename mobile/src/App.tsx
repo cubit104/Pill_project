@@ -13,6 +13,7 @@ import { parsePillPath } from './lib/goals'
 import { loadWelcomeSeen, saveLastTab, saveWelcomeSeen } from './lib/storage'
 import AboutScreen from './screens/AboutScreen'
 import AccountScreen from './screens/AccountScreen'
+import DoctorSheetScreen from './screens/DoctorSheetScreen'
 import CabinetScreen from './screens/CabinetScreen'
 import ContactScreen from './screens/ContactScreen'
 import EditorialScreen from './screens/EditorialScreen'
@@ -121,8 +122,9 @@ function Shell() {
   const legal = isLegalKind(legalKind) ? legalKind : null
   const contact = pathname === '/contact'
   const accountPage = pathname === '/account'
+  const doctorSheet = pathname === '/doctor-sheet'
   // Anything pushed over the tabs: the tab panes hide and go inert underneath.
-  const overlay = pillRoute !== null || interactions || editorial || legal !== null || contact || accountPage
+  const overlay = pillRoute !== null || interactions || editorial || legal !== null || contact || accountPage || doctorSheet
   if (!isTab(pathname) && !overlay) return <Navigate to="/home" replace />
   const active: Tab = isTab(pathname) ? pathname : lastTab.current
   const panes: Array<[Tab, React.ReactNode]> = [
@@ -167,6 +169,11 @@ function Shell() {
         {accountPage && (
           <div className="absolute inset-0 z-30">
             <AccountScreen />
+          </div>
+        )}
+        {doctorSheet && (
+          <div className="absolute inset-0 z-30">
+            <DoctorSheetScreen />
           </div>
         )}
         {pillRoute && (

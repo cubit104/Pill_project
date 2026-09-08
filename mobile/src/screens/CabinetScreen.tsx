@@ -5,7 +5,7 @@ import Card, { SectionLabel } from '../components/Card'
 import Chip from '../components/Chip'
 import Disclaimer from '../components/Disclaimer'
 import EmptyState from '../components/EmptyState'
-import { BellIcon, CabinetIcon, ChevronRightIcon, ClockIcon, InteractionsIcon, TrashIcon, UserIcon } from '../components/Icons'
+import { BellIcon, CabinetIcon, ChevronRightIcon, ClockIcon, InteractionsIcon, PillIcon, RxIcon, TrashIcon, UserIcon } from '../components/Icons'
 import { PillThumb, TextBadge, titleCase } from '../components/PillRow'
 import ScreenHeader from '../components/ScreenHeader'
 import Sheet from '../components/Sheet'
@@ -16,6 +16,7 @@ import { useAccount } from '../lib/account'
 import type { CabinetItem, Reminder } from '../lib/cabinet'
 import { interactionsPath } from '../lib/interactions'
 import { hapticTick } from '../lib/native'
+import { effectiveRate, refillLabel, refillStatus, scheduleRate } from '../lib/refill'
 import { ensureNotificationPermission, upcomingDoses } from '../lib/reminders'
 
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
@@ -146,6 +147,105 @@ function ReminderSheet({ item, name, existing, onClose }: { item: CabinetItem; n
   )
 }
 
+/** Pill count + rate; days-left and the refill nudge follow from these. */
+function RefillSheet({ item, name, reminder, onClose }: { item: CabinetItem; name: string; reminder: Reminder | null; onClose: () => void }) {
+  const account = useAccount()
+  const toast = useToast()
+  const fromSchedule = scheduleRate(reminder)
+  const [onHand, setOnHand] = useState(item.pills_on_hand === null ? '' : String(item.pills_on_hand))
+  const [perDay, setPerDay] = useState(item.pills_per_day === null ? '' : String(item.pills_per_day))
+  const [fill, setFill] = useState(item.fill_quantity === null ? '' : String(item.fill_quantity))
+  const [notify, setNotify] = useState(String(item.refill_notify_days))
+  const [busy, setBusy] = useState(false)
+
+  const num = (v: string) => (v.trim() === '' ? null : Number(v))
+  const preview = refillStatus(
+    { pills_on_hand: num(onHand), pills_counted_at: null, pills_per_day: num(perDay), fill_quantity: num(fill), refill_notify_days: Number(notify) || 0 },
+    reminder,
+  )
+
+  const save = async (refilled = false) => {
+    void hapticTick()
+    const count = refilled ? num(fill) : num(onHand)
+    if (count === null || !Number.isFinite(count) || count < 0) {
+      toast.show(refilled ? 'Enter how many pills a refill gives you' : 'Enter how many pills you have', 'error')
+      return
+    }
+    if (!effectiveRate({ pills_per_day: num(perDay) }, reminder)) {
+      toast.show('Set a reminder or enter pills per day so we can count down', 'error')
+      return
+    }
+    setBusy(true)
+    try {
+      const fillQty = num(fill)
+      await account.update(item.id, {
+        pills_on_hand: Math.round(count),
+        pills_counted_at: new Date().toISOString(),
+        pills_per_day: num(perDay),
+        fill_quantity: fillQty === null ? null : Math.round(fillQty),
+        refill_notify_days: Math.min(60, Math.max(0, Math.round(Number(notify) || 0))),
+      })
+      toast.show(refilled ? 'Count reset to a full refill' : 'Refill tracking saved', 'success')
+      onClose()
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Could not save', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const clear = async () => {
+    setBusy(true)
+    try {
+      await account.update(item.id, { pills_on_hand: null, pills_counted_at: null, pills_per_day: null, fill_quantity: null })
+      onClose()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Sheet open onClose={onClose} title={`Refill · ${name}`}>
+      <div className="space-y-4">
+        <TextField label="Pills I have now" value={onHand} onChange={setOnHand} inputMode="numeric" placeholder="e.g. 30" />
+        <TextField
+          label={fromSchedule ? `Pills per day (from your reminder: ${Math.round(fromSchedule * 100) / 100})` : 'Pills per day'}
+          value={perDay}
+          onChange={setPerDay}
+          inputMode="decimal"
+          placeholder={fromSchedule ? 'Leave blank to use the reminder' : 'e.g. 2'}
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <TextField label="Pills per refill" value={fill} onChange={setFill} inputMode="numeric" placeholder="e.g. 90" />
+          <TextField label="Warn me (days before)" value={notify} onChange={setNotify} inputMode="numeric" placeholder="5" />
+        </div>
+        {preview && (
+          <Card tone={preview.level === 'ok' ? 'tint' : 'warn'} className="text-[14px] text-body">
+            About <span className="font-semibold text-ink">{preview.daysLeft} days</span> of supply. Runs out around{' '}
+            {preview.runsOut.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}; we nudge you{' '}
+            {preview.notifyAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}.
+          </Card>
+        )}
+        <div className="flex gap-2">
+          {item.pills_on_hand !== null && (
+            <Button variant="secondary" onClick={() => void save(true)} disabled={busy || num(fill) === null}>
+              I refilled
+            </Button>
+          )}
+          <Button full loading={busy} onClick={() => void save(false)}>
+            Save
+          </Button>
+        </div>
+        {item.pills_on_hand !== null && (
+          <button type="button" onClick={() => void clear()} className="pressable w-full py-1 text-[14px] font-medium text-muted">
+            Stop tracking refills for this pill
+          </button>
+        )}
+      </div>
+    </Sheet>
+  )
+}
+
 /** The user's saved pills with reminders, and one-tap tools that use the whole list. */
 export default function CabinetScreen({ active = true }: { active?: boolean }) {
   void active
@@ -155,6 +255,7 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [editing, setEditing] = useState<{ item: CabinetItem; reminder: Reminder | null } | null>(null)
   const [removing, setRemoving] = useState<CabinetItem | null>(null)
+  const [refilling, setRefilling] = useState<{ item: CabinetItem; reminder: Reminder | null } | null>(null)
 
   const nextDose = useMemo(() => {
     const now = new Date()
@@ -244,6 +345,7 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
           {account.items.map((item) => {
             const pill = account.pills[item.slug]
             const rems = account.reminders.filter((r) => r.cabinet_item_id === item.id)
+            const refill = refillStatus(item, rems[0] ?? null)
             return (
               <div key={item.id} className="px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -254,13 +356,14 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
                       <span className="block truncate text-[13px] text-muted">
                         {pill ? [pill.strength, pill.imprint ? `Imprint ${pill.imprint}` : null].filter(Boolean).join(' · ') : 'Loading…'}
                       </span>
-                      {rems.length > 0 && (
+                      {(rems.length > 0 || refill) && (
                         <span className="mt-1 flex flex-wrap gap-1">
                           {rems.map((r) => (
                             <TextBadge key={r.id} tone={r.enabled ? 'brand' : 'neutral'}>
                               {describe(r)}
                             </TextBadge>
                           ))}
+                          {refill && <TextBadge tone={refill.level === 'ok' ? 'neutral' : refill.level === 'soon' ? 'amber' : 'danger'}>{refillLabel(refill)}</TextBadge>}
                         </span>
                       )}
                     </span>
@@ -280,6 +383,16 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      void hapticTick()
+                      setRefilling({ item, reminder: rems[0] ?? null })
+                    }}
+                    className={`pressable inline-flex min-h-[36px] items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold ${refill && refill.level !== 'ok' ? 'bg-amber-100 text-amber-800' : 'bg-brand-tint text-brand'}`}
+                  >
+                    <PillIcon size={15} /> {item.pills_on_hand === null ? 'Track refills' : 'Refill'}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setRemoving(item)}
                     className="pressable inline-flex min-h-[36px] items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-muted"
                   >
@@ -292,6 +405,17 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
         </div>
         <Button full variant="secondary" icon={<InteractionsIcon size={18} />} onClick={checkInteractions}>
           Check interactions between these {account.items.length}
+        </Button>
+        <Button
+          full
+          variant="secondary"
+          icon={<RxIcon size={18} />}
+          onClick={() => {
+            void hapticTick()
+            navigate('/doctor-sheet')
+          }}
+        >
+          Doctor sheet · share my list
         </Button>
         <Disclaimer compact />
       </div>
@@ -331,6 +455,7 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
       </main>
 
       {editing && <ReminderSheet item={editing.item} name={nameOf(editing.item)} existing={editing.reminder} onClose={() => setEditing(null)} />}
+      {refilling && <RefillSheet item={refilling.item} name={nameOf(refilling.item)} reminder={refilling.reminder} onClose={() => setRefilling(null)} />}
 
       <Sheet open={removing !== null} onClose={() => setRemoving(null)} title="Remove from cabinet?">
         {removing && (

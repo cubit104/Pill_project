@@ -17,6 +17,15 @@ export interface ReminderTarget {
   title: string
 }
 
+/** A "time to refill" nudge: fires once, at `at`. */
+export interface RefillTarget {
+  title: string
+  at: Date
+  daysLeft: number
+}
+
+const REFILL_SEQ = 90_000 // ids ID_BASE+90000… stay inside our cancel window
+
 /** Deterministic id per reminder × occurrence so re-planning replaces cleanly. */
 function notificationId(seq: number): number {
   return ID_BASE + seq
@@ -51,8 +60,8 @@ export function upcomingDoses(reminder: Reminder, from: Date, daysAhead = DAYS_A
   return out.sort((a, b) => a.getTime() - b.getTime())
 }
 
-/** Replace every PillSeek notification with the current schedule. */
-export async function syncNotifications(targets: ReminderTarget[]): Promise<number> {
+/** Replace every PillSeek notification with the current schedule (doses + refill nudges). */
+export async function syncNotifications(targets: ReminderTarget[], refills: RefillTarget[] = []): Promise<number> {
   if (!isNative()) return 0
   try {
     const pending = await LocalNotifications.getPending()
@@ -76,6 +85,18 @@ export async function syncNotifications(targets: ReminderTarget[]): Promise<numb
         actionTypeId: 'PILLSEEK_DOSE',
       })
     }
+  }
+  let rseq = 0
+  for (const r of refills) {
+    if (rseq >= 20) break
+    const at = r.at.getTime() > now.getTime() ? r.at : new Date(now.getTime() + 60_000) // already due: nudge in a minute
+    list.push({
+      id: notificationId(REFILL_SEQ + rseq++),
+      title: `Refill ${r.title}`,
+      body: r.daysLeft <= 0 ? 'You are out. Time to refill.' : `About ${r.daysLeft} day${r.daysLeft === 1 ? '' : 's'} of supply left.`,
+      schedule: { at, allowWhileIdle: true },
+      extra: { kind: 'refill' },
+    })
   }
   if (list.length) await LocalNotifications.schedule({ notifications: list })
   return list.length

@@ -17,9 +17,11 @@ import {
   saveReminder,
   updateCabinetItem,
   type CabinetItem,
+  type CabinetPatch,
   type Reminder,
 } from './cabinet'
-import { registerDoseActions, syncNotifications } from './reminders'
+import { refillStatus } from './refill'
+import { registerDoseActions, syncNotifications, type RefillTarget } from './reminders'
 
 interface AccountApi {
   enabled: boolean
@@ -36,7 +38,7 @@ interface AccountApi {
   has: (slug: string) => boolean
   add: (slug: string) => Promise<CabinetItem>
   remove: (id: string) => Promise<void>
-  update: (id: string, patch: Partial<Pick<CabinetItem, 'nickname' | 'notes'>>) => Promise<void>
+  update: (id: string, patch: CabinetPatch) => Promise<void>
   reorder: (ids: string[]) => Promise<void>
   upsertReminder: (r: Omit<Reminder, 'id'> & { id?: string }) => Promise<Reminder>
   removeReminder: (id: string) => Promise<void>
@@ -123,7 +125,15 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         return { reminder, title }
       })
       .filter((t) => t.reminder.enabled)
-    void syncNotifications(targets)
+    // One refill nudge per pill that has a count and is running low within the plan window.
+    const refills: RefillTarget[] = []
+    for (const item of items) {
+      const status = refillStatus(item, reminders.find((r) => r.cabinet_item_id === item.id) ?? null)
+      if (!status) continue
+      const title = item.nickname || pills[item.slug]?.drug_name || item.slug
+      refills.push({ title, at: status.notifyAt, daysLeft: status.daysLeft })
+    }
+    void syncNotifications(targets, refills)
   }, [user, reminders, items, pills])
 
   const api = useMemo<AccountApi>(

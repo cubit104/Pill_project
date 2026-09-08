@@ -13,6 +13,12 @@ export interface CabinetItem {
   notes: string | null
   position: number
   created_at: string
+  /** Refill tracking (see lib/refill.ts). */
+  pills_on_hand: number | null
+  pills_counted_at: string | null
+  pills_per_day: number | null
+  fill_quantity: number | null
+  refill_notify_days: number
 }
 
 export interface Reminder {
@@ -35,32 +41,36 @@ export interface DoseEvent {
   acted_at: string
 }
 
+const ITEM_COLS = 'id, slug, nickname, notes, position, created_at, pills_on_hand, pills_counted_at, pills_per_day, fill_quantity, refill_notify_days'
+
 function fail(prefix: string, error: { message: string } | null): never {
   throw new Error(`${prefix}: ${error?.message ?? 'unknown error'}`)
 }
 
 export async function listCabinet(): Promise<CabinetItem[]> {
-  const { data, error } = await supabase().from('cabinet_items').select('id, slug, nickname, notes, position, created_at').order('position').order('created_at')
+  const { data, error } = await supabase().from('cabinet_items').select(ITEM_COLS).order('position').order('created_at')
   if (error) fail('Could not load your cabinet', error)
   return (data ?? []) as CabinetItem[]
 }
 
 /** Add a pill; returns the existing row when it is already saved. */
 export async function addToCabinet(userId: string, slug: string): Promise<CabinetItem> {
-  const { data: existing } = await supabase().from('cabinet_items').select('id, slug, nickname, notes, position, created_at').eq('slug', slug).maybeSingle()
+  const { data: existing } = await supabase().from('cabinet_items').select(ITEM_COLS).eq('slug', slug).maybeSingle()
   if (existing) return existing as CabinetItem
   const { data: last } = await supabase().from('cabinet_items').select('position').order('position', { ascending: false }).limit(1).maybeSingle()
   const position = ((last as { position: number } | null)?.position ?? -1) + 1
   const { data, error } = await supabase()
     .from('cabinet_items')
     .insert({ user_id: userId, slug, position })
-    .select('id, slug, nickname, notes, position, created_at')
+    .select(ITEM_COLS)
     .single()
   if (error || !data) fail('Could not add to your cabinet', error)
   return data as CabinetItem
 }
 
-export async function updateCabinetItem(id: string, patch: Partial<Pick<CabinetItem, 'nickname' | 'notes' | 'position'>>): Promise<void> {
+export type CabinetPatch = Partial<Omit<CabinetItem, 'id' | 'slug' | 'created_at'>>
+
+export async function updateCabinetItem(id: string, patch: CabinetPatch): Promise<void> {
   const { error } = await supabase().from('cabinet_items').update(patch).eq('id', id)
   if (error) fail('Could not save', error)
 }
