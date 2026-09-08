@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import CabinetClient from './CabinetClient'
 
 export const metadata: Metadata = {
-  title: 'My Medicine Cabinet — PillSeek',
+  title: 'My Medicine Cabinet',
   description: 'Save the pills you take, set reminders, and check them for interactions. One account for pillseek.com and the PillSeek app.',
   alternates: { canonical: '/cabinet' },
   robots: { index: false, follow: false },

@@ -120,7 +120,7 @@ export default function HomePage() {
             &amp; Patient Guide
           </h1>
           <p className="mt-4 text-base sm:text-lg text-slate-600 max-w-3xl mx-auto">
-            Know your pill. Know the price. Free, FDA-sourced — no account needed.
+            Know your pill. Know the price. Free, FDA-sourced — no account needed to search.
           </p>
 
           <div className="mt-8 grid gap-6 md:grid-cols-10 md:items-center">
@@ -342,6 +342,33 @@ export default function HomePage() {
                 <span className="font-semibold text-slate-800">NDC, RxCUI, FDA data</span>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="py-12 px-4 bg-white border-y border-slate-200">
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-2xl sm:text-3xl font-bold text-center text-slate-900 mb-3">More Than a Pill Identifier</h2>
+          <p className="text-center text-slate-600 mb-8 max-w-2xl mx-auto">
+            Snap a photo to identify a pill, then keep the medicines you take organized with reminders and a doctor sheet.
+          </p>
+          <div className="grid gap-6 md:grid-cols-2">
+            <Link href="/identify" className="block rounded-xl border border-slate-200 bg-slate-50 p-6 shadow-sm hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-emerald-500">
+              <span className="inline-block rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700">PHOTO ID</span>
+              <h3 className="mt-3 text-lg font-semibold text-slate-900">Identify a pill from a photo</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Point your camera at the pill. PillSeek reads the imprint and matches it against FDA-listed medicines, then shows the label, price, and side effects.
+              </p>
+              <span className="mt-3 inline-block text-sm font-medium text-emerald-700">Try Photo ID →</span>
+            </Link>
+            <Link href="/medicine-cabinet" className="block rounded-xl border border-slate-200 bg-slate-50 p-6 shadow-sm hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-emerald-500">
+              <span className="inline-block rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700">MEDICINE CABINET</span>
+              <h3 className="mt-3 text-lg font-semibold text-slate-900">Reminders, refills, and a doctor sheet</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Save the pills you take, get dose and refill reminders, check them for interactions, and print a medication list for appointments. Free, synced with the app.
+              </p>
+              <span className="mt-3 inline-block text-sm font-medium text-emerald-700">See how it works →</span>
+            </Link>
           </div>
         </div>
       </section>
