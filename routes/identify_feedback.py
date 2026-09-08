@@ -66,7 +66,9 @@ def record_capture(
                     "read": imprint_read or None,
                     "tokens": json.dumps(tokens),
                     "attrs": json.dumps(attrs_guess or {}),
-                    "top": json.dumps(top_slugs[:6]),
+                    # Every candidate the app showed (imprint + visual), so any card can be
+                    # confirmed; deduped, order kept, bounded so a bad client can't bloat rows.
+                    "top": json.dumps(list(dict.fromkeys(s for s in top_slugs if s))[:30]),
                     "consent": bool(consent),
                 },
             )
