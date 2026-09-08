@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import DrugAutocompleteInput from './DrugAutocompleteInput'
 
 type Severity = 'major' | 'moderate' | 'minor' | 'unknown'
@@ -141,6 +141,19 @@ export default function InteractionsCheckerClient() {
   const [checkError, setCheckError] = useState<string | null>(null)
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all')
   const [activeTab, setActiveTab] = useState<TabId>('drug-drug')
+
+  // Prefill from ?drugs=a,b (e.g. "Check interactions" in My cabinet); read once on mount.
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get('drugs')
+    if (!raw) return
+    const seen = new Set<string>()
+    const names = raw
+      .split(',')
+      .map((d) => d.trim())
+      .filter((d) => d && !seen.has(d.toLowerCase()) && seen.add(d.toLowerCase()))
+      .slice(0, MAX_DRUGS)
+    if (names.length) setDrugList(names)
+  }, [])
 
   const addDrug = (name?: string): void => {
     const trimmed = (name ?? drugInput).trim()
