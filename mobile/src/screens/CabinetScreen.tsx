@@ -28,6 +28,19 @@ const PRESET_TIMES = [
   { label: 'Bedtime', time: '22:00' },
 ]
 
+/** Text field with a visible caption (the placeholder alone disappears once you type). */
+function Labeled({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="mb-1 px-1 text-[13px] font-semibold text-body">
+        {label}
+        {hint && <span className="font-normal text-muted"> · {hint}</span>}
+      </p>
+      {children}
+    </div>
+  )
+}
+
 function fmtTime(t: string): string {
   const [h, m] = t.split(':').map((x) => parseInt(x, 10))
   if (Number.isNaN(h) || Number.isNaN(m)) return t
@@ -141,7 +154,9 @@ function ReminderSheet({ item, name, existing, onClose }: { item: CabinetItem; n
             ))}
           </div>
         </div>
-        <TextField label="Dose" value={dose} onChange={setDose} placeholder="e.g. 1 tablet" autoCapitalize="none" />
+        <Labeled label="Dose">
+          <TextField label="Dose" value={dose} onChange={setDose} placeholder="e.g. 1 tablet" autoCapitalize="none" />
+        </Labeled>
         <div className="flex gap-2">
           {existing && (
             <Button
@@ -226,17 +241,25 @@ function RefillSheet({ item, name, reminder, onClose }: { item: CabinetItem; nam
   return (
     <Sheet open onClose={onClose} title={`Refill · ${name}`}>
       <div className="space-y-4">
-        <TextField label="Pills I have now" value={onHand} onChange={setOnHand} inputMode="numeric" placeholder="e.g. 30" />
-        <TextField
-          label={fromSchedule ? `Pills per day (from your reminder: ${Math.round(fromSchedule * 100) / 100})` : 'Pills per day'}
-          value={perDay}
-          onChange={setPerDay}
-          inputMode="decimal"
-          placeholder={fromSchedule ? 'Leave blank to use the reminder' : 'e.g. 2'}
-        />
+        <Labeled label="Pills I have now">
+          <TextField label="Pills I have now" value={onHand} onChange={setOnHand} inputMode="numeric" placeholder="e.g. 30" />
+        </Labeled>
+        <Labeled label="Pills per day" hint={fromSchedule ? `from your reminder: ${Math.round(fromSchedule * 100) / 100}` : undefined}>
+          <TextField
+            label="Pills per day"
+            value={perDay}
+            onChange={setPerDay}
+            inputMode="decimal"
+            placeholder={fromSchedule ? 'Leave blank to use the reminder' : 'e.g. 2'}
+          />
+        </Labeled>
         <div className="grid grid-cols-2 gap-2">
-          <TextField label="Pills per refill" value={fill} onChange={setFill} inputMode="numeric" placeholder="e.g. 90" />
-          <TextField label="Warn me (days before)" value={notify} onChange={setNotify} inputMode="numeric" placeholder="5" />
+          <Labeled label="Pills per refill">
+            <TextField label="Pills per refill" value={fill} onChange={setFill} inputMode="numeric" placeholder="e.g. 90" />
+          </Labeled>
+          <Labeled label="Warn me (days before)">
+            <TextField label="Warn me (days before)" value={notify} onChange={setNotify} inputMode="numeric" placeholder="5" />
+          </Labeled>
         </div>
         {preview && (
           <Card tone={preview.level === 'ok' ? 'tint' : 'warn'} className="text-[14px] text-body">
