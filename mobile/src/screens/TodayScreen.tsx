@@ -10,7 +10,7 @@ import { useToast } from '../components/Toast'
 import { useAccount } from '../lib/account'
 import { useBackHandler } from '../lib/backstack'
 import { hapticTick } from '../lib/native'
-import { summarize, todayDoses, type DoseStatus, type TodayDose } from '../lib/today'
+import { adherence, summarize, todayDoses, type DoseStatus, type TodayDose } from '../lib/today'
 
 const STATUS_LABEL: Record<DoseStatus, string> = { taken: 'Taken', skipped: 'Skipped', missed: 'Missed', due: 'Due now', upcoming: 'Upcoming' }
 const STATUS_TONE: Record<DoseStatus, 'brand' | 'neutral' | 'amber' | 'danger'> = { taken: 'brand', skipped: 'neutral', missed: 'danger', due: 'amber', upcoming: 'neutral' }
@@ -38,6 +38,7 @@ export default function TodayScreen() {
 
   const doses = useMemo(() => todayDoses(account.items, account.reminders, account.doseEvents, now), [account.items, account.reminders, account.doseEvents, now])
   const summary = useMemo(() => summarize(doses), [doses])
+  const week = useMemo(() => adherence(account.items, account.reminders, account.doseEvents, now), [account.items, account.reminders, account.doseEvents, now])
   const nameOf = (d: TodayDose) => d.item.nickname || account.pills[d.item.slug]?.drug_name || titleCase(d.item.slug.replace(/-/g, ' '))
 
   const mark = async (d: TodayDose, status: 'taken' | 'skipped') => {
@@ -74,6 +75,12 @@ export default function TodayScreen() {
                 <span>
                   {' '}
                   · next {nameOf(summary.next)} at {fmt(summary.next.at)}
+                </span>
+              )}
+              {week.countedDays > 0 && (
+                <span className="mt-1 block text-[13px] text-muted">
+                  This week: {week.goodDays} of {week.countedDays} day{week.countedDays === 1 ? '' : 's'} on time
+                  {week.streak >= 2 ? ` · ${week.streak}-day streak` : ''}
                 </span>
               )}
             </Card>

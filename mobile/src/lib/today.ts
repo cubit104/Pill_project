@@ -59,6 +59,45 @@ export function todayDoses(items: CabinetItem[], reminders: Reminder[], events: 
   return out.sort((a, b) => a.at.getTime() - b.at.getTime())
 }
 
+export interface Adherence {
+  /** Days in the last 7 (including today when something was due) with every due dose taken. */
+  goodDays: number
+  /** Days in the last 7 that had at least one due dose. */
+  countedDays: number
+  /** Consecutive good days ending today (if counted) or yesterday. Days with nothing due don't break it. */
+  streak: number
+}
+
+/** A day is "good" when it had due doses and all of them were taken. Undated (future) doses today are ignored. */
+function dayResult(items: CabinetItem[], reminders: Reminder[], events: DoseEvent[], day: Date, now: Date): 'good' | 'bad' | 'none' {
+  const doses = todayDoses(items, reminders, events, new Date(day.getFullYear(), day.getMonth(), day.getDate(), 12)).filter((d) => d.at.getTime() <= now.getTime())
+  const due = doses.filter((d) => d.status !== 'upcoming' && d.status !== 'due')
+  if (due.length === 0) return 'none'
+  return due.every((d) => d.status === 'taken') ? 'good' : 'bad'
+}
+
+export function adherence(items: CabinetItem[], reminders: Reminder[], events: DoseEvent[], now = new Date(), lookbackDays = 30): Adherence {
+  const today = startOfDay(now)
+  let goodDays = 0
+  let countedDays = 0
+  for (let i = 0; i < 7; i++) {
+    const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i)
+    const r = dayResult(items, reminders, events, day, now)
+    if (r === 'none') continue
+    countedDays++
+    if (r === 'good') goodDays++
+  }
+  let streak = 0
+  let broken = false
+  for (let i = 0; i < lookbackDays && !broken; i++) {
+    const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i)
+    const r = dayResult(items, reminders, events, day, now)
+    if (r === 'good') streak++
+    else if (r === 'bad') broken = true
+  }
+  return { goodDays, countedDays, streak }
+}
+
 export interface TodaySummary {
   total: number
   taken: number

@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from './Button'
+import Card from './Card'
 import { ChevronRightIcon, TrashIcon } from './Icons'
 import { PillThumb } from './PillRow'
 import Sheet from './Sheet'
@@ -8,7 +9,9 @@ import TextField from './TextField'
 import { useToast } from './Toast'
 import { useAccount } from '../lib/account'
 import type { CabinetItem } from '../lib/cabinet'
+import { scheduleFromSig } from '../lib/labelParse'
 import { hapticTick } from '../lib/native'
+import { ensureNotificationPermission } from '../lib/reminders'
 
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -49,6 +52,37 @@ export default function ItemSheet({ item, name, image, onClose, onRemove }: { it
     notes !== (item.notes ?? '')
 
   const nul = (v: string) => (v.trim() ? v.trim() : null)
+
+  // Offer a reminder built from the directions when the pill has none yet.
+  const hasReminder = account.reminders.some((r) => r.cabinet_item_id === item.id)
+  const offer = useMemo(() => (hasReminder ? null : scheduleFromSig(directions)), [directions, hasReminder])
+  const fmt = (t: string) => {
+    const [h, m] = t.split(':').map((x) => parseInt(x, 10))
+    return new Date(2000, 0, 1, h ?? 0, m ?? 0).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  }
+  const [offerBusy, setOfferBusy] = useState(false)
+  const acceptOffer = async () => {
+    if (!offer || offer.times.length === 0) return
+    void hapticTick()
+    setOfferBusy(true)
+    try {
+      const granted = await ensureNotificationPermission()
+      await account.upsertReminder({
+        cabinet_item_id: item.id,
+        times: offer.times,
+        days: offer.days,
+        dose: offer.dose,
+        enabled: true,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
+      })
+      if (nul(directions) !== (item.directions ?? null)) await account.update(item.id, { directions: nul(directions) })
+      toast.show(granted ? 'Reminder set' : 'Reminder saved. Turn on notifications in Settings to be alerted.', granted ? 'success' : 'error')
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Could not set the reminder', 'error')
+    } finally {
+      setOfferBusy(false)
+    }
+  }
 
   const save = async () => {
     void hapticTick()
@@ -109,6 +143,17 @@ export default function ItemSheet({ item, name, image, onClose, onRemove }: { it
         <Labeled label="Directions (as on the label)">
           <TextField label="Directions" value={directions} onChange={setDirections} placeholder="e.g. Take 1 tablet twice daily" />
         </Labeled>
+        {offer && offer.times.length > 0 && (
+          <Card tone="tint" className="flex items-center gap-3 text-[14px] text-body">
+            <span className="min-w-0 flex-1">
+              Set a reminder{offer.dose ? ` for ${offer.dose}` : ''} at <span className="font-semibold text-ink">{offer.times.map(fmt).join(', ')}</span>
+              {offer.days.length < 7 ? ' on selected days' : ''}?
+            </span>
+            <Button size="sm" loading={offerBusy} onClick={() => void acceptOffer()}>
+              Set
+            </Button>
+          </Card>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <Labeled label="Rx number">
             <TextField label="Rx number" value={rx} onChange={setRx} placeholder="e.g. 7206525" />

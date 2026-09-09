@@ -27,7 +27,7 @@ import { LocalNotifications } from '@capacitor/local-notifications'
 import { isNative } from './native'
 import { refillStatus } from './refill'
 import { startOfDay } from './today'
-import { ensureNotificationPermission, registerDoseActions, syncNotifications, type RefillTarget } from './reminders'
+import { ensureNotificationPermission, registerDoseActions, snoozeDose, syncNotifications, type RefillTarget } from './reminders'
 
 interface AccountApi {
   enabled: boolean
@@ -117,7 +117,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     setError(null)
     try {
       const since = startOfDay(new Date())
-      since.setDate(since.getDate() - 1)
+      since.setDate(since.getDate() - 30)
       const [list, rems, events] = await Promise.all([listCabinet(), listReminders(), listDoseEvents(since)])
       setItems(list)
       setReminders(rems)
@@ -155,6 +155,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       if (!extra.reminderId || !extra.scheduledAt) return
       if (a.actionId === 'taken') void markDose(extra.reminderId, new Date(extra.scheduledAt), 'taken')
       else if (a.actionId === 'skip') void markDose(extra.reminderId, new Date(extra.scheduledAt), 'skipped')
+      else if (a.actionId === 'snooze') void snoozeDose({ reminderId: extra.reminderId, scheduledAt: extra.scheduledAt, title: a.notification.title, body: a.notification.body })
     })
     return () => {
       void sub.then((s) => s.remove())

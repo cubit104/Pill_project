@@ -158,6 +158,27 @@ export async function syncNotifications(
   return list.length;
 }
 
+const SNOOZE_SEQ = 95_000; // ids ID_BASE+95000… (inside our cancel window)
+const SNOOZE_MS = 15 * 60_000;
+
+/** Re-notify the same dose 15 minutes from now (the original stays recorded under its scheduled time). */
+export async function snoozeDose(extra: { reminderId: string; scheduledAt: string; title?: string; body?: string }): Promise<void> {
+  if (!isNative()) return;
+  const at = new Date(Date.now() + SNOOZE_MS);
+  const n: Notification = {
+    id: notificationId(SNOOZE_SEQ + (Date.now() % 1000)),
+    title: extra.title ?? "Time for your medicine",
+    body: extra.body ?? "Snoozed reminder",
+    schedule: { at, allowWhileIdle: true },
+    sound: SOUND,
+    channelId: CHANNEL_ID,
+    badge: 1,
+    extra: { reminderId: extra.reminderId, scheduledAt: extra.scheduledAt, snoozed: true },
+    actionTypeId: "PILLSEEK_DOSE",
+  };
+  await LocalNotifications.schedule({ notifications: [n] });
+}
+
 /** Clear the app-icon badge (called whenever the app comes to the foreground). */
 export async function clearBadge(): Promise<void> {
   if (!isNative()) return;
@@ -191,6 +212,7 @@ export async function registerDoseActions(): Promise<void> {
           id: "PILLSEEK_DOSE",
           actions: [
             { id: "taken", title: "Taken" },
+            { id: "snooze", title: "Remind me in 15 min" },
             { id: "skip", title: "Skip", destructive: true },
           ],
         },

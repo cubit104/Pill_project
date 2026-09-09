@@ -14,6 +14,7 @@ import type { CabinetItem, Reminder } from '../lib/cabinet'
 import { useBackHandler } from '../lib/backstack'
 import { hapticTick, isNative } from '../lib/native'
 import { refillStatus } from '../lib/refill'
+import { adherence } from '../lib/today'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -75,6 +76,7 @@ export default function DoctorSheetScreen() {
   )
 
   const today = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+  const week = useMemo(() => adherence(account.items, account.reminders, account.doseEvents), [account.items, account.reminders, account.doseEvents])
 
   const asText = () => {
     const lines = [`My medications — ${today}`, account.user?.email ? `Prepared with PillSeek for ${account.user.email}` : 'Prepared with PillSeek', '']
@@ -87,6 +89,7 @@ export default function DoctorSheetScreen() {
       if (r.item.notes) lines.push(`   Notes: ${r.item.notes}`)
       lines.push('')
     })
+    if (week.countedDays > 0) lines.push(`Adherence (last 7 days): ${week.goodDays} of ${week.countedDays} days with every dose taken.`, '')
     lines.push('Informational only; confirm each medicine with the patient and the pharmacy label.')
     return lines.join('\n')
   }
@@ -158,6 +161,12 @@ export default function DoctorSheetScreen() {
                 </li>
               ))}
             </ol>
+            {week.countedDays > 0 && (
+              <p className="px-1 text-[14px] text-body">
+                Adherence, last 7 days: <span className="font-semibold text-ink">{week.goodDays} of {week.countedDays} days</span> with every dose taken
+                {week.streak >= 2 ? ` · ${week.streak}-day streak` : ''}.
+              </p>
+            )}
             <Button full loading={busy} icon={<ExternalIcon size={18} />} onClick={() => void share()}>
               Share or print
             </Button>
