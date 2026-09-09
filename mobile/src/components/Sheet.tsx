@@ -20,10 +20,18 @@ export default function Sheet({ open, onClose, title, children }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
+    // When the keyboard opens over a field, keep that field in view inside the sheet.
+    const onFocus = (e: FocusEvent) => {
+      const el = e.target as HTMLElement | null
+      if (!el || !panelRef.current?.contains(el)) return
+      window.setTimeout(() => el.scrollIntoView({ block: 'nearest' }), 350)
+    }
     window.addEventListener('keydown', onKey)
+    document.addEventListener('focusin', onFocus)
     panelRef.current?.focus()
     return () => {
       window.removeEventListener('keydown', onKey)
+      document.removeEventListener('focusin', onFocus)
       opener?.focus?.()
     }
   }, [open, onClose])
@@ -38,8 +46,8 @@ export default function Sheet({ open, onClose, title, children }: Props) {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="animate-sheet-up relative w-full max-w-lg rounded-t-[28px] bg-elevated shadow-sheet"
-        style={{ paddingBottom: 'calc(var(--safe-bottom) + 16px)' }}
+        className="animate-sheet-up relative w-full max-w-lg overflow-y-auto rounded-t-[28px] bg-elevated shadow-sheet"
+        style={{ paddingBottom: 'calc(var(--safe-bottom) + 16px + var(--kb, 0px))', maxHeight: 'calc(100dvh - 24px)' }}
       >
         <div className="mx-auto mt-2.5 h-1.5 w-10 rounded-full bg-line" aria-hidden />
         {title && <h2 className="px-5 pt-3 text-[20px] font-bold tracking-tight text-ink">{title}</h2>}

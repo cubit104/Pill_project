@@ -46,17 +46,13 @@ function ReminderSheet({ item, name, existing, onClose }: { item: CabinetItem; n
   const [times, setTimes] = useState<string[]>(existing?.times ?? ['08:00'])
   const [days, setDays] = useState<number[]>(existing?.days ?? [0, 1, 2, 3, 4, 5, 6])
   const [dose, setDose] = useState(existing?.dose ?? '1 tablet')
-  const [custom, setCustom] = useState('')
   const [busy, setBusy] = useState(false)
 
   const toggleTime = (t: string) => setTimes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t].sort()))
   const toggleDay = (d: number) => setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()))
-  const addCustom = () => {
-    const m = /^(\d{1,2}):(\d{2})$/.exec(custom.trim())
-    if (!m) return
-    const t = `${String(parseInt(m[1] ?? '0', 10)).padStart(2, '0')}:${m[2]}`
-    toggleTime(t)
-    setCustom('')
+  /** The phone's own time wheel (AM/PM, no keyboard); picking a time adds it as a chip. */
+  const addPicked = (value: string) => {
+    if (/^\d{2}:\d{2}$/.test(value)) setTimes((prev) => (prev.includes(value) ? prev : [...prev, value].sort()))
   }
 
   const save = async () => {
@@ -102,12 +98,17 @@ function ReminderSheet({ item, name, existing, onClose }: { item: CabinetItem; n
                 </Chip>
               ))}
           </div>
-          <div className="mt-2 flex gap-2">
-            <TextField label="Custom time" value={custom} onChange={setCustom} placeholder="Other time, e.g. 14:30" inputMode="numeric" className="flex-1" onKeyDown={(e) => e.key === 'Enter' && addCustom()} />
-            <Button variant="secondary" size="sm" onClick={addCustom} disabled={!/^\d{1,2}:\d{2}$/.test(custom.trim())}>
-              Add
-            </Button>
-          </div>
+          <label className="mt-2 flex h-12 items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-3 text-[15px] text-body">
+            <span>Other time</span>
+            <input
+              type="time"
+              aria-label="Pick another time"
+              value=""
+              onChange={(e) => addPicked(e.target.value)}
+              className="h-9 rounded-lg bg-transparent px-2 text-[17px] font-semibold text-brand"
+            />
+          </label>
+          <p className="mt-1 px-1 text-[12px] text-muted">Tap a time to remove it.</p>
         </div>
         <div>
           <SectionLabel>Days</SectionLabel>
