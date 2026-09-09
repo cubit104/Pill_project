@@ -396,6 +396,84 @@ function RefillEditor({
 
 // ---------------------------------------------------------------------------
 
+/** Prescription details: directions, Rx, pharmacy (with a call link), prescriber, refills, notes. */
+function ItemEditor({ item, name, onSaved, onClose }: { item: CabinetItem; name: string; onSaved: (patch: Partial<CabinetItem>) => void; onClose: () => void }) {
+  const [nickname, setNickname] = useState(item.nickname ?? '')
+  const [directions, setDirections] = useState(item.directions ?? '')
+  const [rx, setRx] = useState(item.rx_number ?? '')
+  const [pharmacy, setPharmacy] = useState(item.pharmacy_name ?? '')
+  const [phone, setPhone] = useState(item.pharmacy_phone ?? '')
+  const [prescriber, setPrescriber] = useState(item.prescriber ?? '')
+  const [refills, setRefills] = useState(item.refills_left === null ? '' : String(item.refills_left))
+  const [notes, setNotes] = useState(item.notes ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const nul = (v: string) => (v.trim() ? v.trim() : null)
+
+  const save = async () => {
+    setBusy(true)
+    setError('')
+    const n = parseInt(refills, 10)
+    const patch = {
+      nickname: nul(nickname),
+      directions: nul(directions),
+      rx_number: nul(rx),
+      pharmacy_name: nul(pharmacy),
+      pharmacy_phone: nul(phone),
+      prescriber: nul(prescriber),
+      refills_left: Number.isFinite(n) && n >= 0 ? Math.min(99, n) : null,
+      notes: nul(notes),
+    }
+    try {
+      await updateCabinetItem(item.id, patch)
+      onSaved(patch)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save')
+      setBusy(false)
+    }
+  }
+
+  const field = (id: string, label: string, value: string, set: (v: string) => void, placeholder: string) => (
+    <div>
+      <label htmlFor={id} className="block text-sm font-medium text-slate-700">{label}</label>
+      <input id={id} value={value} onChange={(e) => set(e.target.value)} placeholder={placeholder} className={`${inputClass} mt-1`} />
+    </div>
+  )
+  const digits = phone.replace(/[^\d+]/g, '')
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Prescription details">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+        <h3 className="text-lg font-bold text-slate-900">{name}</h3>
+        {digits && (
+          <a href={`tel:${digits}`} className={`${secondaryBtn} mt-3 w-full`}>
+            Call {pharmacy.trim() || 'pharmacy'} to refill{rx.trim() ? ` · Rx ${rx.trim()}` : ''}
+          </a>
+        )}
+        <div className="mt-4 space-y-3">
+          {field('item-nickname', 'Nickname', nickname, setNickname, 'e.g. morning pill')}
+          {field('item-directions', 'Directions (as on the label)', directions, setDirections, 'e.g. Take 1 tablet twice daily')}
+          <div className="grid grid-cols-2 gap-3">
+            {field('item-rx', 'Rx number', rx, setRx, 'e.g. 7206525')}
+            {field('item-refills', 'Refills left', refills, setRefills, 'e.g. 2')}
+          </div>
+          {field('item-pharmacy', 'Pharmacy', pharmacy, setPharmacy, 'e.g. Walmart')}
+          {field('item-phone', 'Pharmacy phone', phone, setPhone, 'e.g. 469-675-8110')}
+          {field('item-prescriber', 'Prescriber', prescriber, setPrescriber, 'e.g. Dr. Smith')}
+          {field('item-notes', 'Notes', notes, setNotes, 'Anything else')}
+        </div>
+        {error && <p className="mt-3 text-sm text-red-600" role="alert">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" disabled={busy} onClick={onClose} className={secondaryBtn}>Cancel</button>
+          <button type="button" disabled={busy} onClick={() => void save()} className={primaryBtn}>{busy ? 'Saving…' : 'Save'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
 export default function CabinetClient() {
   const [user, setUser] = useState<CabinetUser | null | undefined>(undefined)
   const [items, setItems] = useState<CabinetItem[]>([])
@@ -405,6 +483,7 @@ export default function CabinetClient() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [editing, setEditing] = useState<CabinetItem | null>(null)
+  const [details, setDetails] = useState<CabinetItem | null>(null)
   const [refilling, setRefilling] = useState<CabinetItem | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
@@ -581,6 +660,12 @@ export default function CabinetClient() {
                     <p className="truncate text-sm text-slate-600">
                       {[pill?.strength, pill?.imprint && `Imprint ${pill.imprint}`].filter(Boolean).join(' · ') || 'Loading details…'}
                     </p>
+                    {item.directions && <p className="truncate text-sm text-slate-800">{item.directions}</p>}
+                    {(item.rx_number || item.pharmacy_name) && (
+                      <p className="truncate text-xs text-slate-500">
+                        {[item.rx_number ? `Rx ${item.rx_number}` : null, item.pharmacy_name, item.refills_left !== null ? `${item.refills_left} refill${item.refills_left === 1 ? '' : 's'} left` : null].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
                     <p className="mt-1 flex flex-wrap gap-1">
                       {r && (
                         <span className="inline-block rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
@@ -598,6 +683,7 @@ export default function CabinetClient() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button type="button" onClick={() => setEditing(item)} className={secondaryBtn}>{r ? 'Edit reminder' : 'Remind me'}</button>
                   <button type="button" onClick={() => setRefilling(item)} className={secondaryBtn}>{item.pills_on_hand === null ? 'Track refills' : 'Refill'}</button>
+                  <button type="button" onClick={() => setDetails(item)} className={secondaryBtn}>Details</button>
                   <button type="button" onClick={() => void remove(item)} className="inline-flex items-center rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Remove</button>
                 </div>
               </li>
@@ -647,6 +733,18 @@ export default function CabinetClient() {
             setEditing(null)
           }}
           onClose={() => setEditing(null)}
+        />
+      )}
+
+      {details && (
+        <ItemEditor
+          item={details}
+          name={pills[details.slug]?.name ?? details.slug}
+          onSaved={(patch) => {
+            setItems((xs) => xs.map((x) => (x.id === details.id ? { ...x, ...patch } : x)))
+            setDetails(null)
+          }}
+          onClose={() => setDetails(null)}
         />
       )}
 
