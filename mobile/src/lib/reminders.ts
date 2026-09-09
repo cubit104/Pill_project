@@ -5,6 +5,7 @@
  * always matches the account: cancel ours, then schedule the next 14 days.
  */
 import { LocalNotifications, type LocalNotificationSchema } from '@capacitor/local-notifications'
+import { Badge } from '@capawesome/capacitor-badge'
 import type { Reminder } from './cabinet'
 import { isNative } from './native'
 
@@ -28,6 +29,9 @@ const REFILL_SEQ = 90_000 // ids ID_BASE+90000… stay inside our cancel window
 const CHANNEL_ID = 'pillseek_doses' // Android 8+: sound/importance live on the channel
 // iOS plays nothing unless a sound is named; a name that is not a bundled file falls back to the system default.
 const SOUND = 'default'
+
+/** `badge` is added to the iOS plugin by patches/@capacitor+local-notifications (patch-package). */
+type Notification = LocalNotificationSchema & { badge?: number }
 
 /** Deterministic id per reminder × occurrence so re-planning replaces cleanly. */
 function notificationId(seq: number): number {
@@ -74,7 +78,7 @@ export async function syncNotifications(targets: ReminderTarget[], refills: Refi
     /* nothing pending */
   }
   const now = new Date()
-  const list: LocalNotificationSchema[] = []
+  const list: Notification[] = []
   let seq = 0
   for (const { reminder, title } of targets) {
     for (const at of upcomingDoses(reminder, now)) {
@@ -86,6 +90,7 @@ export async function syncNotifications(targets: ReminderTarget[], refills: Refi
         schedule: { at, allowWhileIdle: true },
         sound: SOUND,
         channelId: CHANNEL_ID,
+        badge: 1, // "a dose is waiting" on the app icon until the app is opened
         extra: { reminderId: reminder.id, scheduledAt: at.toISOString() },
         actionTypeId: 'PILLSEEK_DOSE',
       })
@@ -102,11 +107,22 @@ export async function syncNotifications(targets: ReminderTarget[], refills: Refi
       schedule: { at, allowWhileIdle: true },
       sound: SOUND,
       channelId: CHANNEL_ID,
+      badge: 1,
       extra: { kind: 'refill' },
     })
   }
   if (list.length) await LocalNotifications.schedule({ notifications: list })
   return list.length
+}
+
+/** Clear the app-icon badge (called whenever the app comes to the foreground). */
+export async function clearBadge(): Promise<void> {
+  if (!isNative()) return
+  try {
+    await Badge.clear()
+  } catch {
+    /* unsupported */
+  }
 }
 
 /** Register the Taken / Skip buttons shown on the notification, and the Android channel. */

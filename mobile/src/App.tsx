@@ -6,6 +6,7 @@ import TabBar from './components/TabBar'
 import { ToastProvider } from './components/Toast'
 import { BackStackProvider, useBackStack } from './lib/backstack'
 import { applyStatusBar, hideSplash, installKeyboardListeners, isNative } from './lib/native'
+import { clearBadge } from './lib/reminders'
 import { AccountProvider } from './lib/account'
 import { SettingsProvider } from './lib/settings'
 import { isLegalKind } from './content/legal'
@@ -50,6 +51,18 @@ function NativeBridges() {
     const root = location.pathname.split('/')[1]
     if (root) void saveLastTab(`/${root}`)
   }, [location.pathname])
+
+  // The icon badge means "a dose is waiting"; opening the app clears it.
+  useEffect(() => {
+    if (!isNative()) return
+    void clearBadge()
+    const stateSub = CapApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) void clearBadge()
+    })
+    return () => {
+      void stateSub.then((s) => s.remove())
+    }
+  }, [])
 
   useEffect(() => {
     if (!isNative()) return
