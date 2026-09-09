@@ -5,6 +5,7 @@ import Card, { SectionLabel } from '../components/Card'
 import Chip from '../components/Chip'
 import Disclaimer from '../components/Disclaimer'
 import EmptyState from '../components/EmptyState'
+import ItemSheet from '../components/ItemSheet'
 import { BellIcon, CabinetIcon, CameraIcon, ChevronRightIcon, ClockIcon, InteractionsIcon, PillIcon, RxIcon, TrashIcon, UserIcon } from '../components/Icons'
 import { PillThumb, TextBadge, titleCase } from '../components/PillRow'
 import ScreenHeader from '../components/ScreenHeader'
@@ -299,6 +300,7 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
   const [editing, setEditing] = useState<{ item: CabinetItem; reminder: Reminder | null } | null>(null)
   const [removing, setRemoving] = useState<CabinetItem | null>(null)
   const [refilling, setRefilling] = useState<{ item: CabinetItem; reminder: Reminder | null } | null>(null)
+  const [details, setDetails] = useState<CabinetItem | null>(null)
 
   const today = useMemo(() => summarize(todayDoses(account.items, account.reminders, account.doseEvents)), [account.items, account.reminders, account.doseEvents])
 
@@ -446,13 +448,26 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
             return (
               <div key={item.id} className="px-4 py-3">
                 <div className="flex items-center gap-3">
-                  <button type="button" onClick={() => navigate(`/pill/${encodeURIComponent(item.slug)}`)} className="pressable flex min-w-0 flex-1 items-center gap-3 text-left">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void hapticTick()
+                      setDetails(item)
+                    }}
+                    className="pressable flex min-w-0 flex-1 items-center gap-3 text-left"
+                  >
                     <PillThumb src={pill?.images[0] ?? null} alt="" size={52} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[17px] font-semibold text-ink">{nameOf(item)}</span>
                       <span className="block truncate text-[13px] text-muted">
                         {pill ? [pill.strength, pill.imprint ? `Imprint ${pill.imprint}` : null].filter(Boolean).join(' · ') : 'Loading…'}
                       </span>
+                      {item.directions && <span className="block truncate text-[13px] text-body">{item.directions}</span>}
+                      {(item.rx_number || item.pharmacy_name) && (
+                        <span className="block truncate text-[12px] text-muted">
+                          {[item.rx_number ? `Rx ${item.rx_number}` : null, item.pharmacy_name, item.refills_left !== null ? `${item.refills_left} refill${item.refills_left === 1 ? '' : 's'} left` : null].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
                       {(rems.length > 0 || refill) && (
                         <span className="mt-1 flex flex-wrap gap-1">
                           {rems.map((r) => (
@@ -553,6 +568,7 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
 
       {editing && <ReminderSheet item={editing.item} name={nameOf(editing.item)} existing={editing.reminder} onClose={() => setEditing(null)} />}
       {refilling && <RefillSheet item={refilling.item} name={nameOf(refilling.item)} reminder={refilling.reminder} onClose={() => setRefilling(null)} />}
+      {details && <ItemSheet item={details} name={nameOf(details)} image={account.pills[details.slug]?.images[0] ?? null} onClose={() => setDetails(null)} />}
 
       <Sheet open={removing !== null} onClose={() => setRemoving(null)} title="Remove from cabinet?">
         {removing && (

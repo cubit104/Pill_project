@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseLabel, scheduleFromSig } from './labelParse'
+import { drugNameCandidates, expandShorthand, parseLabel, scheduleFromSig } from './labelParse'
 
 const CVS = [
   'CVS pharmacy',
@@ -118,5 +118,27 @@ describe('scheduleFromSig', () => {
   it('returns null for nothing usable', () => {
     expect(scheduleFromSig(null)).toBeNull()
     expect(scheduleFromSig('SHAKE WELL')).toBeNull()
+  })
+})
+
+describe('pharmacy shorthand', () => {
+  it('expands common label abbreviations', () => {
+    expect(expandShorthand('AMOX/K CLAV')).toBe('amoxicillin clavulanate')
+    expect(expandShorthand('HYDROCO/APAP')).toBe('hydrocodone acetaminophen')
+    expect(expandShorthand('SMZ/TMP DS')).toBe('sulfamethoxazole trimethoprim DS')
+    expect(expandShorthand('METOP SUCC ER')).toBe('metoprolol SUCC')
+    expect(expandShorthand('Lisinopril')).toBe('Lisinopril')
+  })
+
+  it('offers lookup candidates from broad to narrow', () => {
+    expect(drugNameCandidates('Amox/k Clav')).toEqual(['Amox/k Clav', 'amoxicillin clavulanate', 'amoxicillin', 'clavulanate'])
+    expect(drugNameCandidates(null)).toEqual([])
+  })
+
+  it('reads combo strengths', () => {
+    const p = parseLabel(['AMOX/K CLAV 875-125 MG TAB', 'TAKE 1 TABLET BY MOUTH TWICE DAILY'])
+    expect(p.drugName).toBe('Amox/k Clav')
+    expect(p.strength).toBe('875-125 MG')
+    expect(p.form).toBe('tablet')
   })
 })

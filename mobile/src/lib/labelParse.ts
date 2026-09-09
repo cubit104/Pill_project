@@ -35,7 +35,7 @@ export interface ParsedLabel {
 }
 
 const FORMS = ['TABLET', 'TAB', 'TABS', 'CAPSULE', 'CAP', 'CAPS', 'SOFTGEL', 'ER', 'XR', 'SR', 'DR', 'ODT', 'CHEWABLE', 'SOLUTION', 'SUSPENSION', 'INHALER', 'PATCH']
-const STRENGTH_RE = /(\d+(?:[.,]\d+)?)\s*(MG|MCG|G|ML|MEQ|IU|UNITS?|%)(?:\s*\/\s*(\d+(?:[.,]\d+)?)\s*(MG|MCG|ML))?/i
+const STRENGTH_RE = /(\d+(?:[.,]\d+)?(?:-\d+(?:[.,]\d+)?)?)\s*(MG|MCG|G|ML|MEQ|IU|UNITS?|%)(?:\s*\/\s*(\d+(?:[.,]\d+)?)\s*(MG|MCG|ML))?/i
 const SIG_START = /^(TAKE|APPLY|USE|INSTILL|INHALE|CHEW|PLACE|INJECT|GIVE|DISSOLVE|SWALLOW)\b/i
 const NOISE = /^(PATIENT|DR\.?|MD|DOB|DATE OF BIRTH|DISCARD|EXP|CAUTION|FEDERAL|WARNING|KEEP|STORE|GENERIC FOR|MFR|MFG|NDC|LOT|NO REFILLS|QTY)/i
 
@@ -149,6 +149,77 @@ function normaliseForm(f: string): string {
   if (/^(TAB|TABS|TABLET)$/.test(f)) return 'tablet'
   if (/^(CAP|CAPS|CAPSULE)$/.test(f)) return 'capsule'
   return f.toLowerCase()
+}
+
+// ---- Pharmacy shorthand -----------------------------------------------------------
+
+/** Abbreviations pharmacies print on labels, longest first so "K CLAV" wins over "CLAV". */
+const SHORTHAND: Array<[RegExp, string]> = [
+  [/\bAMOX\s*\/?\s*K\s*CLAV\b/i, 'amoxicillin clavulanate'],
+  [/\bAMOX[\/-]?CLAV\b/i, 'amoxicillin clavulanate'],
+  [/\bK\s*CLAV\b/i, 'clavulanate'],
+  [/\bAMOX\b/i, 'amoxicillin'],
+  [/\bSMZ\s*[\/-]?\s*TMP\b/i, 'sulfamethoxazole trimethoprim'],
+  [/\bSMX\s*[\/-]?\s*TMP\b/i, 'sulfamethoxazole trimethoprim'],
+  [/\bHCTZ\b/i, 'hydrochlorothiazide'],
+  [/\bAPAP\b/i, 'acetaminophen'],
+  [/\bHYDROCO(?:D)?\s*[\/-]?\s*APAP\b/i, 'hydrocodone acetaminophen'],
+  [/\bOXYCO(?:D)?\s*[\/-]?\s*APAP\b/i, 'oxycodone acetaminophen'],
+  [/\bMTX\b/i, 'methotrexate'],
+  [/\bASA\b/i, 'aspirin'],
+  [/\bPCN\b/i, 'penicillin'],
+  [/\bAZITHRO\b/i, 'azithromycin'],
+  [/\bCIPRO\b/i, 'ciprofloxacin'],
+  [/\bDOXY\b/i, 'doxycycline'],
+  [/\bMETFORM\b/i, 'metformin'],
+  [/\bATORVA\b/i, 'atorvastatin'],
+  [/\bLISINO\b/i, 'lisinopril'],
+  [/\bLEVOTHYROX\b/i, 'levothyroxine'],
+  [/\bOMEP\b/i, 'omeprazole'],
+  [/\bPREDNIS\b/i, 'prednisone'],
+  [/\bIBU\b/i, 'ibuprofen'],
+  [/\bNAPROX\b/i, 'naproxen'],
+  [/\bCLONAZ\b/i, 'clonazepam'],
+  [/\bALPRAZ\b/i, 'alprazolam'],
+  [/\bLORAZ\b/i, 'lorazepam'],
+  [/\bSERTRA\b/i, 'sertraline'],
+  [/\bESCITALO\b/i, 'escitalopram'],
+  [/\bBUPROP\b/i, 'bupropion'],
+  [/\bGABAP\b/i, 'gabapentin'],
+  [/\bMONTELU\b/i, 'montelukast'],
+  [/\bPANTOP\b/i, 'pantoprazole'],
+  [/\bLOSART\b/i, 'losartan'],
+  [/\bAMLOD\b/i, 'amlodipine'],
+  [/\bMETOP\b/i, 'metoprolol'],
+  [/\bCARVED\b/i, 'carvedilol'],
+  [/\bFUROS\b/i, 'furosemide'],
+  [/\bTAMSUL\b/i, 'tamsulosin'],
+  [/\bDILT\b/i, 'diltiazem'],
+  [/\bER\b|\bXR\b|\bSR\b|\bDR\b|\bCR\b|\bODT\b|\bHCL\b|\bHCT\b/i, ''],
+]
+
+/** Expand label shorthand into a name our drug lookup understands. */
+export function expandShorthand(name: string): string {
+  let s = ` ${name} `
+  for (const [re, full] of SHORTHAND) s = s.replace(re, ` ${full} `)
+  return s.replace(/[\/,;:]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/** Names to try in order until the lookup finds something: full, expanded, first ingredient, each word. */
+export function drugNameCandidates(name: string | null | undefined): string[] {
+  if (!name) return []
+  const out: string[] = []
+  const push = (v: string) => {
+    const t = v.replace(/\s+/g, ' ').trim()
+    if (t.length >= 3 && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t)
+  }
+  push(name)
+  const expanded = expandShorthand(name)
+  push(expanded)
+  const first = expanded.split(' ')[0] ?? ''
+  push(first)
+  for (const w of expanded.split(' ')) if (w.length >= 5 && !/^\d/.test(w)) push(w)
+  return out
 }
 
 export function titleCase(s: string): string {

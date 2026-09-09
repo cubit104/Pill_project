@@ -11,10 +11,10 @@ import ScreenHeader from '../components/ScreenHeader'
 import TextField from '../components/TextField'
 import { useToast } from '../components/Toast'
 import { useAccount } from '../lib/account'
-import { getDrugPills, lookupDrugs, type DrugRow, type SearchResult } from '../lib/api'
+import { getDrugPills, lookupDrugs, suggestDrugs, type DrugRow, type SearchResult } from '../lib/api'
 import { useBackHandler } from '../lib/backstack'
 import { isPreviewSupported, takeSystemPhoto } from '../lib/camera'
-import { parseLabel, scheduleFromSig, type OcrLine, type ParsedLabel, type SigSchedule } from '../lib/labelParse'
+import { drugNameCandidates, parseLabel, scheduleFromSig, type OcrLine, type ParsedLabel, type SigSchedule } from '../lib/labelParse'
 import { hapticNotify, hapticTick } from '../lib/native'
 import { blobToBase64, ocrAvailable, recognizeText } from '../lib/ocr'
 
@@ -50,6 +50,8 @@ export default function BottleScanScreen() {
   const [rx, setRx] = useState('')
   const [pharmacy, setPharmacy] = useState('')
   const [showRaw, setShowRaw] = useState(false)
+  const [query, setQuery] = useState('')
+  const [suggestions, setSuggestions] = useState<DrugRow[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const schedule: SigSchedule | null = useMemo(() => scheduleFromSig(directions), [directions])
@@ -89,14 +91,33 @@ export default function BottleScanScreen() {
         return
       }
       setPhase('matching')
-      const res = await lookupDrugs(parsed.drugName)
-      setDrugs(res.results)
-      const best = res.results[0] ?? null
+      // Labels use shorthand ("AMOX/K CLAV"); try the printed name, its expansion, then each ingredient.
+      let results: DrugRow[] = []
+      for (const candidate of drugNameCandidates(parsed.drugName)) {
+        results = (await lookupDrugs(candidate)).results
+        if (results.length) break
+      }
+      setDrugs(results)
+      const best = results[0] ?? null
       if (best) await chooseDrug(best, parsed.strength)
+      else setQuery(parsed.drugName)
       setPhase('review')
     } catch (err) {
       setPhase('review')
       setError(err instanceof Error ? err.message : 'Could not match the drug')
+    }
+  }
+
+  const search = async (q: string) => {
+    setQuery(q)
+    if (q.trim().length < 2) {
+      setSuggestions([])
+      return
+    }
+    try {
+      setSuggestions(await suggestDrugs(q.trim()))
+    } catch {
+      setSuggestions([])
     }
   }
 
@@ -132,10 +153,15 @@ export default function BottleScanScreen() {
     try {
       const item = await account.add(pill.slug)
       const qty = parseInt(quantity, 10)
-      const notes = [rx ? `Rx #${rx}` : null, pharmacy || null, label?.prescriber ? `Dr. ${label.prescriber}` : null, directions || null].filter(Boolean).join('\n')
+      const [pharmacyName, pharmacyPhone] = pharmacy.split('·').map((x) => x.trim())
       await account.update(item.id, {
         ...(Number.isFinite(qty) && qty > 0 ? { pills_on_hand: qty, fill_quantity: qty, pills_counted_at: new Date().toISOString(), pills_per_day: schedule?.pillsPerDay ?? null } : {}),
-        ...(notes ? { notes } : {}),
+        directions: directions.trim() || null,
+        rx_number: rx.trim() || null,
+        pharmacy_name: pharmacyName || label?.pharmacyName || null,
+        pharmacy_phone: pharmacyPhone || label?.pharmacyPhone || null,
+        prescriber: label?.prescriber ?? null,
+        refills_left: label?.refills ?? null,
       })
       if (schedule && schedule.times.length > 0) {
         await account.upsertReminder({
@@ -256,7 +282,34 @@ export default function BottleScanScreen() {
                 {drug ? (
                   <p className="text-[17px] font-semibold text-ink">{drug.name}</p>
                 ) : (
-                  <p className="text-[14px] text-muted">No match for “{label.drugName}”. Scan again or add the pill from Search.</p>
+                  <div className="space-y-2">
+                    <p className="text-[14px] text-muted">
+                      {label.drugName ? `No match for “${label.drugName}”. ` : ''}Type the medicine name and pick it:
+                    </p>
+                    <TextField label="Medicine name" value={query} onChange={(v) => void search(v)} placeholder="e.g. Amoxicillin" autoCapitalize="none" />
+                    {suggestions.length > 0 && (
+                      <div className="divide-y divide-line rounded-2xl hairline bg-surface">
+                        {suggestions.slice(0, 6).map((d) => (
+                          <button
+                            key={d.key}
+                            type="button"
+                            onClick={() => {
+                              setSuggestions([])
+                              setDrugs([d])
+                              void chooseDrug(d, label.strength)
+                            }}
+                            className="pressable flex w-full items-center gap-3 px-3 py-2.5 text-left"
+                          >
+                            <PillThumb src={d.image_url} alt="" size={36} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[15px] font-semibold text-ink">{d.name}</span>
+                              <span className="block truncate text-[12px] text-muted">{d.strengths.slice(0, 4).join(' · ')}</span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
                 {drug && drug.strengths.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-2">

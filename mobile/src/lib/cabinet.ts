@@ -19,6 +19,13 @@ export interface CabinetItem {
   pills_per_day: number | null
   fill_quantity: number | null
   refill_notify_days: number
+  /** Prescription details (bottle scan or typed). */
+  directions: string | null
+  rx_number: string | null
+  pharmacy_name: string | null
+  pharmacy_phone: string | null
+  prescriber: string | null
+  refills_left: number | null
 }
 
 export interface Reminder {
@@ -41,7 +48,7 @@ export interface DoseEvent {
   acted_at: string
 }
 
-const ITEM_COLS = 'id, slug, nickname, notes, position, created_at, pills_on_hand, pills_counted_at, pills_per_day, fill_quantity, refill_notify_days'
+const ITEM_COLS = 'id, slug, nickname, notes, position, created_at, pills_on_hand, pills_counted_at, pills_per_day, fill_quantity, refill_notify_days, directions, rx_number, pharmacy_name, pharmacy_phone, prescriber, refills_left'
 
 function fail(prefix: string, error: { message: string } | null): never {
   throw new Error(`${prefix}: ${error?.message ?? 'unknown error'}`)
