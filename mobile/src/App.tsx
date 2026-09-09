@@ -16,6 +16,7 @@ import AboutScreen from './screens/AboutScreen'
 import AccountScreen from './screens/AccountScreen'
 import DoctorSheetScreen from './screens/DoctorSheetScreen'
 import TodayScreen from './screens/TodayScreen'
+import BottleScanScreen from './screens/BottleScanScreen'
 import CabinetScreen from './screens/CabinetScreen'
 import ContactScreen from './screens/ContactScreen'
 import EditorialScreen from './screens/EditorialScreen'
@@ -138,8 +139,9 @@ function Shell() {
   const accountPage = pathname === '/account'
   const doctorSheet = pathname === '/doctor-sheet'
   const today = pathname === '/today'
+  const scanBottle = pathname === '/scan-bottle'
   // Anything pushed over the tabs: the tab panes hide and go inert underneath.
-  const overlay = pillRoute !== null || interactions || editorial || legal !== null || contact || accountPage || doctorSheet || today
+  const overlay = pillRoute !== null || interactions || editorial || legal !== null || contact || accountPage || doctorSheet || today || scanBottle
   if (!isTab(pathname) && !overlay) return <Navigate to="/home" replace />
   const active: Tab = isTab(pathname) ? pathname : lastTab.current
   const panes: Array<[Tab, React.ReactNode]> = [
@@ -194,6 +196,11 @@ function Shell() {
         {today && (
           <div className="absolute inset-0 z-30">
             <TodayScreen />
+          </div>
+        )}
+        {scanBottle && (
+          <div className="absolute inset-0 z-30">
+            <BottleScanScreen />
           </div>
         )}
         {pillRoute && (

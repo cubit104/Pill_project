@@ -5,7 +5,7 @@ import Card, { SectionLabel } from '../components/Card'
 import Chip from '../components/Chip'
 import Disclaimer from '../components/Disclaimer'
 import EmptyState from '../components/EmptyState'
-import { BellIcon, CabinetIcon, ChevronRightIcon, ClockIcon, InteractionsIcon, PillIcon, RxIcon, TrashIcon, UserIcon } from '../components/Icons'
+import { BellIcon, CabinetIcon, CameraIcon, ChevronRightIcon, ClockIcon, InteractionsIcon, PillIcon, RxIcon, TrashIcon, UserIcon } from '../components/Icons'
 import { PillThumb, TextBadge, titleCase } from '../components/PillRow'
 import ScreenHeader from '../components/ScreenHeader'
 import Sheet from '../components/Sheet'
@@ -16,6 +16,7 @@ import { useAccount } from '../lib/account'
 import type { CabinetItem, Reminder } from '../lib/cabinet'
 import { interactionsPath } from '../lib/interactions'
 import { hapticTick } from '../lib/native'
+import { ocrAvailable } from '../lib/ocr'
 import { effectiveRate, refillLabel, refillStatus, scheduleRate } from '../lib/refill'
 import { ensureNotificationPermission, upcomingDoses } from '../lib/reminders'
 import { summarize, todayDoses } from '../lib/today'
@@ -367,14 +368,42 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
         <EmptyState
           art="search"
           title="Nothing saved yet"
-          body="Open any pill and tap “Add to my cabinet”, or identify one with the camera."
-          action={<Button onClick={() => navigate('/identify')}>Identify a pill</Button>}
+          body="Scan the label on a pharmacy bottle, open any pill and tap “Add to my cabinet”, or identify one with the camera."
+          action={
+            <div className="flex flex-col gap-2">
+              {ocrAvailable() && (
+                <Button icon={<CameraIcon size={18} />} onClick={() => navigate('/scan-bottle')}>
+                  Scan a pharmacy bottle
+                </Button>
+              )}
+              <Button variant={ocrAvailable() ? 'secondary' : 'primary'} onClick={() => navigate('/identify')}>
+                Identify a pill
+              </Button>
+            </div>
+          }
         />
       </Card>
     )
   } else {
     body = (
       <div className="space-y-4">
+        {ocrAvailable() && (
+          <button
+            type="button"
+            onClick={() => {
+              void hapticTick()
+              navigate('/scan-bottle')
+            }}
+            className="pressable flex w-full items-center gap-3 rounded-card border border-dashed border-brand/50 bg-surface px-4 py-3 text-left"
+          >
+            <CameraIcon size={22} className="flex-none text-brand" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-semibold text-ink">Scan a pharmacy bottle</span>
+              <span className="block text-[13px] text-muted">Adds the pill, reminders, Rx and refill count from the label</span>
+            </span>
+            <ChevronRightIcon size={18} className="flex-none text-muted" />
+          </button>
+        )}
         {account.notifications === 'denied' && account.reminders.length > 0 && (
           <Card tone="warn" className="text-[14px] text-body">
             <span className="font-semibold text-ink">Notifications are off</span>, so reminders will not ring. Turn them on in
