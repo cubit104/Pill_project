@@ -47,6 +47,7 @@ function ReminderSheet({ item, name, existing, onClose }: { item: CabinetItem; n
   const [days, setDays] = useState<number[]>(existing?.days ?? [0, 1, 2, 3, 4, 5, 6])
   const [dose, setDose] = useState(existing?.dose ?? '1 tablet')
   const [busy, setBusy] = useState(false)
+  const [pickerKey, setPickerKey] = useState(0)
 
   const toggleTime = (t: string) => setTimes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t].sort()))
   const toggleDay = (d: number) => setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()))
@@ -101,10 +102,19 @@ function ReminderSheet({ item, name, existing, onClose }: { item: CabinetItem; n
           <label className="mt-2 flex h-12 items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-3 text-[15px] text-body">
             <span>Other time</span>
             <input
+              key={pickerKey}
               type="time"
               aria-label="Pick another time"
-              value=""
-              onChange={(e) => addPicked(e.target.value)}
+              defaultValue=""
+              onChange={(e) => {
+                const v = e.target.value
+                if (!v) return
+                addPicked(v)
+                // Fresh picker each time: iOS re-sends the wheel's last value when it closes,
+                // which would re-add a chip the user just removed.
+                e.target.blur()
+                setPickerKey((k) => k + 1)
+              }}
               className="h-9 rounded-lg bg-transparent px-2 text-[17px] font-semibold text-brand"
             />
           </label>
