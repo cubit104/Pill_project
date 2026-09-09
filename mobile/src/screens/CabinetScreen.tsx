@@ -458,16 +458,11 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
                   >
                     <PillThumb src={pill?.images[0] ?? null} alt="" size={52} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[17px] font-semibold text-ink">{nameOf(item)}</span>
+                      <span className="block truncate text-[18px] font-semibold text-ink">{nameOf(item)}</span>
                       <span className="block truncate text-[13px] text-muted">
                         {pill ? [pill.strength, pill.imprint ? `Imprint ${pill.imprint}` : null].filter(Boolean).join(' · ') : 'Loading…'}
                       </span>
                       {item.directions && <span className="block truncate text-[13px] text-body">{item.directions}</span>}
-                      {(item.rx_number || item.pharmacy_name) && (
-                        <span className="block truncate text-[12px] text-muted">
-                          {[item.rx_number ? `Rx ${item.rx_number}` : null, item.pharmacy_name, item.refills_left !== null ? `${item.refills_left} refill${item.refills_left === 1 ? '' : 's'} left` : null].filter(Boolean).join(' · ')}
-                        </span>
-                      )}
                       {(rems.length > 0 || refill) && (
                         <span className="mt-1 flex flex-wrap gap-1">
                           {rems.map((r) => (
@@ -491,7 +486,7 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
                     }}
                     className="pressable inline-flex min-h-[36px] items-center gap-1.5 rounded-full bg-brand-tint px-3 text-[13px] font-semibold text-brand"
                   >
-                    <BellIcon size={15} /> {rems.length ? 'Edit reminder' : 'Remind me'}
+                    <BellIcon size={15} /> {rems.length ? 'Reminder' : 'Remind me'}
                   </button>
                   <button
                     type="button"
@@ -501,14 +496,7 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
                     }}
                     className={`pressable inline-flex min-h-[36px] items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold ${refill && refill.level !== 'ok' ? 'bg-amber-100 text-amber-800' : 'bg-brand-tint text-brand'}`}
                   >
-                    <PillIcon size={15} /> {item.pills_on_hand === null ? 'Track refills' : 'Refill'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRemoving(item)}
-                    className="pressable inline-flex min-h-[36px] items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-muted"
-                  >
-                    <TrashIcon size={15} /> Remove
+                    <PillIcon size={15} /> Refill
                   </button>
                 </div>
               </div>
@@ -568,7 +556,18 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
 
       {editing && <ReminderSheet item={editing.item} name={nameOf(editing.item)} existing={editing.reminder} onClose={() => setEditing(null)} />}
       {refilling && <RefillSheet item={refilling.item} name={nameOf(refilling.item)} reminder={refilling.reminder} onClose={() => setRefilling(null)} />}
-      {details && <ItemSheet item={details} name={nameOf(details)} image={account.pills[details.slug]?.images[0] ?? null} onClose={() => setDetails(null)} />}
+      {details && (
+        <ItemSheet
+          item={details}
+          name={nameOf(details)}
+          image={account.pills[details.slug]?.images[0] ?? null}
+          onClose={() => setDetails(null)}
+          onRemove={() => {
+            setDetails(null)
+            setRemoving(details)
+          }}
+        />
+      )}
 
       <Sheet open={removing !== null} onClose={() => setRemoving(null)} title="Remove from cabinet?">
         {removing && (

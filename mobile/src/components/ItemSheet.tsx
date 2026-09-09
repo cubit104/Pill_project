@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from './Button'
-import { ChevronRightIcon } from './Icons'
+import { ChevronRightIcon, TrashIcon } from './Icons'
 import { PillThumb } from './PillRow'
 import Sheet from './Sheet'
 import TextField from './TextField'
@@ -24,7 +24,7 @@ function Labeled({ label, children }: { label: string; children: React.ReactNode
  * directions as printed, Rx number, pharmacy (tap to call = request a refill),
  * prescriber, refills left, notes. Filled by the bottle scan or by hand.
  */
-export default function ItemSheet({ item, name, image, onClose }: { item: CabinetItem; name: string; image: string | null; onClose: () => void }) {
+export default function ItemSheet({ item, name, image, onClose, onRemove }: { item: CabinetItem; name: string; image: string | null; onClose: () => void; onRemove: () => void }) {
   const navigate = useNavigate()
   const account = useAccount()
   const toast = useToast()
@@ -98,7 +98,7 @@ export default function ItemSheet({ item, name, image, onClose }: { item: Cabine
         </button>
 
         {phone.trim() && (
-          <Button full variant="secondary" onClick={call}>
+          <Button full onClick={call}>
             Call {pharmacy.trim() || 'pharmacy'} to refill{rx.trim() ? ` · Rx ${rx.trim()}` : ''}
           </Button>
         )}
@@ -133,6 +133,9 @@ export default function ItemSheet({ item, name, image, onClose }: { item: Cabine
         <Button full loading={busy} disabled={!dirty} onClick={() => void save()}>
           Save
         </Button>
+        <button type="button" onClick={onRemove} className="pressable mx-auto flex min-h-[44px] items-center gap-1.5 px-3 text-[14px] font-semibold text-danger">
+          <TrashIcon size={15} /> Remove from cabinet
+        </button>
       </div>
     </Sheet>
   )
