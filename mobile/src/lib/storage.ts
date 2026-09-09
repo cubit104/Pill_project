@@ -169,6 +169,25 @@ export async function loadInteractionDrugs(): Promise<string[]> {
   }
 }
 
+const KEY_LAST_EMAIL = 'pillseek.lastEmail.v1'
+
+/** Last email used to sign in, so a returning user only types the code. */
+export async function loadLastEmail(): Promise<string> {
+  try {
+    return (await Preferences.get({ key: KEY_LAST_EMAIL })).value ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export async function saveLastEmail(email: string): Promise<void> {
+  try {
+    await Preferences.set({ key: KEY_LAST_EMAIL, value: email.trim().toLowerCase() })
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function saveInteractionDrugs(drugs: string[]): Promise<void> {
   try {
     await Preferences.set({ key: KEY_INTERACTIONS, value: JSON.stringify(drugs.slice(0, 10)) })

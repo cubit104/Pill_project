@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '../components/Button'
 import Card, { SectionLabel } from '../components/Card'
@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast'
 import { useAccount } from '../lib/account'
 import { requestEmailCode, verifyEmailCode } from '../lib/auth'
 import { useBackHandler } from '../lib/backstack'
+import { loadLastEmail, saveLastEmail } from '../lib/storage'
 import { hapticNotify, hapticTick, hideKeyboard } from '../lib/native'
 
 function isValidEmail(v: string): boolean {
@@ -24,6 +25,9 @@ export default function AccountScreen() {
   const account = useAccount()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [email, setEmail] = useState('')
+  useEffect(() => {
+    void loadLastEmail().then((e) => e && setEmail((cur) => cur || e))
+  }, [])
   const [code, setCode] = useState('')
   const [step, setStep] = useState<'email' | 'code'>('email')
   const [busy, setBusy] = useState(false)
@@ -41,6 +45,7 @@ export default function AccountScreen() {
     setError(null)
     try {
       await requestEmailCode(email)
+      void saveLastEmail(email)
       setStep('code')
       toast.show('Code sent. Check your email.', 'success')
     } catch (err) {
