@@ -18,6 +18,7 @@ import { interactionsPath } from '../lib/interactions'
 import { hapticTick } from '../lib/native'
 import { effectiveRate, refillLabel, refillStatus, scheduleRate } from '../lib/refill'
 import { ensureNotificationPermission, upcomingDoses } from '../lib/reminders'
+import { summarize, todayDoses } from '../lib/today'
 
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 const PRESET_TIMES = [
@@ -275,6 +276,8 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
   const [removing, setRemoving] = useState<CabinetItem | null>(null)
   const [refilling, setRefilling] = useState<{ item: CabinetItem; reminder: Reminder | null } | null>(null)
 
+  const today = useMemo(() => summarize(todayDoses(account.items, account.reminders, account.doseEvents)), [account.items, account.reminders, account.doseEvents])
+
   const nextDose = useMemo(() => {
     const now = new Date()
     let best: { at: Date; item: CabinetItem; reminder: Reminder } | null = null
@@ -355,16 +358,33 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
             iPhone Settings → Notifications → PillSeek, then reopen the app.
           </Card>
         )}
-        {nextDose && (
-          <Card tone="tint" className="flex items-center gap-3">
-            <BellIcon size={22} className="flex-none text-brand" />
+        {(nextDose || today.total > 0) && (
+          <button
+            type="button"
+            onClick={() => {
+              void hapticTick()
+              navigate('/today')
+            }}
+            className={`pressable flex w-full items-center gap-3 rounded-card p-4 text-left ${today.missed > 0 ? 'bg-amber-50' : 'bg-brand-tint'}`}
+          >
+            <BellIcon size={22} className={`flex-none ${today.missed > 0 ? 'text-amber-700' : 'text-brand'}`} />
             <span className="min-w-0 flex-1 text-[14px] text-body">
-              Next: <span className="font-semibold text-ink">{nameOf(nextDose.item)}</span> at{' '}
-              {nextDose.at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-              {nextDose.at.getDate() !== new Date().getDate() ? ' tomorrow' : ''}
-              {account.scheduled > 0 && <span className="text-muted"> · {account.scheduled} alerts scheduled</span>}
+              {nextDose && (
+                <span className="block">
+                  Next: <span className="font-semibold text-ink">{nameOf(nextDose.item)}</span> at{' '}
+                  {nextDose.at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                  {nextDose.at.getDate() !== new Date().getDate() ? ' tomorrow' : ''}
+                </span>
+              )}
+              {today.total > 0 && (
+                <span className="block text-[13px] text-muted">
+                  Today: {today.taken} of {today.total} taken
+                  {today.missed > 0 && <span className="font-semibold text-amber-800"> · {today.missed} missed</span>}
+                </span>
+              )}
             </span>
-          </Card>
+            <ChevronRightIcon size={18} className="flex-none text-muted" />
+          </button>
         )}
         <div className="card divide-y divide-line overflow-hidden">
           {account.items.map((item) => {

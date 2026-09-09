@@ -11,17 +11,22 @@ import {
   deleteAccountData,
   deleteReminder,
   listCabinet,
+  listDoseEvents,
   listReminders,
+  recordDose,
   removeFromCabinet,
   reorderCabinet,
   saveReminder,
   updateCabinetItem,
   type CabinetItem,
   type CabinetPatch,
+  type DoseEvent,
   type Reminder,
 } from './cabinet'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import { isNative } from './native'
 import { refillStatus } from './refill'
+import { startOfDay } from './today'
 import { ensureNotificationPermission, registerDoseActions, syncNotifications, type RefillTarget } from './reminders'
 
 interface AccountApi {
@@ -31,6 +36,8 @@ interface AccountApi {
   user: AuthUser | null
   items: CabinetItem[]
   reminders: Reminder[]
+  /** Taken / skipped doses since yesterday (for the Today view and the cabinet card). */
+  doseEvents: DoseEvent[]
   /** Pill details by slug, filled in the background. */
   pills: Record<string, PillDetail>
   loading: boolean
@@ -47,6 +54,8 @@ interface AccountApi {
   reorder: (ids: string[]) => Promise<void>
   upsertReminder: (r: Omit<Reminder, 'id'> & { id?: string }) => Promise<Reminder>
   removeReminder: (id: string) => Promise<void>
+  /** Record a dose as taken or skipped (also called from the notification buttons). */
+  markDose: (reminderId: string, scheduledAt: Date, status: DoseEvent['status']) => Promise<void>
   signOut: () => Promise<void>
   deleteAccount: () => Promise<void>
 }
@@ -58,6 +67,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [items, setItems] = useState<CabinetItem[]>([])
   const [reminders, setReminders] = useState<Reminder[]>([])
+  const [doseEvents, setDoseEvents] = useState<DoseEvent[]>([])
   const [pills, setPills] = useState<Record<string, PillDetail>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -106,9 +116,12 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const [list, rems] = await Promise.all([listCabinet(), listReminders()])
+      const since = startOfDay(new Date())
+      since.setDate(since.getDate() - 1)
+      const [list, rems, events] = await Promise.all([listCabinet(), listReminders(), listDoseEvents(since)])
       setItems(list)
       setReminders(rems)
+      setDoseEvents(events)
       void fetchPills(list.map((i) => i.slug))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load your cabinet')
@@ -120,6 +133,33 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  const markDose = useCallback(
+    async (reminderId: string, scheduledAt: Date, status: DoseEvent['status']) => {
+      if (!user) throw new Error('Sign in first')
+      await recordDose(user.id, reminderId, scheduledAt, status)
+      const iso = scheduledAt.toISOString()
+      setDoseEvents((prev) => {
+        const rest = prev.filter((e) => !(e.reminder_id === reminderId && new Date(e.scheduled_at).getTime() === scheduledAt.getTime()))
+        return [...rest, { id: `local-${reminderId}-${iso}`, reminder_id: reminderId, scheduled_at: iso, status, acted_at: new Date().toISOString() }]
+      })
+    },
+    [user],
+  )
+
+  // Taken / Skip buttons on the notification itself (app may be closed when tapped).
+  useEffect(() => {
+    if (!user || !accountsEnabled) return
+    const sub = LocalNotifications.addListener('localNotificationActionPerformed', (a) => {
+      const extra = (a.notification.extra ?? {}) as { reminderId?: string; scheduledAt?: string }
+      if (!extra.reminderId || !extra.scheduledAt) return
+      if (a.actionId === 'taken') void markDose(extra.reminderId, new Date(extra.scheduledAt), 'taken')
+      else if (a.actionId === 'skip') void markDose(extra.reminderId, new Date(extra.scheduledAt), 'skipped')
+    })
+    return () => {
+      void sub.then((s) => s.remove())
+    }
+  }, [user, markDose])
 
   // Mirror the reminder schedule into the phone's notifications whenever it changes.
   useEffect(() => {
@@ -159,6 +199,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       user,
       items,
       reminders,
+      doseEvents,
       pills,
       loading,
       error,
@@ -196,11 +237,13 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         await deleteReminder(id)
         setReminders((prev) => prev.filter((r) => r.id !== id))
       },
+      markDose,
       signOut: async () => {
         await authSignOut()
         setUser(null)
         setItems([])
         setReminders([])
+        setDoseEvents([])
         void syncNotifications([])
       },
       deleteAccount: async () => {
@@ -212,7 +255,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         void syncNotifications([])
       },
     }),
-    [ready, user, items, reminders, pills, loading, error, notifications, scheduled, refresh, fetchPills],
+    [ready, user, items, reminders, doseEvents, pills, loading, error, notifications, scheduled, refresh, fetchPills, markDose],
   )
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>
