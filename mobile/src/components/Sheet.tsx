@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useBackHandler } from '../lib/backstack'
+import { CloseIcon } from './Icons'
 
 interface Props {
   open: boolean
@@ -50,7 +51,12 @@ export default function Sheet({ open, onClose, title, children }: Props) {
         style={{ paddingBottom: 'calc(var(--safe-bottom) + 16px + var(--kb, 0px))', maxHeight: 'calc(100dvh - 24px)' }}
       >
         <div className="mx-auto mt-2.5 h-1.5 w-10 rounded-full bg-line" aria-hidden />
-        {title && <h2 className="px-5 pt-3 text-[20px] font-bold tracking-tight text-ink">{title}</h2>}
+        <div className="flex items-start justify-between gap-3 px-5 pt-3">
+          {title ? <h2 className="min-w-0 flex-1 text-[20px] font-bold tracking-tight text-ink">{title}</h2> : <span className="flex-1" />}
+          <button type="button" onClick={onClose} aria-label="Close" className="pressable -mr-2 -mt-1 flex h-10 w-10 flex-none items-center justify-center rounded-full bg-line/60 text-ink">
+            <CloseIcon size={16} strokeWidth={2.6} />
+          </button>
+        </div>
         <div className="px-5 pt-3">{children}</div>
       </div>
     </div>,
