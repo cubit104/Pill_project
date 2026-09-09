@@ -25,6 +25,9 @@ export interface RefillTarget {
 }
 
 const REFILL_SEQ = 90_000 // ids ID_BASE+90000… stay inside our cancel window
+const CHANNEL_ID = 'pillseek_doses' // Android 8+: sound/importance live on the channel
+// iOS plays nothing unless a sound is named; a name that is not a bundled file falls back to the system default.
+const SOUND = 'default'
 
 /** Deterministic id per reminder × occurrence so re-planning replaces cleanly. */
 function notificationId(seq: number): number {
@@ -81,6 +84,8 @@ export async function syncNotifications(targets: ReminderTarget[], refills: Refi
         title: `Time for ${title}`,
         body: reminder.dose ? `Take ${reminder.dose}` : 'Tap to mark it taken',
         schedule: { at, allowWhileIdle: true },
+        sound: SOUND,
+        channelId: CHANNEL_ID,
         extra: { reminderId: reminder.id, scheduledAt: at.toISOString() },
         actionTypeId: 'PILLSEEK_DOSE',
       })
@@ -95,6 +100,8 @@ export async function syncNotifications(targets: ReminderTarget[], refills: Refi
       title: `Refill ${r.title}`,
       body: r.daysLeft <= 0 ? 'You are out. Time to refill.' : `About ${r.daysLeft} day${r.daysLeft === 1 ? '' : 's'} of supply left.`,
       schedule: { at, allowWhileIdle: true },
+      sound: SOUND,
+      channelId: CHANNEL_ID,
       extra: { kind: 'refill' },
     })
   }
@@ -102,9 +109,14 @@ export async function syncNotifications(targets: ReminderTarget[], refills: Refi
   return list.length
 }
 
-/** Register the Taken / Skip buttons shown on the notification. */
+/** Register the Taken / Skip buttons shown on the notification, and the Android channel. */
 export async function registerDoseActions(): Promise<void> {
   if (!isNative()) return
+  try {
+    await LocalNotifications.createChannel({ id: CHANNEL_ID, name: 'Medication reminders', description: 'Dose times and refill nudges', importance: 5, sound: SOUND, vibration: true, visibility: 1 })
+  } catch {
+    /* iOS: no channels */
+  }
   try {
     await LocalNotifications.registerActionTypes({
       types: [{ id: 'PILLSEEK_DOSE', actions: [{ id: 'taken', title: 'Taken' }, { id: 'skip', title: 'Skip', destructive: true }] }],
