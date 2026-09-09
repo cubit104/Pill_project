@@ -47,7 +47,7 @@ function ReminderSheet({ item, name, existing, onClose }: { item: CabinetItem; n
   const [days, setDays] = useState<number[]>(existing?.days ?? [0, 1, 2, 3, 4, 5, 6])
   const [dose, setDose] = useState(existing?.dose ?? '1 tablet')
   const [busy, setBusy] = useState(false)
-  const [pickerKey, setPickerKey] = useState(0)
+  const [picked, setPicked] = useState('')
 
   const toggleTime = (t: string) => setTimes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t].sort()))
   const toggleDay = (d: number) => setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()))
@@ -99,25 +99,29 @@ function ReminderSheet({ item, name, existing, onClose }: { item: CabinetItem; n
                 </Chip>
               ))}
           </div>
-          <label className="mt-2 flex h-12 items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-3 text-[15px] text-body">
-            <span>Other time</span>
-            <input
-              key={pickerKey}
-              type="time"
-              aria-label="Pick another time"
-              defaultValue=""
-              onChange={(e) => {
-                const v = e.target.value
-                if (!v) return
-                addPicked(v)
-                // Fresh picker each time: iOS re-sends the wheel's last value when it closes,
-                // which would re-add a chip the user just removed.
-                e.target.blur()
-                setPickerKey((k) => k + 1)
+          <div className="mt-2 flex items-center gap-2">
+            <label className="flex h-12 flex-1 items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-3 text-[15px] text-body">
+              <span>Other time</span>
+              <input
+                type="time"
+                aria-label="Pick another time"
+                value={picked}
+                onChange={(e) => setPicked(e.target.value)}
+                className="h-9 rounded-lg bg-transparent px-2 text-[17px] font-semibold text-brand"
+              />
+            </label>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!/^\d{2}:\d{2}$/.test(picked)}
+              onClick={() => {
+                addPicked(picked)
+                setPicked('')
               }}
-              className="h-9 rounded-lg bg-transparent px-2 text-[17px] font-semibold text-brand"
-            />
-          </label>
+            >
+              Add
+            </Button>
+          </div>
           <p className="mt-1 px-1 text-[12px] text-muted">Tap a time to remove it.</p>
         </div>
         <div>
