@@ -118,7 +118,10 @@ export default function DoctorSheetClient() {
                       {pill?.generic && <div className="text-slate-600">{pill.generic}</div>}
                     </td>
                     <td className="py-2 pr-3 text-slate-700">{[pill?.form, pill?.imprint ? `imprint ${pill.imprint}` : null].filter(Boolean).join(', ') || '—'}</td>
-                    <td className="py-2 pr-3 text-slate-700">{item.directions || schedule(r)}</td>
+                    <td className="py-2 pr-3 text-slate-700">
+                      {item.directions && <div>{item.directions}</div>}
+                      <div className={item.directions ? 'text-slate-500' : ''}>{schedule(r)}</div>
+                    </td>
                     <td className="py-2 pr-3 text-slate-700">{status ? (status.level === 'out' ? 'Out of pills' : `~${status.daysLeft} days left`) : '—'}</td>
                     <td className="py-2 pr-3 text-slate-700">
                       {[item.rx_number ? `Rx ${item.rx_number}` : null, item.pharmacy_name, item.pharmacy_phone, item.prescriber ? `Dr. ${item.prescriber.replace(/^Dr\.?\s*/i, '')}` : null].filter(Boolean).join(' · ') || '—'}

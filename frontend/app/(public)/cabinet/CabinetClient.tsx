@@ -439,7 +439,7 @@ function ItemEditor({ item, name, onSaved, onClose }: { item: CabinetItem; name:
       <input id={id} value={value} onChange={(e) => set(e.target.value)} placeholder={placeholder} className={`${inputClass} mt-1`} />
     </div>
   )
-  const digits = phone.replace(/[^\d+]/g, '')
+  const digits = phone.trim().replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '')
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Prescription details">
