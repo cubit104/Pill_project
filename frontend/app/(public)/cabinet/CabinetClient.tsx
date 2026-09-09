@@ -69,6 +69,15 @@ function SignIn({ onSignedIn }: { onSignedIn: (u: CabinetUser) => void }) {
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
   const [step, setStep] = useState<'email' | 'code'>('email')
+  // Remember the last email so a returning visitor only types the code.
+  useEffect(() => {
+    try {
+      const last = window.localStorage.getItem('pillseek.lastEmail')
+      if (last) setEmail((cur) => cur || last)
+    } catch {
+      /* storage blocked */
+    }
+  }, [])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -81,6 +90,11 @@ function SignIn({ onSignedIn }: { onSignedIn: (u: CabinetUser) => void }) {
     setError('')
     try {
       await requestEmailCode(email)
+      try {
+        window.localStorage.setItem('pillseek.lastEmail', email.trim().toLowerCase())
+      } catch {
+        /* storage blocked */
+      }
       setStep('code')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not send the code')
