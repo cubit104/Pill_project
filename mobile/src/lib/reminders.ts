@@ -122,7 +122,7 @@ export async function syncNotifications(
       schedule: { at, allowWhileIdle: true },
       sound: SOUND,
       channelId: CHANNEL_ID,
-      badge: 1, // "a dose is waiting" on the app icon until the app is opened
+      badge: 1, // renumbered below in time order so unread alerts add up
       extra: { reminderId: reminder.id, scheduledAt: at.toISOString() },
       actionTypeId: "PILLSEEK_DOSE",
     });
@@ -148,6 +148,12 @@ export async function syncNotifications(
       extra: { kind: "refill" },
     });
   }
+  // iOS shows the badge value of the latest alert, not a running total: number them in
+  // time order so three unread alerts read "3". Opening the app clears it and re-plans.
+  const ordered = [...list].sort((a, b) => (a.schedule?.at?.getTime() ?? 0) - (b.schedule?.at?.getTime() ?? 0));
+  ordered.forEach((n, i) => {
+    n.badge = i + 1;
+  });
   if (list.length) await LocalNotifications.schedule({ notifications: list });
   return list.length;
 }
