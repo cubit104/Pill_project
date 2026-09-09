@@ -119,7 +119,7 @@ export default function LabelScanner({ onDone, onCancel, onUnavailable }: Props)
   const found = ALL.filter((f) => !missing.has(f)).length
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-modal="true" aria-label="Scan a pharmacy label">
+    <div className="fixed inset-0 z-50 flex flex-col bg-transparent text-white" role="dialog" aria-modal="true" aria-label="Scan a pharmacy label">
       <div className="relative z-10 flex items-center justify-between bg-black px-3" style={{ paddingTop: 'calc(var(--safe-top) + 6px)', minHeight: 'calc(var(--safe-top) + 56px)' }}>
         <IconButton label="Cancel" tone="light" onClick={onCancel}>
           <CloseIcon size={22} />
