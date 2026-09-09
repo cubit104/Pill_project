@@ -7,12 +7,14 @@ import {
   CameraUnavailableError,
   capturePreview,
   guideDiameter,
+  sampleGuideFill,
   setTorch,
   startPreview,
   stopPreview,
   torchAvailable,
   type CapturedPhoto,
 } from '../lib/camera'
+import { fillHint, type FillLevel } from '../lib/fill'
 import { useElementSize } from '../lib/hooks'
 import { applyStatusBar, hapticImpact } from '../lib/native'
 
@@ -40,6 +42,7 @@ export default function CameraScreen({ side, previous, onCapture, onClose, onUna
   const [hasTorch, setHasTorch] = useState(false)
   const [flash, setFlash] = useState(false)
   const [captureError, setCaptureError] = useState<string | null>(null)
+  const [fill, setFill] = useState<FillLevel | null>(null)
   const startedRef = useRef(false)
   const mounted = useRef(true)
   const guidePx = guideDiameter(box.w, box.h)
@@ -86,6 +89,25 @@ export default function CameraScreen({ side, previous, onCapture, onClose, onUna
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // Live coaching: sample the circle a few times a second and colour the ring.
+  useEffect(() => {
+    if (!ready || busy || !guidePx) return
+    let stop = false
+    let timer = 0
+    const tick = async () => {
+      const est = await sampleGuideFill({ dispW: box.w, dispH: box.h, guidePx })
+      if (stop) return
+      if (est === null) return // plugin cannot sample: leave the ring neutral
+      setFill(est.level)
+      timer = window.setTimeout(() => void tick(), 600)
+    }
+    timer = window.setTimeout(() => void tick(), 400)
+    return () => {
+      stop = true
+      window.clearTimeout(timer)
+    }
+  }, [ready, busy, guidePx, box.w, box.h])
 
   const shoot = useCallback(async () => {
     if (!ready || busy || !guidePx) return
@@ -155,7 +177,9 @@ export default function CameraScreen({ side, previous, onCapture, onClose, onUna
         <div className="pointer-events-none absolute inset-0 transition-opacity duration-base" style={{ background: mask }} />
         {guidePx > 0 && (
           <div
-            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white/90 shadow-[0_0_0_2px_rgba(5,150,105,0.6)]"
+            className={`pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] transition-colors duration-300 ${
+              fill === 'good' ? 'border-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.55)]' : fill === 'small' ? 'border-amber-300 shadow-[0_0_0_3px_rgba(251,191,36,0.5)]' : 'border-white/90 shadow-[0_0_0_2px_rgba(5,150,105,0.6)]'
+            }`}
             style={{ width: guidePx, height: guidePx }}
           />
         )}
@@ -168,8 +192,8 @@ export default function CameraScreen({ side, previous, onCapture, onClose, onUna
             {captureError}
           </p>
         )}
-        <p className="pointer-events-none absolute inset-x-6 bottom-6 text-center text-[15px] font-medium text-white/85 drop-shadow">
-          Fit the pill in the circle. Pinch to zoom.
+        <p className={`pointer-events-none absolute inset-x-6 bottom-6 text-center text-[15px] font-medium drop-shadow ${fill === 'good' ? 'text-emerald-300' : fill === 'small' ? 'text-amber-200' : 'text-white/85'}`} aria-live="polite">
+          {fillHint(fill)}
         </p>
       </div>
 

@@ -6,7 +6,8 @@ import { Capacitor } from '@capacitor/core'
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import { CameraPreview } from '@capacitor-community/camera-preview'
 import type { CameraPreviewOptions } from '@capacitor-community/camera-preview'
-import { computeCoverCrop, downscaleFactor, JPEG_QUALITY, MAX_SIDE } from './crop'
+import { computeCoverCrop, CROP_PAD, downscaleFactor, JPEG_QUALITY, MAX_SIDE } from './crop'
+import { estimateFill, type FillEstimate } from './fill'
 
 export { computeCoverCrop, downscaleFactor, guideDiameter, GUIDE_FRACTION, CROP_PAD, MAX_SIDE } from './crop'
 
@@ -231,6 +232,40 @@ export async function capturePreview(input: PreviewCaptureInput): Promise<Captur
     zoom: 1,
   })
   return cropToPhoto(img, crop.sx, crop.sy, crop.side, crop.side, crop.outSide, crop.outSide)
+}
+
+// ---- Live "fill the circle" coaching ------------------------------------------
+
+const SAMPLE_SIDE = 64
+// side = circle × (1 + 2·CROP_PAD) → the pad on each side as a fraction of the crop side
+const CROP_PAD_FRACTION = CROP_PAD / (1 + 2 * CROP_PAD)
+let sampleCanvas: HTMLCanvasElement | null = null
+
+/**
+ * Grab a low-quality frame, crop the guide-circle square, and estimate how much of
+ * it the pill fills. Cheap enough to run a few times a second; returns null when
+ * the plugin cannot sample (older builds) so the caller just skips coaching.
+ */
+export async function sampleGuideFill(input: PreviewCaptureInput): Promise<FillEstimate | null> {
+  if (!previewRunning) return null
+  try {
+    const result = await CameraPreview.captureSample({ quality: 35 })
+    if (!result.value) return null
+    const img = await loadImage(`data:image/jpeg;base64,${result.value}`)
+    const crop = computeCoverCrop({ natW: img.naturalWidth, natH: img.naturalHeight, dispW: input.dispW, dispH: input.dispH, guidePx: input.guidePx, zoom: 1 })
+    // The crop includes CROP_PAD margin; shrink back to the circle itself.
+    const pad = crop.side * CROP_PAD_FRACTION
+    const side = crop.side - 2 * pad
+    sampleCanvas ??= document.createElement('canvas')
+    sampleCanvas.width = SAMPLE_SIDE
+    sampleCanvas.height = SAMPLE_SIDE
+    const ctx = sampleCanvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return null
+    ctx.drawImage(img, crop.sx + pad, crop.sy + pad, side, side, 0, 0, SAMPLE_SIDE, SAMPLE_SIDE)
+    return estimateFill(ctx.getImageData(0, 0, SAMPLE_SIDE, SAMPLE_SIDE).data, SAMPLE_SIDE)
+  } catch {
+    return null
+  }
 }
 
 // ---- Fallback: system camera / photo library -------------------------------
