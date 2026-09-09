@@ -71,7 +71,8 @@ export function parseLabel(input: OcrLine[] | string[]): ParsedLabel {
   }
 
   // Rx number: "RX# 1234567", "RX 1234567-01", "Rx No. 1234567", "#1234567" near "RX".
-  const rx = /RX\s*(?:#|NO\.?|NUMBER)?\s*[:#]?\s*(\d{5,12}(?:-\d{1,3})?)/i.exec(all)
+  // OCR turns 'Rx#' into 'Rx*', 'Rx:' or 'Rx.'; accept any short junk between RX and the digits.
+  const rx = /\bRX\s*(?:NO\.?|NUMBER)?[^A-Z0-9\n]{0,4}(\d{5,12}(?:-\d{1,3})?)/i.exec(all)
   if (rx) out.rxNumber = rx[1] ?? null
 
   // Quantity: "QTY: 30", "QTY 30 TABS", "QUANTITY: 90", "#30".
@@ -111,7 +112,8 @@ export function parseLabel(input: OcrLine[] | string[]): ParsedLabel {
   if (sigIdx >= 0) {
     let sig = texts[sigIdx] ?? ''
     const next = texts[sigIdx + 1]
-    if (next && !NOISE.test(next) && !STRENGTH_RE.test(next) && !/RX|QTY|REFILL|DATE|PHONE|\d{3}[-.]\d{4}/i.test(next) && /^[a-z(]|^(DAILY|TWICE|EVERY|AT|WITH|FOR|AS|IN THE|ONCE|THREE|TIMES|BEFORE|AFTER|BY MOUTH|ORALLY)\b/i.test(next)) {
+    const continues = next !== undefined && (/^[a-z(]/.test(next) || /^(DAILY|TWICE|EVERY|AT|WITH|FOR|AS|IN THE|ONCE|THREE|TIMES|BEFORE|AFTER|BY MOUTH|ORALLY)\b/i.test(next))
+    if (next && continues && !NOISE.test(next) && !STRENGTH_RE.test(next) && !/RX|QTY|REFILL|DATE|PHONE|\d{3}[-.]\d{4}/i.test(next)) {
       sig = `${sig} ${next}`
     }
     out.directions = clean(sig)

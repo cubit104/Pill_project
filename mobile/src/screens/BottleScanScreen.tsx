@@ -5,6 +5,7 @@ import Card, { SectionLabel } from '../components/Card'
 import Chip from '../components/Chip'
 import Disclaimer from '../components/Disclaimer'
 import { CameraIcon, CheckIcon, ImagesIcon } from '../components/Icons'
+import LabelScanner from '../components/LabelScanner'
 import { PillThumb, TextBadge } from '../components/PillRow'
 import ScreenHeader from '../components/ScreenHeader'
 import TextField from '../components/TextField'
@@ -12,12 +13,12 @@ import { useToast } from '../components/Toast'
 import { useAccount } from '../lib/account'
 import { getDrugPills, lookupDrugs, type DrugRow, type SearchResult } from '../lib/api'
 import { useBackHandler } from '../lib/backstack'
-import { takeSystemPhoto } from '../lib/camera'
+import { isPreviewSupported, takeSystemPhoto } from '../lib/camera'
 import { parseLabel, scheduleFromSig, type OcrLine, type ParsedLabel, type SigSchedule } from '../lib/labelParse'
 import { hapticNotify, hapticTick } from '../lib/native'
 import { blobToBase64, ocrAvailable, recognizeText } from '../lib/ocr'
 
-type Phase = 'idle' | 'reading' | 'matching' | 'review' | 'saving'
+type Phase = 'idle' | 'scanning' | 'reading' | 'matching' | 'review' | 'saving'
 
 function normStrength(s: string | null | undefined): string {
   return (s ?? '').toLowerCase().replace(/\s+/g, '').replace(/,/g, '.')
@@ -53,17 +54,30 @@ export default function BottleScanScreen() {
 
   const schedule: SigSchedule | null = useMemo(() => scheduleFromSig(directions), [directions])
 
+  /** Live scan (turn the bottle) when the native preview exists; otherwise a single photo. */
   const scan = async (source: 'camera' | 'photos') => {
     void hapticTick()
     setError(null)
+    if (source === 'camera' && isPreviewSupported()) {
+      setPhase('scanning')
+      return
+    }
     const photo = await takeSystemPhoto(source)
     if (!photo) return
     setPreview(photo.previewUrl)
     setPhase('reading')
     try {
       const found = await recognizeText(await blobToBase64(photo.blob))
+      await handleRead(found, parseLabel(found))
+    } catch (err) {
+      setPhase('review')
+      setError(err instanceof Error ? err.message : 'Could not read the label')
+    }
+  }
+
+  const handleRead = async (found: OcrLine[], parsed: ParsedLabel) => {
+    try {
       setLines(found)
-      const parsed = parseLabel(found)
       setLabel(parsed)
       setDirections(parsed.directions ?? '')
       setQuantity(parsed.quantity ? String(parsed.quantity) : '')
@@ -82,7 +96,7 @@ export default function BottleScanScreen() {
       setPhase('review')
     } catch (err) {
       setPhase('review')
-      setError(err instanceof Error ? err.message : 'Could not read the label')
+      setError(err instanceof Error ? err.message : 'Could not match the drug')
     }
   }
 
@@ -149,6 +163,20 @@ export default function BottleScanScreen() {
 
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto bg-canvas">
+      {phase === 'scanning' && (
+        <LabelScanner
+          onDone={({ label: parsed, lines: found }) => {
+            setPreview(null)
+            setPhase('reading')
+            void handleRead(found, parsed)
+          }}
+          onCancel={() => setPhase(label ? 'review' : 'idle')}
+          onUnavailable={() => {
+            setPhase('idle')
+            setError('The camera is not available. Use Library to pick a photo of the label.')
+          }}
+        />
+      )}
       <ScreenHeader title="Scan a bottle" subtitle="Pharmacy label → cabinet" scrollRef={scrollRef} onBack={goBack} />
       <main className="screen mx-auto max-w-lg space-y-4 px-4 pt-2" style={{ paddingLeft: 'max(16px, var(--safe-left))', paddingRight: 'max(16px, var(--safe-right))' }}>
         {!ocrAvailable() && (
@@ -162,10 +190,10 @@ export default function BottleScanScreen() {
             <p className="text-[15px] leading-relaxed text-body">
               Photograph the printed label on your prescription bottle. We read the drug, strength, directions, quantity and Rx number, then set up the pill and its reminders for you.
             </p>
-            <p className="text-[13px] text-muted">Tip: fill the frame with the part that shows the drug name and “Take …” line.</p>
+            <p className="text-[13px] text-muted">The label wraps around the bottle, so keep the camera on it and slowly turn the bottle; fields tick off as they are read.</p>
             <div className="flex gap-2">
               <Button full icon={<CameraIcon size={18} />} onClick={() => void scan('camera')} disabled={!ocrAvailable()}>
-                Take photo
+                Scan label
               </Button>
               <Button variant="secondary" icon={<ImagesIcon size={18} />} onClick={() => void scan('photos')} disabled={!ocrAvailable()}>
                 Library
@@ -174,9 +202,9 @@ export default function BottleScanScreen() {
           </Card>
         )}
 
-        {preview && phase !== 'idle' && (
+        {phase !== 'idle' && phase !== 'scanning' && (
           <div className="flex items-start gap-3">
-            <img src={preview} alt="Label" className="h-24 w-24 flex-none rounded-2xl object-cover" />
+            {preview && <img src={preview} alt="Label" className="h-24 w-24 flex-none rounded-2xl object-cover" />}
             <div className="min-w-0 flex-1 space-y-1 text-[14px] text-body">
               {phase === 'reading' && <p>Reading the label…</p>}
               {phase === 'matching' && <p>Matching the drug…</p>}

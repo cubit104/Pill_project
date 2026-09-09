@@ -234,6 +234,17 @@ export async function capturePreview(input: PreviewCaptureInput): Promise<Captur
   return cropToPhoto(img, crop.sx, crop.sy, crop.side, crop.side, crop.outSide, crop.outSide)
 }
 
+/** One low-cost frame of the running native preview as base64 JPEG (no data: prefix), or null. */
+export async function sampleFrame(quality = 60): Promise<string | null> {
+  if (!previewRunning) return null
+  try {
+    const result = await CameraPreview.captureSample({ quality })
+    return result.value || null
+  } catch {
+    return null
+  }
+}
+
 // ---- Live "fill the circle" coaching ------------------------------------------
 
 const SAMPLE_SIDE = 64
