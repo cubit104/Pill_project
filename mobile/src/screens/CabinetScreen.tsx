@@ -349,6 +349,12 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
   } else {
     body = (
       <div className="space-y-4">
+        {account.notifications === 'denied' && account.reminders.length > 0 && (
+          <Card tone="warn" className="text-[14px] text-body">
+            <span className="font-semibold text-ink">Notifications are off</span>, so reminders will not ring. Turn them on in
+            iPhone Settings → Notifications → PillSeek, then reopen the app.
+          </Card>
+        )}
         {nextDose && (
           <Card tone="tint" className="flex items-center gap-3">
             <BellIcon size={22} className="flex-none text-brand" />
@@ -356,6 +362,7 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
               Next: <span className="font-semibold text-ink">{nameOf(nextDose.item)}</span> at{' '}
               {nextDose.at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
               {nextDose.at.getDate() !== new Date().getDate() ? ' tomorrow' : ''}
+              {account.scheduled > 0 && <span className="text-muted"> · {account.scheduled} alerts scheduled</span>}
             </span>
           </Card>
         )}

@@ -20,8 +20,9 @@ import {
   type CabinetPatch,
   type Reminder,
 } from './cabinet'
+import { isNative } from './native'
 import { refillStatus } from './refill'
-import { registerDoseActions, syncNotifications, type RefillTarget } from './reminders'
+import { ensureNotificationPermission, registerDoseActions, syncNotifications, type RefillTarget } from './reminders'
 
 interface AccountApi {
   enabled: boolean
@@ -34,6 +35,10 @@ interface AccountApi {
   pills: Record<string, PillDetail>
   loading: boolean
   error: string | null
+  /** Phone notification permission: unknown until the first schedule attempt. */
+  notifications: 'unknown' | 'granted' | 'denied'
+  /** How many dose/refill notifications are currently scheduled on this phone. */
+  scheduled: number
   refresh: () => Promise<void>
   has: (slug: string) => boolean
   add: (slug: string) => Promise<CabinetItem>
@@ -56,6 +61,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [pills, setPills] = useState<Record<string, PillDetail>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notifications, setNotifications] = useState<'unknown' | 'granted' | 'denied'>('unknown')
+  const [scheduled, setScheduled] = useState(0)
   const pillsRef = useRef(pills)
   pillsRef.current = pills
 
@@ -133,7 +140,16 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       const title = item.nickname || pills[item.slug]?.drug_name || item.slug
       refills.push({ title, at: status.notifyAt, daysLeft: status.daysLeft })
     }
-    void syncNotifications(targets, refills)
+    // Ask for permission here too (not only when saving in-app): reminders made on the
+    // website must still ring on the phone.
+    const run = async () => {
+      if (targets.length > 0 || refills.length > 0) {
+        const ok = await ensureNotificationPermission()
+        setNotifications(ok ? 'granted' : isNative() ? 'denied' : 'unknown')
+      }
+      setScheduled(await syncNotifications(targets, refills))
+    }
+    void run()
   }, [user, reminders, items, pills])
 
   const api = useMemo<AccountApi>(
@@ -146,6 +162,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       pills,
       loading,
       error,
+      notifications,
+      scheduled,
       refresh,
       has: (slug) => items.some((i) => i.slug === slug),
       add: async (slug) => {
@@ -194,7 +212,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         void syncNotifications([])
       },
     }),
-    [ready, user, items, reminders, pills, loading, error, refresh, fetchPills],
+    [ready, user, items, reminders, pills, loading, error, notifications, scheduled, refresh, fetchPills],
   )
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>
