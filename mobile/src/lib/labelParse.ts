@@ -105,7 +105,8 @@ export function parseLabel(input: OcrLine[] | string[]): ParsedLabel {
 
   // Prescriber: "DR. JANE SMITH", "PRESCRIBER: J SMITH MD", "SMITH, JANE MD".
   const doc = /(?:DR\.?|PRESCRIBER|PRESCRIBED BY|PHYSICIAN|PROVIDER)\s*[:#.]?\s*([A-Z][A-Z .,'-]{3,40}?)(?=\s*(?:MD|DO|NP|PA|DDS|\n|$))/i.exec(all) ?? /\n([A-Z][A-Z' -]{2,30},\s*[A-Z][A-Z' -]{2,30})\s+(?:MD|DO|NP|PA)\b/i.exec(all)
-  if (doc) out.prescriber = titleCase(clean(doc[1] ?? ''))
+  // "No Refills - Dr. Must Authorize" is a pharmacy notice, not a name.
+  if (doc && !/AUTHORI|REFILL|CALL|CONTACT|PHYSICIAN|OFFICE/i.test(doc[1] ?? '')) out.prescriber = titleCase(clean(doc[1] ?? ''))
 
   // Directions: the line starting with an action verb, plus the following line when it continues the sentence.
   const sigIdx = upper.findIndex((t) => SIG_START.test(t))

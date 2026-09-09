@@ -135,6 +135,11 @@ describe('pharmacy shorthand', () => {
     expect(drugNameCandidates(null)).toEqual([])
   })
 
+  it('ignores the "Dr. Must Authorize" refill notice', () => {
+    expect(parseLabel(['DILTIAZEM 30MG TAB', 'No Refills - Dr. Must Authorize']).prescriber).toBeNull()
+    expect(parseLabel(['DILTIAZEM 30MG TAB', 'Dr. Ayush Motwani']).prescriber).toBe('Ayush Motwani')
+  })
+
   it('reads combo strengths', () => {
     const p = parseLabel(['AMOX/K CLAV 875-125 MG TAB', 'TAKE 1 TABLET BY MOUTH TWICE DAILY'])
     expect(p.drugName).toBe('Amox/k Clav')
