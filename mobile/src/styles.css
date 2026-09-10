@@ -142,17 +142,19 @@ input[type='search']::-webkit-search-decoration {
 }
 
 /* Home grid duotone icons (see components/TileIcons.tsx) */
+/* Home tiles: single-weight line icons. No tinted fill behind the shapes —
+   the grid reads calmer, and colour is left to carry meaning elsewhere. */
 .tile-icon {
-  --ti-ink: #065f46;
-  --ti-accent: #34d399;
-  --ti-fill: #d1fae5;
+  --ti-ink: #047857;
+  --ti-accent: #059669;
+  --ti-fill: transparent;
   --ti-hole: var(--surface);
 }
 @media (prefers-color-scheme: dark) {
   .tile-icon {
-    --ti-ink: #a7f3d0;
+    --ti-ink: #6ee7b7;
     --ti-accent: #34d399;
-    --ti-fill: rgba(52, 211, 153, 0.16);
+    --ti-fill: transparent;
   }
 }
 
