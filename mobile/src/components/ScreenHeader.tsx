@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { useT } from '../lib/i18n'
 import { ChevronRightIcon } from './Icons'
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
  * The whole header is sticky; only the big title fades/shrinks.
  */
 export default function ScreenHeader({ title, subtitle, trailing, children, scrollRef, onBack }: Props) {
+  const t = useT()
   const [collapsed, setCollapsed] = useState(false)
 
   useEffect(() => {
@@ -47,11 +49,11 @@ export default function ScreenHeader({ title, subtitle, trailing, children, scro
           <button
             type="button"
             onClick={onBack}
-            aria-label="Back"
+            aria-label={t('Back')}
             className="pressable absolute left-1 top-0 z-10 flex h-11 min-w-[44px] items-center gap-0.5 rounded-full px-2 text-[17px] font-medium text-brand"
           >
             <ChevronRightIcon size={22} className="rotate-180" />
-            Back
+            {t('Back')}
           </button>
         )}
         {/* Compact bar */}

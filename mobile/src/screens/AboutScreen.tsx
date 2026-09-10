@@ -7,7 +7,9 @@ import ScreenHeader from '../components/ScreenHeader'
 import Toggle from '../components/Toggle'
 import { appVersion, hapticTick, platform } from '../lib/native'
 import { useBackHandler } from '../lib/backstack'
+import { useLang, type Lang } from '../lib/i18n'
 import { useSettings } from '../lib/settings'
+import SegmentedControl from '../components/SegmentedControl'
 
 const STEPS = [
   { Icon: CameraIcon, title: 'Photograph both sides', body: 'Fit the pill in the circle guide, in good light.' },
@@ -29,18 +31,19 @@ export default function AboutScreen({ active = true }: { active?: boolean }) {
   const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/home', { replace: true }))
   useBackHandler(active, goBack)
   const { features, loading, error, reload, consent, setConsent } = useSettings()
+  const { lang, setLang, t } = useLang()
 
   const readerStatus = loading
-    ? { label: 'Checking…', tone: 'text-muted', dot: 'bg-line' }
+    ? { label: t('Checking…'), tone: 'text-muted', dot: 'bg-line' }
     : error
-      ? { label: 'Unreachable', tone: 'text-danger', dot: 'bg-danger' }
+      ? { label: t('Unreachable'), tone: 'text-danger', dot: 'bg-danger' }
       : features?.photo_id_enabled
-        ? { label: `Online · ${features.photo_id_reader_mode} mode`, tone: 'text-brand', dot: 'bg-brand' }
-        : { label: 'Paused', tone: 'text-[var(--warn)]', dot: 'bg-[var(--warn)]' }
+        ? { label: t('Online · {mode} mode', { mode: features.photo_id_reader_mode }), tone: 'text-brand', dot: 'bg-brand' }
+        : { label: t('Paused'), tone: 'text-[var(--warn)]', dot: 'bg-[var(--warn)]' }
 
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto">
-      <ScreenHeader title="About" scrollRef={scrollRef} onBack={goBack} />
+      <ScreenHeader title={t('About')} scrollRef={scrollRef} onBack={goBack} />
       <main className="screen mx-auto max-w-lg space-y-6 px-4 pt-2" style={{ paddingLeft: 'max(16px, var(--safe-left))', paddingRight: 'max(16px, var(--safe-right))' }}>
         <Card className="flex flex-col items-center py-7 text-center">
           <img src="/logo-mark.svg" alt="" width={72} height={72} className="h-[72px] w-[72px]" />
@@ -49,13 +52,14 @@ export default function AboutScreen({ active = true }: { active?: boolean }) {
             <span className="text-brand">Seek</span>
           </p>
           <p className="mt-2 max-w-xs text-[15px] leading-relaxed text-muted">
-            PillSeek identifies pills from photos and by imprint, colour and shape, using FDA labelling data and a catalogue
-            of 14,000 pill images. Free, ad-light and built for the moment you need an answer.
+            {t(
+              'PillSeek identifies pills from photos and by imprint, colour and shape, using FDA labelling data and a catalogue of 14,000 pill images. Free, ad-light and built for the moment you need an answer.',
+            )}
           </p>
         </Card>
 
         <section>
-          <SectionLabel>How it works</SectionLabel>
+          <SectionLabel>{t('How it works')}</SectionLabel>
           <Card padded={false} className="divide-y divide-line">
             {STEPS.map(({ Icon, title, body }, i) => (
               <div key={title} className="flex items-start gap-3 px-4 py-3.5">
@@ -66,8 +70,8 @@ export default function AboutScreen({ active = true }: { active?: boolean }) {
                   </span>
                 </span>
                 <div className="min-w-0">
-                  <p className="text-[17px] font-semibold text-ink">{title}</p>
-                  <p className="mt-0.5 text-[14px] leading-snug text-muted">{body}</p>
+                  <p className="text-[17px] font-semibold text-ink">{t(title)}</p>
+                  <p className="mt-0.5 text-[14px] leading-snug text-muted">{t(body)}</p>
                 </div>
               </div>
             ))}
@@ -75,17 +79,37 @@ export default function AboutScreen({ active = true }: { active?: boolean }) {
         </section>
 
         <section>
-          <SectionLabel>Settings</SectionLabel>
+          <SectionLabel>{t('Settings')}</SectionLabel>
           <Card className="divide-y divide-line !py-1">
+            <div className="py-2.5">
+              <p className="mb-2 text-[17px] text-ink">{t('Language')}</p>
+              <SegmentedControl<Lang>
+                label={t('Language')}
+                value={lang}
+                onChange={setLang}
+                options={[
+                  { value: 'auto', label: t('Automatic') },
+                  { value: 'en', label: 'English' },
+                  { value: 'es', label: 'Español' },
+                ]}
+              />
+            </div>
             <Toggle
               checked={consent}
               onChange={setConsent}
-              label="Keep my photos to improve the reader"
-              description="Photos are stored without any personal details and used only to train PillSeek's imprint reader. Turn off to keep them private."
+              label={t('Keep my photos to improve the reader')}
+              description={t(
+                "Photos are stored without any personal details and used only to train PillSeek's imprint reader. Turn off to keep them private.",
+              )}
             />
             <div className="flex min-h-[44px] items-center justify-between gap-4 py-2.5">
-              <span className="text-[17px] text-ink">Reader status</span>
-              <button type="button" onClick={reload} className={`pressable flex items-center gap-2 text-[15px] font-medium ${readerStatus.tone}`} aria-label={`Reader status: ${readerStatus.label}. Refresh`}>
+              <span className="text-[17px] text-ink">{t('Reader status')}</span>
+              <button
+                type="button"
+                onClick={reload}
+                className={`pressable flex items-center gap-2 text-[15px] font-medium ${readerStatus.tone}`}
+                aria-label={t('Reader status: {status}. Refresh', { status: readerStatus.label })}
+              >
                 <span className={`h-2.5 w-2.5 rounded-full ${readerStatus.dot}`} aria-hidden />
                 {readerStatus.label}
                 <RefreshIcon size={16} className="text-muted" />
@@ -95,7 +119,7 @@ export default function AboutScreen({ active = true }: { active?: boolean }) {
         </section>
 
         <section>
-          <SectionLabel>More</SectionLabel>
+          <SectionLabel>{t('More')}</SectionLabel>
           <Card padded={false} className="divide-y divide-line">
             {LINKS.map((l) => (
               <button
@@ -108,8 +132,8 @@ export default function AboutScreen({ active = true }: { active?: boolean }) {
                 className="pressable flex min-h-[48px] w-full items-center justify-between gap-3 px-4 py-2.5 text-left active:bg-brand-tint"
               >
                 <span className="min-w-0">
-                  <span className="block text-[17px] text-ink">{l.label}</span>
-                  {'hint' in l && <span className="block text-[13px] text-muted">{l.hint}</span>}
+                  <span className="block text-[17px] text-ink">{t(l.label)}</span>
+                  {'hint' in l && <span className="block text-[13px] text-muted">{t(l.hint)}</span>}
                 </span>
                 <ChevronRightIcon size={18} className="flex-none text-line" />
               </button>
@@ -120,9 +144,9 @@ export default function AboutScreen({ active = true }: { active?: boolean }) {
         <Disclaimer />
 
         <p className="pb-2 text-center text-[13px] leading-relaxed text-muted">
-          PillSeek {appVersion()} · {platform() === 'web' ? 'web preview' : platform()}
+          PillSeek {appVersion()} · {platform() === 'web' ? t('web preview') : platform()}
           <br />
-          Made in the USA with FDA data.
+          {t('Made in the USA with FDA data.')}
         </p>
       </main>
     </div>

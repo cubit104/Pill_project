@@ -94,6 +94,19 @@ const es: Record<string, string> = {
     'Letras y números de la pastilla, de cualquier cara. Separe las partes con un espacio.',
   'e.g. S 10': 'p. ej. S 10',
 
+  // ---- Double-quoted keys (apostrophes) ----
+  "Couldn't save your feedback. Tap again to retry.": 'No se pudieron guardar sus comentarios. Toque de nuevo para reintentar.',
+  "We're tuning the pill reader right now. You can still search by imprint, drug name or NDC.":
+    'Estamos ajustando el lector de pastillas. Aún puede buscar por grabado, nombre del medicamento o NDC.',
+  "We'll log this so the reader improves. If the imprint we read was wrong, correct it first so we learn the right text.":
+    'Registraremos esto para mejorar el lector. Si el grabado que leímos era incorrecto, corríjalo primero para que aprendamos el texto correcto.',
+  "Couldn't play the pronunciation": 'No se pudo reproducir la pronunciación',
+  "What it's for": 'Para qué sirve',
+  "How it's taken, forms and strengths": 'Cómo se toma, presentaciones y concentraciones',
+  "The FDA's most serious warning · tap to read": 'La advertencia más seria de la FDA · toque para leer',
+  "The FDA label linked to this pill doesn't include this section yet.":
+    'El etiquetado de la FDA vinculado a esta pastilla aún no incluye esta sección.',
+
   // ---- Pill page ----
   Pill: 'Pastilla',
   '{name} pill': 'pastilla {name}',

@@ -4,6 +4,7 @@ import Card from '../components/Card'
 import { AlertIcon, ChevronRightIcon, ExternalIcon } from '../components/Icons'
 import { useBackHandler } from '../lib/backstack'
 import { LEGAL, type LegalBlock, type LegalKind } from '../content/legal'
+import { useLang } from '../lib/i18n'
 import { hapticTick, openUrl } from '../lib/native'
 
 function Block({ block, onNavigate }: { block: LegalBlock; onNavigate: (to: string) => void }) {
@@ -58,6 +59,7 @@ function Block({ block, onNavigate }: { block: LegalBlock; onNavigate: (to: stri
 
 /** Privacy policy, terms of use and medical disclaimer, rendered natively from content/legal.ts. */
 export default function LegalScreen({ kind }: { kind: LegalKind }) {
+  const { resolved, t } = useLang()
   const navigate = useNavigate()
   const scrollRef = useRef<HTMLDivElement>(null)
   const doc = LEGAL[kind]
@@ -75,19 +77,24 @@ export default function LegalScreen({ kind }: { kind: LegalKind }) {
         className="sticky top-0 z-20 flex items-center gap-2 bg-[color-mix(in_srgb,var(--canvas)_95%,transparent)] px-2 pb-2 backdrop-blur"
         style={{ paddingTop: 'calc(var(--safe-top) + 6px)', paddingLeft: 'max(8px, var(--safe-left))', paddingRight: 'max(8px, var(--safe-right))' }}
       >
-        <button type="button" onClick={goBack} aria-label="Back" className="pressable flex h-11 min-w-[44px] items-center gap-0.5 rounded-full px-2 text-[17px] font-medium text-brand">
+        <button type="button" onClick={goBack} aria-label={t('Back')} className="pressable flex h-11 min-w-[44px] items-center gap-0.5 rounded-full px-2 text-[17px] font-medium text-brand">
           <ChevronRightIcon size={22} className="rotate-180" />
-          Back
+          {t('Back')}
         </button>
-        <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">{doc.title}</p>
+        <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">{t(doc.title)}</p>
         <span className="w-11" aria-hidden />
       </div>
 
       <main className="screen mx-auto max-w-lg px-4 pb-8 pt-2" style={{ paddingLeft: 'max(16px, var(--safe-left))', paddingRight: 'max(16px, var(--safe-right))' }}>
         <div className="px-1">
-          <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">{doc.title}</h1>
-          {doc.lastUpdated && <p className="mt-1 text-[14px] text-muted">Last updated: {doc.lastUpdated}</p>}
+          <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">{t(doc.title)}</h1>
+          {doc.lastUpdated && <p className="mt-1 text-[14px] text-muted">{t('Last updated: {date}', { date: doc.lastUpdated })}</p>}
         </div>
+        {resolved === 'es' && (
+          <Card tone="tint" className="mt-4 text-[14px] leading-relaxed text-body">
+            {t('This policy is available in English only.')}
+          </Card>
+        )}
         <Card className="mt-4">
           {doc.blocks.map((b, i) => (
             <Block key={i} block={b} onNavigate={(to) => navigate(to)} />

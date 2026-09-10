@@ -7,8 +7,10 @@ import { TextBadge } from '../components/PillRow'
 import { Skeleton } from '../components/Skeleton'
 import { ApiError, getEditorialTeam, type TeamMember } from '../lib/api'
 import { useBackHandler } from '../lib/backstack'
+import { useT } from '../lib/i18n'
 import { hapticTick, openUrl } from '../lib/native'
 
+/** English labels; translated at the render site. */
 const ROLE_LABEL: Record<string, string> = {
   medical_reviewer: 'Medical reviewer',
   author: 'Author',
@@ -72,6 +74,7 @@ function LinkRow({ title, subtitle, url }: { title: string; subtitle?: string | 
 }
 
 function Profile({ member }: { member: TeamMember }) {
+  const t = useT()
   const role = roleLabel(member.role)
   return (
     <>
@@ -82,7 +85,7 @@ function Profile({ member }: { member: TeamMember }) {
           {member.credentials && <span className="font-medium text-muted">, {member.credentials}</span>}
         </h1>
         <div className="mt-2 flex flex-wrap justify-center gap-2">
-          {role && <TextBadge tone="brand">{role}</TextBadge>}
+          {role && <TextBadge tone="brand">{t(role)}</TextBadge>}
           {member.specialty && <TextBadge tone="neutral">{member.specialty}</TextBadge>}
         </div>
         {member.license_info && (
@@ -94,7 +97,7 @@ function Profile({ member }: { member: TeamMember }) {
 
       {member.bio && (
         <section>
-          <SectionLabel>About</SectionLabel>
+          <SectionLabel>{t('About')}</SectionLabel>
           <Card>
             <p className="selectable whitespace-pre-line text-[15px] leading-relaxed text-body">{member.bio}</p>
           </Card>
@@ -103,10 +106,10 @@ function Profile({ member }: { member: TeamMember }) {
 
       {member.education.length > 0 && (
         <section>
-          <SectionLabel>Education</SectionLabel>
+          <SectionLabel>{t('Education')}</SectionLabel>
           <Card padded={false} className="divide-y divide-line overflow-hidden">
             {member.education.map((e, i) => (
-              <LinkRow key={i} title={e.degree ?? e.institution ?? 'Education'} subtitle={e.degree ? e.institution : null} url={e.url} />
+              <LinkRow key={i} title={e.degree ?? e.institution ?? t('Education')} subtitle={e.degree ? e.institution : null} url={e.url} />
             ))}
           </Card>
         </section>
@@ -114,10 +117,10 @@ function Profile({ member }: { member: TeamMember }) {
 
       {member.registrations.length > 0 && (
         <section>
-          <SectionLabel>Registrations</SectionLabel>
+          <SectionLabel>{t('Registrations')}</SectionLabel>
           <Card padded={false} className="divide-y divide-line overflow-hidden">
             {member.registrations.map((r, i) => (
-              <LinkRow key={i} title={r.title ?? r.board ?? 'Registration'} subtitle={r.title ? r.board : null} url={r.url} />
+              <LinkRow key={i} title={r.title ?? r.board ?? t('Registration')} subtitle={r.title ? r.board : null} url={r.url} />
             ))}
           </Card>
         </section>
@@ -125,7 +128,7 @@ function Profile({ member }: { member: TeamMember }) {
 
       {member.linkedin_url && (
         <Card padded={false} className="overflow-hidden">
-          <LinkRow title="LinkedIn profile" url={member.linkedin_url} />
+          <LinkRow title={t('LinkedIn profile')} url={member.linkedin_url} />
         </Card>
       )}
     </>
@@ -137,6 +140,7 @@ function Profile({ member }: { member: TeamMember }) {
  * /editorial-team/:slug shows one profile (the "Reviewed by" byline lands here).
  */
 export default function EditorialScreen({ slug }: { slug: string | null }) {
+  const t = useT()
   const navigate = useNavigate()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [team, setTeam] = useState<TeamMember[] | null>(null)
@@ -151,9 +155,9 @@ export default function EditorialScreen({ slug }: { slug: string | null }) {
     setError(null)
     getEditorialTeam(ctrl.signal)
       .then((t) => !ctrl.signal.aborted && setTeam(t))
-      .catch((err: unknown) => !ctrl.signal.aborted && setError(err instanceof ApiError ? err : new ApiError('unknown', 'Could not load the editorial team.')))
+      .catch((err: unknown) => !ctrl.signal.aborted && setError(err instanceof ApiError ? err : new ApiError('unknown', t('Could not load the editorial team.'))))
     return () => ctrl.abort()
-  }, [reloadKey])
+  }, [reloadKey, t])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 })
@@ -161,7 +165,12 @@ export default function EditorialScreen({ slug }: { slug: string | null }) {
 
   const member = slug && team ? team.find((m) => m.slug === slug) ?? null : null
   const showProfile = slug !== null
-  const title = showProfile ? member?.name ?? 'Reviewer' : 'Editorial team'
+  const title = showProfile ? member?.name ?? t('Reviewer') : t('Editorial team')
+  /** Role labels are English constants; the API's own role names fall through untranslated. */
+  const roleText = (role: string | null): string | null => {
+    const label = roleLabel(role)
+    return label ? t(label) : null
+  }
 
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto bg-canvas animate-fade-up">
@@ -169,9 +178,9 @@ export default function EditorialScreen({ slug }: { slug: string | null }) {
         className="sticky top-0 z-20 flex items-center gap-2 bg-[color-mix(in_srgb,var(--canvas)_95%,transparent)] px-2 pb-2 backdrop-blur"
         style={{ paddingTop: 'calc(var(--safe-top) + 6px)', paddingLeft: 'max(8px, var(--safe-left))', paddingRight: 'max(8px, var(--safe-right))' }}
       >
-        <button type="button" onClick={goBack} aria-label="Back" className="pressable flex h-11 min-w-[44px] items-center gap-0.5 rounded-full px-2 text-[17px] font-medium text-brand">
+        <button type="button" onClick={goBack} aria-label={t('Back')} className="pressable flex h-11 min-w-[44px] items-center gap-0.5 rounded-full px-2 text-[17px] font-medium text-brand">
           <ChevronRightIcon size={22} className="rotate-180" />
-          Back
+          {t('Back')}
         </button>
         <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">{title}</p>
         <span className="w-11" aria-hidden />
@@ -191,18 +200,18 @@ export default function EditorialScreen({ slug }: { slug: string | null }) {
         {team && (!showProfile || !member) && (
           <>
             <div className="px-1">
-              <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">Editorial team</h1>
+              <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">{t('Editorial team')}</h1>
               <p className="mt-1 text-[15px] leading-relaxed text-muted">
-                Licensed professionals who review PillSeek content for accuracy against FDA, DailyMed and RxNorm sources.
+                {t('Licensed professionals who review PillSeek content for accuracy against FDA, DailyMed and RxNorm sources.')}
               </p>
             </div>
             {showProfile && !member && (
               <Card tone="warn" className="text-[14px] text-body">
-                That reviewer profile isn&apos;t available. Here is the current team.
+                {t("That reviewer profile isn't available. Here is the current team.")}
               </Card>
             )}
             <Card padded={false} className="divide-y divide-line overflow-hidden">
-              {team.length === 0 && <p className="px-4 py-6 text-center text-[15px] text-muted">No team members listed yet.</p>}
+              {team.length === 0 && <p className="px-4 py-6 text-center text-[15px] text-muted">{t('No team members listed yet.')}</p>}
               {team.map((m) => (
                 <button
                   key={m.slug ?? m.name}
@@ -219,14 +228,16 @@ export default function EditorialScreen({ slug }: { slug: string | null }) {
                       {m.name}
                       {m.credentials && <span className="font-normal text-muted">, {m.credentials}</span>}
                     </span>
-                    <span className="block text-[13px] text-muted">{[roleLabel(m.role), m.specialty].filter(Boolean).join(' · ')}</span>
+                    <span className="block text-[13px] text-muted">{[roleText(m.role), m.specialty].filter(Boolean).join(' · ')}</span>
                   </span>
                   <ChevronRightIcon size={20} className="flex-none text-muted" />
                 </button>
               ))}
             </Card>
             <Card tone="tint" className="text-[14px] leading-relaxed text-body">
-              Pill identification data on PillSeek is pulled verbatim from government sources. Our team does not author drug content; it verifies that what you see matches the FDA label.
+              {t(
+                'Pill identification data on PillSeek is pulled verbatim from government sources. Our team does not author drug content; it verifies that what you see matches the FDA label.',
+              )}
             </Card>
           </>
         )}
