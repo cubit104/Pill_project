@@ -29,6 +29,7 @@ import {
 } from '../lib/api'
 import { GOALS, goalPillPath, isGoal, type Goal } from '../lib/goals'
 import { useDebouncedValue } from '../lib/hooks'
+import { useLocale, useT } from '../lib/i18n'
 import { hapticTick, hideKeyboard } from '../lib/native'
 import { addRecent, newId } from '../lib/storage'
 
@@ -58,6 +59,7 @@ type Picker =
   | { kind: 'pills'; drug: DrugRow; strength: string | null; pills: SearchResult[]; loading: boolean; error: ApiError | null }
 
 function DrugRowButton({ drug, onPress, compact = false }: { drug: DrugRow; onPress: () => void; compact?: boolean }) {
+  const t = useT()
   const sub = [drug.brand_names && drug.brand_names.toLowerCase() !== drug.name.toLowerCase() ? drug.brand_names : null, drug.ingredients && drug.ingredients.toLowerCase() !== drug.name.toLowerCase() ? titleCase(drug.ingredients) : null]
     .filter(Boolean)
     .join(' · ')
@@ -74,7 +76,7 @@ function DrugRowButton({ drug, onPress, compact = false }: { drug: DrugRow; onPr
         {drug.strengths.length > 0 && (
           <span className={`block truncate text-body ${compact ? 'text-[13px]' : 'mt-0.5 text-[14px]'}`}>
             {drug.strengths.join(' · ')}
-            {drug.pill_count > 1 && <span className="text-muted"> · {drug.pill_count} pills</span>}
+            {drug.pill_count > 1 && <span className="text-muted"> · {t('{n} pills', { n: drug.pill_count })}</span>}
           </span>
         )}
       </span>
@@ -87,6 +89,8 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
+  const t = useT()
+  const locale = useLocale()
 
   const [mode, setMode] = useState<Mode>(() => (isMode(params.get('type')) ? (params.get('type') as Mode) : 'imprint'))
   const [q, setQ] = useState(() => params.get('q') ?? '')
@@ -148,8 +152,8 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
   } else if (active && incoming !== seenRef.current && incoming !== staleRef.current) {
     seenRef.current = incoming
     if (incoming) {
-      const t = params.get('type')
-      setMode(isMode(t) ? t : 'imprint')
+      const typeParam = params.get('type')
+      setMode(isMode(typeParam) ? typeParam : 'imprint')
       setQ(params.get('q') ?? '')
       setColor(params.get('color') ?? '')
       setShape(params.get('shape') ?? '')
@@ -268,7 +272,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
         }
       } catch (err) {
         if (ctrl.signal.aborted) return
-        const e = err instanceof ApiError ? err : new ApiError('unknown', 'Search failed. Please try again.')
+        const e = err instanceof ApiError ? err : new ApiError('unknown', t('Search failed. Please try again.'))
         if (e.kind === 'cancelled') return
         setError(e)
         if (!append) {
@@ -282,7 +286,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
         }
       }
     },
-    [activeQuery, mode, color, shape],
+    [activeQuery, mode, color, shape, t],
   )
 
   useEffect(() => {
@@ -356,7 +360,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
       })
       .catch((err: unknown) => {
         if (ctrl.signal.aborted) return
-        setPicker({ kind: 'pills', drug, strength, pills: [], loading: false, error: err instanceof ApiError ? err : new ApiError('unknown', 'Could not load pills.') })
+        setPicker({ kind: 'pills', drug, strength, pills: [], loading: false, error: err instanceof ApiError ? err : new ApiError('unknown', t('Could not load pills.')) })
       })
   }
 
@@ -392,13 +396,13 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
       <Card padded={false}>
         <EmptyState
           art="search"
-          title="Find a pill"
+          title={t('Find a pill')}
           body={
             mode === 'imprint'
-              ? 'Type the letters or numbers printed on the pill, and narrow it down by colour and shape.'
+              ? t('Type the letters or numbers printed on the pill, and narrow it down by colour and shape.')
               : mode === 'drug'
-                ? 'Start typing a brand or generic name and pick it from the list.'
-                : 'Type the National Drug Code from the packaging; matches appear as you type.'
+                ? t('Start typing a brand or generic name and pick it from the list.')
+                : t('Type the National Drug Code from the packaging; matches appear as you type.')
           }
         />
       </Card>
@@ -408,8 +412,8 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
       <Card padded={false}>
         <EmptyState
           art="pill"
-          title="No results"
-          body="Check the spelling, try fewer characters, or remove the colour and shape filters."
+          title={t('No results')}
+          body={t('Check the spelling, try fewer characters, or remove the colour and shape filters.')}
           action={
             hasFilters ? (
               <Button
@@ -420,7 +424,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
                   setShape('')
                 }}
               >
-                Clear filters
+                {t('Clear filters')}
               </Button>
             ) : undefined
           }
@@ -429,20 +433,29 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
     )
   } else {
     const shown = mode === 'drug' ? drugs.length : results.length
+    const n = total.toLocaleString(locale)
+    const count = mode === 'drug' ? (total === 1 ? t('1 drug') : t('{n} drugs', { n })) : total === 1 ? t('1 result') : t('{n} results', { n })
+    // Split translated sentences around the placeholder so the term keeps its bold span.
+    const [forBefore, forAfter] = t('for “{q}”').split('{q}')
+    const [fbBefore, fbAfter] = t('No exact name match — showing results for {term} (generic equivalent).').split('{term}')
     content = (
       <div className="space-y-3">
         <p className="tabular px-1 text-[14px] text-muted">
-          {total.toLocaleString()} {mode === 'drug' ? (total === 1 ? 'drug' : 'drugs') : total === 1 ? 'result' : 'results'}
+          {count}
           {activeQuery && (
             <>
               {' '}
-              for <span className="font-semibold text-ink">“{activeQuery}”</span>
+              {forBefore}
+              <span className="font-semibold text-ink">{activeQuery}</span>
+              {forAfter}
             </>
           )}
         </p>
         {fallbackTerm && (
           <Card tone="tint" className="text-[14px] text-body">
-            No exact name match — showing results for <span className="font-semibold text-ink">{fallbackTerm}</span> (generic equivalent).
+            {fbBefore}
+            <span className="font-semibold text-ink">{fallbackTerm}</span>
+            {fbAfter}
           </Card>
         )}
         <div className="card divide-y divide-line overflow-hidden">
@@ -463,7 +476,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
         </div>
         {page < totalPages && (
           <Button full variant="secondary" loading={loadingMore} onClick={() => void runSearch(page + 1, true)}>
-            Load more ({(total - shown).toLocaleString()} left)
+            {t('Load more ({n} left)', { n: (total - shown).toLocaleString(locale) })}
           </Button>
         )}
         <Disclaimer compact />
@@ -480,16 +493,16 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
         if (document.activeElement === inputRef.current && !(e.target as HTMLElement).closest('header')) dismissKeyboard()
       }}
     >
-      <ScreenHeader title="Search" scrollRef={scrollRef}>
+      <ScreenHeader title={t('Search')} scrollRef={scrollRef}>
         <div className="space-y-3">
-          <SegmentedControl label="Search type" options={MODES} value={mode} onChange={changeMode} />
+          <SegmentedControl label={t('Search type')} options={MODES.map((m) => ({ value: m.value, label: t(m.label) }))} value={mode} onChange={changeMode} />
           <div className="relative">
             <TextField
               ref={inputRef}
-              label={PLACEHOLDER[mode]}
+              label={t(PLACEHOLDER[mode])}
               value={q}
               onChange={setQ}
-              placeholder={PLACEHOLDER[mode]}
+              placeholder={t(PLACEHOLDER[mode])}
               leading={<SearchIcon size={20} />}
               type="search"
               inputMode={mode === 'ndc' ? 'numeric' : 'search'}
@@ -507,7 +520,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
               }}
             />
             {(showDrugSuggestions || showNdcSuggestions || showImprintSuggestions) && (
-              <ul className="card absolute inset-x-0 top-full z-30 mt-1 max-h-72 divide-y divide-line overflow-y-auto" role="listbox" aria-label="Suggestions">
+              <ul className="card absolute inset-x-0 top-full z-30 mt-1 max-h-72 divide-y divide-line overflow-y-auto" role="listbox" aria-label={t('Suggestions')}>
                 {showImprintSuggestions &&
                   imprintSuggestions.map((imp) => (
                     <li key={imp} role="option" aria-selected={false}>
@@ -560,9 +573,9 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
           </div>
           {mode === 'imprint' && filters.colors.length > 0 && (
             <div className="space-y-1.5">
-              <ChipRow label="Colour">
+              <ChipRow label={t('Colour')}>
                 <Chip selected={color === ''} onClick={() => setColor('')}>
-                  Any colour
+                  {t('Any colour')}
                 </Chip>
                 {filters.colors.map((c) => (
                   <Chip key={c.name} selected={color === c.name} onClick={() => setColor(c.name)} leading={<ColorDot hex={c.hex} />}>
@@ -570,9 +583,9 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
                   </Chip>
                 ))}
               </ChipRow>
-              <ChipRow label="Shape">
+              <ChipRow label={t('Shape')}>
                 <Chip selected={shape === ''} onClick={() => setShape('')}>
-                  Any shape
+                  {t('Any shape')}
                 </Chip>
                 {filters.shapes.map((s) => (
                   <Chip key={s.name} selected={shape === s.name} onClick={() => setShape(s.name)} leading={<span aria-hidden>{s.icon}</span>}>
@@ -588,12 +601,12 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
         {goal && (
           <Card tone="tint" className="mb-3 flex items-center gap-3 !py-2.5" role="status">
             <span className="min-w-0 flex-1 text-[14px] text-body">
-              <span className="font-semibold text-ink">{GOALS[goal].label}:</span> {GOALS[goal].prompt}.
+              <span className="font-semibold text-ink">{t(GOALS[goal].label)}:</span> {t(GOALS[goal].prompt)}.
             </span>
             <button
               type="button"
               onClick={() => setGoal(null)}
-              aria-label={`Stop looking for ${GOALS[goal].label.toLowerCase()}`}
+              aria-label={t('Stop looking for {goal}', { goal: t(GOALS[goal].label).toLowerCase() })}
               className="pressable -mr-1 flex h-9 w-9 flex-none items-center justify-center rounded-full text-muted"
             >
               <CloseIcon size={16} />
@@ -614,7 +627,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
       >
         {picker?.kind === 'strengths' && (
           <div className="-mx-2">
-            <p className="px-2 pb-2 text-[14px] text-muted">Choose a strength</p>
+            <p className="px-2 pb-2 text-[14px] text-muted">{t('Choose a strength')}</p>
             <div className="max-h-[60vh] divide-y divide-line overflow-y-auto">
               {(picker.drug.strength_details.length > 0
                 ? picker.drug.strength_details
@@ -634,7 +647,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
                   <PillThumb src={d.image_url} alt="" size={48} />
                   <span className="min-w-0 flex-1">
                     <span className="block text-[17px] font-semibold text-ink">{d.label}</span>
-                    {d.pill_count > 0 && <span className="block text-[13px] text-muted">{d.pill_count === 1 ? '1 pill' : `${d.pill_count} pills`}</span>}
+                    {d.pill_count > 0 && <span className="block text-[13px] text-muted">{d.pill_count === 1 ? t('1 pill') : t('{n} pills', { n: d.pill_count })}</span>}
                   </span>
                   <ChevronRightIcon size={20} className="flex-none text-muted" />
                 </button>
@@ -663,10 +676,10 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
                     onClick={() => setPicker({ kind: 'strengths', drug: picker.drug })}
                     className="pressable mb-1 inline-flex min-h-[36px] items-center gap-1 px-2 text-[14px] font-semibold text-brand"
                   >
-                    <ChevronRightIcon size={16} className="rotate-180" /> Other strengths
+                    <ChevronRightIcon size={16} className="rotate-180" /> {t('Other strengths')}
                   </button>
                 )}
-                {picker.pills.length === 0 && <p className="px-2 py-6 text-center text-[15px] text-muted">No pills listed for this strength.</p>}
+                {picker.pills.length === 0 && <p className="px-2 py-6 text-center text-[15px] text-muted">{t('No pills listed for this strength.')}</p>}
                 <div className="divide-y divide-line">
                   {picker.pills.map((r, i) => (
                     <button
@@ -677,7 +690,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
                     >
                       <PillThumb src={r.image_url} alt="" size={48} />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[16px] font-semibold text-ink">{r.imprint ? `Imprint ${r.imprint}` : r.strength ?? r.drug_name}</span>
+                        <span className="block truncate text-[16px] font-semibold text-ink">{r.imprint ? t('Imprint {imprint}', { imprint: r.imprint }) : r.strength ?? r.drug_name}</span>
                         <span className="block truncate text-[13px] text-muted">
                           {[
                             !picker.strength && r.strength ? r.strength : null,

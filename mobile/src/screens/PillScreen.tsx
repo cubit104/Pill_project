@@ -22,10 +22,11 @@ import {
 import { useBackHandler } from '../lib/backstack'
 import { money } from '../lib/format'
 import { sectionPath } from '../lib/goals'
+import { useT } from '../lib/i18n'
 import { interactionsPath } from '../lib/interactions'
 import { hapticTick, openUrl } from '../lib/native'
 
-/** DEA schedule → short badge text, or null when not controlled / unknown. */
+/** DEA schedule → roman numeral for the badge, or null when not controlled / unknown. */
 function scheduleBadge(raw: string | null): string | null {
   if (!raw) return null
   const v = raw.trim().toLowerCase()
@@ -35,7 +36,7 @@ function scheduleBadge(raw: string | null): string | null {
     '1': 'I', '2': 'II', '3': 'III', '4': 'IV', '5': 'V',
     'schedule i': 'I', 'schedule ii': 'II', 'schedule iii': 'III', 'schedule iv': 'IV', 'schedule v': 'V',
   }
-  return map[v] ? `Schedule ${map[v]}` : null
+  return map[v] ?? null
 }
 
 function Row({ label, value, mono }: { label: string; value: string | null; mono?: boolean }) {
@@ -66,6 +67,7 @@ function LinkRow({ label, hint, onClick, external }: { label: string; hint?: str
 
 /** Image carousel: swipe between catalog photos; dots underneath. */
 function Gallery({ images, alt }: { images: string[]; alt: string }) {
+  const t = useT()
   const [index, setIndex] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
   const onScroll = () => {
@@ -86,7 +88,7 @@ function Gallery({ images, alt }: { images: string[]; alt: string }) {
         {images.map((src, i) => (
           <div key={src} className="flex h-64 w-full flex-none snap-center items-center justify-center p-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={src} alt={i === 0 ? alt : `${alt}, photo ${i + 1}`} className="max-h-full max-w-full object-contain" loading={i === 0 ? 'eager' : 'lazy'} />
+            <img src={src} alt={i === 0 ? alt : t('{alt}, photo {n}', { alt, n: i + 1 })} className="max-h-full max-w-full object-contain" loading={i === 0 ? 'eager' : 'lazy'} />
           </div>
         ))}
       </div>
@@ -120,6 +122,7 @@ function PillSkeleton() {
 export default function PillScreen({ slug }: { slug: string }) {
   const navigate = useNavigate()
   const toast = useToast()
+  const t = useT()
   const [pill, setPill] = useState<PillDetail | null>(null)
   const [price, setPrice] = useState<PriceSnapshot | null>(null)
   const [similar, setSimilar] = useState<SimilarPill[]>([])
@@ -154,24 +157,25 @@ export default function PillScreen({ slug }: { slug: string }) {
       })
       .catch((err: unknown) => {
         if (ctrl.signal.aborted) return
-        setError(err instanceof ApiError ? err : new ApiError('unknown', 'Could not load this pill.'))
+        setError(err instanceof ApiError ? err : new ApiError('unknown', t('Could not load this pill.')))
         setLoading(false)
       })
     return () => ctrl.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, reloadKey])
 
   const playAudio = (url: string) => {
     void hapticTick()
     const a = new Audio(url)
-    a.play().catch(() => toast.show("Couldn't play the pronunciation", 'error'))
+    a.play().catch(() => toast.show(t("Couldn't play the pronunciation"), 'error'))
   }
 
   const schedule = pill ? scheduleBadge(pill.dea_schedule) : null
   const brandLine = pill
     ? pill.brand_or_generic === 'brand' && pill.generic_name
-      ? `Brand of ${pill.generic_name}`
+      ? t('Brand of {name}', { name: pill.generic_name })
       : pill.brand_or_generic === 'generic' && pill.brand_names_all.length
-        ? `Generic for ${pill.brand_names_all.slice(0, 3).join(', ')}`
+        ? t('Generic for {names}', { names: pill.brand_names_all.slice(0, 3).join(', ') })
         : null
     : null
   const physical = pill ? [pill.color, pill.shape].filter(Boolean).map((s) => titleCase(String(s))).join(' · ') : ''
@@ -186,13 +190,13 @@ export default function PillScreen({ slug }: { slug: string }) {
         <button
           type="button"
           onClick={goBack}
-          aria-label="Back"
+          aria-label={t('Back')}
           className="pressable flex h-11 min-w-[44px] items-center gap-0.5 rounded-full px-2 text-[17px] font-medium text-brand"
         >
           <ChevronRightIcon size={22} className="rotate-180" />
-          Back
+          {t('Back')}
         </button>
-        <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">{pill?.drug_name ?? 'Pill'}</p>
+        <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">{pill?.drug_name ?? t('Pill')}</p>
         <span className="w-11" aria-hidden />
       </div>
 
@@ -205,19 +209,19 @@ export default function PillScreen({ slug }: { slug: string }) {
           <ErrorCard
             error={error}
             onRetry={() => setReloadKey((k) => k + 1)}
-            secondary={{ label: 'Open on pillseek.com', onClick: () => void openUrl(pillPageUrl(slug)) }}
+            secondary={{ label: t('Open on pillseek.com'), onClick: () => void openUrl(pillPageUrl(slug)) }}
           />
         )}
         {pill && !loading && (
           <>
-            <Gallery images={pill.images} alt={`${pill.drug_name} pill`} />
+            <Gallery images={pill.images} alt={t('{name} pill', { name: pill.drug_name })} />
 
             {/* Title block */}
             <div className="px-1">
               <div className="flex flex-wrap items-center gap-2">
                 {pill.status_rx_otc && <TextBadge tone={pill.status_rx_otc.toLowerCase().includes('otc') ? 'neutral' : 'brand'}>{pill.status_rx_otc}</TextBadge>}
-                {schedule && <TextBadge tone="amber">{schedule}</TextBadge>}
-                {pill.brand_or_generic && <TextBadge tone="neutral">{titleCase(pill.brand_or_generic)}</TextBadge>}
+                {schedule && <TextBadge tone="amber">{t('Schedule {n}', { n: schedule })}</TextBadge>}
+                {pill.brand_or_generic && <TextBadge tone="neutral">{t(titleCase(pill.brand_or_generic))}</TextBadge>}
               </div>
               <h1 className="mt-2 text-[26px] font-bold leading-tight tracking-tight text-ink">
                 {pill.drug_name}
@@ -244,14 +248,14 @@ export default function PillScreen({ slug }: { slug: string }) {
 
             {/* Identification */}
             <section>
-              <SectionLabel>Identification</SectionLabel>
+              <SectionLabel>{t('Identification')}</SectionLabel>
               <Card className="divide-y divide-line py-1">
-                <Row label="Imprint" value={pill.imprint} mono />
-                <Row label="Colour · shape" value={physical || null} />
-                <Row label="Size" value={pill.size ? `${pill.size} mm` : null} />
-                <Row label="Form" value={pill.dosage_form ? titleCase(pill.dosage_form) : null} />
-                <Row label="Route" value={pill.route} />
-                <Row label="Manufacturer" value={pill.manufacturer} />
+                <Row label={t('Imprint')} value={pill.imprint} mono />
+                <Row label={t('Colour · shape')} value={physical || null} />
+                <Row label={t('Size')} value={pill.size ? `${pill.size} mm` : null} />
+                <Row label={t('Form')} value={pill.dosage_form ? titleCase(pill.dosage_form) : null} />
+                <Row label={t('Route')} value={pill.route} />
+                <Row label={t('Manufacturer')} value={pill.manufacturer} />
                 <Row label="NDC" value={pill.ndc} mono />
               </Card>
             </section>
@@ -259,11 +263,11 @@ export default function PillScreen({ slug }: { slug: string }) {
             {/* Price */}
             {price && (
               <section>
-                <SectionLabel>Price</SectionLabel>
+                <SectionLabel>{t('Price')}</SectionLabel>
                 <Card tone="tint">
                   <div className="flex items-baseline justify-between gap-3">
                     <div>
-                      <p className="text-[13px] text-muted">Fair retail, 30-day supply</p>
+                      <p className="text-[13px] text-muted">{t('Fair retail, 30-day supply')}</p>
                       <p className="tabular mt-0.5 text-[24px] font-bold tracking-tight text-ink">
                         {price.fair_retail_low !== null && price.fair_retail_high !== null
                           ? `${money(price.fair_retail_low)} – ${money(price.fair_retail_high)}`
@@ -272,7 +276,7 @@ export default function PillScreen({ slug }: { slug: string }) {
                     </div>
                     {price.price_per_unit !== null && (
                       <div className="text-right">
-                        <p className="text-[13px] text-muted">Pharmacy cost</p>
+                        <p className="text-[13px] text-muted">{t('Pharmacy cost')}</p>
                         <p className="tabular text-[16px] font-semibold text-ink">
                           {money(price.price_per_unit)}
                           <span className="text-[13px] font-normal text-muted">/{(price.unit ?? 'unit').toLowerCase()}</span>
@@ -281,15 +285,15 @@ export default function PillScreen({ slug }: { slug: string }) {
                     )}
                   </div>
                   <p className="mt-2 text-[12px] leading-snug text-muted">
-                    {price.is_estimate ? 'Estimate. ' : ''}
-                    {price.display_disclaimer ?? 'Based on NADAC pharmacy acquisition cost (CMS). Your price depends on pharmacy and insurance.'}
+                    {price.is_estimate ? `${t('Estimate.')} ` : ''}
+                    {price.display_disclaimer ?? t('Based on NADAC pharmacy acquisition cost (CMS). Your price depends on pharmacy and insurance.')}
                   </p>
                   <button
                     type="button"
                     onClick={() => navigate(sectionPath(slug, 'price'))}
                     className="pressable mt-2 inline-flex min-h-[40px] items-center gap-1 text-[14px] font-semibold text-brand"
                   >
-                    Compare prices &amp; alternatives <ChevronRightIcon size={16} />
+                    {t('Compare prices & alternatives')} <ChevronRightIcon size={16} />
                   </button>
                 </Card>
               </section>
@@ -298,7 +302,7 @@ export default function PillScreen({ slug }: { slug: string }) {
             {/* What it's for */}
             {(pill.indication?.plain_text || pill.pharma_class) && (
               <section>
-                <SectionLabel>What it&apos;s for</SectionLabel>
+                <SectionLabel>{t("What it's for")}</SectionLabel>
                 <Card>
                   {pill.indication?.plain_text && (
                     <>
@@ -310,7 +314,7 @@ export default function PillScreen({ slug }: { slug: string }) {
                           aria-expanded={showAllIndication}
                           className="pressable mt-1 inline-flex min-h-[40px] items-center gap-1 text-[14px] font-semibold text-brand"
                         >
-                          {showAllIndication ? 'Show less' : 'Read more'}
+                          {showAllIndication ? t('Show less') : t('Read more')}
                           <ChevronRightIcon size={16} className={`transition-transform ${showAllIndication ? '-rotate-90' : 'rotate-90'}`} />
                         </button>
                       )}
@@ -318,7 +322,7 @@ export default function PillScreen({ slug }: { slug: string }) {
                   )}
                   {pill.pharma_class && (
                     <p className={`text-[13px] text-muted ${pill.indication?.plain_text ? 'mt-3' : ''}`}>
-                      <span className="font-semibold text-body">Drug class:</span> {pill.pharma_class}
+                      <span className="font-semibold text-body">{t('Drug class:')}</span> {pill.pharma_class}
                     </p>
                   )}
                 </Card>
@@ -328,11 +332,11 @@ export default function PillScreen({ slug }: { slug: string }) {
             {/* Ingredients */}
             {(pill.ingredients || pill.inactive_ingredients) && (
               <section>
-                <SectionLabel>Ingredients</SectionLabel>
+                <SectionLabel>{t('Ingredients')}</SectionLabel>
                 <Card>
                   {pill.ingredients && (
                     <>
-                      <p className="text-[13px] font-semibold text-body">Active</p>
+                      <p className="text-[13px] font-semibold text-body">{t('Active')}</p>
                       <p className="mt-0.5 text-[15px] text-ink">{pill.ingredients}</p>
                     </>
                   )}
@@ -344,7 +348,7 @@ export default function PillScreen({ slug }: { slug: string }) {
                         aria-expanded={showInactive}
                         className="pressable inline-flex min-h-[40px] items-center gap-1 text-[14px] font-semibold text-brand"
                       >
-                        {showInactive ? 'Hide' : 'Show'} inactive ingredients
+                        {showInactive ? t('Hide inactive ingredients') : t('Show inactive ingredients')}
                         <ChevronRightIcon size={16} className={`transition-transform ${showInactive ? 'rotate-90' : ''}`} />
                       </button>
                       {showInactive && (
@@ -358,20 +362,20 @@ export default function PillScreen({ slug }: { slug: string }) {
 
             {/* Label sections, rendered natively by SectionScreen */}
             <section>
-              <SectionLabel>Patient guide</SectionLabel>
+              <SectionLabel>{t('Patient guide')}</SectionLabel>
               <Card padded={false} className="divide-y divide-line overflow-hidden">
-                {pill.has_medguide && <LinkRow label="Medication guide" hint="What to know before and while taking it" onClick={() => navigate(sectionPath(slug, 'medication-guide'))} />}
-                {pill.has_dosage && <LinkRow label="Dosage & administration" hint="How it's taken, forms and strengths" onClick={() => navigate(sectionPath(slug, 'dosage'))} />}
-                {pill.has_adverse_reactions && <LinkRow label="Side effects" hint="Adverse reactions from the FDA label" onClick={() => navigate(sectionPath(slug, 'adverse-reactions'))} />}
-                <LinkRow label="Prescribing information" hint="Full FDA label for professionals" onClick={() => navigate(sectionPath(slug, 'professional-information'))} />
-                <LinkRow label="Drug interactions" hint="Check against other medicines" onClick={() => navigate(interactionsPath(pill.generic_name ?? pill.drug_name))} />
+                {pill.has_medguide && <LinkRow label={t('Medication guide')} hint={t('What to know before and while taking it')} onClick={() => navigate(sectionPath(slug, 'medication-guide'))} />}
+                {pill.has_dosage && <LinkRow label={t('Dosage & administration')} hint={t("How it's taken, forms and strengths")} onClick={() => navigate(sectionPath(slug, 'dosage'))} />}
+                {pill.has_adverse_reactions && <LinkRow label={t('Side effects')} hint={t('Adverse reactions from the FDA label')} onClick={() => navigate(sectionPath(slug, 'adverse-reactions'))} />}
+                <LinkRow label={t('Prescribing information')} hint={t('Full FDA label for professionals')} onClick={() => navigate(sectionPath(slug, 'professional-information'))} />
+                <LinkRow label={t('Drug interactions')} hint={t('Check against other medicines')} onClick={() => navigate(interactionsPath(pill.generic_name ?? pill.drug_name))} />
               </Card>
             </section>
 
             {/* Similar pills */}
             {similar.length > 0 && (
               <section>
-                <SectionLabel>Similar-looking pills</SectionLabel>
+                <SectionLabel>{t('Similar-looking pills')}</SectionLabel>
                 <div className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-1">
                   {similar.map((s) => (
                     <button
@@ -395,7 +399,7 @@ export default function PillScreen({ slug }: { slug: string }) {
             <Card tone="warn" className="flex items-start gap-3">
               <InfoIcon size={20} className="mt-0.5 flex-none text-[var(--warn)]" />
               <p className="text-[13px] leading-relaxed text-body">
-                Pill images and details come from FDA labeling. Always confirm a pill with your pharmacist before taking it.
+                {t('Pill images and details come from FDA labeling. Always confirm a pill with your pharmacist before taking it.')}
               </p>
             </Card>
             <Disclaimer compact />

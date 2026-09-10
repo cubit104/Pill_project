@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getReviewer, type Reviewer } from '../lib/api'
 import { shortDate } from '../lib/format'
+import { useT } from '../lib/i18n'
 import { hapticTick } from '../lib/native'
 
 function initials(name: string): string {
@@ -21,6 +22,7 @@ function initials(name: string): string {
  */
 export default function ReviewedBy({ lastVerified, className = '' }: { lastVerified?: string | null; className?: string }) {
   const navigate = useNavigate()
+  const t = useT()
   const [reviewer, setReviewer] = useState<Reviewer | null>(null)
   const [failed, setFailed] = useState(false)
 
@@ -34,7 +36,7 @@ export default function ReviewedBy({ lastVerified, className = '' }: { lastVerif
     }
   }, [])
 
-  const name = reviewer?.name ?? 'PillSeek Editorial Team'
+  const name = reviewer?.name ?? t('PillSeek Editorial Team')
   const credentials = reviewer?.credentials ?? null
   const to = reviewer?.slug ? `/editorial-team/${encodeURIComponent(reviewer.slug)}` : '/editorial-team'
   const date = shortDate(lastVerified)
@@ -47,7 +49,7 @@ export default function ReviewedBy({ lastVerified, className = '' }: { lastVerif
         navigate(to)
       }}
       className={`pressable flex w-full items-center gap-2.5 rounded-xl px-1 py-1.5 text-left active:bg-brand-tint ${className}`}
-      aria-label={`Reviewed by ${name}${credentials ? `, ${credentials}` : ''}. Open profile`}
+      aria-label={t('Reviewed by {name}. Open profile', { name: credentials ? `${name}, ${credentials}` : name })}
     >
       {reviewer?.avatar_url && !failed ? (
         <img
@@ -66,9 +68,9 @@ export default function ReviewedBy({ lastVerified, className = '' }: { lastVerif
         </span>
       )}
       <span className="min-w-0 text-[13px] leading-snug text-muted">
-        Reviewed by <span className="font-semibold text-body">{name}</span>
+        {t('Reviewed by')} <span className="font-semibold text-body">{name}</span>
         {credentials && <span className="text-body">, {credentials}</span>}
-        {date && <span className="block">Last verified {date}</span>}
+        {date && <span className="block">{t('Last verified {date}', { date })}</span>}
       </span>
     </button>
   )

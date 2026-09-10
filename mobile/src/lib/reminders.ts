@@ -10,6 +10,7 @@ import {
 } from "@capacitor/local-notifications";
 import { Badge } from "@capawesome/capacitor-badge";
 import type { Reminder } from "./cabinet";
+import { tr } from "./i18n";
 import { isNative } from "./native";
 
 const DAYS_AHEAD = 14;
@@ -117,8 +118,8 @@ export async function syncNotifications(
   for (const { at, reminder, title } of all.slice(0, 44)) {
     list.push({
       id: notificationId(seq++),
-      title: `Time for ${title}`,
-      body: reminder.dose ? `Take ${reminder.dose}` : "Tap to mark it taken",
+      title: tr("Time for {name}", { name: title }),
+      body: reminder.dose ? tr("Take {dose}", { dose: reminder.dose }) : tr("Tap to mark it taken"),
       schedule: { at, allowWhileIdle: true },
       sound: SOUND,
       channelId: CHANNEL_ID,
@@ -134,13 +135,13 @@ export async function syncNotifications(
       r.at.getTime() > now.getTime() ? r.at : new Date(now.getTime() + 60_000); // already due: nudge in a minute
     list.push({
       id: notificationId(REFILL_SEQ + rseq++),
-      title: `Refill ${r.title}`,
+      title: tr("Refill {name}", { name: r.title }),
       body:
         r.daysLeft <= 0
-          ? "You are out. Time to refill."
-          : `About ${r.daysLeft} day${
-              r.daysLeft === 1 ? "" : "s"
-            } of supply left.`,
+          ? tr("You are out. Time to refill.")
+          : r.daysLeft === 1
+            ? tr("About 1 day of supply left.")
+            : tr("About {n} days of supply left.", { n: r.daysLeft }),
       schedule: { at, allowWhileIdle: true },
       sound: SOUND,
       channelId: CHANNEL_ID,
@@ -167,8 +168,8 @@ export async function snoozeDose(extra: { reminderId: string; scheduledAt: strin
   const at = new Date(Date.now() + SNOOZE_MS);
   const n: Notification = {
     id: notificationId(SNOOZE_SEQ + (Date.now() % 1000)),
-    title: extra.title ?? "Time for your medicine",
-    body: extra.body ?? "Snoozed reminder",
+    title: extra.title ?? tr("Time for your medicine"),
+    body: extra.body ?? tr("Snoozed reminder"),
     schedule: { at, allowWhileIdle: true },
     sound: SOUND,
     channelId: CHANNEL_ID,
@@ -195,8 +196,8 @@ export async function registerDoseActions(): Promise<void> {
   try {
     await LocalNotifications.createChannel({
       id: CHANNEL_ID,
-      name: "Medication reminders",
-      description: "Dose times and refill nudges",
+      name: tr("Medication reminders"),
+      description: tr("Dose times and refill nudges"),
       importance: 5,
       sound: SOUND,
       vibration: true,
@@ -211,9 +212,9 @@ export async function registerDoseActions(): Promise<void> {
         {
           id: "PILLSEEK_DOSE",
           actions: [
-            { id: "taken", title: "Taken" },
-            { id: "snooze", title: "Remind me in 15 min" },
-            { id: "skip", title: "Skip", destructive: true },
+            { id: "taken", title: tr("Taken") },
+            { id: "snooze", title: tr("Remind me in 15 min") },
+            { id: "skip", title: tr("Skip"), destructive: true },
           ],
         },
       ],

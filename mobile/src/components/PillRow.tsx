@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useT } from '../lib/i18n'
 import { ChevronRightIcon, PillIcon } from './Icons'
 
 interface Props {
@@ -46,13 +47,14 @@ export function PillThumb({ src, alt, size = 64 }: { src: string | null; alt: st
 
 /** A tappable result row used by search, identify and recent lists. */
 export default function PillRow({ image, name, strength, imprint, color, shape, badge, footer, onPress, ariaLabel }: Props) {
+  const t = useT()
   const attrs = [color, shape].filter((v): v is string => Boolean(v && v.trim())).map(titleCase)
   return (
     <div className="bg-surface">
       <button
         type="button"
         onClick={onPress}
-        aria-label={ariaLabel ?? `${name}${strength ? ` ${strength}` : ''}, open details`}
+        aria-label={ariaLabel ?? t('{name}, open details', { name: strength ? `${name} ${strength}` : name })}
         className="pressable flex w-full items-center gap-3 px-4 py-3 text-left active:bg-brand-tint"
       >
         <PillThumb src={image} alt="" />
@@ -62,7 +64,7 @@ export default function PillRow({ image, name, strength, imprint, color, shape, 
             {strength && <span className="ml-1.5 font-normal text-muted">{strength}</span>}
           </p>
           <p className="selectable mt-0.5 truncate text-[14px] text-body">
-            <span className="text-muted">Imprint</span> {imprint && imprint.trim() ? imprint : '—'}
+            <span className="text-muted">{t('Imprint')}</span> {imprint && imprint.trim() ? imprint : '—'}
           </p>
           {attrs.length > 0 && <p className="mt-0.5 truncate text-[13px] text-muted">{attrs.join(' · ')}</p>}
         </div>

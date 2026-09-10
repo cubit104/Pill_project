@@ -28,6 +28,7 @@ import {
 import { useBackHandler } from '../lib/backstack'
 import { money, shortDate } from '../lib/format'
 import { SECTIONS, sectionPath, type Section } from '../lib/goals'
+import { useT } from '../lib/i18n'
 import { interactionsPath } from '../lib/interactions'
 import { cleanLabelHtml, findSectionForRef, splitLabelSections, type LabelSection } from '../lib/labelHtml'
 import { hapticTick, openUrl } from '../lib/native'
@@ -133,12 +134,13 @@ function Collapsible({
 }
 
 function BoxedWarning({ html, onRef }: { html: string | null; onRef?: RefHandler }) {
+  const t = useT()
   if (!html) return null
   return (
     <Card tone="danger" padded={false} className="overflow-hidden">
       <Collapsible
-        title="Boxed warning"
-        hint="The FDA's most serious warning · tap to read"
+        title={t('Boxed warning')}
+        hint={t("The FDA's most serious warning · tap to read")}
         defaultOpen={false}
       >
         <LabelHtml html={html} warning onRef={onRef} />
@@ -159,15 +161,16 @@ function SectionSkeleton() {
 }
 
 function NothingHere({ label, onOpenSite }: { label: string; onOpenSite: () => void }) {
+  const t = useT()
   return (
     <Card padded={false}>
       <EmptyState
         art="pill"
-        title={`No ${label.toLowerCase()} available`}
-        body="The FDA label linked to this pill doesn't include this section yet."
+        title={t('No {section} available', { section: t(label).toLowerCase() })}
+        body={t("The FDA label linked to this pill doesn't include this section yet.")}
         action={
           <button type="button" onClick={onOpenSite} className="pressable inline-flex min-h-[44px] items-center gap-1 text-[15px] font-semibold text-brand">
-            Check on pillseek.com <ExternalIcon size={16} />
+            {t('Check on pillseek.com')} <ExternalIcon size={16} />
           </button>
         }
       />
@@ -176,12 +179,13 @@ function NothingHere({ label, onOpenSite }: { label: string; onOpenSite: () => v
 }
 
 function DosageBody({ data, onRef }: { data: DosageContent; onRef: RefHandler }) {
+  const t = useT()
   return (
     <>
       <BoxedWarning html={data.boxed_warning_html} onRef={onRef} />
       {data.dosage_forms_and_strengths && (
         <section>
-          <SectionLabel>Forms &amp; strengths</SectionLabel>
+          <SectionLabel>{t('Forms & strengths')}</SectionLabel>
           <Card>
             <LabelHtml html={data.dosage_forms_and_strengths} onRef={onRef} />
           </Card>
@@ -189,7 +193,7 @@ function DosageBody({ data, onRef }: { data: DosageContent; onRef: RefHandler })
       )}
       {data.dosage_administration && (
         <section>
-          <SectionLabel>Dosage &amp; administration</SectionLabel>
+          <SectionLabel>{t('Dosage & administration')}</SectionLabel>
           <Card>
             <LabelHtml html={data.dosage_administration} dropLeadingHeading onRef={onRef} />
           </Card>
@@ -200,11 +204,12 @@ function DosageBody({ data, onRef }: { data: DosageContent; onRef: RefHandler })
 }
 
 function SideEffectsBody({ data, onRef }: { data: AdverseReactionsContent; onRef: RefHandler }) {
+  const t = useT()
   return (
     <>
       <BoxedWarning html={data.boxed_warning_html} onRef={onRef} />
       <section>
-        <SectionLabel>From the FDA label</SectionLabel>
+        <SectionLabel>{t('From the FDA label')}</SectionLabel>
         <Card>
           <LabelHtml html={data.adverse_reactions} dropLeadingHeading onRef={onRef} />
         </Card>
@@ -212,7 +217,7 @@ function SideEffectsBody({ data, onRef }: { data: AdverseReactionsContent; onRef
       <Card tone="warn" className="flex items-start gap-3">
         <AlertIcon size={20} className="mt-0.5 flex-none text-[var(--warn)]" />
         <p className="text-[14px] leading-relaxed text-body">
-          Call your doctor for medical advice about side effects. In the US you can report side effects to the FDA at 1-800-FDA-1088.
+          {t('Call your doctor for medical advice about side effects. In the US you can report side effects to the FDA at 1-800-FDA-1088.')}
         </p>
       </Card>
     </>
@@ -220,12 +225,13 @@ function SideEffectsBody({ data, onRef }: { data: AdverseReactionsContent; onRef
 }
 
 function MedGuideBody({ data, onRef }: { data: GuideContent; onRef: RefHandler }) {
+  const t = useT()
   if (data.medguide_html) {
     return (
       <>
         <BoxedWarning html={data.boxed_warning_html} onRef={onRef} />
         <section>
-          <SectionLabel>Medication guide</SectionLabel>
+          <SectionLabel>{t('Medication guide')}</SectionLabel>
           <Card>
             <LabelHtml html={data.medguide_html} dropLeadingHeading onRef={onRef} />
           </Card>
@@ -243,7 +249,7 @@ function MedGuideBody({ data, onRef }: { data: GuideContent; onRef: RefHandler }
           </Card>
         )}
         <section className="space-y-3">
-          <SectionLabel>Plain-language summary</SectionLabel>
+          <SectionLabel>{t('Plain-language summary')}</SectionLabel>
           {data.summary.map((qa) => (
             <Card key={qa.question}>
               <p className="text-[16px] font-semibold text-ink">{qa.question}</p>
@@ -270,6 +276,7 @@ interface ProfessionalProps {
 }
 
 function ProfessionalBody({ data, onRef, focusRef, onFocusHandled, contentsOpen, onCloseContents, scrollRoot }: ProfessionalProps) {
+  const t = useT()
   const sections = useMemo<LabelSection[]>(
     () => splitLabelSections(data.professional_html, data.professional_sections).filter((s) => s.id !== 'boxed-warning'),
     [data.professional_html, data.professional_sections],
@@ -319,14 +326,14 @@ function ProfessionalBody({ data, onRef, focusRef, onFocusHandled, contentsOpen,
       <BoxedWarning html={data.boxed_warning_html} onRef={handleRef} />
       {data.professional_highlights_html && (
         <Card padded={false} className="overflow-hidden">
-          <Collapsible title="Highlights" hint="Key points from the prescribing information" open={highlightsOpen} onToggle={() => setHighlightsOpen((v) => !v)}>
+          <Collapsible title={t('Highlights')} hint={t('Key points from the prescribing information')} open={highlightsOpen} onToggle={() => setHighlightsOpen((v) => !v)}>
             <LabelHtml html={data.professional_highlights_html} dropLeadingHeading onRef={handleRef} />
           </Collapsible>
         </Card>
       )}
       {sections.length > 0 ? (
         <section>
-          <SectionLabel>Full prescribing information</SectionLabel>
+          <SectionLabel>{t('Full prescribing information')}</SectionLabel>
           <Card padded={false} className="divide-y divide-line overflow-hidden">
             {sections.map((s, i) => (
               <Collapsible key={s.id} id={`sec-${s.id}`} title={`${i + 1}. ${s.title}`} open={openIds.has(s.id)} onToggle={() => toggle(s.id)}>
@@ -343,7 +350,7 @@ function ProfessionalBody({ data, onRef, focusRef, onFocusHandled, contentsOpen,
         )
       )}
 
-      <Sheet open={contentsOpen} onClose={onCloseContents} title="Contents">
+      <Sheet open={contentsOpen} onClose={onCloseContents} title={t('Contents')}>
         <div className="mb-2 flex gap-2">
           <button
             type="button"
@@ -353,7 +360,7 @@ function ProfessionalBody({ data, onRef, focusRef, onFocusHandled, contentsOpen,
             }}
             className="pressable flex-1 rounded-full bg-brand-tint px-3 py-2 text-[14px] font-semibold text-brand"
           >
-            Expand all
+            {t('Expand all')}
           </button>
           <button
             type="button"
@@ -363,7 +370,7 @@ function ProfessionalBody({ data, onRef, focusRef, onFocusHandled, contentsOpen,
             }}
             className="pressable flex-1 rounded-full bg-brand-tint px-3 py-2 text-[14px] font-semibold text-brand"
           >
-            Collapse all
+            {t('Collapse all')}
           </button>
         </div>
         <ol className="-mx-2 max-h-[60vh] divide-y divide-line overflow-y-auto">
@@ -380,7 +387,7 @@ function ProfessionalBody({ data, onRef, focusRef, onFocusHandled, contentsOpen,
               >
                 <span className="tabular w-6 flex-none text-right text-[14px] text-muted">{i + 1}</span>
                 <span className="min-w-0 flex-1 truncate">{s.title}</span>
-                {openIds.has(s.id) && <span className="text-[12px] font-medium text-brand">Open</span>}
+                {openIds.has(s.id) && <span className="text-[12px] font-medium text-brand">{t('Open')}</span>}
               </button>
             </li>
           ))}
@@ -391,6 +398,7 @@ function ProfessionalBody({ data, onRef, focusRef, onFocusHandled, contentsOpen,
 }
 
 function PriceBody({ data, pill }: { data: PriceSnapshot; pill: PillDetail }) {
+  const t = useT()
   const unit = (data.unit ?? 'unit').toLowerCase()
   const first = data.history[0]
   const last = data.history[data.history.length - 1]
@@ -398,7 +406,7 @@ function PriceBody({ data, pill }: { data: PriceSnapshot; pill: PillDetail }) {
   return (
     <>
       <Card tone="tint">
-        <p className="text-[13px] text-muted">Fair retail, 30-day supply</p>
+        <p className="text-[13px] text-muted">{t('Fair retail, 30-day supply')}</p>
         <p className="tabular mt-0.5 text-[30px] font-bold tracking-tight text-ink">
           {data.fair_retail_low !== null && data.fair_retail_high !== null
             ? `${money(data.fair_retail_low, { compact: true })} – ${money(data.fair_retail_high, { compact: true })}`
@@ -406,27 +414,27 @@ function PriceBody({ data, pill }: { data: PriceSnapshot; pill: PillDetail }) {
         </p>
         <div className="mt-3 grid grid-cols-2 gap-3">
           <div>
-            <p className="text-[13px] text-muted">Pharmacy cost</p>
+            <p className="text-[13px] text-muted">{t('Pharmacy cost')}</p>
             <p className="tabular text-[17px] font-semibold text-ink">
               {money(data.price_per_unit)}
               <span className="text-[13px] font-normal text-muted">/{unit}</span>
             </p>
           </div>
           <div>
-            <p className="text-[13px] text-muted">30 days at cost</p>
+            <p className="text-[13px] text-muted">{t('30 days at cost')}</p>
             <p className="tabular text-[17px] font-semibold text-ink">{money(data.total_acquisition_cost, { compact: true })}</p>
           </div>
         </div>
         <p className="mt-3 text-[12px] leading-snug text-muted">
-          {data.is_estimate ? 'Estimate. ' : ''}
-          {data.display_disclaimer ?? 'NADAC pharmacy acquisition cost (CMS). Your price depends on pharmacy and insurance.'}
-          {data.effective_date && ` Data from ${shortDate(data.effective_date)}.`}
+          {data.is_estimate ? `${t('Estimate.')} ` : ''}
+          {data.display_disclaimer ?? t('NADAC pharmacy acquisition cost (CMS). Your price depends on pharmacy and insurance.')}
+          {data.effective_date && ` ${t('Data from {date}.', { date: shortDate(data.effective_date) ?? '' })}`}
         </p>
       </Card>
 
       {first && last && data.history.length >= 2 && (
         <section>
-          <SectionLabel>Pharmacy cost over time</SectionLabel>
+          <SectionLabel>{t('Pharmacy cost over time')}</SectionLabel>
           <Card>
             <div className="flex items-baseline justify-between gap-3">
               <p className="tabular text-[17px] font-semibold text-ink">
@@ -435,8 +443,7 @@ function PriceBody({ data, pill }: { data: PriceSnapshot; pill: PillDetail }) {
               </p>
               {change !== null && (
                 <TextBadge tone={change > 2 ? 'amber' : 'brand'}>
-                  {change > 0 ? '+' : ''}
-                  {change.toFixed(0)}% vs {shortDate(first.effective_date)}
+                  {t('{change}% vs {date}', { change: `${change > 0 ? '+' : ''}${change.toFixed(0)}`, date: shortDate(first.effective_date) ?? '' })}
                 </TextBadge>
               )}
             </div>
@@ -447,7 +454,7 @@ function PriceBody({ data, pill }: { data: PriceSnapshot; pill: PillDetail }) {
 
       {data.alternatives.length > 0 && (
         <section>
-          <SectionLabel>Alternatives</SectionLabel>
+          <SectionLabel>{t('Alternatives')}</SectionLabel>
           <Card padded={false} className="divide-y divide-line overflow-hidden">
             {data.alternatives.map((alt) => (
               <div key={`${alt.ndc ?? alt.name}`} className="flex items-center gap-3 px-4 py-3">
@@ -455,7 +462,7 @@ function PriceBody({ data, pill }: { data: PriceSnapshot; pill: PillDetail }) {
                   <p className="truncate text-[15px] font-medium text-ink">{alt.name}</p>
                   <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
                     {alt.kind && <TextBadge tone="neutral">{alt.kind}</TextBadge>}
-                    {alt.is_cheapest && <TextBadge tone="brand">Lowest cost</TextBadge>}
+                    {alt.is_cheapest && <TextBadge tone="brand">{t('Lowest cost')}</TextBadge>}
                   </p>
                 </div>
                 <p className="tabular flex-none text-right text-[16px] font-semibold text-ink">
@@ -465,7 +472,7 @@ function PriceBody({ data, pill }: { data: PriceSnapshot; pill: PillDetail }) {
               </div>
             ))}
           </Card>
-          <p className="mt-2 px-1 text-[12px] text-muted">Same active ingredient as {pill.generic_name ?? pill.drug_name}. Ask your pharmacist before switching.</p>
+          <p className="mt-2 px-1 text-[12px] text-muted">{t('Same active ingredient as {name}. Ask your pharmacist before switching.', { name: pill.generic_name ?? pill.drug_name })}</p>
         </section>
       )}
     </>
@@ -479,6 +486,7 @@ function PriceBody({ data, pill }: { data: PriceSnapshot; pill: PillDetail }) {
  */
 export default function SectionScreen({ slug, section }: { slug: string; section: Section }) {
   const navigate = useNavigate()
+  const t = useT()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [pill, setPill] = useState<PillDetail | null>(null)
   const [pillError, setPillError] = useState<ApiError | null>(null)
@@ -526,10 +534,11 @@ export default function SectionScreen({ slug, section }: { slug: string; section
       .then((p) => !ctrl.signal.aborted && setPill(p))
       .catch((err: unknown) => {
         if (ctrl.signal.aborted) return
-        setPillError(err instanceof ApiError ? err : new ApiError('unknown', 'Could not load this pill.'))
+        setPillError(err instanceof ApiError ? err : new ApiError('unknown', t('Could not load this pill.')))
         setLoading(false)
       })
     return () => ctrl.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, reloadKey])
 
   // Section content reloads whenever the chip row changes the section.
@@ -548,10 +557,11 @@ export default function SectionScreen({ slug, section }: { slug: string; section
       })
       .catch((err: unknown) => {
         if (ctrl.signal.aborted) return
-        setError(err instanceof ApiError ? err : new ApiError('unknown', 'Could not load this section.'))
+        setError(err instanceof ApiError ? err : new ApiError('unknown', t('Could not load this section.')))
         setLoading(false)
       })
     return () => ctrl.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pill, section, reloadKey])
 
   const switchTo = (s: Section) => {
@@ -581,13 +591,13 @@ export default function SectionScreen({ slug, section }: { slug: string; section
           <button
             type="button"
             onClick={goBack}
-            aria-label="Back"
+            aria-label={t('Back')}
             className="pressable flex h-11 min-w-[44px] items-center gap-0.5 rounded-full px-2 text-[17px] font-medium text-brand"
           >
             <ChevronRightIcon size={22} className="rotate-180" />
-            Back
+            {t('Back')}
           </button>
-          <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">{pill?.drug_name ?? 'Pill'}</p>
+          <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">{pill?.drug_name ?? t('Pill')}</p>
           {section === 'professional-information' && content?.kind === 'professional-information' && (
             <button
               type="button"
@@ -597,20 +607,20 @@ export default function SectionScreen({ slug, section }: { slug: string; section
               }}
               className="pressable flex h-11 items-center rounded-full px-3 text-[15px] font-semibold text-brand"
             >
-              Contents
+              {t('Contents')}
             </button>
           )}
         <span className="w-11" aria-hidden />
         </div>
         <div className="mx-auto max-w-lg px-2 pb-2">
-          <ChipRow label="Section">
+          <ChipRow label={t('Section')}>
             {SECTION_KEYS.map((s) => (
               <Chip key={s} selected={s === section} onClick={() => switchTo(s)}>
-                {SECTIONS[s].short}
+                {t(SECTIONS[s].short)}
               </Chip>
             ))}
             <Chip selected={false} onClick={() => navigate(interactionsPath(pill?.generic_name ?? pill?.drug_name ?? ''))}>
-              Interactions
+              {t('Interactions')}
             </Chip>
           </ChipRow>
         </div>
@@ -621,7 +631,7 @@ export default function SectionScreen({ slug, section }: { slug: string; section
         style={{ paddingLeft: 'max(16px, var(--safe-left))', paddingRight: 'max(16px, var(--safe-right))' }}
       >
         <div className="px-1">
-          <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">{meta.label}</h1>
+          <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">{t(meta.label)}</h1>
           {pill && <p className="mt-1 text-[15px] text-muted">{subtitle(pill)}</p>}
           {labelMeta && !loading && <ReviewedBy lastVerified={labelMeta.fetched_at} className="-mx-1 mt-2" />}
         </div>
@@ -629,11 +639,11 @@ export default function SectionScreen({ slug, section }: { slug: string; section
         {loading && !pillError && <SectionSkeleton />}
 
         {pillError && (
-          <ErrorCard error={pillError} onRetry={() => setReloadKey((k) => k + 1)} secondary={{ label: 'Open on pillseek.com', onClick: () => void openUrl(siteUrl) }} />
+          <ErrorCard error={pillError} onRetry={() => setReloadKey((k) => k + 1)} secondary={{ label: t('Open on pillseek.com'), onClick: () => void openUrl(siteUrl) }} />
         )}
 
         {error && !loading && !notFound && (
-          <ErrorCard error={error} onRetry={() => setReloadKey((k) => k + 1)} secondary={{ label: 'Open on pillseek.com', onClick: () => void openUrl(siteUrl) }} />
+          <ErrorCard error={error} onRetry={() => setReloadKey((k) => k + 1)} secondary={{ label: t('Open on pillseek.com'), onClick: () => void openUrl(siteUrl) }} />
         )}
 
         {((error && notFound) || emptyContent) && !loading && <NothingHere label={meta.label} onOpenSite={() => void openUrl(siteUrl)} />}
@@ -663,7 +673,7 @@ export default function SectionScreen({ slug, section }: { slug: string; section
                 disabled={!labelMeta.source_url}
                 className="pressable flex w-full items-center justify-center gap-1.5 px-2 py-1 text-[13px] text-muted disabled:opacity-100"
               >
-                Source: FDA label via DailyMed
+                {t('Source: FDA label via DailyMed')}
                 {labelMeta.fetched_at && ` · ${shortDate(labelMeta.fetched_at)}`}
                 {labelMeta.source_url && <ExternalIcon size={13} />}
               </button>

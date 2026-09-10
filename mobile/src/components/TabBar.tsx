@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { CabinetIcon, CameraIcon, HomeIcon, SearchIcon } from './Icons'
+import { useT } from '../lib/i18n'
 import { hapticTick } from '../lib/native'
 
 export const TABS = [
@@ -11,9 +12,10 @@ export const TABS = [
 
 export default function TabBar() {
   const location = useLocation()
+  const t = useT()
   return (
     <nav
-      aria-label="Main"
+      aria-label={t('Main')}
       className="tab-bar fixed inset-x-0 bottom-0 z-30"
       style={{ paddingBottom: 'var(--safe-bottom)', paddingLeft: 'var(--safe-left)', paddingRight: 'var(--safe-right)' }}
     >
@@ -28,7 +30,7 @@ export default function TabBar() {
             <li key={to} className="flex-1">
               <NavLink
                 to={to}
-                aria-label={label}
+                aria-label={t(label)}
                 aria-current={active ? 'page' : undefined}
                 onClick={() => {
                   if (!active) void hapticTick()
@@ -38,7 +40,7 @@ export default function TabBar() {
                 }`}
               >
                 <Icon size={26} strokeWidth={active ? 2.3 : 1.8} />
-                <span>{label}</span>
+                <span>{t(label)}</span>
               </NavLink>
             </li>
           )

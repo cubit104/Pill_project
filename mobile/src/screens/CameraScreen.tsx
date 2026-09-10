@@ -16,6 +16,7 @@ import {
 } from '../lib/camera'
 import { fillHint, type FillLevel } from '../lib/fill'
 import { useElementSize } from '../lib/hooks'
+import { useT } from '../lib/i18n'
 import { applyStatusBar, hapticImpact } from '../lib/native'
 
 export type Side = 1 | 2
@@ -35,6 +36,7 @@ interface Props {
  * dimmed mask, centred circle guide, title, hint, shutter, cancel and torch.
  */
 export default function CameraScreen({ side, previous, onCapture, onClose, onUnavailable }: Props) {
+  const t = useT()
   const [boxRef, box] = useElementSize<HTMLDivElement>()
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -122,19 +124,19 @@ export default function CameraScreen({ side, previous, onCapture, onClose, onUna
     } catch (err) {
       if (!mounted.current) return
       // A capture hiccup (memory, empty frame) is not a broken camera: say so and let the user shoot again.
-      setCaptureError(err instanceof Error && err.message ? `Couldn't take the photo (${err.message}). Try again.` : "Couldn't take the photo. Try again.")
+      setCaptureError(err instanceof Error && err.message ? t("Couldn't take the photo ({reason}). Try again.", { reason: err.message }) : t("Couldn't take the photo. Try again."))
       window.setTimeout(() => mounted.current && setCaptureError(null), 3000)
     } finally {
       if (mounted.current) setBusy(false)
     }
-  }, [ready, busy, guidePx, box.w, box.h, side, onCapture])
+  }, [ready, busy, guidePx, box.w, box.h, side, onCapture, t])
 
   const toggleTorch = async () => {
     const next = !torch
     if (await setTorch(next)) setTorchState(next)
   }
 
-  const title = side === 1 ? 'Side 1 of 2' : 'Side 2 of 2 — flip the pill'
+  const title = side === 1 ? t('Side 1 of 2') : t('Side 2 of 2 — flip the pill')
   const mask = guidePx
     ? `radial-gradient(circle at center, transparent ${Math.max(0, guidePx / 2 - 1)}px, rgba(0,0,0,0.62) ${guidePx / 2}px)`
     : 'rgba(0,0,0,0.62)'
@@ -155,14 +157,14 @@ export default function CameraScreen({ side, previous, onCapture, onClose, onUna
 
       {/* Top bar (opaque: outside the native preview rect) */}
       <div className="relative z-10 flex items-center justify-between bg-black px-3 pb-2 pt-2">
-        <IconButton label="Cancel" tone="light" onClick={onClose}>
+        <IconButton label={t('Cancel')} tone="light" onClick={onClose}>
           <CloseIcon size={22} />
         </IconButton>
         <div className="text-center">
           <p className="text-[17px] font-semibold drop-shadow">{title}</p>
         </div>
         <IconButton
-          label={torch ? 'Turn torch off' : 'Turn torch on'}
+          label={torch ? t('Turn torch off') : t('Turn torch on')}
           tone="light"
           onClick={toggleTorch}
           disabled={!hasTorch}
@@ -184,7 +186,7 @@ export default function CameraScreen({ side, previous, onCapture, onClose, onUna
           />
         )}
         {!ready && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black text-[15px] text-white/80">Starting camera…</div>
+          <div className="absolute inset-0 flex items-center justify-center bg-black text-[15px] text-white/80">{t('Starting camera…')}</div>
         )}
         {flash && <div className="pointer-events-none absolute inset-0 bg-white/80" aria-hidden />}
         {captureError && (
@@ -193,7 +195,7 @@ export default function CameraScreen({ side, previous, onCapture, onClose, onUna
           </p>
         )}
         <p className={`pointer-events-none absolute inset-x-6 bottom-6 text-center text-[15px] font-medium drop-shadow ${fill === 'good' ? 'text-emerald-300' : fill === 'small' ? 'text-amber-200' : 'text-white/85'}`} aria-live="polite">
-          {fillHint(fill)}
+          {t(fillHint(fill))}
         </p>
       </div>
 
@@ -201,7 +203,7 @@ export default function CameraScreen({ side, previous, onCapture, onClose, onUna
       <div className="relative z-10 flex h-32 items-center justify-between bg-black px-8">
         <div className="flex w-16 items-center justify-center">
           {previous ? (
-            <img src={previous.previewUrl} alt="Side 1" className="h-14 w-14 rounded-xl border-2 border-white/80 object-cover" />
+            <img src={previous.previewUrl} alt={t('Side 1')} className="h-14 w-14 rounded-xl border-2 border-white/80 object-cover" />
           ) : (
             <span className="h-14 w-14" />
           )}
@@ -210,7 +212,7 @@ export default function CameraScreen({ side, previous, onCapture, onClose, onUna
           type="button"
           onClick={() => void shoot()}
           disabled={!ready || busy}
-          aria-label={side === 1 ? 'Take photo of side 1' : 'Take photo of side 2'}
+          aria-label={t('Take photo of side {n}', { n: side })}
           className="pressable flex h-[84px] w-[84px] items-center justify-center rounded-full border-4 border-white disabled:opacity-40"
         >
           <span className={`block h-[72px] w-[72px] rounded-full bg-brand transition-transform ${busy ? 'scale-75' : ''}`} />
@@ -219,7 +221,7 @@ export default function CameraScreen({ side, previous, onCapture, onClose, onUna
           {side === 2 ? (
             <>
               <FlipIcon size={24} />
-              <span>Flipped?</span>
+              <span>{t('Flipped?')}</span>
             </>
           ) : (
             <span className="h-14 w-14" />

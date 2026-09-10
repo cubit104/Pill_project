@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Camera } from '@capacitor/camera'
 import Button from '../components/Button'
 import { CameraIcon, SearchIcon, ShieldIcon, SparkleIcon } from '../components/Icons'
+import { useT } from '../lib/i18n'
 import { hapticTick, isNative } from '../lib/native'
 
 const FEATURES = [
@@ -18,6 +19,7 @@ type Step = 'welcome' | 'camera'
  * Shown once; `onDone` is called after either step finishes.
  */
 export default function WelcomeScreen({ onDone }: { onDone: () => void }) {
+  const t = useT()
   const [step, setStep] = useState<Step>('welcome')
   const [asking, setAsking] = useState(false)
 
@@ -45,7 +47,7 @@ export default function WelcomeScreen({ onDone }: { onDone: () => void }) {
       style={{ paddingTop: 'var(--safe-top)', paddingBottom: 'calc(var(--safe-bottom) + 16px)', paddingLeft: 'max(20px, var(--safe-left))', paddingRight: 'max(20px, var(--safe-right))' }}
       role="dialog"
       aria-modal="true"
-      aria-label={step === 'welcome' ? 'Welcome to PillSeek' : 'Camera access'}
+      aria-label={step === 'welcome' ? t('Welcome to PillSeek') : t('Camera access')}
     >
       {step === 'welcome' ? (
         <>
@@ -55,7 +57,7 @@ export default function WelcomeScreen({ onDone }: { onDone: () => void }) {
               <span className="text-ink">Pill</span>
               <span className="text-brand">Seek</span>
             </p>
-            <p className="mt-1 text-[16px] text-muted">Identify. Understand. Be sure.</p>
+            <p className="mt-1 text-[16px] text-muted">{t('Identify. Understand. Be sure.')}</p>
             <ul className="mt-8 w-full max-w-sm space-y-4 text-left">
               {FEATURES.map(({ Icon, title, body }) => (
                 <li key={title} className="flex items-start gap-3">
@@ -63,8 +65,8 @@ export default function WelcomeScreen({ onDone }: { onDone: () => void }) {
                     <Icon size={22} />
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-[17px] font-semibold text-ink">{title}</span>
-                    <span className="block text-[14px] leading-snug text-muted">{body}</span>
+                    <span className="block text-[17px] font-semibold text-ink">{t(title)}</span>
+                    <span className="block text-[14px] leading-snug text-muted">{t(body)}</span>
                   </span>
                 </li>
               ))}
@@ -72,10 +74,10 @@ export default function WelcomeScreen({ onDone }: { onDone: () => void }) {
           </div>
           <div className="mx-auto w-full max-w-sm space-y-3">
             <Button full size="lg" onClick={() => setStep('camera')}>
-              Continue
+              {t('Continue')}
             </Button>
             <p className="text-center text-[12px] leading-relaxed text-muted">
-              Informational only, not medical advice. Always confirm with a pharmacist.
+              {t('Informational only, not medical advice. Always confirm with a pharmacist.')}
             </p>
           </div>
         </>
@@ -85,20 +87,20 @@ export default function WelcomeScreen({ onDone }: { onDone: () => void }) {
             <span className="flex h-24 w-24 items-center justify-center rounded-[32px] bg-brand-tint text-brand">
               <CameraIcon size={52} strokeWidth={1.6} />
             </span>
-            <h1 className="mt-6 text-[28px] font-bold tracking-tight text-ink">Let PillSeek use the camera</h1>
+            <h1 className="mt-6 text-[28px] font-bold tracking-tight text-ink">{t('Let PillSeek use the camera')}</h1>
             <p className="mt-3 max-w-sm text-[16px] leading-relaxed text-body">
-              The camera is only used to photograph a pill when you tap Identify. Photos are analysed and discarded unless you choose to keep them.
+              {t('The camera is only used to photograph a pill when you tap Identify. Photos are analysed and discarded unless you choose to keep them.')}
             </p>
             <p className="mt-4 inline-flex items-center gap-1.5 text-[14px] text-muted">
-              <ShieldIcon size={16} /> Nothing is recorded in the background.
+              <ShieldIcon size={16} /> {t('Nothing is recorded in the background.')}
             </p>
           </div>
           <div className="mx-auto w-full max-w-sm space-y-2">
             <Button full size="lg" loading={asking} onClick={() => void allowCamera()}>
-              Allow camera access
+              {t('Allow camera access')}
             </Button>
             <Button full variant="ghost" onClick={finish}>
-              Not now
+              {t('Not now')}
             </Button>
           </div>
         </>

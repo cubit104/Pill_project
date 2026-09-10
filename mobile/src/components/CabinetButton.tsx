@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { CabinetIcon, CheckIcon } from './Icons'
 import { useToast } from './Toast'
 import { useAccount } from '../lib/account'
+import { useT } from '../lib/i18n'
 import { hapticNotify, hapticTick } from '../lib/native'
 
 /**
@@ -10,6 +11,7 @@ import { hapticNotify, hapticTick } from '../lib/native'
  * sign in and come back to the same pill afterwards.
  */
 export default function CabinetButton({ slug, size = 'md' }: { slug: string; size?: 'sm' | 'md' }) {
+  const t = useT()
   const account = useAccount()
   const navigate = useNavigate()
   const toast = useToast()
@@ -31,9 +33,9 @@ export default function CabinetButton({ slug, size = 'md' }: { slug: string; siz
     try {
       await account.add(slug)
       void hapticNotify('success')
-      toast.show('Added to your cabinet', 'success')
+      toast.show(t('Added to your cabinet'), 'success')
     } catch (err) {
-      toast.show(err instanceof Error ? err.message : 'Could not add', 'error')
+      toast.show(err instanceof Error ? err.message : t('Could not add'), 'error')
     } finally {
       setBusy(false)
     }
@@ -51,7 +53,7 @@ export default function CabinetButton({ slug, size = 'md' }: { slug: string; siz
       }`}
     >
       {saved ? <CheckIcon size={16} /> : <CabinetIcon size={18} />}
-      {saved ? 'In my cabinet' : busy ? 'Adding…' : 'Add to my cabinet'}
+      {saved ? t('In my cabinet') : busy ? t('Adding…') : t('Add to my cabinet')}
     </button>
   )
 }

@@ -9,22 +9,25 @@ import ScreenHeader from '../components/ScreenHeader'
 import Sheet from '../components/Sheet'
 import { ListSkeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
+import { useLocale, useT } from '../lib/i18n'
 import { hapticImpact } from '../lib/native'
 import { clearRecent, loadRecent, removeRecent, type RecentItem } from '../lib/storage'
 
 const DELETE_W = 88
 const LONG_PRESS_MS = 480
 
-function timeAgo(ts: number): string {
+type T = ReturnType<typeof useT>
+
+function timeAgo(ts: number, t: T, locale: string): string {
   const diff = Math.max(0, Date.now() - ts)
   const m = Math.floor(diff / 60_000)
-  if (m < 1) return 'Just now'
-  if (m < 60) return `${m} min ago`
+  if (m < 1) return t('Just now')
+  if (m < 60) return t('{n} min ago', { n: m })
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h} hr ago`
+  if (h < 24) return t('{n} hr ago', { n: h })
   const d = Math.floor(h / 24)
-  if (d < 7) return `${d} day${d === 1 ? '' : 's'} ago`
-  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  if (d < 7) return d === 1 ? t('1 day ago') : t('{n} days ago', { n: d })
+  return new Date(ts).toLocaleDateString(locale, { month: 'short', day: 'numeric' })
 }
 
 const TYPE_LABEL = { imprint: 'Imprint', drug: 'Drug name', ndc: 'NDC' } as const
@@ -38,6 +41,8 @@ interface RowProps {
 
 /** Swipe left to reveal Delete; long-press for the action sheet. */
 function SwipeRow({ item, onOpen, onDelete, onLongPress }: RowProps) {
+  const t = useT()
+  const locale = useLocale()
   const [dx, setDx] = useState(0)
   const [open, setOpen] = useState(false)
   const start = useRef<{ x: number; y: number; t: number } | null>(null)
@@ -113,33 +118,35 @@ function SwipeRow({ item, onOpen, onDelete, onLongPress }: RowProps) {
 
   const isPhoto = item.kind === 'photo'
   const title = isPhoto
-    ? item.topName ?? (item.imprintRead ? `Read “${item.imprintRead}”` : 'No match found')
-    : item.query || [item.color, item.shape].filter(Boolean).join(' · ') || 'Filtered search'
+    ? item.topName ?? (item.imprintRead ? t('Read “{imprint}”', { imprint: item.imprintRead }) : t('No match found'))
+    : item.query || [item.color, item.shape].filter(Boolean).join(' · ') || t('Filtered search')
   const subtitle = isPhoto
     ? item.topScore !== null
-      ? `${Math.round(item.topScore * 100)}% match · ${item.matchCount} ${item.matchCount === 1 ? 'candidate' : 'candidates'}`
-      : 'Photo identification'
-    : `${TYPE_LABEL[item.type]} search${item.color || item.shape ? ` · ${[item.color, item.shape].filter(Boolean).join(', ')}` : ''} · ${item.total.toLocaleString()} results`
+      ? `${t('{pct}% match', { pct: Math.round(item.topScore * 100) })} · ${item.matchCount === 1 ? t('1 candidate') : t('{n} candidates', { n: item.matchCount })}`
+      : t('Photo identification')
+    : `${t('{type} search', { type: t(TYPE_LABEL[item.type]) })}${item.color || item.shape ? ` · ${[item.color, item.shape].filter(Boolean).join(', ')}` : ''} · ${
+        item.total === 1 ? t('1 result') : t('{n} results', { n: item.total.toLocaleString(locale) })
+      }`
   const thumb = isPhoto ? item.thumb : item.topImage
 
   return (
     <div className="relative overflow-hidden bg-surface">
       <button
         type="button"
-        aria-label={`Delete ${title}`}
+        aria-label={t('Delete {title}', { title })}
         tabIndex={open ? 0 : -1}
         onClick={() => onDelete(item)}
         className="absolute inset-y-0 right-0 flex items-center justify-center bg-danger text-white"
         style={{ width: DELETE_W }}
       >
         <span className="flex flex-col items-center gap-1 text-[12px] font-semibold">
-          <TrashIcon size={22} /> Delete
+          <TrashIcon size={22} /> {t('Delete')}
         </span>
       </button>
       <div
         role="button"
         tabIndex={0}
-        aria-label={`${title}, ${subtitle}. Open`}
+        aria-label={t('{title}, {subtitle}. Open', { title, subtitle })}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -168,7 +175,7 @@ function SwipeRow({ item, onOpen, onDelete, onLongPress }: RowProps) {
           <p className="truncate text-[17px] font-semibold text-ink">{title}</p>
           <p className="mt-0.5 truncate text-[14px] text-muted">{subtitle}</p>
         </div>
-        <span className="tabular flex-none text-[13px] text-muted">{timeAgo(item.at)}</span>
+        <span className="tabular flex-none text-[13px] text-muted">{timeAgo(item.at, t, locale)}</span>
       </div>
     </div>
   )
@@ -178,6 +185,7 @@ export default function RecentScreen({ active = true }: { active?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const toast = useToast()
+  const t = useT()
   const [items, setItems] = useState<RecentItem[] | null>(null)
   const [selected, setSelected] = useState<RecentItem | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
@@ -224,29 +232,29 @@ export default function RecentScreen({ active = true }: { active?: boolean }) {
     async (item: RecentItem) => {
       setSelected(null)
       setItems(await removeRecent(item.id))
-      toast.show('Removed')
+      toast.show(t('Removed'))
     },
-    [toast],
+    [toast, t],
   )
 
   const clearAll = async () => {
     await clearRecent()
     setItems([])
     setConfirmClear(false)
-    toast.show('History cleared')
+    toast.show(t('History cleared'))
   }
 
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto">
       <ScreenHeader
-        title="Recent"
-        subtitle="Your last 20 identifications and searches"
+        title={t('Recent')}
+        subtitle={t('Your last 20 identifications and searches')}
         scrollRef={scrollRef}
         onBack={() => (window.history.length > 1 ? navigate(-1) : navigate('/cabinet', { replace: true }))}
         trailing={
           items && items.length > 0 ? (
             <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)}>
-              Clear all
+              {t('Clear all')}
             </Button>
           ) : null
         }
@@ -258,9 +266,9 @@ export default function RecentScreen({ active = true }: { active?: boolean }) {
           <Card padded={false}>
             <EmptyState
               art="clock"
-              title="Nothing here yet"
-              body="Pills you identify or search for will show up here, stored only on this device."
-              action={<Button onClick={() => navigate('/identify')}>Identify a pill</Button>}
+              title={t('Nothing here yet')}
+              body={t('Pills you identify or search for will show up here, stored only on this device.')}
+              action={<Button onClick={() => navigate('/identify')}>{t('Identify a pill')}</Button>}
             />
           </Card>
         ) : (
@@ -270,43 +278,43 @@ export default function RecentScreen({ active = true }: { active?: boolean }) {
                 <SwipeRow key={item.id} item={item} onOpen={open} onDelete={(i) => void remove(i)} onLongPress={setSelected} />
               ))}
             </div>
-            <p className="mt-3 px-1 text-center text-[13px] text-muted">Swipe left or press and hold an item to delete it.</p>
+            <p className="mt-3 px-1 text-center text-[13px] text-muted">{t('Swipe left or press and hold an item to delete it.')}</p>
           </>
         )}
       </main>
 
-      <Sheet open={selected !== null} onClose={() => setSelected(null)} title={selected?.kind === 'photo' ? 'Identification' : 'Search'}>
+      <Sheet open={selected !== null} onClose={() => setSelected(null)} title={selected?.kind === 'photo' ? t('Identification') : t('Search')}>
         {selected && (
           <div className="space-y-2">
             {selected.kind === 'search' && (
               <Button full variant="secondary" onClick={() => { rerunSearch(selected); setSelected(null) }}>
-                Run search again
+                {t('Run search again')}
               </Button>
             )}
             {selected.topSlug ? (
               <Button full variant="secondary" onClick={() => { navigate(`/pill/${encodeURIComponent(selected.topSlug as string)}`); setSelected(null) }}>
-                Open {selected.topName ?? 'pill page'}
+                {t('Open {name}', { name: selected.topName ?? t('pill page') })}
               </Button>
             ) : selected.kind === 'photo' ? (
               <Button full variant="secondary" onClick={() => { open(selected); setSelected(null) }}>
-                Identify again
+                {t('Identify again')}
               </Button>
             ) : null}
             <Button full variant="danger" icon={<TrashIcon size={20} />} onClick={() => void remove(selected)}>
-              Delete
+              {t('Delete')}
             </Button>
           </div>
         )}
       </Sheet>
 
-      <Sheet open={confirmClear} onClose={() => setConfirmClear(false)} title="Clear history?">
-        <p className="text-[15px] text-muted">This removes all recent identifications and searches from this device.</p>
+      <Sheet open={confirmClear} onClose={() => setConfirmClear(false)} title={t('Clear history?')}>
+        <p className="text-[15px] text-muted">{t('This removes all recent identifications and searches from this device.')}</p>
         <div className="mt-4 space-y-2">
           <Button full variant="danger" className="hairline" icon={<TrashIcon size={20} />} onClick={() => void clearAll()}>
-            Clear all
+            {t('Clear all')}
           </Button>
           <Button full variant="secondary" onClick={() => setConfirmClear(false)}>
-            Keep
+            {t('Keep')}
           </Button>
         </div>
       </Sheet>

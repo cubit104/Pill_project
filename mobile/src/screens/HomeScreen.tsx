@@ -19,6 +19,7 @@ import {
   type TileIconProps,
 } from '../components/TileIcons'
 import { goalSearchPath } from '../lib/goals'
+import { useT } from '../lib/i18n'
 import { hapticTick } from '../lib/native'
 import { loadRecent, type RecentItem } from '../lib/storage'
 
@@ -70,6 +71,7 @@ function recentPills(items: RecentItem[]): RecentPill[] {
 export default function HomeScreen({ active = true }: { active?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const t = useT()
   const [recent, setRecent] = useState<RecentPill[]>([])
 
   // Refresh the strip each time Home comes back on screen.
@@ -101,7 +103,7 @@ export default function HomeScreen({ active = true }: { active?: boolean }) {
               <span className="text-ink">Pill</span>
               <span className="text-brand">Seek</span>
             </p>
-            <p className="mt-1 text-[12px] font-medium tracking-wide text-muted">Identify. Understand. Be sure.</p>
+            <p className="mt-1 text-[12px] font-medium tracking-wide text-muted">{t('Identify. Understand. Be sure.')}</p>
           </div>
         </div>
       </header>
@@ -117,10 +119,10 @@ export default function HomeScreen({ active = true }: { active?: boolean }) {
           className="pressable flex h-12 w-full items-center gap-3 rounded-2xl border border-line bg-surface px-4 text-left text-[17px] text-muted active:border-brand"
         >
           <SearchIcon size={22} className="flex-none" />
-          <span className="truncate">Search by imprint, name or NDC</span>
+          <span className="truncate">{t('Search by imprint, name or NDC')}</span>
         </button>
 
-        <ul className="grid grid-cols-3 gap-x-2 gap-y-3" aria-label="Features">
+        <ul className="grid grid-cols-3 gap-x-2 gap-y-3" aria-label={t('Features')}>
           {TILES.map((tile) => (
             <li key={tile.label}>
               <button
@@ -132,8 +134,8 @@ export default function HomeScreen({ active = true }: { active?: boolean }) {
                   <tile.Icon size={58} />
                 </span>
                 <span className="text-[14px] font-medium leading-tight text-ink">
-                  {tile.label}
-                  {tile.external && <span className="sr-only"> (opens pillseek.com)</span>}
+                  {t(tile.label)}
+                  {tile.external && <span className="sr-only"> {t('(opens pillseek.com)')}</span>}
                 </span>
               </button>
             </li>
@@ -143,9 +145,9 @@ export default function HomeScreen({ active = true }: { active?: boolean }) {
         {recent.length > 0 && (
           <section>
             <div className="mb-2 flex items-center justify-between px-1">
-              <p className="section-label">Recently viewed</p>
+              <p className="section-label">{t('Recently viewed')}</p>
               <button type="button" onClick={() => go('/recent')} className="pressable inline-flex min-h-[32px] items-center gap-0.5 text-[14px] font-semibold text-brand">
-                See all <ChevronRightIcon size={16} />
+                {t('See all')} <ChevronRightIcon size={16} />
               </button>
             </div>
             <div className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-1">

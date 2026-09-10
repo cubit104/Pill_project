@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast'
 import { useAccount } from '../lib/account'
 import { requestEmailCode, verifyEmailCode } from '../lib/auth'
 import { useBackHandler } from '../lib/backstack'
+import { useT } from '../lib/i18n'
 import { loadLastEmail, saveLastEmail } from '../lib/storage'
 import { hapticNotify, hapticTick, hideKeyboard } from '../lib/native'
 
@@ -20,6 +21,7 @@ function isValidEmail(v: string): boolean {
  * when signed in: sign out and the store-required "delete my account".
  */
 export default function AccountScreen() {
+  const t = useT()
   const navigate = useNavigate()
   const toast = useToast()
   const account = useAccount()
@@ -47,9 +49,9 @@ export default function AccountScreen() {
       await requestEmailCode(email)
       void saveLastEmail(email)
       setStep('code')
-      toast.show('Code sent. Check your email.', 'success')
+      toast.show(t('Code sent. Check your email.'), 'success')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send the code')
+      setError(err instanceof Error ? err.message : t('Could not send the code'))
     } finally {
       setBusy(false)
     }
@@ -64,10 +66,10 @@ export default function AccountScreen() {
     try {
       await verifyEmailCode(email, code)
       void hapticNotify('success')
-      toast.show('Signed in', 'success')
+      toast.show(t('Signed in'), 'success')
       goBack()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not verify the code')
+      setError(err instanceof Error ? err.message : t('Could not verify the code'))
     } finally {
       setBusy(false)
     }
@@ -78,11 +80,11 @@ export default function AccountScreen() {
       className="sticky top-0 z-20 flex items-center gap-2 bg-[color-mix(in_srgb,var(--canvas)_95%,transparent)] px-2 pb-2 backdrop-blur"
       style={{ paddingTop: 'calc(var(--safe-top) + 6px)', paddingLeft: 'max(8px, var(--safe-left))', paddingRight: 'max(8px, var(--safe-right))' }}
     >
-      <button type="button" onClick={goBack} aria-label="Back" className="pressable flex h-11 min-w-[44px] items-center gap-0.5 rounded-full px-2 text-[17px] font-medium text-brand">
+      <button type="button" onClick={goBack} aria-label={t('Back')} className="pressable flex h-11 min-w-[44px] items-center gap-0.5 rounded-full px-2 text-[17px] font-medium text-brand">
         <ChevronRightIcon size={22} className="rotate-180" />
-        Back
+        {t('Back')}
       </button>
-      <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">Account</p>
+      <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">{t('Account')}</p>
       <span className="w-11" aria-hidden />
     </div>
   )
@@ -93,7 +95,7 @@ export default function AccountScreen() {
         {header}
         <main className="screen mx-auto max-w-lg px-4 pt-2">
           <Card tone="warn" className="text-[15px] text-body">
-            Accounts are not available in this build.
+            {t('Accounts are not available in this build.')}
           </Card>
         </main>
       </div>
@@ -111,23 +113,23 @@ export default function AccountScreen() {
                 <UserIcon size={24} />
               </span>
               <span className="min-w-0">
-                <span className="block text-[17px] font-semibold text-ink">Signed in</span>
+                <span className="block text-[17px] font-semibold text-ink">{t('Signed in')}</span>
                 <span className="block truncate text-[14px] text-muted">{account.user.email}</span>
               </span>
             </Card>
             <Card className="flex items-start gap-3">
               <ShieldIcon size={20} className="mt-0.5 flex-none text-brand" />
               <p className="text-[14px] leading-relaxed text-body">
-                Your cabinet and reminders are stored under this account and only you can see them. Sign in on pillseek.com with the same email to see them there too.
+                {t('Your cabinet and reminders are stored under this account and only you can see them. Sign in on pillseek.com with the same email to see them there too.')}
               </p>
             </Card>
             <Button full variant="secondary" onClick={() => void account.signOut().then(goBack)}>
-              Sign out
+              {t('Sign out')}
             </Button>
             <section>
-              <SectionLabel>Danger zone</SectionLabel>
+              <SectionLabel>{t('Danger zone')}</SectionLabel>
               <Card tone="danger" className="space-y-3">
-                <p className="text-[14px] leading-relaxed text-body">Deleting your account removes your cabinet, reminders and dose history permanently.</p>
+                <p className="text-[14px] leading-relaxed text-body">{t('Deleting your account removes your cabinet, reminders and dose history permanently.')}</p>
                 {confirmDelete ? (
                   <div className="flex gap-2">
                     <Button
@@ -139,22 +141,22 @@ export default function AccountScreen() {
                         void account
                           .deleteAccount()
                           .then(() => {
-                            toast.show('Account deleted', 'success')
+                            toast.show(t('Account deleted'), 'success')
                             navigate('/home', { replace: true })
                           })
-                          .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not delete'))
+                          .catch((err: unknown) => setError(err instanceof Error ? err.message : t('Could not delete')))
                           .finally(() => setBusy(false))
                       }}
                     >
-                      Yes, delete everything
+                      {t('Yes, delete everything')}
                     </Button>
                     <Button variant="secondary" size="sm" onClick={() => setConfirmDelete(false)}>
-                      Keep my account
+                      {t('Keep my account')}
                     </Button>
                   </div>
                 ) : (
                   <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}>
-                    Delete my account
+                    {t('Delete my account')}
                   </Button>
                 )}
                 {error && <p className="text-[14px] text-danger">{error}</p>}
@@ -164,14 +166,14 @@ export default function AccountScreen() {
         ) : (
           <>
             <div className="px-1">
-              <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">Sign in or create account</h1>
-              <p className="mt-1 text-[15px] leading-relaxed text-muted">No password or sign-up form. We email you a 6-digit code; a new account is created the first time.</p>
+              <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">{t('Sign in or create account')}</h1>
+              <p className="mt-1 text-[15px] leading-relaxed text-muted">{t('No password or sign-up form. We email you a 6-digit code; a new account is created the first time.')}</p>
             </div>
             <Card className="space-y-3">
               {step === 'email' ? (
                 <>
                   <TextField
-                    label="Email"
+                    label={t('Email')}
                     value={email}
                     onChange={setEmail}
                     placeholder="you@example.com"
@@ -184,16 +186,16 @@ export default function AccountScreen() {
                     onKeyDown={(e) => e.key === 'Enter' && void sendCode()}
                   />
                   <Button full loading={busy} disabled={!isValidEmail(email)} onClick={() => void sendCode()}>
-                    Email me a code
+                    {t('Email me a code')}
                   </Button>
                 </>
               ) : (
                 <>
                   <p className="text-[14px] text-body">
-                    We sent a code to <span className="font-semibold text-ink">{email.trim()}</span>.
+                    {t('We sent a code to')} <span className="font-semibold text-ink">{email.trim()}</span>.
                   </p>
                   <TextField
-                    label="6-digit code"
+                    label={t('6-digit code')}
                     value={code}
                     onChange={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))}
                     placeholder="123456"
@@ -204,7 +206,7 @@ export default function AccountScreen() {
                     className="tabular font-mono text-[22px] tracking-[0.3em]"
                   />
                   <Button full loading={busy} disabled={code.length < 6} icon={<CheckIcon size={18} />} onClick={() => void verify()}>
-                    Sign in
+                    {t('Sign in')}
                   </Button>
                   <button
                     type="button"
@@ -215,7 +217,7 @@ export default function AccountScreen() {
                     }}
                     className="pressable w-full py-2 text-center text-[14px] font-semibold text-brand"
                   >
-                    Use a different email
+                    {t('Use a different email')}
                   </button>
                 </>
               )}
@@ -226,7 +228,7 @@ export default function AccountScreen() {
               )}
             </Card>
             <p className="px-2 text-center text-[12px] leading-relaxed text-muted">
-              By signing in you agree to the Terms of Use and Privacy Policy. Your cabinet is private and never shared.
+              {t('By signing in you agree to the Terms of Use and Privacy Policy. Your cabinet is private and never shared.')}
             </p>
           </>
         )}

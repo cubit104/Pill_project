@@ -9,6 +9,7 @@ import TextField from './TextField'
 import { useToast } from './Toast'
 import { useAccount } from '../lib/account'
 import type { CabinetItem } from '../lib/cabinet'
+import { useLocale, useT } from '../lib/i18n'
 import { scheduleFromSig } from '../lib/labelParse'
 import { hapticTick } from '../lib/native'
 import { ensureNotificationPermission } from '../lib/reminders'
@@ -28,6 +29,8 @@ function Labeled({ label, children }: { label: string; children: React.ReactNode
  * prescriber, refills left, notes. Filled by the bottle scan or by hand.
  */
 export default function ItemSheet({ item, name, image, onClose, onRemove }: { item: CabinetItem; name: string; image: string | null; onClose: () => void; onRemove: () => void }) {
+  const t = useT()
+  const locale = useLocale()
   const navigate = useNavigate()
   const account = useAccount()
   const toast = useToast()
@@ -56,9 +59,9 @@ export default function ItemSheet({ item, name, image, onClose, onRemove }: { it
   // Offer a reminder built from the directions when the pill has none yet.
   const hasReminder = account.reminders.some((r) => r.cabinet_item_id === item.id)
   const offer = useMemo(() => (hasReminder ? null : scheduleFromSig(directions)), [directions, hasReminder])
-  const fmt = (t: string) => {
-    const [h, m] = t.split(':').map((x) => parseInt(x, 10))
-    return new Date(2000, 0, 1, h ?? 0, m ?? 0).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  const fmt = (time: string) => {
+    const [h, m] = time.split(':').map((x) => parseInt(x, 10))
+    return new Date(2000, 0, 1, h ?? 0, m ?? 0).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })
   }
   const [offerBusy, setOfferBusy] = useState(false)
   const acceptOffer = async () => {
@@ -76,9 +79,9 @@ export default function ItemSheet({ item, name, image, onClose, onRemove }: { it
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
       })
       if (nul(directions) !== (item.directions ?? null)) await account.update(item.id, { directions: nul(directions) })
-      toast.show(granted ? 'Reminder set' : 'Reminder saved. Turn on notifications in Settings to be alerted.', granted ? 'success' : 'error')
+      toast.show(granted ? t('Reminder set') : t('Reminder saved. Turn on notifications in Settings to be alerted.'), granted ? 'success' : 'error')
     } catch (err) {
-      toast.show(err instanceof Error ? err.message : 'Could not set the reminder', 'error')
+      toast.show(err instanceof Error ? err.message : t('Could not set the reminder'), 'error')
     } finally {
       setOfferBusy(false)
     }
@@ -99,10 +102,10 @@ export default function ItemSheet({ item, name, image, onClose, onRemove }: { it
         refills_left: Number.isFinite(n) && n >= 0 ? Math.min(99, n) : null,
         notes: nul(notes),
       })
-      toast.show('Saved', 'success')
+      toast.show(t('Saved'), 'success')
       onClose()
     } catch (err) {
-      toast.show(err instanceof Error ? err.message : 'Could not save', 'error')
+      toast.show(err instanceof Error ? err.message : t('Could not save'), 'error')
     } finally {
       setBusy(false)
     }
@@ -127,59 +130,61 @@ export default function ItemSheet({ item, name, image, onClose, onRemove }: { it
           className="pressable flex w-full items-center gap-3 rounded-2xl hairline bg-surface px-3 py-2 text-left"
         >
           <PillThumb src={image} alt="" size={44} />
-          <span className="min-w-0 flex-1 text-[15px] font-medium text-ink">Pill details, label and price</span>
+          <span className="min-w-0 flex-1 text-[15px] font-medium text-ink">{t('Pill details, label and price')}</span>
           <ChevronRightIcon size={18} className="text-muted" />
         </button>
 
         {phone.trim() && (
           <Button full onClick={call}>
-            Call {pharmacy.trim() || 'pharmacy'} to refill{rx.trim() ? ` · Rx ${rx.trim()}` : ''}
+            {t('Call {pharmacy} to refill', { pharmacy: pharmacy.trim() || t('pharmacy') })}
+            {rx.trim() ? ` · ${t('Rx {rx}', { rx: rx.trim() })}` : ''}
           </Button>
         )}
 
-        <Labeled label="Nickname">
-          <TextField label="Nickname" value={nickname} onChange={setNickname} placeholder="e.g. morning pill" />
+        <Labeled label={t('Nickname')}>
+          <TextField label={t('Nickname')} value={nickname} onChange={setNickname} placeholder={t('e.g. morning pill')} />
         </Labeled>
-        <Labeled label="Directions (as on the label)">
-          <TextField label="Directions" value={directions} onChange={setDirections} placeholder="e.g. Take 1 tablet twice daily" />
+        <Labeled label={t('Directions (as on the label)')}>
+          <TextField label={t('Directions')} value={directions} onChange={setDirections} placeholder="e.g. Take 1 tablet twice daily" />
         </Labeled>
         {offer && offer.times.length > 0 && (
           <Card tone="tint" className="flex items-center gap-3 text-[14px] text-body">
             <span className="min-w-0 flex-1">
-              Set a reminder{offer.dose ? ` for ${offer.dose}` : ''} at <span className="font-semibold text-ink">{offer.times.map(fmt).join(', ')}</span>
-              {offer.days.length < 7 ? ' on selected days' : ''}?
+              {t('Set a reminder')}
+              {offer.dose ? ` ${t('for {dose}', { dose: offer.dose })}` : ''} {t('at')} <span className="font-semibold text-ink">{offer.times.map(fmt).join(', ')}</span>
+              {offer.days.length < 7 ? ` ${t('on selected days')}` : ''}?
             </span>
             <Button size="sm" loading={offerBusy} onClick={() => void acceptOffer()}>
-              Set
+              {t('Set')}
             </Button>
           </Card>
         )}
         <div className="grid grid-cols-2 gap-2">
-          <Labeled label="Rx number">
-            <TextField label="Rx number" value={rx} onChange={setRx} placeholder="e.g. 7206525" />
+          <Labeled label={t('Rx number')}>
+            <TextField label={t('Rx number')} value={rx} onChange={setRx} placeholder={t('e.g. 7206525')} />
           </Labeled>
-          <Labeled label="Refills left">
-            <TextField label="Refills left" value={refills} onChange={setRefills} inputMode="numeric" placeholder="e.g. 2" />
+          <Labeled label={t('Refills left')}>
+            <TextField label={t('Refills left')} value={refills} onChange={setRefills} inputMode="numeric" placeholder={t('e.g. 2')} />
           </Labeled>
         </div>
-        <Labeled label="Pharmacy">
-          <TextField label="Pharmacy" value={pharmacy} onChange={setPharmacy} placeholder="e.g. Walmart" />
+        <Labeled label={t('Pharmacy')}>
+          <TextField label={t('Pharmacy')} value={pharmacy} onChange={setPharmacy} placeholder={t('e.g. Walmart')} />
         </Labeled>
-        <Labeled label="Pharmacy phone">
-          <TextField label="Pharmacy phone" value={phone} onChange={setPhone} inputMode="tel" placeholder="e.g. 469-675-8110" />
+        <Labeled label={t('Pharmacy phone')}>
+          <TextField label={t('Pharmacy phone')} value={phone} onChange={setPhone} inputMode="tel" placeholder={t('e.g. 469-675-8110')} />
         </Labeled>
-        <Labeled label="Prescriber">
-          <TextField label="Prescriber" value={prescriber} onChange={setPrescriber} placeholder="e.g. Dr. Smith" />
+        <Labeled label={t('Prescriber')}>
+          <TextField label={t('Prescriber')} value={prescriber} onChange={setPrescriber} placeholder={t('e.g. Dr. Smith')} />
         </Labeled>
-        <Labeled label="Notes">
-          <TextField label="Notes" value={notes} onChange={setNotes} placeholder="Anything else" />
+        <Labeled label={t('Notes')}>
+          <TextField label={t('Notes')} value={notes} onChange={setNotes} placeholder={t('Anything else')} />
         </Labeled>
 
         <Button full loading={busy} disabled={!dirty} onClick={() => void save()}>
-          Save
+          {t('Save')}
         </Button>
         <button type="button" onClick={onRemove} className="pressable mx-auto flex min-h-[44px] items-center gap-1.5 px-3 text-[14px] font-semibold text-danger">
-          <TrashIcon size={15} /> Remove from cabinet
+          <TrashIcon size={15} /> {t('Remove from cabinet')}
         </button>
       </div>
     </Sheet>

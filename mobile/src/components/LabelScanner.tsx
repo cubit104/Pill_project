@@ -5,6 +5,7 @@ import { CheckIcon, CloseIcon } from './Icons'
 import { useBackHandler } from '../lib/backstack'
 import { CameraUnavailableError, sampleFrame, startPreview, stopPreview } from '../lib/camera'
 import { useElementSize } from '../lib/hooks'
+import { useT } from '../lib/i18n'
 import { foldFrame, memoryLines, missingFields, type LineMemory, type Missing } from '../lib/labelMerge'
 import type { OcrLine, ParsedLabel } from '../lib/labelParse'
 import { applyStatusBar, hapticImpact, hapticNotify } from '../lib/native'
@@ -21,6 +22,7 @@ const MAX_MS = 40_000
 /** Auto-finish after this many consecutive frames with nothing missing. */
 const CONFIRM_FRAMES = 2
 
+/** English keys; rendered through t() so Spanish picks them up. */
 const FIELD_LABEL: Record<Missing, string> = { drug: 'Drug & strength', directions: 'Directions', quantity: 'Quantity', rx: 'Rx number' }
 const ALL: Missing[] = ['drug', 'directions', 'quantity', 'rx']
 
@@ -30,6 +32,7 @@ const ALL: Missing[] = ['drug', 'directions', 'quantity', 'rx']
  * fields ticking off. Finishes by itself once all four are found, or on Done.
  */
 export default function LabelScanner({ onDone, onCancel, onUnavailable }: Props) {
+  const t = useT()
   const [boxRef, box] = useElementSize<HTMLDivElement>()
   const [ready, setReady] = useState(false)
   const [state, setState] = useState<{ memory: LineMemory[]; label: ParsedLabel | null }>({ memory: [], label: null })
@@ -119,20 +122,20 @@ export default function LabelScanner({ onDone, onCancel, onUnavailable }: Props)
   const found = ALL.filter((f) => !missing.has(f)).length
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col bg-transparent text-white" role="dialog" aria-modal="true" aria-label="Scan a pharmacy label">
+    <div className="fixed inset-0 z-50 flex flex-col bg-transparent text-white" role="dialog" aria-modal="true" aria-label={t('Scan a pharmacy label')}>
       <div className="relative z-10 flex items-center justify-between bg-black px-3" style={{ paddingTop: 'calc(var(--safe-top) + 6px)', minHeight: 'calc(var(--safe-top) + 56px)' }}>
-        <IconButton label="Cancel" tone="light" onClick={onCancel}>
+        <IconButton label={t('Cancel')} tone="light" onClick={onCancel}>
           <CloseIcon size={22} />
         </IconButton>
-        <p className="text-[16px] font-semibold">Scan the label</p>
+        <p className="text-[16px] font-semibold">{t('Scan the label')}</p>
         <span className="w-11" />
       </div>
 
       <div ref={boxRef} className="relative flex-1 overflow-hidden">
-        {!ready && <div className="absolute inset-0 flex items-center justify-center bg-black text-[15px] text-white/80">Starting camera…</div>}
+        {!ready && <div className="absolute inset-0 flex items-center justify-center bg-black text-[15px] text-white/80">{t('Starting camera…')}</div>}
         <div className="pointer-events-none absolute inset-x-6 top-1/2 h-[46%] -translate-y-1/2 rounded-2xl border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
         <p className="pointer-events-none absolute inset-x-6 top-4 text-center text-[15px] font-medium text-white/90 drop-shadow">
-          {found === 0 ? 'Fill the box with the label. Hold still.' : 'Slowly turn the bottle to show the rest of the label.'}
+          {found === 0 ? t('Fill the box with the label. Hold still.') : t('Slowly turn the bottle to show the rest of the label.')}
         </p>
       </div>
 
@@ -141,7 +144,7 @@ export default function LabelScanner({ onDone, onCancel, onUnavailable }: Props)
           {ALL.map((f) => (
             <li key={f} className={`flex items-center gap-2 ${missing.has(f) ? 'text-white/55' : 'text-emerald-300'}`}>
               <span className={`flex h-5 w-5 items-center justify-center rounded-full ${missing.has(f) ? 'border border-white/40' : 'bg-emerald-400 text-black'}`}>{!missing.has(f) && <CheckIcon size={12} strokeWidth={3} />}</span>
-              {FIELD_LABEL[f]}
+              {t(FIELD_LABEL[f])}
             </li>
           ))}
         </ul>
@@ -153,7 +156,7 @@ export default function LabelScanner({ onDone, onCancel, onUnavailable }: Props)
           </p>
         )}
         <div className="mt-3 flex items-center justify-between">
-          <span className="text-[12px] text-white/50">{frames} frames read</span>
+          <span className="text-[12px] text-white/50">{t('{n} frames read', { n: frames })}</span>
           <button
             type="button"
             onClick={() => {
@@ -163,7 +166,7 @@ export default function LabelScanner({ onDone, onCancel, onUnavailable }: Props)
             disabled={!state.label?.drugName}
             className="pressable rounded-full bg-white px-5 py-2.5 text-[15px] font-semibold text-black disabled:opacity-40"
           >
-            Done
+            {t('Done')}
           </button>
         </div>
       </div>

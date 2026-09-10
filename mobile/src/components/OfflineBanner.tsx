@@ -1,8 +1,10 @@
 import { useOnline } from '../lib/hooks'
+import { useT } from '../lib/i18n'
 import { WifiOffIcon } from './Icons'
 
 export default function OfflineBanner() {
   const online = useOnline()
+  const t = useT()
   if (online) return null
   return (
     <div
@@ -11,7 +13,7 @@ export default function OfflineBanner() {
       style={{ paddingTop: 'calc(var(--safe-top) + 8px)' }}
     >
       <WifiOffIcon size={18} />
-      No internet connection
+      {t('No internet connection')}
     </div>
   )
 }
