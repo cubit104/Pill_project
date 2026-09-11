@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '../components/Button'
 import Card, { SectionLabel } from '../components/Card'
@@ -18,6 +18,13 @@ import { useLocale, useT } from '../lib/i18n'
 import { drugNameCandidates, parseLabel, scheduleFromSig, type OcrLine, type ParsedLabel, type SigSchedule } from '../lib/labelParse'
 import { hapticNotify, hapticTick } from '../lib/native'
 import { blobToBase64, ocrAvailable, recognizeText } from '../lib/ocr'
+
+const PRESET_TIMES = [
+  { label: 'Morning', time: '08:00' },
+  { label: 'Noon', time: '12:00' },
+  { label: 'Evening', time: '18:00' },
+  { label: 'Bedtime', time: '22:00' },
+]
 
 type Phase = 'idle' | 'scanning' | 'reading' | 'matching' | 'review' | 'saving'
 
@@ -53,11 +60,38 @@ export default function BottleScanScreen() {
   const [rx, setRx] = useState('')
   const [pharmacy, setPharmacy] = useState('')
   const [showRaw, setShowRaw] = useState(false)
+  // The label proposes times; the patient can change them before saving.
+  const [times, setTimes] = useState<string[]>([])
+  const [days, setDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6])
+  const [picked, setPicked] = useState('')
+  const [replaceExisting, setReplaceExisting] = useState(false)
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState<DrugRow[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const schedule: SigSchedule | null = useMemo(() => scheduleFromSig(directions), [directions])
+
+  // Follow the label as it is read or edited, until the patient touches the times.
+  const [timesTouched, setTimesTouched] = useState(false)
+  useEffect(() => {
+    if (timesTouched || !schedule) return
+    setTimes(schedule.times)
+    setDays(schedule.days)
+  }, [schedule, timesTouched])
+
+  const setTimesByHand = (next: string[]) => {
+    setTimesTouched(true)
+    setTimes(next)
+  }
+  const toggleTime = (time: string) => setTimesByHand(times.includes(time) ? times.filter((x) => x !== time) : [...times, time].sort())
+
+  /** The pill's current schedule, when it is already in the cabinet. */
+  const existingReminder = useMemo(() => {
+    const slug = pill?.slug
+    if (!slug) return null
+    const item = account.items.find((i) => i.slug === slug)
+    return item ? (account.reminders.find((r) => r.cabinet_item_id === item.id) ?? null) : null
+  }, [pill?.slug, account.items, account.reminders])
 
   /** Live scan (turn the bottle) when the native preview exists; otherwise a single photo. */
   const scan = async (source: 'camera' | 'photos') => {
@@ -84,6 +118,8 @@ export default function BottleScanScreen() {
     try {
       setLines(found)
       setLabel(parsed)
+      setTimesTouched(false)
+      setReplaceExisting(false)
       setDirections(parsed.directions ?? '')
       setQuantity(parsed.quantity ? String(parsed.quantity) : '')
       setRx(parsed.rxNumber ?? '')
@@ -166,18 +202,21 @@ export default function BottleScanScreen() {
         prescriber: label?.prescriber ?? null,
         refills_left: label?.refills ?? null,
       })
-      if (schedule && schedule.times.length > 0) {
+      // Never quietly change a schedule the patient set themselves.
+      const keepExisting = existingReminder !== null && !replaceExisting
+      if (times.length > 0 && !keepExisting) {
         await account.upsertReminder({
+          id: existingReminder?.id,
           cabinet_item_id: item.id,
-          times: schedule.times,
-          days: schedule.days,
-          dose: schedule.dose,
+          times,
+          days,
+          dose: schedule?.dose ?? null,
           enabled: true,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
         })
       }
       void hapticNotify('success')
-      toast.show(schedule?.times.length ? t('Saved with reminders') : t('Saved to your cabinet'), 'success')
+      toast.show(times.length > 0 && !(existingReminder && !replaceExisting) ? t('Saved with reminders') : t('Saved to your cabinet'), 'success')
       navigate('/cabinet', { replace: true })
     } catch (err) {
       setPhase('review')
@@ -359,16 +398,74 @@ export default function BottleScanScreen() {
               <div>
                 <p className="mb-1 px-1 text-[13px] font-semibold text-body">{t('Directions')}</p>
                 <TextField label={t('Directions')} value={directions} onChange={setDirections} placeholder="e.g. Take 1 tablet twice daily" />
-                <p className="mt-1 px-1 text-[13px] text-muted">
-                  {schedule && schedule.times.length > 0
-                    ? schedule.days.length === 7
-                      ? t('Reminder: {dose} at {times}, every day', { dose: schedule.dose ?? t('dose'), times: schedule.times.map(fmt).join(', ') })
-                      : t('Reminder: {dose} at {times}', { dose: schedule.dose ?? t('dose'), times: schedule.times.map(fmt).join(', ') })
-                    : schedule?.asNeeded
+              </div>
+
+              <div>
+                <p className="mb-1 px-1 text-[13px] font-semibold text-body">
+                  {t('Reminder times')}
+                  {schedule && schedule.times.length > 0 && !timesTouched && <span className="font-normal text-muted"> · {t('from the label')}</span>}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {PRESET_TIMES.map((p) => (
+                    <Chip key={p.time} selected={times.includes(p.time)} onClick={() => toggleTime(p.time)}>
+                      {t(p.label)} {fmt(p.time)}
+                    </Chip>
+                  ))}
+                  {times
+                    .filter((time) => !PRESET_TIMES.some((p) => p.time === time))
+                    .map((time) => (
+                      <Chip key={time} selected onClick={() => toggleTime(time)}>
+                        {fmt(time)}
+                      </Chip>
+                    ))}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <label className="flex h-12 flex-1 items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-3 text-[15px] text-body">
+                    <span>{t('Other time')}</span>
+                    <input
+                      type="time"
+                      aria-label={t('Pick another time')}
+                      value={picked}
+                      onChange={(e) => setPicked(e.target.value)}
+                      className="h-9 rounded-lg bg-transparent px-2 text-[17px] font-semibold text-brand"
+                    />
+                  </label>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={!/^\d{2}:\d{2}$/.test(picked)}
+                    onClick={() => {
+                      if (!times.includes(picked)) setTimesByHand([...times, picked].sort())
+                      setPicked('')
+                    }}
+                  >
+                    {t('Add')}
+                  </Button>
+                </div>
+                <p className="mt-1 px-1 text-[12px] text-muted">
+                  {times.length === 0
+                    ? schedule?.asNeeded
                       ? t('As needed: no reminder will be set.')
-                      : t('No reminder yet. You can add one in the cabinet.')}
+                      : t('No reminder will be set. Tap a time to add one.')
+                    : t('Tap a time to remove it.')}
                 </p>
               </div>
+
+              {existingReminder && (
+                <Card tone="warn" className="text-[14px] text-body">
+                  <p>
+                    {t('This pill already has a reminder at {times}.', { times: existingReminder.times.map(fmt).join(', ') })}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Chip selected={!replaceExisting} onClick={() => setReplaceExisting(false)}>
+                      {t('Keep it')}
+                    </Chip>
+                    <Chip selected={replaceExisting} onClick={() => setReplaceExisting(true)}>
+                      {t('Use these times')}
+                    </Chip>
+                  </div>
+                </Card>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <p className="mb-1 px-1 text-[13px] font-semibold text-body">{t('Quantity')}</p>

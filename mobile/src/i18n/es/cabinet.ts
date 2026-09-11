@@ -4,6 +4,12 @@
  * used in code; words shared across screens live in common.ts.
  */
 const es: Record<string, string> = {
+  'Reminder times': 'Horarios del recordatorio',
+  'from the label': 'según la etiqueta',
+  'No reminder will be set. Tap a time to add one.': 'No se creará un recordatorio. Toque un horario para agregarlo.',
+  'This pill already has a reminder at {times}.': 'Esta pastilla ya tiene un recordatorio a las {times}.',
+  'Keep it': 'Conservarlo',
+  'Use these times': 'Usar estos horarios',
   Tip: 'Consejo',
   ': press and hold a PillSeek reminder to mark a dose taken without opening the app.':
     ': mantenga presionado un recordatorio de PillSeek para marcar una dosis como tomada sin abrir la aplicación.',
