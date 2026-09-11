@@ -11,6 +11,7 @@ import {
   addToCabinet,
   deleteAccountData,
   deleteReminder,
+  dedupeReminders,
   listCabinet,
   listDoseEvents,
   listReminders,
@@ -122,7 +123,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       since.setDate(since.getDate() - 30)
       const [list, rems, events] = await Promise.all([listCabinet(), listReminders(), listDoseEvents(since)])
       setItems(list)
-      setReminders(rems)
+      // One schedule per pill: drop any stale duplicate left by an older build.
+      const { keep, drop } = dedupeReminders(rems)
+      setReminders(keep)
+      for (const r of drop) void deleteReminder(r.id).catch(() => {})
       setDoseEvents(events)
       void fetchPills(list.map((i) => i.slug))
     } catch (err) {
@@ -280,7 +284,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       },
       upsertReminder: async (r) => {
         if (!user) throw new Error('Sign in first')
-        const saved = await saveReminder(user.id, r)
+        // No id means "set the schedule for this pill", not "add another one".
+        const id = r.id ?? reminders.find((x) => x.cabinet_item_id === r.cabinet_item_id)?.id
+        const saved = await saveReminder(user.id, { ...r, id })
         setReminders((prev) => (prev.some((x) => x.id === saved.id) ? prev.map((x) => (x.id === saved.id ? saved : x)) : [...prev, saved]))
         return saved
       },

@@ -38,6 +38,36 @@ export interface Reminder {
   dose: string | null
   enabled: boolean
   timezone: string | null
+  /** Last edit, used to pick the survivor when a pill ended up with two. */
+  updated_at?: string
+}
+
+const REMINDER_COLS = 'id, cabinet_item_id, times, days, dose, enabled, timezone, updated_at'
+
+/**
+ * A pill has one schedule. Earlier builds could create a second reminder for the
+ * same pill (the bottle scan always inserted), leaving a schedule on the card
+ * that nothing could edit. Keep the most recently edited one per pill; the
+ * caller deletes the rest.
+ */
+export function dedupeReminders(list: Reminder[]): { keep: Reminder[]; drop: Reminder[] } {
+  const best = new Map<string, Reminder>()
+  const drop: Reminder[] = []
+  const when = (r: Reminder) => (r.updated_at ? new Date(r.updated_at).getTime() : 0)
+  for (const r of list) {
+    const current = best.get(r.cabinet_item_id)
+    if (!current) {
+      best.set(r.cabinet_item_id, r)
+      continue
+    }
+    if (when(r) > when(current)) {
+      best.set(r.cabinet_item_id, r)
+      drop.push(current)
+    } else {
+      drop.push(r)
+    }
+  }
+  return { keep: list.filter((r) => !drop.includes(r)), drop }
 }
 
 export interface DoseEvent {
@@ -94,7 +124,7 @@ export async function reorderCabinet(ids: string[]): Promise<void> {
 // ---- Reminders ---------------------------------------------------------------
 
 export async function listReminders(): Promise<Reminder[]> {
-  const { data, error } = await supabase().from('reminders').select('id, cabinet_item_id, times, days, dose, enabled, timezone')
+  const { data, error } = await supabase().from('reminders').select(REMINDER_COLS)
   if (error) fail('Could not load reminders', error)
   return (data ?? []) as Reminder[]
 }
@@ -102,7 +132,7 @@ export async function listReminders(): Promise<Reminder[]> {
 export async function saveReminder(userId: string, r: Omit<Reminder, 'id'> & { id?: string }): Promise<Reminder> {
   const row = { user_id: userId, cabinet_item_id: r.cabinet_item_id, times: r.times, days: r.days, dose: r.dose, enabled: r.enabled, timezone: r.timezone }
   const q = r.id ? supabase().from('reminders').update(row).eq('id', r.id) : supabase().from('reminders').insert(row)
-  const { data, error } = await q.select('id, cabinet_item_id, times, days, dose, enabled, timezone').single()
+  const { data, error } = await q.select(REMINDER_COLS).single()
   if (error || !data) fail('Could not save the reminder', error)
   return data as Reminder
 }
