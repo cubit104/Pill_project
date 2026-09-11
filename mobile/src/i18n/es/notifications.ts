@@ -3,6 +3,8 @@ const es: Record<string, string> = {
   'Time for {name}': 'Hora de {name}',
   'Take {dose}': 'Tome {dose}',
   'Tap to mark it taken': 'Toque para marcarla como tomada',
+  'Time to take it': 'Es hora de tomarla',
+  'Tap Taken, or Snooze 15 min': 'Toque Tomada, o Posponer 15 min',
   'Time for your medicine': 'Hora de su medicamento',
   'Snoozed reminder': 'Recordatorio pospuesto',
   'Refill {name}': 'Resurta {name}',

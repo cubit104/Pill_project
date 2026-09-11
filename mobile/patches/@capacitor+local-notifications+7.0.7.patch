@@ -1,14 +1,25 @@
 diff --git a/node_modules/@capacitor/local-notifications/ios/Sources/LocalNotificationsPlugin/LocalNotificationsPlugin.swift b/node_modules/@capacitor/local-notifications/ios/Sources/LocalNotificationsPlugin/LocalNotificationsPlugin.swift
-index 463be9a..3f7cbfd 100644
+index 463be9a..97e1621 100644
 --- a/node_modules/@capacitor/local-notifications/ios/Sources/LocalNotificationsPlugin/LocalNotificationsPlugin.swift
 +++ b/node_modules/@capacitor/local-notifications/ios/Sources/LocalNotificationsPlugin/LocalNotificationsPlugin.swift
-@@ -263,6 +263,22 @@ public class LocalNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
+@@ -263,6 +263,33 @@ public class LocalNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
              content.sound = UNNotificationSound(named: UNNotificationSoundName(sound))
          }
  
 +        // PillSeek patch: allow an app-icon badge number on local notifications.
 +        if let badge = notification["badge"] as? Int {
 +            content.badge = NSNumber(value: badge)
++        }
++
++        // PillSeek patch: subtitle, so a reminder banner can carry three lines
++        // (drug name / dose / what the pill looks like).
++        if let subtitle = notification["subtitle"] as? String, !subtitle.isEmpty {
++            content.subtitle = subtitle
++        }
++
++        // PillSeek patch: subtitle, so a reminder banner can carry three lines.
++        if let subtitle = notification["subtitle"] as? String, !subtitle.isEmpty {
++            content.subtitle = subtitle
 +        }
 +
 +        // PillSeek patch: interruption level, so a dose reminder can be Time Sensitive

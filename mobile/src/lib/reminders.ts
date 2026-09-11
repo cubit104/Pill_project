@@ -38,6 +38,7 @@ const SOUND = "default";
  * patches/@capacitor+local-notifications (patch-package). */
 type Notification = LocalNotificationSchema & {
   badge?: number;
+  subtitle?: string;
   interruptionLevel?: "passive" | "active" | "timeSensitive" | "critical";
 };
 
@@ -123,7 +124,9 @@ export async function syncNotifications(
     list.push({
       id: notificationId(seq++),
       title: tr("Time for {name}", { name: title }),
-      body: reminder.dose ? tr("Take {dose}", { dose: reminder.dose }) : tr("Tap to mark it taken"),
+      // Three lines: what, how much, what to do.
+      subtitle: reminder.dose ? tr("Take {dose}", { dose: reminder.dose }) : tr("Time to take it"),
+      body: tr("Tap Taken, or Snooze 15 min"),
       schedule: { at, allowWhileIdle: true },
       sound: SOUND,
       channelId: CHANNEL_ID,

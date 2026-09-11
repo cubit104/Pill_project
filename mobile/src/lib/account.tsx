@@ -4,6 +4,7 @@
  * slug from the PillSeek API and cached here so the cabinet renders instantly.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { App as CapApp } from '@capacitor/app'
 import { getPill, type PillDetail } from './api'
 import { accountsEnabled, currentSession, onAuthChange, signOut as authSignOut, type AuthUser } from './auth'
 import {
@@ -24,6 +25,7 @@ import {
   type Reminder,
 } from './cabinet'
 import { LocalNotifications } from '@capacitor/local-notifications'
+import { enqueueDose, flushQueue, type PendingDose } from './doseQueue'
 import { isNative } from './native'
 import { refillStatus } from './refill'
 import { startOfDay } from './today'
@@ -134,33 +136,80 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     void refresh()
   }, [refresh])
 
+  /** Show the dose as answered straight away, whatever the network is doing. */
+  const applyLocally = useCallback((reminderId: string, scheduledAt: Date, status: DoseEvent['status'], actedAt: string) => {
+    const iso = scheduledAt.toISOString()
+    setDoseEvents((prev) => {
+      const rest = prev.filter((e) => !(e.reminder_id === reminderId && new Date(e.scheduled_at).getTime() === scheduledAt.getTime()))
+      return [...rest, { id: `local-${reminderId}-${iso}`, reminder_id: reminderId, scheduled_at: iso, status, acted_at: actedAt }]
+    })
+  }, [])
+
   const markDose = useCallback(
     async (reminderId: string, scheduledAt: Date, status: DoseEvent['status']) => {
-      if (!user) throw new Error('Sign in first')
-      await recordDose(user.id, reminderId, scheduledAt, status)
-      const iso = scheduledAt.toISOString()
-      setDoseEvents((prev) => {
-        const rest = prev.filter((e) => !(e.reminder_id === reminderId && new Date(e.scheduled_at).getTime() === scheduledAt.getTime()))
-        return [...rest, { id: `local-${reminderId}-${iso}`, reminder_id: reminderId, scheduled_at: iso, status, acted_at: new Date().toISOString() }]
-      })
+      const actedAt = new Date().toISOString()
+      applyLocally(reminderId, scheduledAt, status, actedAt)
+      const pending: PendingDose = { reminderId, scheduledAt: scheduledAt.toISOString(), status, actedAt }
+      if (!user) {
+        // Signed out, or the session is still loading after a cold start from a
+        // notification button: keep it and send once the account is ready.
+        await enqueueDose(pending)
+        return
+      }
+      try {
+        await recordDose(user.id, reminderId, scheduledAt, status)
+      } catch (err) {
+        await enqueueDose(pending)
+        throw err
+      }
     },
-    [user],
+    [user, applyLocally],
   )
 
-  // Taken / Skip buttons on the notification itself (app may be closed when tapped).
+  /** Send anything marked while offline or signed out. Safe to call repeatedly. */
+  const flushDoses = useCallback(async () => {
+    if (!user) return
+    await flushQueue(async (d) => {
+      await recordDose(user.id, d.reminderId, new Date(d.scheduledAt), d.status)
+      applyLocally(d.reminderId, new Date(d.scheduledAt), d.status, d.actedAt)
+    })
+  }, [user, applyLocally])
+
+  // On sign-in, on launch, and whenever the app comes back to the foreground.
   useEffect(() => {
-    if (!user || !accountsEnabled) return
-    const sub = LocalNotifications.addListener('localNotificationActionPerformed', (a) => {
-      const extra = (a.notification.extra ?? {}) as { reminderId?: string; scheduledAt?: string }
-      if (!extra.reminderId || !extra.scheduledAt) return
-      if (a.actionId === 'taken') void markDose(extra.reminderId, new Date(extra.scheduledAt), 'taken')
-      else if (a.actionId === 'skip') void markDose(extra.reminderId, new Date(extra.scheduledAt), 'skipped')
-      else if (a.actionId === 'snooze') void snoozeDose({ reminderId: extra.reminderId, scheduledAt: extra.scheduledAt, title: a.notification.title, body: a.notification.body })
+    if (!user) return
+    void flushDoses()
+    if (!isNative()) return
+    const sub = CapApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) void flushDoses()
     })
     return () => {
       void sub.then((s) => s.remove())
     }
-  }, [user, markDose])
+  }, [user, flushDoses])
+
+  // Taken / Skip / Snooze on the notification itself. This has to be listening
+  // from the moment the app launches: tapping a button on a notification while
+  // the app is closed delivers the action immediately, long before the stored
+  // session has loaded. Anything that arrives early is queued by markDose and
+  // sent once the account is ready.
+  const markDoseRef = useRef(markDose)
+  markDoseRef.current = markDose
+  useEffect(() => {
+    if (!accountsEnabled) return
+    const sub = LocalNotifications.addListener('localNotificationActionPerformed', (a) => {
+      const extra = (a.notification.extra ?? {}) as { reminderId?: string; scheduledAt?: string }
+      if (!extra.reminderId || !extra.scheduledAt) return
+      const at = new Date(extra.scheduledAt)
+      if (a.actionId === 'taken') void markDoseRef.current(extra.reminderId, at, 'taken').catch(() => {})
+      else if (a.actionId === 'skip') void markDoseRef.current(extra.reminderId, at, 'skipped').catch(() => {})
+      else if (a.actionId === 'snooze')
+        void snoozeDose({ reminderId: extra.reminderId, scheduledAt: extra.scheduledAt, title: a.notification.title, body: a.notification.body })
+    })
+    return () => {
+      void sub.then((s) => s.remove())
+    }
+  }, [])
 
   // Mirror the reminder schedule into the phone's notifications whenever it changes.
   useEffect(() => {

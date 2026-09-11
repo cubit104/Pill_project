@@ -6,6 +6,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { App as CapApp } from "@capacitor/app";
+import { LocalNotifications } from "@capacitor/local-notifications";
 import OfflineBanner from "./components/OfflineBanner";
 import TabBar from "./components/TabBar";
 import { ToastProvider } from "./components/Toast";
@@ -64,6 +65,28 @@ function NativeBridges() {
     const root = location.pathname.split("/")[1];
     if (root) void saveLastTab(`/${root}`);
   }, [location.pathname]);
+
+  // Tapping the banner itself (rather than one of its buttons) lands on Today,
+  // where the same Taken / Skip buttons are.
+  useEffect(() => {
+    if (!isNative()) return;
+    const sub = LocalNotifications.addListener(
+      "localNotificationActionPerformed",
+      (a) => {
+        if (a.actionId !== "tap") return;
+        const extra = (a.notification.extra ?? {}) as {
+          reminderId?: string;
+          kind?: string;
+        };
+        if (extra.reminderId) navigate("/today");
+        else if (extra.kind === "refill") navigate("/cabinet");
+      },
+    );
+    return () => {
+      void sub.then((s) => s.remove());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // The icon badge means "a dose is waiting"; opening the app clears it.
   useEffect(() => {
