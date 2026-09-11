@@ -34,8 +34,12 @@ const CHANNEL_ID = "pillseek_doses"; // Android 8+: sound/importance live on the
 // iOS plays nothing unless a sound is named; a name that is not a bundled file falls back to the system default.
 const SOUND = "default";
 
-/** `badge` is added to the iOS plugin by patches/@capacitor+local-notifications (patch-package). */
-type Notification = LocalNotificationSchema & { badge?: number };
+/** `badge` and `interruptionLevel` are added to the iOS plugin by
+ * patches/@capacitor+local-notifications (patch-package). */
+type Notification = LocalNotificationSchema & {
+  badge?: number;
+  interruptionLevel?: "passive" | "active" | "timeSensitive" | "critical";
+};
 
 /** Deterministic id per reminder × occurrence so re-planning replaces cleanly. */
 function notificationId(seq: number): number {
@@ -124,6 +128,8 @@ export async function syncNotifications(
       sound: SOUND,
       channelId: CHANNEL_ID,
       badge: 1, // renumbered below in time order so unread alerts add up
+      // A missed dose matters now: break through Focus and show the larger banner.
+      interruptionLevel: "timeSensitive",
       extra: { reminderId: reminder.id, scheduledAt: at.toISOString() },
       actionTypeId: "PILLSEEK_DOSE",
     });
