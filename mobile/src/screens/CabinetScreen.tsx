@@ -508,7 +508,10 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
                       <span className="block truncate text-[13px] text-muted">
                         {pill ? [pill.strength, pill.imprint ? t('Imprint {imprint}', { imprint: pill.imprint }) : null].filter(Boolean).join(' · ') : t('Loading…')}
                       </span>
-                      {item.directions && <span className="block truncate text-[13px] text-body">{item.directions}</span>}
+                      {/* Once a schedule exists it is the truth; the label's wording can
+                          disagree with it ("twice a day" while the reminder is 8 AM only),
+                          so keep directions to the details sheet in that case. */}
+                      {item.directions && rems.length === 0 && <span className="block truncate text-[13px] text-body">{item.directions}</span>}
                       {(rems.length > 0 || refill) && (
                         <span className="mt-1 flex flex-wrap gap-1">
                           {rems.map((r) => (

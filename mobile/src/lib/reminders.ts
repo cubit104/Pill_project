@@ -37,12 +37,13 @@ function daysBetween(from: Date, to: Date): number {
 
 /**
  * The third line of the banner: something worth knowing, not an instruction.
- * A low supply beats the dose count, and a single uneventful dose gets no third
- * line at all rather than filler.
+ * Days of supply wins when the pill is tracked, since it is always useful and
+ * turns urgent on its own; otherwise the dose count. A single untracked dose
+ * gets no third line rather than filler.
  */
 export function doseLine(input: { index: number; total: number; supplyLeftAtDose: number | null }): string {
   const { index, total, supplyLeftAtDose } = input;
-  if (supplyLeftAtDose !== null && supplyLeftAtDose <= 7) {
+  if (supplyLeftAtDose !== null) {
     if (supplyLeftAtDose <= 0) return tr("Last dose — time to refill");
     if (supplyLeftAtDose === 1) return tr("1 day of pills left");
     return tr("{n} days of pills left", { n: supplyLeftAtDose });

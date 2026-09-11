@@ -6,12 +6,15 @@ describe('doseLine', () => {
     expect(doseLine({ index: 2, total: 3, supplyLeftAtDose: null })).toBe('Dose 2 of 3 today')
   })
 
-  it('says nothing extra for a single uneventful dose', () => {
+  it('says nothing extra for a single dose with no refill tracking', () => {
     expect(doseLine({ index: 1, total: 1, supplyLeftAtDose: null })).toBe('')
-    expect(doseLine({ index: 1, total: 1, supplyLeftAtDose: 30 })).toBe('')
   })
 
-  it('warns about supply before counting doses', () => {
+  it('shows the supply whenever the pill is tracked, not only when it is low', () => {
+    expect(doseLine({ index: 1, total: 1, supplyLeftAtDose: 29 })).toBe('29 days of pills left')
+  })
+
+  it('puts supply ahead of the dose count', () => {
     expect(doseLine({ index: 2, total: 3, supplyLeftAtDose: 5 })).toBe('5 days of pills left')
     expect(doseLine({ index: 1, total: 1, supplyLeftAtDose: 7 })).toBe('7 days of pills left')
   })
@@ -22,7 +25,7 @@ describe('doseLine', () => {
     expect(doseLine({ index: 1, total: 2, supplyLeftAtDose: -3 })).toBe('Last dose — time to refill')
   })
 
-  it('ignores a comfortable supply', () => {
-    expect(doseLine({ index: 1, total: 2, supplyLeftAtDose: 8 })).toBe('Dose 1 of 2 today')
+  it('counts doses when the pill has no refill tracking', () => {
+    expect(doseLine({ index: 1, total: 2, supplyLeftAtDose: null })).toBe('Dose 1 of 2 today')
   })
 })
