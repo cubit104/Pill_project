@@ -169,6 +169,25 @@ export async function loadInteractionDrugs(): Promise<string[]> {
   }
 }
 
+const KEY_NOTIF_TIP = 'pillseek.notifTipSeen.v1'
+
+/** Whether the one-time "hold a notification" tip has been dismissed. */
+export async function loadNotifTipSeen(): Promise<boolean> {
+  try {
+    return (await Preferences.get({ key: KEY_NOTIF_TIP })).value === '1'
+  } catch {
+    return true
+  }
+}
+
+export async function saveNotifTipSeen(): Promise<void> {
+  try {
+    await Preferences.set({ key: KEY_NOTIF_TIP, value: '1' })
+  } catch {
+    /* ignore */
+  }
+}
+
 const KEY_LAST_EMAIL = 'pillseek.lastEmail.v1'
 
 /** Last email used to sign in, so a returning user only types the code. */

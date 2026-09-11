@@ -4,6 +4,10 @@
  * used in code; words shared across screens live in common.ts.
  */
 const es: Record<string, string> = {
+  Tip: 'Consejo',
+  ': press and hold a PillSeek reminder to mark a dose taken without opening the app.':
+    ': mantenga presionado un recordatorio de PillSeek para marcar una dosis como tomada sin abrir la aplicación.',
+  'Got it': 'Entendido',
   // Cabinet list
   'My cabinet': 'Mi botiquín',
   Account: 'Cuenta',

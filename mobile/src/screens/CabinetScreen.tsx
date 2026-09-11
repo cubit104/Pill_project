@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '../components/Button'
 import Card, { SectionLabel } from '../components/Card'
@@ -17,10 +17,11 @@ import { useAccount } from '../lib/account'
 import type { CabinetItem, Reminder } from '../lib/cabinet'
 import { useLocale, useT } from '../lib/i18n'
 import { interactionsPath } from '../lib/interactions'
-import { hapticTick } from '../lib/native'
+import { hapticTick, isNative } from '../lib/native'
 import { ocrAvailable } from '../lib/ocr'
 import { effectiveRate, refillStatus, scheduleRate, type RefillStatus } from '../lib/refill'
 import { ensureNotificationPermission, upcomingDoses } from '../lib/reminders'
+import { loadNotifTipSeen, saveNotifTipSeen } from '../lib/storage'
 import { summarize, todayDoses } from '../lib/today'
 
 type T = ReturnType<typeof useT>
@@ -320,6 +321,21 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
   const [removing, setRemoving] = useState<CabinetItem | null>(null)
   const [refilling, setRefilling] = useState<{ item: CabinetItem; reminder: Reminder | null } | null>(null)
   const [details, setDetails] = useState<CabinetItem | null>(null)
+  // Shown once, after the first reminder exists: how to answer a dose without
+  // opening the app. Teaching this in every banner would waste a line forever.
+  const [showTip, setShowTip] = useState(false)
+  useEffect(() => {
+    if (!isNative() || account.reminders.length === 0) return
+    let cancelled = false
+    void loadNotifTipSeen().then((seen) => !cancelled && !seen && setShowTip(true))
+    return () => {
+      cancelled = true
+    }
+  }, [account.reminders.length])
+  const dismissTip = () => {
+    setShowTip(false)
+    void saveNotifTipSeen()
+  }
 
   const today = useMemo(() => summarize(todayDoses(account.items, account.reminders, account.doseEvents)), [account.items, account.reminders, account.doseEvents])
 
@@ -429,6 +445,17 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
           <Card tone="warn" className="text-[14px] text-body">
             <span className="font-semibold text-ink">{t('Notifications are off')}</span>
             {t(', so reminders will not ring. Turn them on in iPhone Settings → Notifications → PillSeek, then reopen the app.')}
+          </Card>
+        )}
+        {showTip && (
+          <Card tone="tint" className="text-[14px] text-body">
+            <p>
+              <span className="font-semibold text-ink">{t('Tip')}</span>
+              {t(': press and hold a PillSeek reminder to mark a dose taken without opening the app.')}
+            </p>
+            <button type="button" onClick={dismissTip} className="pressable mt-2 min-h-[36px] text-[14px] font-semibold text-brand">
+              {t('Got it')}
+            </button>
           </Card>
         )}
         {(nextDose || today.total > 0) && (

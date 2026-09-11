@@ -20,6 +20,35 @@ export interface ReminderTarget {
   reminder: Reminder;
   /** Pill name shown in the notification. */
   title: string;
+  /** Days of supply left as of now, when the user tracks refills for this pill. */
+  supplyDaysLeft?: number | null;
+}
+
+/** Calendar day key, so doses can be counted per day. */
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function daysBetween(from: Date, to: Date): number {
+  const a = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+  const b = new Date(to.getFullYear(), to.getMonth(), to.getDate()).getTime();
+  return Math.round((b - a) / 86_400_000);
+}
+
+/**
+ * The third line of the banner: something worth knowing, not an instruction.
+ * A low supply beats the dose count, and a single uneventful dose gets no third
+ * line at all rather than filler.
+ */
+export function doseLine(input: { index: number; total: number; supplyLeftAtDose: number | null }): string {
+  const { index, total, supplyLeftAtDose } = input;
+  if (supplyLeftAtDose !== null && supplyLeftAtDose <= 7) {
+    if (supplyLeftAtDose <= 0) return tr("Last dose — time to refill");
+    if (supplyLeftAtDose === 1) return tr("1 day of pills left");
+    return tr("{n} days of pills left", { n: supplyLeftAtDose });
+  }
+  if (total > 1) return tr("Dose {index} of {total} today", { index, total });
+  return "";
 }
 
 /** A "time to refill" nudge: fires once, at `at`. */
@@ -115,18 +144,29 @@ export async function syncNotifications(
   let seq = 0;
   // Interleave every reminder by time before capping, so a newly added reminder is never
   // starved by earlier ones filling the window. iOS keeps 64 pending; re-planned on every app open.
-  const all: { at: Date; reminder: Reminder; title: string }[] = [];
-  for (const { reminder, title } of targets)
+  const all: { at: Date; reminder: Reminder; title: string; supplyDaysLeft?: number | null }[] = [];
+  for (const { reminder, title, supplyDaysLeft } of targets)
     for (const at of upcomingDoses(reminder, now))
-      all.push({ at, reminder, title });
+      all.push({ at, reminder, title, supplyDaysLeft });
   all.sort((a, b) => a.at.getTime() - b.at.getTime());
-  for (const { at, reminder, title } of all.slice(0, 44)) {
+  // How many doses fall on each day, so a banner can say "Dose 2 of 3 today".
+  const perDay = new Map<string, number>();
+  for (const x of all) perDay.set(dayKey(x.at), (perDay.get(dayKey(x.at)) ?? 0) + 1);
+  const countedSoFar = new Map<string, number>();
+  for (const { at, reminder, title, supplyDaysLeft } of all.slice(0, 44)) {
+    const key = dayKey(at);
+    const index = (countedSoFar.get(key) ?? 0) + 1;
+    countedSoFar.set(key, index);
+    const supplyLeftAtDose =
+      supplyDaysLeft === null || supplyDaysLeft === undefined
+        ? null
+        : supplyDaysLeft - daysBetween(now, at);
     list.push({
       id: notificationId(seq++),
       title: tr("Time for {name}", { name: title }),
-      // Three lines: what, how much, what to do.
+      // Three lines: what, how much, and something worth knowing.
       subtitle: reminder.dose ? tr("Take {dose}", { dose: reminder.dose }) : tr("Time to take it"),
-      body: tr("Tap Taken, or Snooze 15 min"),
+      body: doseLine({ index, total: perDay.get(key) ?? 1, supplyLeftAtDose }),
       schedule: { at, allowWhileIdle: true },
       sound: SOUND,
       channelId: CHANNEL_ID,

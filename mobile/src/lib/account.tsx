@@ -219,7 +219,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         const item = items.find((i) => i.id === reminder.cabinet_item_id)
         const pill = item ? pills[item.slug] : undefined
         const title = item?.nickname || pill?.drug_name || item?.slug || 'your medicine'
-        return { reminder, title }
+        const supply = item ? refillStatus(item, reminder) : null
+        return { reminder, title, supplyDaysLeft: supply ? supply.daysLeft : null }
       })
       .filter((t) => t.reminder.enabled)
     // One refill nudge per pill that has a count and is running low within the plan window.
