@@ -15,18 +15,22 @@ Environment:
     PILL_VISION_DIR        where the assets live (default: pill_vision)
     PILL_MATCH_KEY         shared secret; when set, /match requires X-Vision-Key
     PILL_MATCH_WORKERS     concurrent identifications (default 2)
+    PILL_MATCH_QUEUE       how many may wait before we start refusing with 503
+                           (default: three times the worker count)
     PILL_VISION_PROVIDERS  ONNX providers; unset = CUDA, else CoreML, else CPU
     SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY  to self-provision the ~115 MB of
                            assets on first boot, exactly as the API does today
 
-Run:
-    uvicorn vision_service:app --host 0.0.0.0 --port 8003
+Run, from the repository root (the service lives under ml/scripts, and its own
+sys.path fix only runs once Python has already imported it):
+    uvicorn --app-dir ml/scripts vision_service:app --host 127.0.0.1 --port 8003
 """
 
 import asyncio
 import logging
 import os
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -36,7 +40,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from services import pill_vision_core as core  # noqa: E402
-from services.model_assets import ASSETS, assets_present, ensure_pill_vision_assets  # noqa: E402
+from services.model_assets import ASSETS, ensure_pill_vision_assets  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("vision-service")
@@ -48,15 +52,33 @@ ATTR_PATH = os.getenv("PILL_VISION_ATTRS", os.path.join(VISION_DIR, ASSETS[2]))
 MATCH_KEY = os.getenv("PILL_MATCH_KEY", "")
 MAX_BYTES = int(os.getenv("PILL_MATCH_MAX_BYTES", str(20 * 1024 * 1024)))
 DEFAULT_LIMIT = int(os.getenv("PILL_MATCH_LIMIT", "25"))
+WORKERS = int(os.getenv("PILL_MATCH_WORKERS", "2"))
 # Identifications run on their own small pool, so a burst queues instead of
 # fighting over the GPU and blowing up resident memory.
-_EXECUTOR = ThreadPoolExecutor(max_workers=int(os.getenv("PILL_MATCH_WORKERS", "2")), thread_name_prefix="pill-match")
+_EXECUTOR = ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="pill-match")
+# A ThreadPoolExecutor queues without limit, and every waiting request is
+# holding its uploads in memory. Unbounded, a burst would rebuild exactly the
+# memory problem this service exists to remove, so admission is capped and the
+# overflow is turned away before its photos are even read.
+MAX_INFLIGHT = int(os.getenv("PILL_MATCH_QUEUE", str(WORKERS * 3)))
+_slots = threading.BoundedSemaphore(MAX_INFLIGHT)
 
-if not assets_present() and not ensure_pill_vision_assets(wait=True):
-    raise SystemExit(
-        f"pill-vision assets missing from {VISION_DIR!r} and could not be downloaded; "
-        "set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, or copy the files in manually"
-    )
+
+def _assets_ready() -> bool:
+    """The files this process will actually open, which PILL_VISION_MODEL and
+    friends can point outside PILL_VISION_DIR. The downloader only knows about
+    that directory, so resolved paths are what decides whether to fetch."""
+    return os.path.exists(MODEL_PATH) and os.path.exists(INDEX_PATH)
+
+
+if not _assets_ready():
+    ensure_pill_vision_assets(wait=True)
+    if not _assets_ready():
+        raise SystemExit(
+            f"pill-vision assets missing ({MODEL_PATH}, {INDEX_PATH}) and could not be "
+            "downloaded; set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, or copy the "
+            "files in manually"
+        )
 
 _t0 = time.time()
 INDEX = core.load(MODEL_PATH, INDEX_PATH, ATTR_PATH)
@@ -80,6 +102,8 @@ def health():
         "providers": core.providers(),
         "fingerprints": len(INDEX),
         "attrs": bool(INDEX.attrs),
+        "workers": WORKERS,
+        "max_inflight": MAX_INFLIGHT,
         "model": MODEL_PATH,
     }
 
@@ -119,21 +143,28 @@ async def match(
     if mode not in ("match", "attrs"):
         raise HTTPException(status_code=422, detail="mode must be 'match' or 'attrs'")
 
-    raws = []
-    for up in [photo] + ([photo2] if photo2 is not None else []):
-        raw = await _read_bounded(up)
-        if raw:
-            raws.append(raw)
-    if not raws:
-        raise HTTPException(status_code=422, detail="Empty upload")
-
-    t0 = time.time()
-    loop = asyncio.get_running_loop()
+    # Claim a slot before reading anything: a request we are going to refuse
+    # should not cost us 40 MB of buffered photos first.
+    if not _slots.acquire(blocking=False):
+        raise HTTPException(status_code=503, detail="Matcher is busy; please try again shortly")
     try:
-        out = await loop.run_in_executor(
-            _EXECUTOR, _match_sync, raws, mode, limit if limit > 0 else DEFAULT_LIMIT
-        )
-    except core.VisionInputError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    logger.info("match %d photo(s), mode=%s in %.2fs", len(raws), mode, time.time() - t0)
-    return out
+        raws = []
+        for up in [photo] + ([photo2] if photo2 is not None else []):
+            raw = await _read_bounded(up)
+            if raw:
+                raws.append(raw)
+        if not raws:
+            raise HTTPException(status_code=422, detail="Empty upload")
+
+        t0 = time.time()
+        loop = asyncio.get_running_loop()
+        try:
+            out = await loop.run_in_executor(
+                _EXECUTOR, _match_sync, raws, mode, limit if limit > 0 else DEFAULT_LIMIT
+            )
+        except core.VisionInputError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        logger.info("match %d photo(s), mode=%s in %.2fs", len(raws), mode, time.time() - t0)
+        return out
+    finally:
+        _slots.release()

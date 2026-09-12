@@ -161,7 +161,13 @@ def open_image(image_bytes: bytes):
         raise VisionInputError("Image dimensions too large")
     if min(w, h) < 32:
         raise VisionInputError("Image too small to read")
-    return img.convert("RGB")
+    try:
+        # Opening only read the header. This is where a truncated or corrupt
+        # file actually fails, and it is still the caller's image being wrong,
+        # not us being broken: it must not read as an outage upstream.
+        return img.convert("RGB")
+    except Exception:
+        raise VisionInputError("Image data is incomplete or corrupt")
 
 
 def find_pill_candidates(index: VisionIndex, img, keep: int = 2):

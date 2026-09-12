@@ -95,6 +95,14 @@ def test_open_image_rejects_bytes_that_are_not_an_image():
         core.open_image(b"this is not a jpeg")
 
 
+def test_open_image_rejects_a_truncated_photo():
+    """Pillow reads the header lazily, so a cut-off upload only fails on decode.
+    That is still a bad image, and it must not surface as a matcher outage."""
+    truncated = _jpeg(size=(400, 400))[:600]
+    with pytest.raises(core.VisionInputError):
+        core.open_image(truncated)
+
+
 def test_attr_probs_is_a_softmax_over_the_head_classes():
     index = _index()
     index.attrs = {

@@ -27,7 +27,7 @@ downloads from Supabase Storage on first boot exactly as the API used to.
 PILL_VISION_DIR=~/pillseek-vision \
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
 PILL_MATCH_KEY=<shared secret> \
-uvicorn vision_service:app --host 127.0.0.1 --port 8003
+uvicorn --app-dir ml/scripts vision_service:app --host 127.0.0.1 --port 8003
 ```
 
 Then expose it the way the reader is exposed: add an ingress rule to the
@@ -84,4 +84,5 @@ paths and no hardcoded device in the core.
 | `PILL_VISION_THREADS` | 0 | Intra-op threads; 0 leaves it to the runtime. |
 | `PILL_VISION_CPU_ARENA` | 1 | `0` disables ONNX Runtime's CPU memory arena. Costs a little speed, saves a lot of resident memory. Only worth it on a memory-capped box. |
 | `PILL_MATCH_WORKERS` | 2 | Concurrent identifications before requests queue. |
+| `PILL_MATCH_QUEUE` | 3x workers | How many requests may wait before the service refuses with 503. Waiting requests hold their uploads in memory, so this is a memory limit, not a politeness setting. |
 | `PILL_MATCH_LIMIT` | 25 | Ranked slugs returned. The API needs 6 to show and 25 to decide whether a leave-one-out imprint guess is visually confirmed. |
