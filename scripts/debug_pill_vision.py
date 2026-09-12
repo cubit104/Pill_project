@@ -1,6 +1,9 @@
 """Debug helper: show where a target pill ranks for two phone photos and dump
 the normalized crops/composite the matcher actually sees.
 
+Runs the matching maths directly, from local files, whatever PILL_MATCH_URL is
+set to; this is about inspecting the model, not the deployment.
+
 Usage (from repo root, venv active):
     python scripts/debug_pill_vision.py photoA.jpg photoB.jpg target-slug-substring out_dir
 """
@@ -17,15 +20,19 @@ load_dotenv()
 import numpy as np  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from routes import identify_photo as ip  # noqa: E402
+from services import pill_vision_core as core  # noqa: E402
+
+VISION_DIR = os.getenv("PILL_VISION_DIR", "pill_vision")
+MODEL_PATH = os.getenv("PILL_VISION_MODEL", os.path.join(VISION_DIR, "pill_encoder_int8.onnx"))
+INDEX_PATH = os.getenv("PILL_VISION_INDEX", os.path.join(VISION_DIR, "index_prod.npz"))
+ATTR_PATH = os.getenv("PILL_VISION_ATTRS", os.path.join(VISION_DIR, "pill_attr_heads.npz"))
 
 
-def rank_of(sims, needle):
-    order = np.argsort(-sims)
+def rank_of(index, sims, needle):
     seen = set()
     r = 0
-    for i in order:
-        s = ip._state["meta"][i]["slug"]
+    for i in np.argsort(-sims):
+        s = index.meta[i]["slug"]
         if s in seen:
             continue
         seen.add(s)
@@ -38,28 +45,24 @@ def rank_of(sims, needle):
 def main():
     a_path, b_path, needle, out = sys.argv[1:5]
     os.makedirs(out, exist_ok=True)
-    ip._load()
+    index = core.load(MODEL_PATH, INDEX_PATH, ATTR_PATH)
     a = Image.open(a_path).convert("RGB")
     b = Image.open(b_path).convert("RGB")
-    pa, pb = ip._find_pill(a), ip._find_pill(b)
-    ip._catalog_style_single(pa).save(os.path.join(out, "side_a.png"))
-    ip._catalog_style_single(pb).save(os.path.join(out, "side_b.png"))
-    comp = ip._catalog_style_pair(pa, pb)
-    comp.save(os.path.join(out, "composite.png"))
+    pa = core.find_pill_candidates(index, a)[0]
+    pb = core.find_pill_candidates(index, b)[0]
+    core.catalog_style_single(pa).save(os.path.join(out, "side_a.png"))
+    core.catalog_style_single(pb).save(os.path.join(out, "side_b.png"))
+    core.catalog_style_pair(pa, pb).save(os.path.join(out, "composite.png"))
 
-    sa, _ = ip._side_sims(open(a_path, "rb").read())
-    sb, _ = ip._side_sims(open(b_path, "rb").read())
-    print("side A alone :", rank_of(sa, needle))
-    print("side B alone :", rank_of(sb, needle))
-    comps = []
-    for x, y in ((pa, pb), (pb, pa)):
-        comps += ip._rotations(ip._catalog_style_pair(x, y))
-    pair = np.max(np.stack([ip._state["vectors"] @ ip._run_model(c) for c in comps]), axis=0)
-    print("composite    :", rank_of(pair, needle))
-    final = 0.6 * pair + 0.2 * sa + 0.2 * sb
-    print("final blend  :", rank_of(final, needle))
-    order = np.argsort(-final)[:5]
-    print("top5 final   :", [ip._state["meta"][i]["slug"] for i in order])
+    sa, _ = core.side_sims(index, open(a_path, "rb").read())
+    sb, _ = core.side_sims(index, open(b_path, "rb").read())
+    print("side A alone :", rank_of(index, sa, needle))
+    print("side B alone :", rank_of(index, sb, needle))
+    pair = core.pair_sims(index, pa, pb)
+    print("composite    :", rank_of(index, pair, needle))
+    final = core.PAIR_WEIGHT * pair + core.SIDE_WEIGHT * sa + core.SIDE_WEIGHT * sb
+    print("final blend  :", rank_of(index, final, needle))
+    print("top5 final   :", [s for s, _ in core.rank_slugs(index, final, 5)])
 
 
 if __name__ == "__main__":

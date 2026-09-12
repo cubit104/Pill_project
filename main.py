@@ -59,9 +59,12 @@ async def lifespan(app: FastAPI):
     if _env_truthy("RUN_SLUG_REGEN_ON_STARTUP"):
         await loop.run_in_executor(None, regenerate_slugs)
     # Pill-vision assets (visual matcher) are fetched from storage if absent.
-    from services.model_assets import prefetch_in_background  # noqa: E402
+    # With PILL_MATCH_URL set the matcher runs in its own service, so this box
+    # needs no model and should not spend 115 MB fetching one.
+    if not os.getenv("PILL_MATCH_URL"):
+        from services.model_assets import prefetch_in_background  # noqa: E402
 
-    prefetch_in_background()
+        prefetch_in_background()
     logger.info("Pill identification system initialized successfully")
     try:
         yield

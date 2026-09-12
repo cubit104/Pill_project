@@ -5,24 +5,26 @@ encoder (quantized ONNX, no torch dependency), and matches it against a
 precomputed fingerprint index of the pill photo library. The photo is
 processed in memory only — never written to disk or stored.
 
-Model/index files are configured via env:
+The matching itself runs in one of two places. By default it runs here, in
+this process, from files on local disk:
     PILL_VISION_MODEL  (default: pill_vision/pill_encoder_int8.onnx)
     PILL_VISION_INDEX  (default: pill_vision/index_prod.npz)
-If the files are absent the endpoint returns 503 and the rest of the API is
-unaffected.
+Set PILL_MATCH_URL and it runs in the standalone matcher service instead
+(ml/scripts/vision_service.py), and this process never loads a model at all.
+Unsetting that variable puts it straight back in-process, with no deploy.
+
+Either way, if the matcher is unavailable the endpoint degrades to whatever the
+imprint reader found, and the rest of the API is unaffected.
 """
 
 import asyncio
-import io
 import itertools
-import json
 import logging
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
-import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import text
 
@@ -30,6 +32,7 @@ import database
 from routes.identify import IdentifyRequest, identify_pill
 from routes.identify_feedback import record_capture
 from routes.site_settings import _read_flags_uncached, read_flags
+from services import pill_vision_core as core
 from utils import process_image_filenames
 
 logger = logging.getLogger(__name__)
@@ -45,6 +48,10 @@ ATTR_PATH = os.getenv("PILL_VISION_ATTRS", os.path.join(VISION_DIR, "pill_attr_h
 OCR_URL = os.getenv("PILL_OCR_URL", "")
 OCR_TIMEOUT = float(os.getenv("PILL_OCR_TIMEOUT", "60"))
 OCR_KEY = os.getenv("PILL_OCR_KEY", "")  # shared secret expected by the reader service
+# Visual matcher service; unset/empty = match in this process from local files.
+MATCH_URL = os.getenv("PILL_MATCH_URL", "")
+MATCH_TIMEOUT = float(os.getenv("PILL_MATCH_TIMEOUT", "60"))
+MATCH_KEY = os.getenv("PILL_MATCH_KEY", "")  # shared secret expected by the matcher service
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 TOP_K = 6
 # Per-client rate limit for photo identification (each call costs reader + model time).
@@ -83,12 +90,10 @@ def _check_rate_limit(ip: str) -> None:
             for k in [k for k, v in _rate_hits.items() if not v or now - v[-1] > 3600]:
                 _rate_hits.pop(k, None)
 
-# CLIP normalization constants
-_MEAN = np.array([0.48145466, 0.4578275, 0.40821073], dtype=np.float32)
-_STD = np.array([0.26862954, 0.26130258, 0.27577711], dtype=np.float32)
-
 _lock = threading.Lock()
-_state: dict = {"loaded": False, "session": None, "vectors": None, "meta": None}
+# The loaded encoder and index, or None. Local mode only: with PILL_MATCH_URL
+# set, the model lives in the matcher service and this process never loads one.
+_index: "core.VisionIndex | None" = None
 # Identifications run on their own small pool so they can never starve the
 # default executor (used by /health and the rest of the API). Extra requests
 # queue here instead of piling onto shared workers.
@@ -101,9 +106,10 @@ _DISCLAIMER = (
 
 
 def _load():
-    """Lazy-load the ONNX session and index on first request."""
+    """Lazy-load the ONNX session and index on first request (local mode only)."""
+    global _index
     with _lock:
-        if _state["loaded"]:
+        if _index is not None:
             return
         from services.model_assets import assets_present, ensure_pill_vision_assets
 
@@ -120,150 +126,63 @@ def _load():
                 status_code=503,
                 detail="Visual identification is not available on this deployment.",
             )
-        import onnxruntime as ort
-
-        _state["session"] = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
-        data = np.load(INDEX_PATH)
-        _state["vectors"] = data["vectors"]
-        _state["meta"] = json.loads(str(data["meta"]))
-        # "Pill-ness" prototype: the average catalog fingerprint, used to
-        # pick the most pill-like crop of a user photo.
-        proto = _state["vectors"].mean(axis=0)
-        _state["prototype"] = proto / (np.linalg.norm(proto) + 1e-12)
-        # Embeddings of empty backgrounds: a crop that looks like these is
-        # table, not pill, no matter how "catalog-like" it seems.
-        from PIL import Image
-
-        _state["blanks"] = [
-            _run_model(Image.new("RGB", (224, 224), (v, v, v))) for v in (128, 190, 235)
-        ]
-        # Optional shape/color heads (linear classifiers over the fingerprint).
-        _state["attrs"] = None
-        if os.path.exists(ATTR_PATH):
-            h = np.load(ATTR_PATH, allow_pickle=False)
-            _state["attrs"] = {
-                k: (h[f"{k}_W"], h[f"{k}_b"], [str(c) for c in h[f"{k}_classes"]]) for k in ("shape", "color")
-            }
-        _state["loaded"] = True
-        logger.info(
-            "pill-vision loaded: %d fingerprints, model=%s", len(_state["vectors"]), MODEL_PATH
-        )
+        _index = core.load(MODEL_PATH, INDEX_PATH, ATTR_PATH)
+        logger.info("pill-vision loaded: %d fingerprints, model=%s", len(_index), MODEL_PATH)
 
 
-def _run_model(img) -> np.ndarray:
-    x = np.asarray(img, dtype=np.float32) / 255.0
-    x = (x - _MEAN) / _STD
-    x = x.transpose(2, 0, 1)[np.newaxis, ...]  # 1 x 3 x 224 x 224
-    emb = _state["session"].run(None, {"image": x})[0][0]
-    return emb / (np.linalg.norm(emb) + 1e-12)
+_MATCHER_DOWN = "Visual identification is unavailable; please try again shortly."
 
 
-_CATALOG_BG = (128, 128, 128)  # catalog photos sit on a neutral gray
+def _post_match(raws: list[bytes], mode: str, limit: int) -> dict:
+    """Call the matcher service. Runs on a worker thread, so this is sync on purpose."""
+    files = {"photo": ("a.jpg", raws[0], "image/jpeg")}
+    if len(raws) > 1:
+        files["photo2"] = ("b.jpg", raws[1], "image/jpeg")
+    data = {"mode": mode}
+    if limit:
+        data["limit"] = str(limit)
+    headers = {"User-Agent": "PillSeek-API/1.0 (+https://pillseek.com)"}
+    if MATCH_KEY:
+        headers["X-Vision-Key"] = MATCH_KEY
+    try:
+        r = httpx.post(MATCH_URL, files=files, data=data, headers=headers, timeout=MATCH_TIMEOUT)
+    except Exception as e:
+        logger.warning("visual matcher unavailable: %s", e)
+        raise HTTPException(status_code=503, detail=_MATCHER_DOWN)
+    if r.status_code in (413, 422):
+        raise HTTPException(status_code=422, detail="Could not read that image")
+    if r.status_code >= 400:
+        logger.warning("visual matcher returned HTTP %s", r.status_code)
+        raise HTTPException(status_code=503, detail=_MATCHER_DOWN)
+    return r.json()
 
 
-def _find_pill(img):
-    """Locate the pill in a phone photo and return a tight square crop.
+def _vision_attrs(raws: list[bytes]) -> tuple[dict, dict]:
+    """Shape/color probabilities for the photographed pill."""
+    if MATCH_URL:
+        j = _post_match(raws[:1], "attrs", 0)
+        return j.get("shape") or {}, j.get("color") or {}
+    _load()
+    return core.attrs_for(_index, raws[0])
 
-    Uses the embedding model as a detector: candidate crops at several scales
-    and positions are scored by similarity to the average catalog fingerprint
-    ("pill-ness"), and the most pill-like crop wins. Robust to low-contrast
-    pills on similar-colored tables where background subtraction fails.
+
+def _vision_hits(raws: list[bytes], limit: int) -> list[tuple[str, float]]:
+    """Ranked catalog slugs for these photos, best first.
+
+    Raises 503 when the matcher is unavailable (the caller then degrades to
+    imprint-only results) and 422 when the photos themselves are unusable.
     """
-    from PIL import Image
-
-    return _find_pill_candidates(img)[0]
-
-
-def _find_pill_candidates(img, keep: int = 2):
-    """Top-N candidate crops ranked by pill-ness.
-
-    Pill-ness = how strongly the crop resembles *some* catalog pill (best
-    index similarity) minus how much it resembles an empty background. Zoom
-    ambiguity is handled downstream by keeping several candidates.
-
-    Kept deliberately small — every candidate is one model inference on CPU.
-    Users are told to center the pill, so we probe the center at three zooms
-    plus two near-center x-offsets at the medium zoom (5 total).
-    """
-    w, h = img.size
-    base = min(w, h)
-    vectors = _state["vectors"]
-    scored = []
-    for frac in (1.0, 0.5, 0.3):
-        side = max(48, int(base * frac))
-        offsets = [(0.5, 0.5)]
-        if frac == 0.5:
-            offsets += [(0.35, 0.5), (0.65, 0.5)]
-        for fx, fy in offsets:
-            cx, cy = int(w * fx), int(h * fy)
-            left = min(max(0, cx - side // 2), w - side)
-            top = min(max(0, cy - side // 2), h - side)
-            crop = img.crop((left, top, left + side, top + side))
-            emb = _run_model(_on_gray(crop, 224))
-            blank_like = max(float(emb @ b) for b in _state["blanks"])
-            score = float(np.max(vectors @ emb)) - blank_like
-            scored.append((score, crop))
-    scored.sort(key=lambda t: -t[0])
-    return [c for _, c in scored[:keep]]
-
-
-def _on_gray(pill, box: int) -> "Image":
-    """Place a pill crop on a gray square canvas, catalog-style."""
-    from PIL import Image
-
-    canvas = Image.new("RGB", (box, box), _CATALOG_BG)
-    p = pill.copy()
-    p.thumbnail((int(box * 0.9), int(box * 0.9)), Image.BICUBIC)
-    canvas.paste(p, ((box - p.size[0]) // 2, (box - p.size[1]) // 2))
-    return canvas
-
-
-def _catalog_style_single(pill) -> "Image":
-    return _on_gray(pill, 224)
-
-
-def _catalog_style_pair(pill_a, pill_b) -> "Image":
-    """Place two sides side-by-side on gray — the NLM catalog photo layout
-    (two pills left/right, filling most of the frame)."""
-    from PIL import Image
-
-    canvas = Image.new("RGB", (224, 224), _CATALOG_BG)
-    for i, p in enumerate((pill_a, pill_b)):
-        cell = _on_gray(p, 112)
-        canvas.paste(cell, (i * 112, (224 - 112) // 2))
-    return canvas
-
-
-def _rotations(img):
-    # Training used random rotation, so two orientations are enough and halve CPU cost.
-    return [img.rotate(angle, fillcolor=_CATALOG_BG) for angle in (0, 180)]
-
-
-MAX_IMAGE_PIXELS = 40_000_000  # ~6300x6300; phone photos are far below this
-
-
-def _open_image(image_bytes: bytes):
-    """Open an upload safely: reject absurd pixel counts before decoding."""
-    from PIL import Image
-
-    img = Image.open(io.BytesIO(image_bytes))  # lazy: header only
-    w, h = img.size
-    if w * h > MAX_IMAGE_PIXELS:
-        raise HTTPException(status_code=422, detail="Image dimensions too large")
-    if min(w, h) < 32:
-        raise HTTPException(status_code=422, detail="Image too small to read")
-    return img.convert("RGB")
-
-
-def _side_sims(image_bytes: bytes) -> tuple[np.ndarray, "Image"]:
-    """Per-index similarities for one photo plus its normalized pill crop."""
-    src = _open_image(image_bytes)
-    candidates = _find_pill_candidates(src)
-    variants = []
-    for pill in candidates:
-        variants += [_run_model(v) for v in _rotations(_catalog_style_single(pill))]
-    per_variant = np.stack([_state["vectors"] @ v for v in variants])
-    return per_variant.max(axis=0), candidates[0]
+    if MATCH_URL:
+        j = _post_match(raws, "match", limit)
+        return [(m["slug"], float(m["score"])) for m in j.get("matches", []) if m.get("slug")]
+    _load()
+    try:
+        return core.match(_index, raws, limit)
+    except core.VisionInputError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        logger.warning("pill-vision embed failed", exc_info=True)
+        raise HTTPException(status_code=422, detail="Could not read that image")
 
 
 # Scores from leave-one-out variants are scaled by this, so a pill that only
@@ -327,18 +246,6 @@ def _token_variants(tokens: list[str], side_reads: list[str] | None = None) -> l
             if v:
                 add(v, _LOO_WEIGHT)
     return variants[:_MAX_VARIANTS]
-
-
-def _attr_probs(emb: np.ndarray, kind: str) -> dict[str, float]:
-    """Softmax probabilities over shape/color classes for one fingerprint."""
-    heads = _state.get("attrs")
-    if not heads:
-        return {}
-    W, b, classes = heads[kind]
-    z = W @ emb + b
-    z = np.exp(z - z.max())
-    p = z / z.sum()
-    return {c: float(v) for c, v in zip(classes, p)}
 
 
 def _base_word(label: str) -> str:
@@ -463,13 +370,7 @@ def _identify_sync(raws: list[bytes]) -> dict:
     attrs_guess = {}
     if imprint_matches and len(imprint_matches) > 1:
         try:
-            _load()
-            from PIL import Image
-
-            src = _open_image(raws[0])
-            crop = _find_pill_candidates(src, keep=1)[0]
-            emb = _run_model(_catalog_style_single(crop))
-            shape_p, color_p = _attr_probs(emb, "shape"), _attr_probs(emb, "color")
+            shape_p, color_p = _vision_attrs(raws)
             imprint_matches = _rerank_by_attrs(imprint_matches, shape_p, color_p)
             top_shape = max(shape_p, key=shape_p.get) if shape_p else ""
             top_color = max(color_p, key=color_p.get) if color_p else ""
@@ -484,52 +385,17 @@ def _identify_sync(raws: list[bytes]) -> dict:
 
     # 3) Otherwise visual matching fills in / breaks ties. If the visual
     #    stage is unavailable, still return whatever the imprint gave us.
-    side_sims = []
-    pills = []
     try:
-        _load()
-    except HTTPException:
-        if imprint_matches:
+        hits = _vision_hits(raws, max(TOP_K, _VISUAL_CONFIRM_RANK))
+    except HTTPException as exc:
+        if exc.status_code == 503 and imprint_matches:
             # No visual confirmation possible: full-read hits before any
             # leave-one-out guess, whatever their scores.
             ordered = sorted(imprint_matches, key=lambda m: (m["lossy"], -m["similarity"]))
             return {"matches": _public(ordered[:TOP_K]), "imprint_read": imprint_read,
                     "attrs_guess": attrs_guess, "disclaimer": _DISCLAIMER}
         raise
-    for raw in raws:
-        try:
-            sims_one, pill_crop = _side_sims(raw)
-            side_sims.append(sims_one)
-            pills.append(pill_crop)
-        except HTTPException:
-            raise
-        except Exception:
-            logger.warning("pill-vision embed failed", exc_info=True)
-            raise HTTPException(status_code=422, detail="Could not read that image")
-
-    if len(side_sims) == 2:
-        # Rebuild the catalog layout — both sides stacked on gray — from the
-        # two detected pill crops, in both orders and rotations, and let each
-        # index entry take its best score. Single-side scores assist.
-        composites = []
-        for a, b in ((pills[0], pills[1]), (pills[1], pills[0])):
-            composites += _rotations(_catalog_style_pair(a, b))
-        pair_sims = np.max(np.stack([_state["vectors"] @ _run_model(c) for c in composites]), axis=0)
-        sims = 0.6 * pair_sims + 0.2 * side_sims[0] + 0.2 * side_sims[1]
-    else:
-        sims = side_sims[0]
-    ranked = np.argsort(-sims)
-
-    top: list[tuple[str, float]] = []
-    seen = set()
-    for i in ranked:
-        slug = _state["meta"][i]["slug"]
-        if slug in seen:
-            continue
-        seen.add(slug)
-        top.append((slug, float(sims[i])))
-        if len(top) >= TOP_K:
-            break
+    top = hits[:TOP_K]
 
     # Join pill details so the frontend can render proper cards.
     details = {}
@@ -577,13 +443,7 @@ def _identify_sync(raws: list[bytes]) -> dict:
     # Leave-one-out imprint hits are only guesses: keep them ahead of the
     # visual results when the photo itself ranks that pill near the top,
     # otherwise push them behind the visual matches.
-    visual_rank: dict[str, int] = {}
-    for i in ranked:
-        slug = _state["meta"][i]["slug"]
-        if slug not in visual_rank:
-            visual_rank[slug] = len(visual_rank)
-            if len(visual_rank) >= _VISUAL_CONFIRM_RANK:
-                break
+    visual_rank = {slug: i for i, (slug, _) in enumerate(hits[:_VISUAL_CONFIRM_RANK])}
     confirmed = [m for m in imprint_matches if not m["lossy"] or m["slug"] in visual_rank]
     unconfirmed = [m for m in imprint_matches if m["lossy"] and m["slug"] not in visual_rank]
     seen_slugs = {m["slug"] for m in imprint_matches}
