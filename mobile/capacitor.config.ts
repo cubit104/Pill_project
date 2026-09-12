@@ -10,6 +10,12 @@ const config: CapacitorConfig = {
   // https://pillseek.com directly. Do NOT set server.hostname to pillseek.com;
   // it would intercept the API calls.
   plugins: {
+    SystemBars: {
+      // Capacitor 8 handles Android edge-to-edge here. 'css' keeps env(safe-area-inset-*)
+      // correct (index.html sets viewport-fit=cover) and also injects --safe-area-inset-*.
+      insetsHandling: 'css',
+      initialViewportFitValueHint: 'cover',
+    },
     SplashScreen: {
       launchShowDuration: 0,
       launchAutoHide: false,
@@ -35,8 +41,6 @@ const config: CapacitorConfig = {
   android: {
     backgroundColor: '#f8fafc',
     allowMixedContent: false,
-    // Android 15+ enforces edge-to-edge; let Capacitor add the system-bar margins.
-    adjustMarginsForEdgeToEdge: 'auto',
   },
 }
 

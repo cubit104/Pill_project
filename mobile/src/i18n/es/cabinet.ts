@@ -172,7 +172,7 @@ const es: Record<string, string> = {
   // Bottle scan
   'Scan a bottle': 'Escanear un frasco',
   'Pharmacy label → cabinet': 'Etiqueta de farmacia → botiquín',
-  'Label reading needs the iPhone build of PillSeek. On other devices, add pills from their page instead.':
+  'Label reading needs the PillSeek app on a phone. On the web, add pills from their page instead.':
     'La lectura de etiquetas requiere la versión de PillSeek para iPhone. En otros dispositivos, agregue las pastillas desde su página.',
   'Photograph the printed label on your prescription bottle. We read the drug, strength, directions, quantity and Rx number, then set up the pill and its reminders for you.':
     'Fotografíe la etiqueta impresa de su frasco de receta. Leemos el medicamento, la concentración, las indicaciones, la cantidad y el número de receta, y configuramos la pastilla y sus recordatorios por usted.',
