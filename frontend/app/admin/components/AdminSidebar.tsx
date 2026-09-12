@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, ClipboardList, Users, UserCheck, Settings, ImageOff, Layers, BarChart2, X } from 'lucide-react'
+import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, ClipboardList, Users, UserCheck, Settings, ImageOff, Layers, BarChart2, Camera, X } from 'lucide-react'
 import { createClient } from '../lib/supabase'
 
 const baseNavItems = [
@@ -12,6 +12,7 @@ const baseNavItems = [
   { href: '/admin/pills/missing-images', label: 'Missing Images Queue', icon: ImageOff },
   { href: '/admin/duplicates', label: 'Duplicates', icon: Layers },
   { href: '/admin/drafts', label: 'Drafts', icon: FileEdit },
+  { href: '/admin/captures', label: 'Photo Captures', icon: Camera },
   { href: '/admin/trash', label: 'Trash', icon: Trash2 },
   { href: '/admin/audit', label: 'Audit Log', icon: ScrollText },
   { href: '/admin/medication-guide', label: 'Medication Guide', icon: ClipboardList },
@@ -34,11 +35,13 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
   const [role, setRole] = useState<string | null>(null)
   const [dupCount, setDupCount] = useState<number | null>(null)
   const [draftCount, setDraftCount] = useState<number | null>(null)
+  const [captureCount, setCaptureCount] = useState<number | null>(null)
 
   const fetchCounts = useCallback(async (token: string) => {
-    const [dupRes, draftRes] = await Promise.all([
+    const [dupRes, draftRes, captureRes] = await Promise.all([
       fetch('/api/admin/duplicates/count', { headers: { Authorization: `Bearer ${token}` } }),
       fetch('/api/admin/drafts/count', { headers: { Authorization: `Bearer ${token}` } }),
+      fetch('/api/admin/captures/count', { headers: { Authorization: `Bearer ${token}` } }),
     ])
     if (dupRes.ok) {
       const dupData = await dupRes.json()
@@ -47,6 +50,10 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
     if (draftRes.ok) {
       const draftData = await draftRes.json()
       if (draftData.count != null) setDraftCount(draftData.count)
+    }
+    if (captureRes.ok) {
+      const captureData = await captureRes.json()
+      if (captureData.count != null) setCaptureCount(captureData.count)
     }
   }, [])
 
@@ -93,7 +100,11 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
     }
 
     window.addEventListener('draft-count-changed', handleDraftCountChanged)
-    return () => window.removeEventListener('draft-count-changed', handleDraftCountChanged)
+    window.addEventListener('capture-count-changed', handleDraftCountChanged)
+    return () => {
+      window.removeEventListener('draft-count-changed', handleDraftCountChanged)
+      window.removeEventListener('capture-count-changed', handleDraftCountChanged)
+    }
   }, [fetchCounts])
 
   const isSuperuser = role === 'superuser' || role === 'superadmin'
@@ -183,6 +194,11 @@ export default function AdminSidebar({ isOpen = false, onClose }: AdminSidebarPr
               {href === '/admin/drafts' && draftCount != null && draftCount > 0 && (
                 <span className="bg-blue-600 text-white text-xs font-bold px-1.5 py-0.5 rounded-full md:hidden lg:inline">
                   {draftCount}
+                </span>
+              )}
+              {href === '/admin/captures' && captureCount != null && captureCount > 0 && (
+                <span className="bg-emerald-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full md:hidden lg:inline">
+                  {captureCount}
                 </span>
               )}
             </Link>

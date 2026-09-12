@@ -85,4 +85,15 @@ export const adminApi = {
     apiFetch(`/api/admin/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deactivateUser: (id: string) =>
     apiFetch(`/api/admin/users/${id}`, { method: 'DELETE' }),
+  getCaptures: (params?: Record<string, string | number | boolean>) => {
+    const qs = buildQueryString(params)
+    return apiFetch(qs ? `/api/admin/captures?${qs}` : '/api/admin/captures')
+  },
+  getCapture: (id: string) => apiFetch(`/api/admin/captures/${id}`),
+  reviewCapture: (id: string, data: object) =>
+    apiFetch(`/api/admin/captures/${id}/review`, { method: 'POST', body: JSON.stringify(data) }),
+  reopenCapture: (id: string) =>
+    apiFetch(`/api/admin/captures/${id}/reopen`, { method: 'POST' }),
+  deleteCapture: (id: string) =>
+    apiFetch(`/api/admin/captures/${id}`, { method: 'DELETE' }),
 }

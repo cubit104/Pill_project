@@ -136,6 +136,7 @@ from routes.admin import guide as admin_guide  # noqa: E402
 from routes.admin import medication_guide_backfill as admin_medication_guide_backfill  # noqa: E402
 from routes.admin import reviewers as admin_reviewers  # noqa: E402
 from routes.admin import members as admin_members  # noqa: E402
+from routes.admin import captures as admin_captures  # noqa: E402
 from routes import reviewers as public_reviewers  # noqa: E402
 
 app.include_router(search.router)
@@ -176,6 +177,7 @@ app.include_router(admin_guide.router)
 app.include_router(admin_medication_guide_backfill.router)
 app.include_router(admin_reviewers.router)
 app.include_router(admin_members.router)
+app.include_router(admin_captures.router)
 app.include_router(public_reviewers.router)
 
 

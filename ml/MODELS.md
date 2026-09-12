@@ -63,3 +63,19 @@ LaunchAgents `com.pillseek.reader` (uvicorn :8002, `PILL_TROCR_DIR=pill_trocr_ba
 `PILL_TROCR_FP16=1`, `PILL_TROCR_BEAMS=1`, `PILL_TROCR_BEAMS2=2`; Admin → Settings "Imprint reader" picks
 Fast = base only / Accurate = base + large on the best crops) and `com.pillseek.tunnel` (Cloudflare Tunnel `pillseek-reader` → `https://reader.pillseek.com`).
 Sleep disabled (`pmset sleep 0`). Moving the reader elsewhere = run the same service there and change `PILL_OCR_URL`.
+
+## Real phone photos (learning-loop export)
+
+Admin -> Photo Captures -> **Export for training** gives `captures_manifest_<date>.json`,
+the same row shape as `manifest.json` from `export_manifest.py` (`url`, `slug`, `imprint`,
+`color`, `shape`, `name`), so the Colab notebooks can read it next to the catalog manifest.
+URLs are signed for 7 days; download the photos into the training cache within that window.
+
+Extra keys per row: `label_scope` = `side` means the reviewer wrote down what is readable on
+that specific photo (the label to train the **reader** on; `""` = nothing readable on that
+side), `pill` means only the whole-pill imprint is known. `slug` is the confirmed pill, the
+label for the **visual matcher** (real phone photo -> catalog identity).
+
+Lessons that still apply: train on real photos only, start from v1 weights, keep the catalog
+images in the mix, evaluate on held-out real photos every epoch, and be careful with blank
+labels (a few blank sides teach silence; many hurt reads).
