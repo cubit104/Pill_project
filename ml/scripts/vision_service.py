@@ -16,7 +16,11 @@ Environment:
     PILL_MATCH_KEY         shared secret; when set, /match requires X-Vision-Key
     PILL_MATCH_WORKERS     concurrent identifications (default 2)
     PILL_MATCH_QUEUE       how many may wait before we start refusing with 503
-                           (default: three times the worker count)
+                           (default: three times the worker count, shrunk so
+                           the admitted uploads fit PILL_MATCH_UPLOAD_BUDGET)
+    PILL_MATCH_UPLOAD_BUDGET  total bytes of buffered uploads the default queue
+                           may retain (default 128 MB; two photos of
+                           PILL_MATCH_MAX_BYTES each per request)
     PILL_VISION_PROVIDERS  ONNX providers; unset = CUDA, else CoreML, else CPU
     SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY  to self-provision the ~115 MB of
                            assets on first boot, exactly as the API does today
@@ -59,8 +63,12 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="pill-mat
 # A ThreadPoolExecutor queues without limit, and every waiting request is
 # holding its uploads in memory. Unbounded, a burst would rebuild exactly the
 # memory problem this service exists to remove, so admission is capped and the
-# overflow is turned away before its photos are even read.
-MAX_INFLIGHT = int(os.getenv("PILL_MATCH_QUEUE", str(WORKERS * 3)))
+# overflow is turned away before its photos are even read. Each admitted
+# request can retain up to two photos of MAX_BYTES each, so the default cap is
+# sized from a total upload-byte budget rather than a raw request count.
+UPLOAD_BUDGET = int(os.getenv("PILL_MATCH_UPLOAD_BUDGET", str(128 * 1024 * 1024)))
+_DEFAULT_INFLIGHT = min(WORKERS * 3, max(1, UPLOAD_BUDGET // (2 * MAX_BYTES)))
+MAX_INFLIGHT = int(os.getenv("PILL_MATCH_QUEUE", str(_DEFAULT_INFLIGHT)))
 _slots = threading.BoundedSemaphore(MAX_INFLIGHT)
 
 

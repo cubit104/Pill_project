@@ -186,7 +186,7 @@ def find_pill_candidates(index: VisionIndex, img, keep: int = 2):
     vectors = index.vectors
     scored = []
     for frac in (1.0, 0.5, 0.3):
-        side = max(48, int(base * frac))
+        side = min(base, max(48, int(base * frac)))
         offsets = [(0.5, 0.5)]
         if frac == 0.5:
             offsets += [(0.35, 0.5), (0.65, 0.5)]

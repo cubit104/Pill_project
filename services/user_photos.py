@@ -69,8 +69,8 @@ def delete_objects(paths: list[str]) -> bool:
         logger.warning("photo delete skipped: storage credentials not configured")
         return False
     try:
-        r = requests.delete(
-            f"{base}/storage/v1/object/{PHOTO_BUCKET}",
+        r = requests.post(
+            f"{base}/storage/v1/object/{PHOTO_BUCKET}/remove",
             headers=_headers(key),
             json={"prefixes": paths},
             timeout=15,

@@ -148,7 +148,9 @@ export default function AdminCapturesPage() {
         setSideLabels(
           d.side_labels && d.side_labels.length === d.photo_urls.length
             ? d.side_labels
-            : d.photo_urls.map((_, i) => (i === 0 ? d.imprint_read ?? '' : '')),
+            : d.photo_urls.map((_, i) =>
+                i === 0 && d.photo_urls.length === 1 ? d.imprint_read ?? '' : '',
+              ),
         )
         setQuery('')
         setHits([])
@@ -216,7 +218,8 @@ export default function AdminCapturesPage() {
       window.dispatchEvent(new Event('capture-count-changed'))
     }
     if (remaining.length === 0 && total > remaining.length) {
-      loadList(false)
+      if (page > 1) setPage(page - 1)
+      else loadList(false)
       return
     }
     setSelectedId(next?.capture_id ?? null)
