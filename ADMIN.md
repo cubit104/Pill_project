@@ -179,6 +179,35 @@ Append-only audit trail. No UPDATE/DELETE allowed (enforced via RLS).
 
 ---
 
+## Photo Captures (admin.pillseek.com/admin/captures)
+
+Every camera identification writes one `identify_feedback` row; when the user ticks the
+consent box the two photos are stored in the private bucket `user_pill_photos`. The Photo
+Captures page is where the editorial team turns those into training data.
+
+- **To review** - captures with photos nobody has checked yet. For each one: click the
+  correct candidate (or search any pill by name/imprint), write what is actually readable
+  on **each** photo (blank if nothing), check the whole-pill imprint, then **Confirm**
+  (Enter). **Unusable** deletes the photos from storage for good and keeps only the record.
+- **Reviewed** - done. **Reopen** puts one back in the queue; **Save changes** re-labels.
+- **Export for training** (superuser/editor) downloads `captures_manifest_<date>.json`:
+  one row per photo with a 7-day signed URL and the same keys as
+  `ml/scripts/export_manifest.py` (`url`, `slug`, `imprint`, `color`, `shape`, `name`),
+  plus `label_scope` (`side` when the reviewer labelled that photo, `pill` otherwise),
+  `pill_imprint`, `capture_id`, `side`. `?since=YYYY-MM-DD` limits it to recent reviews.
+- Photos are never public: the page shows 1-hour signed URLs. Reviewers, editors and
+  superusers can review; only superusers can delete a capture record.
+- Every action lands in the audit log: `capture_reviewed`, `capture_unusable`,
+  `capture_reopened`, `capture_deleted`.
+
+Endpoints: `GET /api/admin/captures?status=unreviewed|reviewed|unusable`,
+`GET /api/admin/captures/count`, `GET /api/admin/captures/export`,
+`GET /api/admin/captures/{id}`, `POST /api/admin/captures/{id}/review`,
+`POST /api/admin/captures/{id}/reopen`, `DELETE /api/admin/captures/{id}`.
+
+Requires migration `supabase/migrations/20260912000000_identify_feedback_review.sql`
+(adds `side_labels`, `reviewed_at`, `reviewed_by`) - apply it before deploying.
+
 ## Migrations
 
 SQL migrations are in `supabase/migrations/`. The `profiles` table and its trigger were created manually in Supabase by the site owner and do not have a migration file in this repo.
