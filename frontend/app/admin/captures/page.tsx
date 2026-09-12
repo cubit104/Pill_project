@@ -135,6 +135,7 @@ export default function AdminCapturesPage() {
   useEffect(() => {
     if (!selectedId) { setDetail(null); return }
     let cancelled = false
+    setDetail(null)
     setDetailLoading(true)
     adminApi.getCapture(selectedId)
       .then((d: CaptureDetail) => {
@@ -171,7 +172,7 @@ export default function AdminCapturesPage() {
           const data = await res.json()
           return (data.results ?? []) as Array<Record<string, unknown>>
         }
-        const [byName, byImprint] = await Promise.all([fetchType('name'), fetchType('imprint')])
+        const [byName, byImprint] = await Promise.all([fetchType('drug'), fetchType('imprint')])
         if (seq !== searchSeq.current) return
         const seen = new Set<string>()
         const merged: SearchHit[] = []

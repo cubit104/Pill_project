@@ -234,6 +234,30 @@ def test_export_manifest_one_row_per_photo():
     assert sign.call_args[0][1] == EXPORT_TTL_S
     query = _sql(log, "left join pillfinder p")[0]
     assert "f.reviewed_at >= :since" in query[0] and str(query[1]["since"]) == "2026-09-01"
+    audit = _sql(log, "insert into audit_log")[0][1]
+    assert audit["action"] == "capture_exported" and json.loads(audit["metadata"]) == {"captures": 2, "photos": 3, "since": "2026-09-01"}
+
+
+def test_export_refuses_incomplete_manifest():
+    export_rows = [(CID, NOW, list(PATHS), "baxfendy-2-mg", "BX;2", None, NOW, "Baxfendy", "BX;2", "YELLOW", "ROUND")]
+    with patch("routes.admin.captures.user_photos.sign_urls", return_value={PATHS[0]: "https://signed.test/1"}):
+        with _client(export_rows=export_rows) as (client, log):
+            resp = client.get("/api/admin/captures/export")
+    assert resp.status_code == 502 and "1 of 2" in resp.json()["detail"]
+    assert not _sql(log, "insert into audit_log")
+
+
+def test_review_can_drop_the_pill_and_keep_only_an_imprint():
+    with _client() as (client, log):
+        resp = client.post(f"/api/admin/captures/{CID}/review", json={"chosen_slug": None, "reviewed_label": "bx 2"})
+    assert resp.status_code == 200 and resp.json()["chosen_slug"] is None and resp.json()["reviewed_label"] == "BX 2"
+    update = _sql(log, "update identify_feedback set reviewed = true, chosen_slug = :slug")[0]
+    assert update[1]["slug"] is None and update[1]["label"] == "BX 2"
+
+
+def test_review_rejects_blank_label_without_pill():
+    with _client() as (client, _):
+        assert client.post(f"/api/admin/captures/{CID}/review", json={"reviewed_label": "   "}).status_code == 422
 
 
 def test_export_is_not_for_reviewers():

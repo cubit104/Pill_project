@@ -172,7 +172,7 @@ def export_captures(
     if since:
         where += " AND f.reviewed_at >= :since"
         params["since"] = since
-    with _db().connect() as conn:
+    with _db().begin() as conn:
         rows = conn.execute(
             text(
                 "SELECT f.capture_id::text, f.created_at, f.photo_paths, f.chosen_slug, f.reviewed_label, "
@@ -183,16 +183,23 @@ def export_captures(
             ),
             params,
         ).fetchall()
-
-    urls = user_photos.sign_urls([p for r in rows for p in _paths(r[2])], user_photos.EXPORT_TTL_S)
+        all_paths = [p for r in rows for p in _paths(r[2])]
+        urls = user_photos.sign_urls(all_paths, user_photos.EXPORT_TTL_S)
+        missing = [p for p in all_paths if p not in urls]
+        if missing:
+            # A partial training set is worse than no file: never hand out an incomplete manifest.
+            raise HTTPException(
+                status_code=502,
+                detail=f"Could not sign {len(missing)} of {len(all_paths)} photos for export; nothing was exported",
+            )
+        log_audit(conn, admin["id"], admin.get("email", ""), "capture_exported", "capture", None,
+                  metadata={"captures": len(rows), "photos": len(all_paths), "since": since.isoformat() if since else None})
     manifest = []
     for r in rows:
         sides = _jsonish(r[5], None)
         pill_imprint = r[4] if r[4] is not None else _norm_label(r[8])
         for i, path in enumerate(_paths(r[2])):
-            url = urls.get(path)
-            if not url:
-                continue
+            url = urls[path]
             per_side = isinstance(sides, list) and i < len(sides) and isinstance(sides[i], str)
             manifest.append(
                 {
@@ -287,7 +294,7 @@ def review_capture(capture_id: uuid.UUID, payload: Review, admin: dict = Depends
 
         if not paths:
             raise HTTPException(status_code=409, detail="This capture has no photos left to label")
-        if payload.chosen_slug is None and payload.reviewed_label is None:
+        if payload.chosen_slug is None and not (payload.reviewed_label or "").strip():
             raise HTTPException(status_code=422, detail="Pick the pill or write the imprint (or mark unusable)")
 
         catalog_imprint = None
@@ -310,7 +317,7 @@ def review_capture(capture_id: uuid.UUID, payload: Review, admin: dict = Depends
         label = _norm_label(payload.reviewed_label) if payload.reviewed_label is not None else catalog_imprint
         conn.execute(
             text(
-                "UPDATE identify_feedback SET reviewed = true, chosen_slug = COALESCE(:slug, chosen_slug), "
+                "UPDATE identify_feedback SET reviewed = true, chosen_slug = :slug, "
                 "reviewed_label = :label, side_labels = CAST(:sides AS jsonb), reviewed_at = now(), "
                 "reviewed_by = :by WHERE capture_id = CAST(:id AS uuid)"
             ),
@@ -327,7 +334,7 @@ def review_capture(capture_id: uuid.UUID, payload: Review, admin: dict = Depends
     return {
         "capture_id": str(capture_id),
         "reviewed": True,
-        "chosen_slug": payload.chosen_slug or row[9],
+        "chosen_slug": payload.chosen_slug,
         "reviewed_label": label,
         "side_labels": sides,
     }
