@@ -1,0 +1,17 @@
+diff --git a/node_modules/@capacitor/local-notifications/ios/Sources/LocalNotificationsPlugin/LocalNotificationsPlugin.swift b/node_modules/@capacitor/local-notifications/ios/Sources/LocalNotificationsPlugin/LocalNotificationsPlugin.swift
+index a9ac9bd..02c7807 100644
+--- a/node_modules/@capacitor/local-notifications/ios/Sources/LocalNotificationsPlugin/LocalNotificationsPlugin.swift
++++ b/node_modules/@capacitor/local-notifications/ios/Sources/LocalNotificationsPlugin/LocalNotificationsPlugin.swift
+@@ -424,6 +424,12 @@ public class LocalNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
+         content.body = NSString.localizedUserNotificationString(forKey: body,
+                                                                 arguments: nil)
+ 
++        // PillSeek patch: subtitle, so a reminder banner can carry three lines
++        // (drug name / dose / something worth knowing).
++        if let subtitle = notification["subtitle"] as? String, !subtitle.isEmpty {
++            content.subtitle = subtitle
++        }
++
+         // `extra` is documented as `any`, not just an object — preserve whatever
+         // raw value was provided (string, number, array, dictionary) rather than
+         // forcing a dictionary cast. And omit it entirely when not provided at

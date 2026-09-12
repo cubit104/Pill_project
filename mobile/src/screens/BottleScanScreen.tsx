@@ -249,7 +249,7 @@ export default function BottleScanScreen() {
       <main className="screen mx-auto max-w-lg space-y-4 px-4 pt-2" style={{ paddingLeft: 'max(16px, var(--safe-left))', paddingRight: 'max(16px, var(--safe-right))' }}>
         {!ocrAvailable() && (
           <Card tone="warn" className="text-[14px] text-body">
-            {t('Label reading needs the iPhone build of PillSeek. On other devices, add pills from their page instead.')}
+            {t('Label reading needs the PillSeek app on a phone. On the web, add pills from their page instead.')}
           </Card>
         )}
 
