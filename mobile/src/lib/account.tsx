@@ -30,7 +30,7 @@ import { enqueueDose, flushQueue, type PendingDose } from './doseQueue'
 import { isNative } from './native'
 import { refillStatus } from './refill'
 import { startOfDay } from './today'
-import { ensureNotificationPermission, registerDoseActions, snoozeDose, syncNotifications, type RefillTarget } from './reminders'
+import { cancelSnoozes, ensureNotificationPermission, registerDoseActions, snoozeDose, syncNotifications, type RefillTarget } from './reminders'
 
 interface AccountApi {
   enabled: boolean
@@ -302,6 +302,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         setReminders([])
         setDoseEvents([])
         void syncNotifications([])
+        void cancelSnoozes()
       },
       deleteAccount: async () => {
         await deleteAccountData()
@@ -310,6 +311,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         setItems([])
         setReminders([])
         void syncNotifications([])
+        void cancelSnoozes()
       },
     }),
     [ready, user, items, reminders, doseEvents, pills, loading, error, notifications, scheduled, refresh, fetchPills, markDose],

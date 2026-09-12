@@ -15,6 +15,17 @@ import { isNative } from "./native";
 
 const DAYS_AHEAD = 14;
 const ID_BASE = 700_000;
+/**
+ * Scheduled doses and refill nudges live in [PLAN_FIRST, PLAN_LAST) and are all
+ * cancelled and re-planned every time the app opens. Snoozes must NOT live in
+ * there: tapping Snooze launches the app, so a snooze scheduled inside this
+ * window was wiped by the very next re-plan, seconds after it was created.
+ */
+export const PLAN_FIRST = ID_BASE;
+export const PLAN_LAST = ID_BASE + 100_000;
+/** One-off snoozes, deliberately outside the re-planned window. */
+export const SNOOZE_FIRST = ID_BASE + 200_000;
+export const SNOOZE_LAST = SNOOZE_FIRST + 1_000;
 
 export interface ReminderTarget {
   reminder: Reminder;
@@ -131,7 +142,7 @@ export async function syncNotifications(
   try {
     const pending = await LocalNotifications.getPending();
     const ours = pending.notifications.filter(
-      (n) => n.id >= ID_BASE && n.id < ID_BASE + 100_000
+      (n) => n.id >= PLAN_FIRST && n.id < PLAN_LAST
     );
     if (ours.length)
       await LocalNotifications.cancel({
@@ -209,7 +220,7 @@ export async function syncNotifications(
   return list.length;
 }
 
-const SNOOZE_SEQ = 95_000; // ids ID_BASE+95000… (inside our cancel window)
+const SNOOZE_SEQ = SNOOZE_FIRST - ID_BASE; // outside the re-planned window, so a snooze survives app launch
 const SNOOZE_MS = 15 * 60_000;
 
 /** Re-notify the same dose 15 minutes from now (the original stays recorded under its scheduled time). */
@@ -228,6 +239,23 @@ export async function snoozeDose(extra: { reminderId: string; scheduledAt: strin
     actionTypeId: "PILLSEEK_DOSE",
   };
   await LocalNotifications.schedule({ notifications: [n] });
+}
+
+/** Drop any pending snooze (used on sign-out; the planned window is cleared separately). */
+export async function cancelSnoozes(): Promise<void> {
+  if (!isNative()) return;
+  try {
+    const pending = await LocalNotifications.getPending();
+    const ours = pending.notifications.filter(
+      (n) => n.id >= SNOOZE_FIRST && n.id < SNOOZE_LAST
+    );
+    if (ours.length)
+      await LocalNotifications.cancel({
+        notifications: ours.map((n) => ({ id: n.id })),
+      });
+  } catch {
+    /* nothing pending */
+  }
 }
 
 /** Clear the app-icon badge (called whenever the app comes to the foreground). */
