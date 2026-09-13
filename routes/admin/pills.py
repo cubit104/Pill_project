@@ -1383,9 +1383,9 @@ def update_pill_pronunciation(
     body: PronunciationUpdate,
     admin: dict = Depends(get_admin_user),
 ):
-    """Upsert pronunciation_text with source='manual' (editor role or higher)."""
-    if admin["role"] not in ("superuser", "editor"):
-        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+    """Upsert pronunciation_text with source='manual' (any admin role: reviewer, editor, superuser)."""
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires reviewer role or higher")
 
     if not database.db_engine:
         database.connect_to_database()
@@ -1869,6 +1869,10 @@ def update_pill(
                         ip_address=request.client.host if request.client else None,
                         user_agent=request.headers.get("user-agent"),
                     )
+
+            if publish:
+                # The "what's missing?" tags describe an unpublished pill; once it is live they are done.
+                conn.execute(text("DELETE FROM pill_review_flags WHERE pill_id = :pill_id"), {"pill_id": pill_id})
 
             should_submit_indexnow = publish or current_published
             indexnow_slug = str(updates.get("slug") or before.get("slug") or current[2] or "").strip()
