@@ -49,16 +49,30 @@ export interface Specialty {
 export const SPECIALTIES: Specialty[] = [
   { key: 'family', label: 'Family doctor', taxonomy: 'Family Medicine', match: /Family/, kind: 'NPI-1' },
   { key: 'internal', label: 'Internal medicine', taxonomy: 'Internal Medicine', match: /^Internal Medicine/, kind: 'NPI-1' },
-  { key: 'pediatrics', label: 'Pediatrician', taxonomy: 'Pediatrics', match: /Pediatric/, kind: 'NPI-1' },
-  { key: 'obgyn', label: 'OB/GYN', taxonomy: 'Obstetrics & Gynecology', match: /Obstetric|Gynecolog/, kind: 'NPI-1' },
+  { key: 'allergy', label: 'Allergist', taxonomy: 'Allergy & Immunology', match: /Allergy/, kind: 'NPI-1' },
   { key: 'cardiology', label: 'Cardiologist', taxonomy: 'Cardiovascular Disease', match: /Cardiovascular|Cardiolog/, kind: 'NPI-1' },
-  { key: 'dermatology', label: 'Dermatologist', taxonomy: 'Dermatology', match: /Dermatolog/, kind: 'NPI-1' },
-  { key: 'psychiatry', label: 'Psychiatrist', taxonomy: 'Psychiatry', match: /^Psychiatry$|,\s*[^,]*Psychiatry[^,]*$/, kind: 'NPI-1' },
-  { key: 'neurology', label: 'Neurologist', taxonomy: 'Neurology', match: /,\s*[^,]*Neurology[^,]*$/, kind: 'NPI-1' },
-  { key: 'ortho', label: 'Orthopedic surgeon', taxonomy: 'Orthopaedic Surgery', match: /Orthop/, kind: 'NPI-1' },
-  { key: 'endo', label: 'Endocrinologist', taxonomy: 'Endocrinology', match: /Endocrinolog/, kind: 'NPI-1' },
-  { key: 'eye', label: 'Eye doctor', taxonomy: 'Ophthalmology', match: /Ophthalmolog/, kind: 'NPI-1' },
+  { key: 'chiro', label: 'Chiropractor', taxonomy: 'Chiropractor', match: /Chiropract/, kind: 'NPI-1' },
   { key: 'dentist', label: 'Dentist', taxonomy: 'Dentist*', match: /Dentist/, kind: 'NPI-1' },
+  { key: 'dermatology', label: 'Dermatologist', taxonomy: 'Dermatology', match: /Dermatolog/, kind: 'NPI-1' },
+  { key: 'endo', label: 'Endocrinologist', taxonomy: 'Endocrinology', match: /Endocrinolog/, kind: 'NPI-1' },
+  { key: 'ent', label: 'ENT (ear, nose, throat)', taxonomy: 'Otolaryngology', match: /Otolaryngolog/, kind: 'NPI-1' },
+  { key: 'eye', label: 'Eye doctor (ophthalmologist)', taxonomy: 'Ophthalmology', match: /Ophthalmolog/, kind: 'NPI-1' },
+  { key: 'gastro', label: 'Gastroenterologist', taxonomy: 'Gastroenterology', match: /Gastroenterolog/, kind: 'NPI-1' },
+  { key: 'neurology', label: 'Neurologist', taxonomy: 'Neurology', match: /,\s*[^,]*Neurology[^,]*$/, kind: 'NPI-1' },
+  { key: 'obgyn', label: 'OB/GYN', taxonomy: 'Obstetrics & Gynecology', match: /Obstetric|Gynecolog/, kind: 'NPI-1' },
+  // "Oncology" alone mostly returns oncology pharmacists and nurses; keep physicians.
+  { key: 'oncology', label: 'Oncologist', taxonomy: 'Oncology', match: /^(?!Pharmac|Nurse|Registered Nurse|Physician Assistant|Clinical Nurse).*Oncolog/, kind: 'NPI-1' },
+  { key: 'optometrist', label: 'Optometrist (glasses & contacts)', taxonomy: 'Optometrist', match: /Optometr/, kind: 'NPI-1' },
+  { key: 'ortho', label: 'Orthopedic surgeon', taxonomy: 'Orthopaedic Surgery', match: /Orthop/, kind: 'NPI-1' },
+  { key: 'pediatrics', label: 'Pediatrician', taxonomy: 'Pediatrics', match: /Pediatric/, kind: 'NPI-1' },
+  { key: 'pt', label: 'Physical therapist', taxonomy: 'Physical Therapist', match: /Physical Therap/, kind: 'NPI-1' },
+  { key: 'podiatry', label: 'Podiatrist (feet)', taxonomy: 'Podiatrist', match: /Podiatr/, kind: 'NPI-1' },
+  { key: 'psychiatry', label: 'Psychiatrist', taxonomy: 'Psychiatry', match: /^Psychiatry$|,\s*[^,]*Psychiatry[^,]*$/, kind: 'NPI-1' },
+  { key: 'psychologist', label: 'Psychologist', taxonomy: 'Psychologist', match: /Psycholog/, kind: 'NPI-1' },
+  { key: 'pulmo', label: 'Pulmonologist (lungs)', taxonomy: 'Pulmonary Disease', match: /Pulmonary/, kind: 'NPI-1' },
+  { key: 'rheum', label: 'Rheumatologist', taxonomy: 'Rheumatology', match: /Rheumatolog/, kind: 'NPI-1' },
+  { key: 'counselor', label: 'Therapist / counselor', taxonomy: 'Counselor', match: /Counselor/, kind: 'NPI-1' },
+  { key: 'urology', label: 'Urologist', taxonomy: 'Urology', match: /\bUrolog/, kind: 'NPI-1' },
 ]
 
 /** Organisations with their own Home tiles, not in the doctor pulldown. */
@@ -152,7 +166,6 @@ export function shareText(d: Doctor): string {
     d.address,
     `${d.city}, ${d.state} ${d.zip}`,
     d.phone,
-    nppesUrl(d.npi),
   ]
   return lines.filter(Boolean).join('\n')
 }

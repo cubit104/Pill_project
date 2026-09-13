@@ -18,7 +18,6 @@ import {
   loadDoctorPrefs,
   mapsUrl,
   nearestZipTo,
-  nppesUrl,
   saveDoctorPrefs,
   searchDoctors,
   shareText,
@@ -32,7 +31,7 @@ import {
 } from '../lib/doctors'
 import { formatMiles, loadZipTable, suggestCities, type CityHit, type ZipTable } from '../lib/geo'
 import { useT } from '../lib/i18n'
-import { hapticTick, hideKeyboard, isNative, openUrl, platform, shareTextNative } from '../lib/native'
+import { hapticTick, hideKeyboard, isNative, platform, shareTextNative } from '../lib/native'
 
 /**
  * Find a doctor: specialty pulldown, then a ZIP, a city (live-filled) or the
@@ -435,14 +434,9 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
             <div>
               <SectionLabel>{t('Registry')}</SectionLabel>
               <p className="mt-1 text-[15px] text-ink">NPI {selected.npi}</p>
-              <div className="mt-1 flex flex-wrap gap-2">
-                <Button variant="ghost" size="sm" onClick={() => { void hapticTick(); void openUrl(nppesUrl(selected.npi)) }}>
-                  {t('View on NPPES')}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => share(selected)}>
-                  {t('Share')}
-                </Button>
-              </div>
+              <Button variant="ghost" size="sm" className="mt-1" onClick={() => share(selected)}>
+                {t('Share')}
+              </Button>
             </div>
           </div>
         )}

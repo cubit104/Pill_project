@@ -181,6 +181,10 @@ describe('helpers', () => {
     expect(internal.map((d) => d.specialty)).toEqual(['Internal Medicine', 'Internal Medicine, Infectious Disease'])
     const urgent = filterBySpecialty([row('Clinic/Center'), row('Clinic/Center, Urgent Care')], URGENT_CARE)
     expect(urgent.map((d) => d.specialty)).toEqual(['Clinic/Center, Urgent Care'])
+    const onc = filterBySpecialty([row('Pharmacist, Oncology'), row('Internal Medicine, Medical Oncology'), row('Nurse Practitioner, Oncology'), row('Radiation Oncology')], by('oncology'))
+    expect(onc.map((d) => d.specialty)).toEqual(['Internal Medicine, Medical Oncology', 'Radiation Oncology'])
+    const uro = filterBySpecialty([row('Urology'), row('Psychiatry & Neurology, Neurology'), row('Urology, Pediatric Urology')], by('urology'))
+    expect(uro.map((d) => d.specialty)).toEqual(['Urology', 'Urology, Pediatric Urology'])
     expect(filterBySpecialty([row('')], by('family'))).toHaveLength(1) // unknown specialty is kept, not hidden
   })
 
