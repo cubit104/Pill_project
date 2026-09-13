@@ -27,6 +27,7 @@ import { loadWelcomeSeen, saveLastTab, saveWelcomeSeen } from "./lib/storage";
 import AboutScreen from "./screens/AboutScreen";
 import AccountScreen from "./screens/AccountScreen";
 import DoctorSheetScreen from "./screens/DoctorSheetScreen";
+import DoctorsScreen from "./screens/DoctorsScreen";
 import TodayScreen from "./screens/TodayScreen";
 import BottleScanScreen from "./screens/BottleScanScreen";
 import CabinetScreen from "./screens/CabinetScreen";
@@ -190,6 +191,7 @@ function Shell() {
   const contact = pathname === "/contact";
   const accountPage = pathname === "/account";
   const doctorSheet = pathname === "/doctor-sheet";
+  const doctors = pathname === "/doctors";
   const today = pathname === "/today";
   const scanBottle = pathname === "/scan-bottle";
   // Anything pushed over the tabs: the tab panes hide and go inert underneath.
@@ -201,6 +203,7 @@ function Shell() {
     contact ||
     accountPage ||
     doctorSheet ||
+    doctors ||
     today ||
     scanBottle;
   if (!isTab(pathname) && !overlay) return <Navigate to="/home" replace />;
@@ -281,6 +284,11 @@ function Shell() {
         {doctorSheet && (
           <div className="absolute inset-0 z-30">
             <DoctorSheetScreen />
+          </div>
+        )}
+        {doctors && (
+          <div className="absolute inset-0 z-30">
+            <DoctorsScreen />
           </div>
         )}
         {today && (

@@ -165,6 +165,18 @@ export function AboutTile(p: TileIconProps) {
 }
 
 /** Medicine box with a capsule: my cabinet. */
+export function DoctorTile(p: TileIconProps) {
+  return (
+    <Duo {...p}>
+      <path d="M13 8v12a8 8 0 0 0 16 0V8" />
+      <path d="M10 8h6M26 8h6" />
+      <path d="M21 28v3a8 8 0 0 0 16 0v-4" />
+      <circle cx="37" cy="21" r="5" fill={FILL} stroke={ACCENT} />
+      <circle cx="37" cy="21" r="1.6" fill={ACCENT} stroke="none" />
+    </Duo>
+  )
+}
+
 export function CabinetTile(p: TileIconProps) {
   return (
     <Duo {...p}>

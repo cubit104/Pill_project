@@ -22,6 +22,7 @@ const es: Record<string, string> = {
   'Price guide': 'Guía de precios',
   Interactions: 'Interacciones',
   'My cabinet': 'Mi botiquín',
+  'Find a doctor': 'Buscar un médico',
   About: 'Acerca de',
   '(opens pillseek.com)': '(abre pillseek.com)',
   'Recently viewed': 'Vistos recientemente',
