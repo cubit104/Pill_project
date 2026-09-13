@@ -657,6 +657,8 @@ def publish_draft(
                     text(f"UPDATE pillfinder SET {', '.join(set_parts)} WHERE id = :pill_id"),
                     params,
                 )
+                # Live now: any "what's missing?" tags left on the draft are done.
+                conn.execute(text("DELETE FROM pill_review_flags WHERE pill_id = :pill_id"), {"pill_id": pill_id})
                 published_slug = str(publishable.get("slug") or existing_slug or "").strip() or None
 
             conn.execute(

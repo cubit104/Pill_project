@@ -68,11 +68,14 @@ def set_review_flags(request: Request, pill_id: uuid.UUID, body: FlagsUpdate, ad
 
     with _db().begin() as conn:
         exists = conn.execute(
-            text("SELECT 1 FROM pillfinder WHERE id = CAST(:id AS uuid) AND deleted_at IS NULL LIMIT 1"),
+            # Tags are for unpublished pills only; the row lock keeps a concurrent publish
+            # from clearing the tags a moment before we write them.
+            text("SELECT 1 FROM pillfinder WHERE id = CAST(:id AS uuid) AND published = false "
+                 "AND deleted_at IS NULL LIMIT 1 FOR UPDATE"),
             {"id": str(pill_id)},
         ).fetchone()
         if not exists:
-            raise HTTPException(status_code=404, detail="Pill not found")
+            raise HTTPException(status_code=404, detail="Pill not found or already published")
         row = conn.execute(
             text(
                 "INSERT INTO pill_review_flags (pill_id, missing, note, flagged_by, flagged_at) "
