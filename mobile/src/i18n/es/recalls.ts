@@ -6,6 +6,7 @@ const es: Record<string, string> = {
   Medicine: 'Medicamento',
   'Type a medicine, e.g. Metformin': 'Escriba un medicamento, p. ej. Metformina',
   'No recalls for {name}': 'Sin retiros para {name}',
+  '1 recall for {name}': '1 retiro para {name}',
   '{n} recalls for {name}': '{n} retiros para {name}',
   'No recalls in the last 12 months': 'Sin retiros en los últimos 12 meses',
   'Nothing from the FDA for this medicine. Recalls are often for specific lots, so check again if you hear news.':

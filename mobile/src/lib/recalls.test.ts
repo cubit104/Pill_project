@@ -84,6 +84,8 @@ describe('helpers', () => {
     expect(drugQueries('x', '68462-0520', now)[0]).toContain('%2268462-520%22') // the FDA's spelling is tried too
     expect(q[1]).toContain('openfda.generic_name:%22Metformin%20Hydrochloride%22')
     expect(q[1]).toContain('product_description:%22Metformin%22')
+    expect(q[1]).toContain('product_description:Metformin*')
+    expect(drugQueries('Ola', null, now)[0]).not.toContain('*') // too short to wildcard
     expect(drugQueries('Lipitor', null, now)).toHaveLength(1)
     expect(drugQueries('', null, now)).toHaveLength(0)
   })

@@ -168,7 +168,10 @@ export function drugQueries(name: string, ndc: string | null, now = new Date()):
   const n = name.trim()
   if (n) {
     const word = firstWord(n)
-    q.push(`(${phrase('openfda.generic_name', n)}+OR+${phrase('openfda.brand_name', n)}+OR+${phrase('product_description', word)})+AND+${range}`)
+    // A trailing wildcard on the first word lets a half-typed name ("metfor") still match.
+    const stem = word.replace(/[^A-Za-z0-9]/g, '')
+    const wild = stem.length >= 4 ? `+OR+product_description:${stem}*` : ''
+    q.push(`(${phrase('openfda.generic_name', n)}+OR+${phrase('openfda.brand_name', n)}+OR+${phrase('product_description', word)}${wild})+AND+${range}`)
   }
   return q
 }

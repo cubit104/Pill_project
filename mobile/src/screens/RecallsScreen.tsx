@@ -168,7 +168,13 @@ export default function RecallsScreen() {
         {error && <ErrorCard error={error} onRetry={() => void search(picked ?? q)} />}
         {results && !loading && (
           <section className="space-y-2">
-            <SectionLabel>{results.length === 0 ? t('No recalls for {name}', { name: picked ?? q }) : t('{n} recalls for {name}', { n: results.length, name: picked ?? q })}</SectionLabel>
+            <SectionLabel>
+              {results.length === 0
+                ? t('No recalls for {name}', { name: picked ?? q })
+                : results.length === 1
+                  ? t('1 recall for {name}', { name: picked ?? q })
+                  : t('{n} recalls for {name}', { n: results.length, name: picked ?? q })}
+            </SectionLabel>
             {results.length === 0 ? (
               <EmptyState art="pill" title={t('No recalls in the last 12 months')} body={t('Nothing from the FDA for this medicine. Recalls are often for specific lots, so check again if you hear news.')} />
             ) : (
