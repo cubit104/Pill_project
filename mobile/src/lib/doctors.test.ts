@@ -186,7 +186,10 @@ describe('helpers', () => {
 
   it('keeps a place whose wanted specialty is not its primary one', () => {
     const jane = parseNpiResponse(sample)[0]! // primary Family Medicine, also Internal Medicine
-    expect(filterBySpecialty([jane], specialtyByKey('internal'))).toHaveLength(1)
+    const kept = filterBySpecialty([jane], specialtyByKey('internal'))
+    expect(kept).toHaveLength(1)
+    expect(kept[0]!.specialty).toBe('Internal Medicine') // the card shows the specialty that was searched for
+    expect(jane.specialty).toBe('Family Medicine') // original untouched
     expect(filterBySpecialty([jane], specialtyByKey('dermatology'))).toHaveLength(0)
     expect(URGENT_CARE.nameHint).toBe('*urgent*')
   })

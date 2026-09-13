@@ -243,11 +243,22 @@ export function parseNpiResponse(json: unknown): Doctor[] {
   return out
 }
 
-/** Keep rows that carry the specialty asked for in any of their taxonomies (not only the primary one). */
+/**
+ * Keep rows that carry the specialty asked for in any of their taxonomies (not
+ * only the primary one), and show that matching specialty on the card rather
+ * than an unrelated primary ("Emergency Medicine" on a family-doctor search).
+ */
 export function filterBySpecialty(rows: Doctor[], sp: Specialty): Doctor[] {
-  return rows.filter(
-    (d) => (d.taxonomies.length === 0 && !d.specialty) || sp.match.test(d.specialty) || d.taxonomies.some((t) => sp.match.test(t.desc)),
-  )
+  const out: Doctor[] = []
+  for (const d of rows) {
+    if ((d.taxonomies.length === 0 && !d.specialty) || sp.match.test(d.specialty)) {
+      out.push(d)
+      continue
+    }
+    const hit = d.taxonomies.find((t) => sp.match.test(t.desc))
+    if (hit) out.push({ ...d, specialty: hit.desc })
+  }
+  return out
 }
 
 /** Union of several result lists, first occurrence of each NPI wins. */
