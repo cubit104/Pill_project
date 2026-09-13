@@ -325,6 +325,10 @@ def review_capture(capture_id: uuid.UUID, payload: Review, admin: dict = Depends
             if len(payload.side_labels) != len(paths):
                 raise HTTPException(status_code=422, detail=f"side_labels needs one entry per photo ({len(paths)})")
             sides = [_norm_label(s) for s in payload.side_labels]
+            # Boxes left empty mean "not labelled per photo", not "both sides blank":
+            # storing [] blanks would teach the reader to stay silent on readable pills.
+            if not any(sides):
+                sides = None
 
         # The whole pill's imprint: what the reviewer wrote, else the catalog's.
         label = _norm_label(payload.reviewed_label) if payload.reviewed_label is not None else catalog_imprint

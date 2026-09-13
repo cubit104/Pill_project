@@ -168,6 +168,14 @@ def test_review_confirms_pill_and_stores_per_photo_labels():
     assert _sql(log, "insert into audit_log")
 
 
+def test_review_with_empty_photo_boxes_stores_no_side_labels():
+    with _client() as (client, log):
+        resp = client.post(f"/api/admin/captures/{CID}/review", json={"chosen_slug": "baxfendy-2-mg", "side_labels": ["", "  "]})
+    assert resp.status_code == 200 and resp.json()["side_labels"] is None
+    update = _sql(log, "update identify_feedback set reviewed = true, chosen_slug")[0]
+    assert update[1]["sides"] is None
+
+
 def test_review_typed_label_wins_over_catalog():
     with _client() as (client, log):
         resp = client.post(f"/api/admin/captures/{CID}/review", json={"chosen_slug": "baxfendy-2-mg", "reviewed_label": "bx 2"})
