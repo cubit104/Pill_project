@@ -47,6 +47,16 @@ const es: Record<string, string> = {
   'Identify these photos': 'Identificar estas fotos',
   'Turn torch on': 'Encender la linterna',
   'Turn torch off': 'Apagar la linterna',
+  // Camera coaching / auto-capture
+  'Fit the pill in the circle. Pinch to zoom.': 'Encuadre la pastilla en el círculo. Haga zoom con dos dedos.',
+  'Move closer or pinch to zoom until the pill fills the circle.': 'Acérquese o haga zoom con dos dedos hasta que la pastilla llene el círculo.',
+  'Good. Hold still — the photo takes itself.': 'Bien. No se mueva: la foto se toma sola.',
+  'Hold still…': 'No se mueva…',
+  'Hold still while it focuses…': 'No se mueva mientras enfoca…',
+  'Got it!': '¡Listo!',
+  'Move closer': 'Acérquese',
+  Auto: 'Auto',
+  'Takes the photo by itself': 'Toma la foto por sí sola',
   '{alt}, photo {n}': '{alt}, foto {n}',
   'Photos are analysed and not kept.': 'Las fotos se analizan y no se guardan.',
   'Photos you take are kept, without personal details, to improve the reader. Change this under About.':

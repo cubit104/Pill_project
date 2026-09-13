@@ -95,7 +95,7 @@ export function estimateFill(data: Uint8ClampedArray, size: number): FillEstimat
 
 /** Hint text for the camera overlay. */
 export function fillHint(level: FillLevel | null): string {
-  if (level === 'good') return 'Good. Hold still and tap the shutter.'
+  if (level === 'good') return 'Good. Hold still — the photo takes itself.'
   if (level === 'small') return 'Move closer or pinch to zoom until the pill fills the circle.'
   return 'Fit the pill in the circle. Pinch to zoom.'
 }

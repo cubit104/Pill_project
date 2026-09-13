@@ -6,6 +6,7 @@ import { Capacitor } from '@capacitor/core'
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import { CameraPreview } from '@capacitor-community/camera-preview'
 import type { CameraPreviewOptions } from '@capacitor-community/camera-preview'
+import { motion, sharpness, toGray } from './autocapture'
 import { computeCoverCrop, CROP_PAD, downscaleFactor, JPEG_QUALITY, MAX_SIDE } from './crop'
 import { estimateFill, type FillEstimate } from './fill'
 
@@ -245,22 +246,32 @@ export async function sampleFrame(quality = 60): Promise<string | null> {
   }
 }
 
-// ---- Live "fill the circle" coaching ------------------------------------------
+// ---- Live "fill the circle" coaching and auto-capture ------------------------------
 
-const SAMPLE_SIDE = 64
+const SAMPLE_SIDE = 96
 // side = circle × (1 + 2·CROP_PAD) → the pad on each side as a fraction of the crop side
 const CROP_PAD_FRACTION = CROP_PAD / (1 + 2 * CROP_PAD)
 let sampleCanvas: HTMLCanvasElement | null = null
 
+export interface GuideSignal {
+  fill: FillEstimate
+  /** Grayscale of the circle square (SAMPLE_SIDE²), kept to measure motion on the next sample. */
+  gray: Uint8Array
+  sharp: number
+  /** Change vs `prevGray`, 0–1; null when there was no previous sample. */
+  motion: number | null
+}
+
 /**
- * Grab a low-quality frame, crop the guide-circle square, and estimate how much of
- * it the pill fills. Cheap enough to run a few times a second; returns null when
- * the plugin cannot sample (older builds) so the caller just skips coaching.
+ * Grab a low-quality frame, crop the guide-circle square, and measure it: how
+ * much of the circle the pill fills, how sharp it is, and how much it moved
+ * since the previous sample. Cheap enough to run a few times a second; returns
+ * null when the plugin cannot sample (older builds) so the caller skips coaching.
  */
-export async function sampleGuideFill(input: PreviewCaptureInput): Promise<FillEstimate | null> {
+export async function sampleGuideSignal(input: PreviewCaptureInput, prevGray: Uint8Array | null): Promise<GuideSignal | null> {
   if (!previewRunning) return null
   try {
-    const result = await CameraPreview.captureSample({ quality: 35 })
+    const result = await CameraPreview.captureSample({ quality: 50 })
     if (!result.value) return null
     const img = await loadImage(`data:image/jpeg;base64,${result.value}`)
     const crop = computeCoverCrop({ natW: img.naturalWidth, natH: img.naturalHeight, dispW: input.dispW, dispH: input.dispH, guidePx: input.guidePx, zoom: 1 })
@@ -273,10 +284,22 @@ export async function sampleGuideFill(input: PreviewCaptureInput): Promise<FillE
     const ctx = sampleCanvas.getContext('2d', { willReadFrequently: true })
     if (!ctx) return null
     ctx.drawImage(img, crop.sx + pad, crop.sy + pad, side, side, 0, 0, SAMPLE_SIDE, SAMPLE_SIDE)
-    return estimateFill(ctx.getImageData(0, 0, SAMPLE_SIDE, SAMPLE_SIDE).data, SAMPLE_SIDE)
+    const data = ctx.getImageData(0, 0, SAMPLE_SIDE, SAMPLE_SIDE).data
+    const gray = toGray(data, SAMPLE_SIDE * SAMPLE_SIDE)
+    return {
+      fill: estimateFill(data, SAMPLE_SIDE),
+      gray,
+      sharp: sharpness(gray, SAMPLE_SIDE),
+      motion: prevGray && prevGray.length === gray.length ? motion(prevGray, gray) : null,
+    }
   } catch {
     return null
   }
+}
+
+/** Fill estimate only (kept for callers that do not auto-capture). */
+export async function sampleGuideFill(input: PreviewCaptureInput): Promise<FillEstimate | null> {
+  return (await sampleGuideSignal(input, null))?.fill ?? null
 }
 
 // ---- Fallback: system camera / photo library -------------------------------
