@@ -77,6 +77,7 @@ describe('parseNpiResponse', () => {
     expect(rows.map((r) => r.npi)).toEqual(['1234567890', '9876543210', '4444444444'])
     const jane = rows[0]!
     expect(jane.name).toBe('Jane Doe')
+    expect(jane.last).toBe('Doe')
     expect(jane.credential).toBe('MD')
     expect(jane.specialty).toBe('Family Medicine')
     expect(jane.address).toBe('123 Main St, Suite 4')
@@ -102,6 +103,7 @@ describe('parseNpiResponse', () => {
     const org = parseNpiResponse(sample)[1]!
     expect(org.name).toBe('Corner Pharmacy LLC')
     expect(org.organisation).toBe(true)
+    expect(org.last).toBe('')
     expect(org.specialty).toBe('Pharmacy')
     expect(org.mailing).toBeNull()
   })

@@ -125,6 +125,8 @@ export interface Address {
 export interface Doctor {
   npi: string
   name: string
+  /** Surname as registered (title-cased); empty for organisations. */
+  last: string
   credential: string
   /** Primary specialty as the registry words it. */
   specialty: string
@@ -245,6 +247,7 @@ export function parseNpiResponse(json: unknown): Doctor[] {
     out.push({
       npi,
       name,
+      last: organisation ? '' : titleCase(String(basic.last_name ?? '')),
       credential: String(basic.credential ?? '').replace(/\./g, '').toUpperCase(),
       specialty: primary?.desc ?? '',
       address: loc.address,
@@ -403,7 +406,13 @@ export async function searchDoctors(q: DoctorSearch, table: ZipTable | null, sig
     if (q.mode === 'name') {
       const params = q.name ? nameParams(q.name) : null
       if (!params) throw new ApiError('bad_request', 'Enter at least two letters of the last name.', { retryable: false })
-      lists = [await query(ALL_PROVIDERS, params, signal, true)]
+      // The registry also matches former names, which shows people under a different surname; keep
+      // the ones whose current surname is what was typed, in alphabetical order.
+      const typed = q.name!.last.trim().toLowerCase()
+      const rows = (await query(ALL_PROVIDERS, params, signal, true))
+        .filter((d) => d.last.toLowerCase().startsWith(typed))
+        .sort((a, b) => a.last.localeCompare(b.last) || a.name.localeCompare(b.name))
+      lists = [rows]
     } else if (q.mode === 'city') {
       const c = q.city
       if (!c?.city || !c.state) throw new ApiError('bad_request', 'Pick a city from the list.', { retryable: false })
