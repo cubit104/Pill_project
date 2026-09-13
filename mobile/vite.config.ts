@@ -12,6 +12,8 @@ export default defineConfig({
     proxy: {
       '/api': { target: 'https://pillseek.com', changeOrigin: true },
       '/filters': { target: 'https://pillseek.com', changeOrigin: true },
+      // NPPES NPI Registry has no CORS headers; in a browser the doctor search goes through here.
+      '/npi-api': { target: 'https://npiregistry.cms.hhs.gov', changeOrigin: true, rewrite: (p) => p.replace(/^\/npi-api/, '/api') },
     },
   },
   build: {

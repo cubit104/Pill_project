@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { SPECIALTIES, filterBySpecialty, isValidZip, mapsUrl, parseNpiResponse, telUrl } from './doctors'
+import {
+  SPECIALTIES,
+  filterBySpecialty,
+  isValidZip,
+  mapsUrl,
+  mergeResults,
+  nppesUrl,
+  parseNpiResponse,
+  rankByDistance,
+  specialtyByKey,
+  telUrl,
+} from './doctors'
+import { buildTable } from './geo'
 
 const sample = {
   result_count: 3,
@@ -7,14 +19,14 @@ const sample = {
     {
       number: 1234567890,
       enumeration_type: 'NPI-1',
-      basic: { first_name: 'JANE', last_name: 'DOE', credential: 'M.D.' },
+      basic: { first_name: 'JANE', last_name: 'DOE', credential: 'M.D.', gender: 'F', enumeration_date: '2009-03-14' },
       addresses: [
         { address_purpose: 'MAILING', address_1: 'PO BOX 1', city: 'OAKLAND', state: 'CA', postal_code: '94601', telephone_number: '510-555-0000' },
-        { address_purpose: 'LOCATION', address_1: '123 MAIN ST', address_2: 'SUITE 4', city: 'SAN FRANCISCO', state: 'CA', postal_code: '941071234', telephone_number: '415-555-1212' },
+        { address_purpose: 'LOCATION', address_1: '123 MAIN ST', address_2: 'SUITE 4', city: 'SAN FRANCISCO', state: 'CA', postal_code: '941071234', telephone_number: '415-555-1212', fax_number: '415-555-1213' },
       ],
       taxonomies: [
-        { desc: 'Internal Medicine', primary: false },
-        { desc: 'Family Medicine', primary: true },
+        { desc: 'Internal Medicine', primary: false, state: 'CA', license: 'A11111' },
+        { desc: 'Family Medicine', primary: true, state: 'CA', license: 'A22222' },
       ],
     },
     {
@@ -28,7 +40,7 @@ const sample = {
       number: 9876543210,
       enumeration_type: 'NPI-2',
       basic: { organization_name: 'CORNER PHARMACY LLC' },
-      addresses: [{ address_purpose: 'LOCATION', address_1: '9 MARKET ST', city: 'SAN FRANCISCO', state: 'CA', postal_code: '94107', telephone_number: '(415) 555-9999' }],
+      addresses: [{ address_purpose: 'LOCATION', address_1: '9 MARKET ST', city: 'SAN FRANCISCO', state: 'CA', postal_code: '94103', telephone_number: '(415) 555-9999' }],
       taxonomies: [{ desc: 'Pharmacy', primary: true }],
     },
     {
@@ -38,13 +50,26 @@ const sample = {
       addresses: [],
       taxonomies: [],
     },
+    {
+      number: 4444444444, // unknown ZIP: ranks last
+      enumeration_type: 'NPI-1',
+      basic: { first_name: 'FAR', last_name: 'AWAY' },
+      addresses: [{ address_purpose: 'LOCATION', address_1: '1 NOWHERE', city: 'ELSEWHERE', state: 'ZZ', postal_code: '00000' }],
+      taxonomies: [{ desc: 'Family Medicine', primary: true }],
+    },
   ],
 }
+
+const table = buildTable([
+  ['94102', 'San Francisco', 'CA', 37.779, -122.419],
+  ['94103', 'San Francisco', 'CA', 37.773, -122.411],
+  ['94107', 'San Francisco', 'CA', 37.766, -122.394],
+])
 
 describe('parseNpiResponse', () => {
   it('prefers the practice address, title-cases names, keeps the primary taxonomy, dedupes', () => {
     const rows = parseNpiResponse(sample)
-    expect(rows.map((r) => r.npi)).toEqual(['1234567890', '9876543210'])
+    expect(rows.map((r) => r.npi)).toEqual(['1234567890', '9876543210', '4444444444'])
     const jane = rows[0]!
     expect(jane.name).toBe('Jane Doe')
     expect(jane.credential).toBe('MD')
@@ -56,17 +81,52 @@ describe('parseNpiResponse', () => {
     expect(jane.organisation).toBe(false)
   })
 
+  it('keeps the details for the sheet', () => {
+    const jane = parseNpiResponse(sample)[0]!
+    expect(jane.taxonomies.map((t) => `${t.desc}|${t.state}|${t.license}|${t.primary}`)).toEqual([
+      'Internal Medicine|CA|A11111|false',
+      'Family Medicine|CA|A22222|true',
+    ])
+    expect(jane.mailing).toEqual({ address: 'Po Box 1', city: 'Oakland', state: 'CA', zip: '94601', phone: '510-555-0000', fax: '' })
+    expect(jane.gender).toBe('F')
+    expect(jane.since).toBe('2009')
+    expect(jane.distanceMiles).toBeNull()
+  })
+
   it('handles organisations', () => {
     const org = parseNpiResponse(sample)[1]!
-    expect(org.name).toBe('Corner Pharmacy Llc')
+    expect(org.name).toBe('Corner Pharmacy LLC')
     expect(org.organisation).toBe(true)
     expect(org.specialty).toBe('Pharmacy')
+    expect(org.mailing).toBeNull()
   })
 
   it('is safe on garbage', () => {
     expect(parseNpiResponse(null)).toEqual([])
     expect(parseNpiResponse({ results: 'nope' })).toEqual([])
     expect(parseNpiResponse({ Errors: [{ description: 'bad' }] })).toEqual([])
+  })
+})
+
+describe('ranking', () => {
+  it('sorts nearest first and puts unknown ZIPs last', () => {
+    const origin = { lat: 37.779, lon: -122.419, label: 'San Francisco, CA 94102' }
+    const ranked = rankByDistance(parseNpiResponse(sample), origin, table)
+    expect(ranked.map((d) => d.npi)).toEqual(['9876543210', '1234567890', '4444444444'])
+    expect(ranked[0]!.distanceMiles).toBeGreaterThan(0)
+    expect(ranked[0]!.distanceMiles!).toBeLessThan(ranked[1]!.distanceMiles!)
+    expect(ranked[2]!.distanceMiles).toBeNull()
+  })
+
+  it('leaves order alone without an origin', () => {
+    const rows = parseNpiResponse(sample)
+    expect(rankByDistance(rows, null, table).map((d) => d.npi)).toEqual(rows.map((d) => d.npi))
+  })
+
+  it('merges lists without duplicates, first list wins', () => {
+    const rows = parseNpiResponse(sample)
+    const merged = mergeResults([[rows[0]!], [rows[0]!, rows[1]!]])
+    expect(merged.map((d) => d.npi)).toEqual(['1234567890', '9876543210'])
   })
 })
 
@@ -78,31 +138,36 @@ describe('helpers', () => {
     expect(isValidZip('94107-1234')).toBe(false)
   })
 
-  it('builds tel and map links', () => {
+  it('builds tel, map and registry links', () => {
     expect(telUrl('(415) 555-1212')).toBe('tel:4155551212')
     const d = parseNpiResponse(sample)[0]!
     expect(mapsUrl(d, 'ios')).toContain('maps.apple.com/?q=123%20Main%20St%2C%20Suite%204%2C%20San%20Francisco%2C%20CA%2094107')
     expect(mapsUrl(d, 'android').startsWith('geo:0,0?q=')).toBe(true)
     expect(mapsUrl(d, 'web')).toContain('google.com/maps')
+    expect(nppesUrl('1234567890')).toBe('https://npiregistry.cms.hhs.gov/provider-view/1234567890')
   })
 
-  it('every specialty has a taxonomy, a filter and a kind', () => {
+  it('every specialty has a taxonomy, a filter and a kind; unknown keys fall back', () => {
     for (const s of SPECIALTIES) {
       expect(s.taxonomy.length).toBeGreaterThan(3)
       expect(s.match).toBeInstanceOf(RegExp)
       expect(['NPI-1', 'NPI-2']).toContain(s.kind)
     }
     expect(new Set(SPECIALTIES.map((s) => s.key)).size).toBe(SPECIALTIES.length)
+    expect(specialtyByKey('nope').key).toBe('family')
+    expect(specialtyByKey('dentist').key).toBe('dentist')
   })
 
   it('filters out the neighbours the word search drags in', () => {
-    const by = (key: string) => SPECIALTIES.find((s) => s.key === key)!
+    const by = specialtyByKey
     const row = (specialty: string) => ({ ...parseNpiResponse(sample)[0]!, specialty })
     const psych = filterBySpecialty(
       [row('Psychiatry & Neurology, Psychiatry'), row('Psychiatry & Neurology, Neurology'), row('Psychiatry & Neurology, Child & Adolescent Psychiatry')],
       by('psychiatry'),
     )
     expect(psych.map((d) => d.specialty)).toEqual(['Psychiatry & Neurology, Psychiatry', 'Psychiatry & Neurology, Child & Adolescent Psychiatry'])
+    const neuro = filterBySpecialty([row('Psychiatry & Neurology, Psychiatry'), row('Psychiatry & Neurology, Neurology')], by('neurology'))
+    expect(neuro.map((d) => d.specialty)).toEqual(['Psychiatry & Neurology, Neurology'])
     const internal = filterBySpecialty([row('Internal Medicine'), row('Emergency Medicine'), row('Internal Medicine, Infectious Disease')], by('internal'))
     expect(internal.map((d) => d.specialty)).toEqual(['Internal Medicine', 'Internal Medicine, Infectious Disease'])
     const urgent = filterBySpecialty([row('Clinic/Center'), row('Clinic/Center, Urgent Care')], by('urgent'))
