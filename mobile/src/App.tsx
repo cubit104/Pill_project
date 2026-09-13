@@ -28,6 +28,7 @@ import AboutScreen from "./screens/AboutScreen";
 import AccountScreen from "./screens/AccountScreen";
 import DoctorSheetScreen from "./screens/DoctorSheetScreen";
 import DoctorsScreen from "./screens/DoctorsScreen";
+import RecallsScreen from "./screens/RecallsScreen";
 import TodayScreen from "./screens/TodayScreen";
 import BottleScanScreen from "./screens/BottleScanScreen";
 import CabinetScreen from "./screens/CabinetScreen";
@@ -81,6 +82,7 @@ function NativeBridges() {
         };
         if (extra.reminderId) navigate("/today");
         else if (extra.kind === "refill") navigate("/cabinet");
+        else if (extra.kind === "recall") navigate("/recalls");
       },
     );
     return () => {
@@ -194,6 +196,7 @@ function Shell() {
   const doctors = pathname === "/doctors";
   const pharmacies = pathname === "/pharmacies";
   const urgentCare = pathname === "/urgent-care";
+  const recalls = pathname === "/recalls";
   const today = pathname === "/today";
   const scanBottle = pathname === "/scan-bottle";
   // Anything pushed over the tabs: the tab panes hide and go inert underneath.
@@ -208,6 +211,7 @@ function Shell() {
     doctors ||
     pharmacies ||
     urgentCare ||
+    recalls ||
     today ||
     scanBottle;
   if (!isTab(pathname) && !overlay) return <Navigate to="/home" replace />;
@@ -303,6 +307,11 @@ function Shell() {
         {urgentCare && (
           <div className="absolute inset-0 z-30">
             <DoctorsScreen kind="urgent" />
+          </div>
+        )}
+        {recalls && (
+          <div className="absolute inset-0 z-30">
+            <RecallsScreen />
           </div>
         )}
         {today && (

@@ -197,6 +197,16 @@ export function UrgentTile(p: TileIconProps) {
   )
 }
 
+export function AlertTile(p: TileIconProps) {
+  return (
+    <Duo {...p}>
+      <path d="M24 8 42 40H6L24 8Z" fill={FILL} />
+      <path d="M24 19v10" stroke={ACCENT} strokeWidth="3" />
+      <circle cx="24" cy="34.5" r="1.8" fill={ACCENT} stroke="none" />
+    </Duo>
+  )
+}
+
 export function CabinetTile(p: TileIconProps) {
   return (
     <Duo {...p}>

@@ -6,7 +6,7 @@ import Chip from '../components/Chip'
 import Disclaimer from '../components/Disclaimer'
 import EmptyState from '../components/EmptyState'
 import ItemSheet from '../components/ItemSheet'
-import { BellIcon, CabinetIcon, CameraIcon, ChevronRightIcon, ClockIcon, InteractionsIcon, PillIcon, RxIcon, TrashIcon, UserIcon } from '../components/Icons'
+import { AlertIcon, BellIcon, CabinetIcon, CameraIcon, ChevronRightIcon, ClockIcon, InteractionsIcon, PillIcon, RxIcon, TrashIcon, UserIcon } from '../components/Icons'
 import { PillThumb, TextBadge, titleCase } from '../components/PillRow'
 import ScreenHeader from '../components/ScreenHeader'
 import Sheet from '../components/Sheet'
@@ -19,6 +19,7 @@ import { useLocale, useT } from '../lib/i18n'
 import { interactionsPath } from '../lib/interactions'
 import { hapticTick, isNative } from '../lib/native'
 import { ocrAvailable } from '../lib/ocr'
+import { useCabinetRecalls } from '../lib/recalls'
 import { effectiveRate, refillStatus, scheduleRate, type RefillStatus } from '../lib/refill'
 import { ensureNotificationPermission, upcomingDoses } from '../lib/reminders'
 import { loadNotifTipSeen, saveNotifTipSeen } from '../lib/storage'
@@ -314,6 +315,7 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
+  const recalls = useCabinetRecalls()
   const account = useAccount()
   const toast = useToast()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -486,6 +488,20 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
             <ChevronRightIcon size={18} className="flex-none text-muted" />
           </button>
         )}
+        {recalls.total > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              void hapticTick()
+              navigate('/recalls')
+            }}
+            className="pressable mb-3 flex w-full items-center gap-3 rounded-card border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[var(--danger-tint)] px-4 py-3 text-left"
+          >
+            <AlertIcon size={22} className="flex-none text-danger" />
+            <span className="min-w-0 flex-1 text-[15px] font-semibold text-ink">{t('{n} recalls may affect your medicines', { n: recalls.total })}</span>
+            <ChevronRightIcon size={18} className="flex-none text-muted" />
+          </button>
+        )}
         <div className="card divide-y divide-line overflow-hidden">
           {account.items.map((item) => {
             const pill = account.pills[item.slug]
@@ -512,7 +528,7 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
                           disagree with it ("twice a day" while the reminder is 8 AM only),
                           so keep directions to the details sheet in that case. */}
                       {item.directions && rems.length === 0 && <span className="block truncate text-[13px] text-body">{item.directions}</span>}
-                      {(rems.length > 0 || refill) && (
+                      {(rems.length > 0 || refill || recalls.bySlug[item.slug]) && (
                         <span className="mt-1 flex flex-wrap gap-1">
                           {rems.map((r) => (
                             <TextBadge key={r.id} tone={r.enabled ? 'brand' : 'neutral'}>
@@ -520,6 +536,7 @@ export default function CabinetScreen({ active = true }: { active?: boolean }) {
                             </TextBadge>
                           ))}
                           {refill && <TextBadge tone={refill.level === 'ok' ? 'neutral' : refill.level === 'soon' ? 'amber' : 'danger'}>{refillText(refill, t)}</TextBadge>}
+                          {recalls.bySlug[item.slug] && <TextBadge tone="danger">{t('Recall')}</TextBadge>}
                         </span>
                       )}
                     </span>

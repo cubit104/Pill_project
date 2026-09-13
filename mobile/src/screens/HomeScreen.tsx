@@ -5,6 +5,7 @@ import { ChevronRightIcon, SearchIcon } from '../components/Icons'
 import { PillThumb } from '../components/PillRow'
 import {
   AboutTile,
+  AlertTile,
   CameraTile,
   DosageTile,
   DrugNameTile,
@@ -23,6 +24,7 @@ import {
 } from '../components/TileIcons'
 import { goalSearchPath } from '../lib/goals'
 import { useT } from '../lib/i18n'
+import { useCabinetRecalls } from '../lib/recalls'
 import { hapticTick } from '../lib/native'
 import { loadRecent, type RecentItem } from '../lib/storage'
 
@@ -50,6 +52,7 @@ const TILES: Tile[] = [
   { label: 'Find a doctor', Icon: DoctorTile, go: '/doctors' },
   { label: 'Pharmacies', Icon: PharmacyTile, go: '/pharmacies' },
   { label: 'Urgent care', Icon: UrgentTile, go: '/urgent-care' },
+  { label: 'FDA alerts', Icon: AlertTile, go: '/recalls' },
   { label: 'About', Icon: AboutTile, go: '/about' },
 ]
 
@@ -79,6 +82,7 @@ export default function HomeScreen({ active = true }: { active?: boolean }) {
   const navigate = useNavigate()
   const t = useT()
   const [recent, setRecent] = useState<RecentPill[]>([])
+  useCabinetRecalls() // Home is always mounted: this starts the daily FDA recall check for the cabinet
 
   // Refresh the strip each time Home comes back on screen.
   useEffect(() => {

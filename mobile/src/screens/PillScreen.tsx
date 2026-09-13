@@ -7,6 +7,7 @@ import ReviewedBy from '../components/ReviewedBy'
 import ErrorCard from '../components/ErrorCard'
 import { ChevronRightIcon, ExternalIcon, InfoIcon, PillIcon } from '../components/Icons'
 import { PillThumb, TextBadge, titleCase } from '../components/PillRow'
+import RecallCard from '../components/RecallCard'
 import { Skeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 import {
@@ -25,6 +26,7 @@ import { sectionPath } from '../lib/goals'
 import { useT } from '../lib/i18n'
 import { interactionsPath } from '../lib/interactions'
 import { hapticTick, openUrl } from '../lib/native'
+import { drugNameOf, productNdc, recallsForDrug, type Recall } from '../lib/recalls'
 
 /** DEA schedule → roman numeral for the badge, or null when not controlled / unknown. */
 function scheduleBadge(raw: string | null): string | null {
@@ -130,6 +132,22 @@ export default function PillScreen({ slug }: { slug: string }) {
   const [loading, setLoading] = useState(true)
   const [showInactive, setShowInactive] = useState(false)
   const [showAllIndication, setShowAllIndication] = useState(false)
+  const [recalls, setRecalls] = useState<Recall[] | null>(null)
+  const [recallsFailed, setRecallsFailed] = useState(false)
+  const [showAllRecalls, setShowAllRecalls] = useState(false)
+
+  // FDA recalls for this drug in the last 12 months (cached a day).
+  useEffect(() => {
+    if (!pill) return
+    const ctrl = new AbortController()
+    setRecalls(null)
+    setRecallsFailed(false)
+    setShowAllRecalls(false)
+    recallsForDrug(drugNameOf(pill), productNdc(pill), ctrl.signal)
+      .then((rows) => !ctrl.signal.aborted && setRecalls(rows))
+      .catch(() => !ctrl.signal.aborted && setRecallsFailed(true))
+    return () => ctrl.abort()
+  }, [pill])
   const [reloadKey, setReloadKey] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -370,6 +388,26 @@ export default function PillScreen({ slug }: { slug: string }) {
                 <LinkRow label={t('Prescribing information')} hint={t('Full FDA label for professionals')} onClick={() => navigate(sectionPath(slug, 'professional-information'))} />
                 <LinkRow label={t('Drug interactions')} hint={t('Check against other medicines')} onClick={() => navigate(interactionsPath(pill.generic_name ?? pill.drug_name))} />
               </Card>
+            </section>
+
+            {/* FDA recalls */}
+            <section>
+              <SectionLabel>{t('Recalls and safety alerts')}</SectionLabel>
+              {recalls === null && !recallsFailed && <p className="px-1 text-[14px] text-muted">{t('Checking the FDA…')}</p>}
+              {recallsFailed && <p className="px-1 text-[14px] text-muted">{t('Could not check recalls right now.')}</p>}
+              {recalls && recalls.length === 0 && <Card tone="tint" className="text-[15px] text-ink">{t('No recalls in the last 12 months')}</Card>}
+              {recalls && recalls.length > 0 && (
+                <div className="space-y-2">
+                  {(showAllRecalls ? recalls : recalls.slice(0, 3)).map((r) => (
+                    <RecallCard key={r.id} recall={r} showMatch />
+                  ))}
+                  {!showAllRecalls && recalls.length > 3 && (
+                    <button type="button" onClick={() => setShowAllRecalls(true)} className="pressable px-1 text-[15px] font-medium text-brand">
+                      {t('Show all {n} recalls', { n: recalls.length })}
+                    </button>
+                  )}
+                </div>
+              )}
             </section>
 
             {/* Similar pills */}
