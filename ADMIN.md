@@ -208,6 +208,13 @@ Endpoints: `GET /api/admin/captures?status=unreviewed|reviewed|unusable`,
 Requires migration `supabase/migrations/20260912000000_identify_feedback_review.sql`
 (adds `side_labels`, `reviewed_at`, `reviewed_by`) - apply it before deploying.
 
+**Where a photo came from.** Each capture stores city, region and country from Cloudflare's
+visitor-location headers (never the IP): migration `20260914000000_identify_feedback_location.sql`.
+The Photo Captures list shows a flag and place and has an "Outside the US only" filter
+(`?country=non-US`, or a 2-letter code). For city and region, switch on Cloudflare -> Rules ->
+Transform Rules -> Managed Transforms -> "Add visitor location headers" for pillseek.com;
+country alone works without it.
+
 ## "What's missing?" on drafts
 
 Team members add pills as drafts (pillfinder rows with `published = false`). When a
