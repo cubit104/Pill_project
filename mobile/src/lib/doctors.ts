@@ -10,7 +10,7 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
 import { ApiError } from './api'
-import { distanceMiles, findCity, nearestZip, type ZipTable } from './geo'
+import { distanceMiles, findCity, nearbyZips, nearestZip, type ZipTable } from './geo'
 
 export const NPI_API = Capacitor.isNativePlatform() ? 'https://npiregistry.cms.hhs.gov/api/' : '/npi-api/'
 const TIMEOUT_MS = 15_000
@@ -19,6 +19,13 @@ const prefsKey = (kind: FinderKind) => (kind === 'doctors' ? 'doctors.prefs' : `
 const PAGE = '200'
 /** What we show after ranking: enough to scroll, not the whole county. */
 export const MAX_RESULTS = 100
+/**
+ * A ZIP search asks the registry for each of the nearest ZIPs separately: one
+ * wide "750*" query is capped at 200 rows in no particular order and misses the
+ * clinic next door in a big metro.
+ */
+const NEARBY_ZIPS = 10
+const NEARBY_MILES = 12
 
 export interface Specialty {
   key: string
@@ -32,6 +39,11 @@ export interface Specialty {
   match: RegExp
   /** NPI-1 = individual clinician, NPI-2 = organisation (pharmacy, urgent care). */
   kind: 'NPI-1' | 'NPI-2'
+  /**
+   * Organisation-name wildcard for a second query, for places registered under
+   * a generic taxonomy ("Urgent Care 360" is filed as General Practice).
+   */
+  nameHint?: string
 }
 
 export const SPECIALTIES: Specialty[] = [
@@ -50,8 +62,8 @@ export const SPECIALTIES: Specialty[] = [
 ]
 
 /** Organisations with their own Home tiles, not in the doctor pulldown. */
-export const PHARMACY: Specialty = { key: 'pharmacy', label: 'Pharmacy', taxonomy: 'Pharmacy*', match: /Pharmac/, kind: 'NPI-2' }
-export const URGENT_CARE: Specialty = { key: 'urgent', label: 'Urgent care', taxonomy: 'Urgent Care', match: /Urgent Care/, kind: 'NPI-2' }
+export const PHARMACY: Specialty = { key: 'pharmacy', label: 'Pharmacy', taxonomy: 'Pharmacy*', match: /Pharmac/, kind: 'NPI-2', nameHint: '*pharmacy*' }
+export const URGENT_CARE: Specialty = { key: 'urgent', label: 'Urgent care', taxonomy: 'Urgent Care', match: /Urgent Care/, kind: 'NPI-2', nameHint: '*urgent*' }
 
 export type FinderKind = 'doctors' | 'pharmacy' | 'urgent'
 
@@ -231,9 +243,11 @@ export function parseNpiResponse(json: unknown): Doctor[] {
   return out
 }
 
-/** Keep only rows whose primary specialty is the one asked for. */
+/** Keep rows that carry the specialty asked for in any of their taxonomies (not only the primary one). */
 export function filterBySpecialty(rows: Doctor[], sp: Specialty): Doctor[] {
-  return rows.filter((d) => !d.specialty || sp.match.test(d.specialty))
+  return rows.filter(
+    (d) => (d.taxonomies.length === 0 && !d.specialty) || sp.match.test(d.specialty) || d.taxonomies.some((t) => sp.match.test(t.desc)),
+  )
 }
 
 /** Union of several result lists, first occurrence of each NPI wins. */
@@ -289,17 +303,17 @@ async function fetchJson(url: string, params: Record<string, string>, signal?: A
   return res.json()
 }
 
-async function query(sp: Specialty, extra: Record<string, string>, signal?: AbortSignal): Promise<Doctor[]> {
-  const json = await fetchJson(
-    NPI_API,
-    { version: '2.1', taxonomy_description: sp.taxonomy, enumeration_type: sp.kind, limit: PAGE, ...extra },
-    signal,
-  )
+/** One registry call. `byName` searches organisation names instead of the taxonomy and skips the taxonomy filter. */
+async function query(sp: Specialty, extra: Record<string, string>, signal?: AbortSignal, byName = false): Promise<Doctor[]> {
+  const base: Record<string, string> = { version: '2.1', enumeration_type: sp.kind, limit: PAGE }
+  if (!byName) base.taxonomy_description = sp.taxonomy
+  const json = await fetchJson(NPI_API, { ...base, ...extra }, signal)
   const errors = (json as { Errors?: Array<{ description?: string }> } | null)?.Errors
   if (Array.isArray(errors) && errors.length > 0) {
     throw new ApiError('server', errors[0]?.description ?? 'The doctor directory rejected the search.')
   }
-  return filterBySpecialty(parseNpiResponse(json), sp)
+  const rows = parseNpiResponse(json)
+  return byName ? rows : filterBySpecialty(rows, sp)
 }
 
 export type SearchMode = 'zip' | 'city' | 'near'
@@ -319,9 +333,10 @@ export interface DoctorResults {
 }
 
 /**
- * ZIP / near: the exact ZIP plus its 3-digit area (two registry calls in
- * parallel), merged and ranked from the ZIP's centroid. City: the registry's
- * own city+state filter, ranked from the city's centroid.
+ * ZIP / near: the nearest ZIPs around the point, one registry call each (in
+ * parallel), plus a name search in the town for organisations filed under a
+ * generic taxonomy; merged and ranked from the ZIP's centroid. City: the
+ * registry's own city+state filter, ranked from the city's centroid.
  */
 export async function searchDoctors(q: DoctorSearch, table: ZipTable | null, signal?: AbortSignal): Promise<DoctorResults> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
@@ -335,16 +350,20 @@ export async function searchDoctors(q: DoctorSearch, table: ZipTable | null, sig
       if (!c?.city || !c.state) throw new ApiError('bad_request', 'Pick a city from the list.', { retryable: false })
       const hit = table ? findCity(table, c.city, c.state) : null
       origin = hit ? { lat: hit.lat, lon: hit.lon, label: `${hit.city}, ${hit.state}` } : null
-      lists = [await query(q.specialty, { city: c.city, state: c.state }, signal)]
+      const jobs = [query(q.specialty, { city: c.city, state: c.state }, signal)]
+      if (q.specialty.nameHint) jobs.push(query(q.specialty, { organization_name: q.specialty.nameHint, city: c.city, state: c.state }, signal, true))
+      lists = await Promise.all(jobs)
     } else {
       const zip = (q.zip ?? '').trim()
       if (!isValidZip(zip)) throw new ApiError('bad_request', 'Enter a 5-digit ZIP code.', { retryable: false })
       const z = table?.byZip.get(zip) ?? null
       origin = z ? { lat: z.lat, lon: z.lon, label: q.mode === 'near' ? `${z.city}, ${z.state}` : `${z.city}, ${z.state} ${z.zip}` } : null
-      lists = await Promise.all([
-        query(q.specialty, { postal_code: `${zip}*` }, signal),
-        query(q.specialty, { postal_code: `${zip.slice(0, 3)}*` }, signal),
-      ])
+      const codes = table && z ? nearbyZips(table, z.lat, z.lon, NEARBY_ZIPS, NEARBY_MILES).map((r) => r.zip) : []
+      if (!codes.includes(zip)) codes.unshift(zip)
+      const jobs = codes.map((code) => query(q.specialty, { postal_code: `${code}*` }, signal))
+      if (!table) jobs.push(query(q.specialty, { postal_code: `${zip.slice(0, 3)}*` }, signal)) // no table: fall back to the wider area
+      if (q.specialty.nameHint && z) jobs.push(query(q.specialty, { organization_name: q.specialty.nameHint, city: z.city, state: z.state }, signal, true))
+      lists = await Promise.all(jobs)
     }
     return { doctors: rankByDistance(mergeResults(lists), origin, table).slice(0, MAX_RESULTS), origin }
   } catch (err) {

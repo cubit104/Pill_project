@@ -103,6 +103,20 @@ export function nearestZip(table: ZipTable, lat: number, lon: number): ZipRow | 
   return best
 }
 
+/** The `limit` nearest ZIPs to a point within `maxMiles`, nearest first (the point's own ZIP included). */
+export function nearbyZips(table: ZipTable, lat: number, lon: number, limit = 10, maxMiles = 12): ZipRow[] {
+  const out: { r: ZipRow; d: number }[] = []
+  for (const r of table.rows) {
+    if (Math.abs(r.lat - lat) > 0.5) continue // ~35 miles: cheap pre-filter
+    const d = distanceMiles(lat, lon, r.lat, r.lon)
+    if (d <= maxMiles) out.push({ r, d })
+  }
+  return out
+    .sort((a, b) => a.d - b.d)
+    .slice(0, limit)
+    .map((x) => x.r)
+}
+
 /**
  * Live-fill for the city box: "san fr" → San Francisco, CA ... Also accepts
  * "city, st" and "city st". Prefix matches first, then anywhere in the name.

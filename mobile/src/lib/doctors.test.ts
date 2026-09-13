@@ -169,7 +169,7 @@ describe('helpers', () => {
 
   it('filters out the neighbours the word search drags in', () => {
     const by = specialtyByKey
-    const row = (specialty: string) => ({ ...parseNpiResponse(sample)[0]!, specialty })
+    const row = (specialty: string) => ({ ...parseNpiResponse(sample)[0]!, specialty, taxonomies: [] })
     const psych = filterBySpecialty(
       [row('Psychiatry & Neurology, Psychiatry'), row('Psychiatry & Neurology, Neurology'), row('Psychiatry & Neurology, Child & Adolescent Psychiatry')],
       by('psychiatry'),
@@ -182,5 +182,12 @@ describe('helpers', () => {
     const urgent = filterBySpecialty([row('Clinic/Center'), row('Clinic/Center, Urgent Care')], URGENT_CARE)
     expect(urgent.map((d) => d.specialty)).toEqual(['Clinic/Center, Urgent Care'])
     expect(filterBySpecialty([row('')], by('family'))).toHaveLength(1) // unknown specialty is kept, not hidden
+  })
+
+  it('keeps a place whose wanted specialty is not its primary one', () => {
+    const jane = parseNpiResponse(sample)[0]! // primary Family Medicine, also Internal Medicine
+    expect(filterBySpecialty([jane], specialtyByKey('internal'))).toHaveLength(1)
+    expect(filterBySpecialty([jane], specialtyByKey('dermatology'))).toHaveLength(0)
+    expect(URGENT_CARE.nameHint).toBe('*urgent*')
   })
 })

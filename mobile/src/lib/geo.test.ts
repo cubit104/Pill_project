@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildTable, distanceMiles, findCity, formatMiles, nearestZip, suggestCities } from './geo'
+import { buildTable, distanceMiles, findCity, formatMiles, nearbyZips, nearestZip, suggestCities } from './geo'
 
 const table = buildTable([
   ['94102', 'San Francisco', 'CA', 37.779, -122.419],
@@ -39,6 +39,16 @@ describe('nearestZip', () => {
   })
   it('still answers far from everything', () => {
     expect(nearestZip(table, -30, -160)?.zip).toBe('96799')
+  })
+})
+
+describe('nearbyZips', () => {
+  it('returns the closest ZIPs within the radius, nearest first', () => {
+    const near = nearbyZips(table, 37.766, -122.394, 3, 3)
+    expect(near[0]?.zip).toBe('94107')
+    expect(new Set(near.map((z) => z.zip))).toEqual(new Set(['94107', '94110', '94102']))
+    expect(nearbyZips(table, 37.766, -122.394, 10, 0.5).map((z) => z.zip)).toEqual(['94107'])
+    expect(nearbyZips(table, 0, 0, 10, 12)).toEqual([])
   })
 })
 
