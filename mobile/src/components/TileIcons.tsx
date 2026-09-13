@@ -177,6 +177,26 @@ export function DoctorTile(p: TileIconProps) {
   )
 }
 
+export function PharmacyTile(p: TileIconProps) {
+  return (
+    <Duo {...p}>
+      <path d="M14 12h20l-2 6H16l-2-6Z" fill={FILL} />
+      <path d="M16 18v18a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4V18" />
+      <path d="M24 24v10M19 29h10" stroke={ACCENT} />
+    </Duo>
+  )
+}
+
+export function UrgentTile(p: TileIconProps) {
+  return (
+    <Duo {...p}>
+      <rect x="6" y="12" width="36" height="28" rx="6" fill={FILL} />
+      <path d="M17 12V9a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v3" />
+      <path d="M24 20v12M18 26h12" stroke={ACCENT} strokeWidth="3" />
+    </Duo>
+  )
+}
+
 export function CabinetTile(p: TileIconProps) {
   return (
     <Duo {...p}>

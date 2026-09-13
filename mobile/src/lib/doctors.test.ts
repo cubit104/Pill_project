@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  FINDERS,
+  PHARMACY,
   SPECIALTIES,
+  URGENT_CARE,
   filterBySpecialty,
   isValidZip,
   mapsUrl,
@@ -156,6 +159,12 @@ describe('helpers', () => {
     expect(new Set(SPECIALTIES.map((s) => s.key)).size).toBe(SPECIALTIES.length)
     expect(specialtyByKey('nope').key).toBe('family')
     expect(specialtyByKey('dentist').key).toBe('dentist')
+    // Pharmacies and urgent care are organisations with their own tiles, not in the doctor pulldown.
+    expect(SPECIALTIES.some((s) => s.key === 'pharmacy' || s.key === 'urgent')).toBe(false)
+    expect(FINDERS.pharmacy.fixed).toBe(PHARMACY)
+    expect(FINDERS.urgent.fixed).toBe(URGENT_CARE)
+    expect(PHARMACY.kind).toBe('NPI-2')
+    expect(FINDERS.doctors.fixed).toBeNull()
   })
 
   it('filters out the neighbours the word search drags in', () => {
@@ -170,7 +179,7 @@ describe('helpers', () => {
     expect(neuro.map((d) => d.specialty)).toEqual(['Psychiatry & Neurology, Neurology'])
     const internal = filterBySpecialty([row('Internal Medicine'), row('Emergency Medicine'), row('Internal Medicine, Infectious Disease')], by('internal'))
     expect(internal.map((d) => d.specialty)).toEqual(['Internal Medicine', 'Internal Medicine, Infectious Disease'])
-    const urgent = filterBySpecialty([row('Clinic/Center'), row('Clinic/Center, Urgent Care')], by('urgent'))
+    const urgent = filterBySpecialty([row('Clinic/Center'), row('Clinic/Center, Urgent Care')], URGENT_CARE)
     expect(urgent.map((d) => d.specialty)).toEqual(['Clinic/Center, Urgent Care'])
     expect(filterBySpecialty([row('')], by('family'))).toHaveLength(1) // unknown specialty is kept, not hidden
   })

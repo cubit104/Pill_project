@@ -11,6 +11,7 @@ import TextField from '../components/TextField'
 import { ApiError } from '../lib/api'
 import { useBackHandler } from '../lib/backstack'
 import {
+  FINDERS,
   SPECIALTIES,
   getPosition,
   isValidZip,
@@ -20,28 +21,31 @@ import {
   nppesUrl,
   saveDoctorPrefs,
   searchDoctors,
+  shareText,
   specialtyByKey,
   telUrl,
   type Doctor,
+  type FinderKind,
   type Origin,
   type SearchMode,
   type Specialty,
 } from '../lib/doctors'
 import { formatMiles, loadZipTable, suggestCities, type CityHit, type ZipTable } from '../lib/geo'
 import { useT } from '../lib/i18n'
-import { hapticTick, hideKeyboard, isNative, openUrl, platform } from '../lib/native'
+import { hapticTick, hideKeyboard, isNative, openUrl, platform, shareTextNative } from '../lib/native'
 
 /**
  * Find a doctor: specialty pulldown, then a ZIP, a city (live-filled) or the
  * phone's location. Results come from the official NPI registry, nearest
  * first, each with a call button, a map link and a detail sheet.
  */
-export default function DoctorsScreen() {
+export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind }) {
   const t = useT()
   const navigate = useNavigate()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const finder = FINDERS[kind]
   const [table, setTable] = useState<ZipTable | null>(null)
-  const [specialty, setSpecialty] = useState<Specialty>(SPECIALTIES[0]!)
+  const [specialty, setSpecialty] = useState<Specialty>(finder.fixed ?? SPECIALTIES[0]!)
   const [mode, setMode] = useState<SearchMode>('zip')
   const [zip, setZip] = useState('')
   const [cityQuery, setCityQuery] = useState('')
@@ -68,9 +72,9 @@ export default function DoctorsScreen() {
       .catch(() => {
         /* without the table we still search; just no live-fill or distances */
       })
-    void loadDoctorPrefs().then((p) => {
+    void loadDoctorPrefs(kind).then((p) => {
       if (cancelled) return
-      setSpecialty(specialtyByKey(p.specialty))
+      setSpecialty(finder.fixed ?? specialtyByKey(p.specialty))
       setMode(p.mode)
       setZip(p.zip)
       if (p.city && p.state) {
@@ -83,7 +87,8 @@ export default function DoctorsScreen() {
       cancelled = true
       abortRef.current?.abort()
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind])
 
   const run = useCallback(
     async (sp: Specialty, m: SearchMode, z: string, c: { city: string; state: string } | null) => {
@@ -97,7 +102,7 @@ export default function DoctorsScreen() {
         if (controller.signal.aborted) return
         setResults(res.doctors)
         setOrigin(res.origin)
-        void saveDoctorPrefs({ specialty: sp.key, mode: m, zip: z, city: c?.city ?? '', state: c?.state ?? '' })
+        void saveDoctorPrefs({ specialty: sp.key, mode: m, zip: z, city: c?.city ?? '', state: c?.state ?? '' }, kind)
       } catch (err) {
         if (controller.signal.aborted) return
         setError(err instanceof Error ? err : new Error(String(err)))
@@ -107,7 +112,7 @@ export default function DoctorsScreen() {
         if (!controller.signal.aborted) setLoading(false)
       }
     },
-    [table],
+    [table, kind],
   )
 
   const canSearch = !loading && (mode === 'city' ? city !== null : isValidZip(zip))
@@ -173,6 +178,11 @@ export default function DoctorsScreen() {
     else window.open(url, '_blank', 'noopener')
   }
 
+  const share = (d: Doctor) => {
+    void hapticTick()
+    void shareTextNative(d.name, shareText(d))
+  }
+
   const genderLabel = (g: Doctor['gender']) => (g === 'F' ? t('Female') : g === 'M' ? t('Male') : '')
   const originLabel = origin?.label ?? (mode === 'city' && city ? `${city.city}, ${city.state}` : zip)
 
@@ -186,19 +196,18 @@ export default function DoctorsScreen() {
           <ChevronRightIcon size={22} className="rotate-180" />
           {t('Back')}
         </button>
-        <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">{t('Find a doctor')}</p>
+        <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">{t(finder.title)}</p>
         <span className="w-11" aria-hidden />
       </div>
 
       <main className="screen mx-auto max-w-lg space-y-4 px-4 pb-8 pt-2" style={{ paddingLeft: 'max(16px, var(--safe-left))', paddingRight: 'max(16px, var(--safe-right))' }}>
         <div className="px-1">
-          <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">{t('Find a doctor')}</h1>
-          <p className="mt-1 text-[15px] leading-relaxed text-muted">
-            {t('Doctors and clinics near you, from the official US provider registry.')}
-          </p>
+          <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">{t(finder.title)}</h1>
+          <p className="mt-1 text-[15px] leading-relaxed text-muted">{t(finder.subtitle)}</p>
         </div>
 
-        {/* Specialty pulldown */}
+        {/* Specialty pulldown (doctor list only; pharmacies and urgent care are one category) */}
+        {!finder.fixed && (
         <label className="block">
           <span className="mb-1 block px-1 text-[13px] font-semibold uppercase tracking-wide text-muted">{t('Specialty')}</span>
           <div className="relative">
@@ -216,6 +225,7 @@ export default function DoctorsScreen() {
             <ChevronRightIcon size={20} className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 rotate-90 text-muted" />
           </div>
         </label>
+        )}
 
         <SegmentedControl<SearchMode>
           label={t('Search by')}
@@ -425,9 +435,14 @@ export default function DoctorsScreen() {
             <div>
               <SectionLabel>{t('Registry')}</SectionLabel>
               <p className="mt-1 text-[15px] text-ink">NPI {selected.npi}</p>
-              <Button variant="ghost" size="sm" className="mt-1" onClick={() => { void hapticTick(); void openUrl(nppesUrl(selected.npi)) }}>
-                {t('View on NPPES')}
-              </Button>
+              <div className="mt-1 flex flex-wrap gap-2">
+                <Button variant="ghost" size="sm" onClick={() => { void hapticTick(); void openUrl(nppesUrl(selected.npi)) }}>
+                  {t('View on NPPES')}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => share(selected)}>
+                  {t('Share')}
+                </Button>
+              </div>
             </div>
           </div>
         )}

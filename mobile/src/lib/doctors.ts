@@ -1,6 +1,6 @@
 /**
- * Find a doctor: the free NPPES NPI Registry (CMS), the official list of every
- * US clinician. No key, no cost. (Pharmacies have their own finder.)
+ * Find a doctor / Pharmacies / Urgent care: the free NPPES NPI Registry (CMS),
+ * the official list of every US clinician and health organisation. No key, no cost.
  *
  * Three ways in: a ZIP, a city (live-filled from the bundled ZIP table), or the
  * phone's location (nearest ZIP). Results are ranked by distance from that
@@ -14,7 +14,7 @@ import { distanceMiles, findCity, nearestZip, type ZipTable } from './geo'
 
 export const NPI_API = Capacitor.isNativePlatform() ? 'https://npiregistry.cms.hhs.gov/api/' : '/npi-api/'
 const TIMEOUT_MS = 15_000
-const KEY_PREFS = 'doctors.prefs'
+const prefsKey = (kind: FinderKind) => (kind === 'doctors' ? 'doctors.prefs' : `doctors.prefs.${kind}`)
 /** The registry caps one query at 200; we ask for that and rank ourselves. */
 const PAGE = '200'
 /** What we show after ranking: enough to scroll, not the whole county. */
@@ -47,8 +47,27 @@ export const SPECIALTIES: Specialty[] = [
   { key: 'endo', label: 'Endocrinologist', taxonomy: 'Endocrinology', match: /Endocrinolog/, kind: 'NPI-1' },
   { key: 'eye', label: 'Eye doctor', taxonomy: 'Ophthalmology', match: /Ophthalmolog/, kind: 'NPI-1' },
   { key: 'dentist', label: 'Dentist', taxonomy: 'Dentist*', match: /Dentist/, kind: 'NPI-1' },
-  { key: 'urgent', label: 'Urgent care', taxonomy: 'Urgent Care', match: /Urgent Care/, kind: 'NPI-2' },
 ]
+
+/** Organisations with their own Home tiles, not in the doctor pulldown. */
+export const PHARMACY: Specialty = { key: 'pharmacy', label: 'Pharmacy', taxonomy: 'Pharmacy*', match: /Pharmac/, kind: 'NPI-2' }
+export const URGENT_CARE: Specialty = { key: 'urgent', label: 'Urgent care', taxonomy: 'Urgent Care', match: /Urgent Care/, kind: 'NPI-2' }
+
+export type FinderKind = 'doctors' | 'pharmacy' | 'urgent'
+
+export interface Finder {
+  /** English; rendered through t(). */
+  title: string
+  subtitle: string
+  /** Fixed category (no pulldown), or null for the doctor list. */
+  fixed: Specialty | null
+}
+
+export const FINDERS: Record<FinderKind, Finder> = {
+  doctors: { title: 'Find a doctor', subtitle: 'Doctors and clinics near you, from the official US provider registry.', fixed: null },
+  pharmacy: { title: 'Pharmacies', subtitle: 'Pharmacies near you, from the official US provider registry.', fixed: PHARMACY },
+  urgent: { title: 'Urgent care', subtitle: 'Urgent care clinics near you, from the official US provider registry.', fixed: URGENT_CARE },
+}
 
 export function specialtyByKey(key: string): Specialty {
   return SPECIALTIES.find((s) => s.key === key) ?? SPECIALTIES[0]!
@@ -111,6 +130,19 @@ export function mapsUrl(a: { address: string; city: string; state: string; zip: 
 /** The registry's own public page for a provider. */
 export function nppesUrl(npi: string): string {
   return `https://npiregistry.cms.hhs.gov/provider-view/${npi}`
+}
+
+/** Plain text for the share sheet: who, what, where, phone, registry link. */
+export function shareText(d: Doctor): string {
+  const lines = [
+    [d.name, d.credential].filter(Boolean).join(', '),
+    d.specialty,
+    d.address,
+    `${d.city}, ${d.state} ${d.zip}`,
+    d.phone,
+    nppesUrl(d.npi),
+  ]
+  return lines.filter(Boolean).join('\n')
 }
 
 function titleCase(s: string): string {
@@ -369,9 +401,9 @@ export interface DoctorPrefs {
 
 const DEFAULT_PREFS: DoctorPrefs = { specialty: 'family', mode: 'zip', zip: '', city: '', state: '' }
 
-export async function loadDoctorPrefs(): Promise<DoctorPrefs> {
+export async function loadDoctorPrefs(kind: FinderKind = 'doctors'): Promise<DoctorPrefs> {
   try {
-    const { value } = await Preferences.get({ key: KEY_PREFS })
+    const { value } = await Preferences.get({ key: prefsKey(kind) })
     if (!value) return { ...DEFAULT_PREFS }
     const p = JSON.parse(value) as Partial<DoctorPrefs>
     return {
@@ -386,9 +418,9 @@ export async function loadDoctorPrefs(): Promise<DoctorPrefs> {
   }
 }
 
-export async function saveDoctorPrefs(p: DoctorPrefs): Promise<void> {
+export async function saveDoctorPrefs(p: DoctorPrefs, kind: FinderKind = 'doctors'): Promise<void> {
   try {
-    await Preferences.set({ key: KEY_PREFS, value: JSON.stringify(p) })
+    await Preferences.set({ key: prefsKey(kind), value: JSON.stringify(p) })
   } catch {
     /* ignore */
   }

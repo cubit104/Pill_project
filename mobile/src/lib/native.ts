@@ -8,6 +8,7 @@ import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import { SplashScreen } from '@capacitor/splash-screen'
 import { Keyboard } from '@capacitor/keyboard'
+import { Share } from '@capacitor/share'
 
 export const isNative = (): boolean => Capacitor.isNativePlatform()
 export const platform = (): 'ios' | 'android' | 'web' => Capacitor.getPlatform() as 'ios' | 'android' | 'web'
@@ -47,6 +48,23 @@ export async function hapticNotify(kind: 'success' | 'warning' | 'error'): Promi
     await Haptics.notification({ type: map[kind] })
   } catch {
     /* no haptics */
+  }
+}
+
+/** Share a block of text; falls back to the Web Share API, then the clipboard. */
+export async function shareTextNative(title: string, text: string): Promise<void> {
+  try {
+    if (isNative()) {
+      await Share.share({ title, text, dialogTitle: title })
+      return
+    }
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      await navigator.share({ title, text })
+      return
+    }
+    await navigator.clipboard?.writeText(text)
+  } catch {
+    /* user cancelled or sharing unavailable */
   }
 }
 

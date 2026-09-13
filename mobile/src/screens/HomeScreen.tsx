@@ -16,7 +16,9 @@ import {
   ProInfoTile,
   CabinetTile,
   DoctorTile,
+  PharmacyTile,
   SideEffectsTile,
+  UrgentTile,
   type TileIconProps,
 } from '../components/TileIcons'
 import { goalSearchPath } from '../lib/goals'
@@ -46,6 +48,8 @@ const TILES: Tile[] = [
   { label: 'Interactions', Icon: InteractionsTile, go: '/interactions' },
   { label: 'My cabinet', Icon: CabinetTile, go: '/cabinet' },
   { label: 'Find a doctor', Icon: DoctorTile, go: '/doctors' },
+  { label: 'Pharmacies', Icon: PharmacyTile, go: '/pharmacies' },
+  { label: 'Urgent care', Icon: UrgentTile, go: '/urgent-care' },
   { label: 'About', Icon: AboutTile, go: '/about' },
 ]
 

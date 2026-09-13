@@ -23,6 +23,7 @@ const es: Record<string, string> = {
   Interactions: 'Interacciones',
   'My cabinet': 'Mi botiquín',
   'Find a doctor': 'Buscar un médico',
+  Pharmacies: 'Farmacias',
   About: 'Acerca de',
   '(opens pillseek.com)': '(abre pillseek.com)',
   'Recently viewed': 'Vistos recientemente',

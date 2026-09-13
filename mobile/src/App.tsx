@@ -192,6 +192,8 @@ function Shell() {
   const accountPage = pathname === "/account";
   const doctorSheet = pathname === "/doctor-sheet";
   const doctors = pathname === "/doctors";
+  const pharmacies = pathname === "/pharmacies";
+  const urgentCare = pathname === "/urgent-care";
   const today = pathname === "/today";
   const scanBottle = pathname === "/scan-bottle";
   // Anything pushed over the tabs: the tab panes hide and go inert underneath.
@@ -204,6 +206,8 @@ function Shell() {
     accountPage ||
     doctorSheet ||
     doctors ||
+    pharmacies ||
+    urgentCare ||
     today ||
     scanBottle;
   if (!isTab(pathname) && !overlay) return <Navigate to="/home" replace />;
@@ -288,7 +292,17 @@ function Shell() {
         )}
         {doctors && (
           <div className="absolute inset-0 z-30">
-            <DoctorsScreen />
+            <DoctorsScreen kind="doctors" />
+          </div>
+        )}
+        {pharmacies && (
+          <div className="absolute inset-0 z-30">
+            <DoctorsScreen kind="pharmacy" />
+          </div>
+        )}
+        {urgentCare && (
+          <div className="absolute inset-0 z-30">
+            <DoctorsScreen kind="urgent" />
           </div>
         )}
         {today && (
