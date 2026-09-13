@@ -19,11 +19,13 @@ import {
   mapsUrl,
   nearestZipTo,
   saveDoctorPrefs,
+  nameParams,
   searchDoctors,
   shareText,
   specialtyByKey,
   telUrl,
   type Doctor,
+  type DoctorSearch,
   type FinderKind,
   type Origin,
   type SearchMode,
@@ -51,6 +53,9 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
   const [city, setCity] = useState<{ city: string; state: string } | null>(null)
   const [cityHits, setCityHits] = useState<CityHit[]>([])
   const [cityFocus, setCityFocus] = useState(false)
+  const [lastName, setLastName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [nameState, setNameState] = useState('')
   const [prefsLoaded, setPrefsLoaded] = useState(false)
   const [results, setResults] = useState<Doctor[] | null>(null)
   const [origin, setOrigin] = useState<Origin | null>(null)
@@ -90,14 +95,15 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
   }, [kind])
 
   const run = useCallback(
-    async (sp: Specialty, m: SearchMode, z: string, c: { city: string; state: string } | null) => {
+    async (sp: Specialty, m: SearchMode, z: string, c: { city: string; state: string } | null, n?: { last: string; first: string; state: string }) => {
       abortRef.current?.abort()
       const controller = new AbortController()
       abortRef.current = controller
       setLoading(true)
       setError(null)
       try {
-        const res = await searchDoctors({ specialty: sp, mode: m, zip: z, city: c ?? undefined }, table, controller.signal)
+        const search: DoctorSearch = { specialty: sp, mode: m, zip: z, city: c ?? undefined, name: n }
+        const res = await searchDoctors(search, table, controller.signal)
         if (controller.signal.aborted) return
         setResults(res.doctors)
         setOrigin(res.origin)
@@ -114,13 +120,14 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
     [table, kind],
   )
 
-  const canSearch = !loading && (mode === 'city' ? city !== null : isValidZip(zip))
+  const nameQuery = { last: lastName, first: firstName, state: nameState }
+  const canSearch = !loading && (mode === 'city' ? city !== null : mode === 'name' ? nameParams(nameQuery) !== null : isValidZip(zip))
 
   const submit = () => {
     if (!canSearch) return
     void hapticTick()
     void hideKeyboard()
-    void run(specialty, mode, zip, city)
+    void run(specialty, mode, zip, city, mode === 'name' ? nameQuery : undefined)
   }
 
   const changeSpecialty = (key: string) => {
@@ -184,6 +191,7 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
 
   const genderLabel = (g: Doctor['gender']) => (g === 'F' ? t('Female') : g === 'M' ? t('Male') : '')
   const originLabel = origin?.label ?? (mode === 'city' && city ? `${city.city}, ${city.state}` : zip)
+  const nameLabel = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
 
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto bg-canvas animate-fade-up">
@@ -205,8 +213,8 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
           <p className="mt-1 text-[15px] leading-relaxed text-muted">{t(finder.subtitle)}</p>
         </div>
 
-        {/* Specialty pulldown (doctor list only; pharmacies and urgent care are one category) */}
-        {!finder.fixed && (
+        {/* Specialty pulldown (doctor list only; pharmacies and urgent care are one category; name search is any specialty) */}
+        {!finder.fixed && mode !== 'name' && (
         <label className="block">
           <span className="mb-1 block px-1 text-[13px] font-semibold uppercase tracking-wide text-muted">{t('Specialty')}</span>
           <div className="relative">
@@ -234,8 +242,68 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
             { value: 'zip', label: t('ZIP') },
             { value: 'city', label: t('City') },
             { value: 'near', label: t('Near me') },
+            ...(finder.fixed ? [] : [{ value: 'name' as const, label: t('By name') }]),
           ]}
         />
+
+        {mode === 'name' && (
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <div className="min-w-0 flex-1">
+                <TextField
+                  label={t('Last name')}
+                  value={lastName}
+                  onChange={setLastName}
+                  onClear={() => setLastName('')}
+                  autoCapitalize="words"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  placeholder={t('Last name')}
+                  enterKeyHint="search"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') submit()
+                  }}
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <TextField
+                  label={t('First name (optional)')}
+                  value={firstName}
+                  onChange={setFirstName}
+                  onClear={() => setFirstName('')}
+                  autoCapitalize="words"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  placeholder={t('First name (optional)')}
+                  enterKeyHint="search"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') submit()
+                  }}
+                />
+              </div>
+            </div>
+            <div className="flex items-end gap-2">
+              <div className="w-32">
+                <TextField
+                  label={t('State (optional), e.g. TX')}
+                  value={nameState}
+                  onChange={(v) => setNameState(v.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 2))}
+                  onClear={() => setNameState('')}
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  placeholder={t('State')}
+                  enterKeyHint="search"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') submit()
+                  }}
+                />
+              </div>
+              <Button onClick={submit} disabled={!canSearch} loading={loading} size="md">
+                {t('Search')}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {mode === 'zip' && (
           <div className="flex items-end gap-2">
@@ -314,17 +382,23 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
 
         {results && results.length === 0 && !loading && (
           <EmptyState
-            title={t('No {specialty} found near {place}', { specialty: t(specialty.label).toLowerCase(), place: originLabel })}
-            body={t('Try a neighbouring ZIP code, a nearby city or another specialty.')}
+            title={
+              mode === 'name'
+                ? t('No providers named {name}', { name: nameLabel })
+                : t('No {specialty} found near {place}', { specialty: t(specialty.label).toLowerCase(), place: originLabel })
+            }
+            body={mode === 'name' ? t('Check the spelling, or add the state to narrow it down.') : t('Try a neighbouring ZIP code, a nearby city or another specialty.')}
           />
         )}
 
         {results && results.length > 0 && (
           <section className="space-y-2">
             <SectionLabel>
-              {mode === 'near'
-                ? t('{n} results near you', { n: results.length })
-                : t('{n} results near {place}', { n: results.length, place: originLabel })}
+              {mode === 'name'
+                ? t('{n} providers named {name}', { n: results.length, name: nameLabel })
+                : mode === 'near'
+                  ? t('{n} results near you', { n: results.length })
+                  : t('{n} results near {place}', { n: results.length, place: originLabel })}
             </SectionLabel>
             {results.map((d) => (
               <Card key={d.npi} padded={false} className="overflow-hidden">

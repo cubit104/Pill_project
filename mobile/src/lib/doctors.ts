@@ -47,6 +47,8 @@ export interface Specialty {
 }
 
 export const SPECIALTIES: Specialty[] = [
+  // Everyone with an NPI near the point: physicians, NPs, PAs, therapists... the card says which.
+  { key: 'all', label: 'All providers', taxonomy: '', match: /./, kind: 'NPI-1' },
   { key: 'family', label: 'Family doctor', taxonomy: 'Family Medicine', match: /Family/, kind: 'NPI-1' },
   { key: 'internal', label: 'Internal medicine', taxonomy: 'Internal Medicine', match: /^Internal Medicine/, kind: 'NPI-1' },
   { key: 'allergy', label: 'Allergist', taxonomy: 'Allergy & Immunology', match: /Allergy/, kind: 'NPI-1' },
@@ -59,6 +61,7 @@ export const SPECIALTIES: Specialty[] = [
   { key: 'eye', label: 'Eye doctor (ophthalmologist)', taxonomy: 'Ophthalmology', match: /Ophthalmolog/, kind: 'NPI-1' },
   { key: 'gastro', label: 'Gastroenterologist', taxonomy: 'Gastroenterology', match: /Gastroenterolog/, kind: 'NPI-1' },
   { key: 'neurology', label: 'Neurologist', taxonomy: 'Neurology', match: /,\s*[^,]*Neurology[^,]*$/, kind: 'NPI-1' },
+  { key: 'np', label: 'Nurse practitioner', taxonomy: 'Nurse Practitioner', match: /Nurse Practitioner/, kind: 'NPI-1' },
   { key: 'obgyn', label: 'OB/GYN', taxonomy: 'Obstetrics & Gynecology', match: /Obstetric|Gynecolog/, kind: 'NPI-1' },
   // "Oncology" alone mostly returns oncology pharmacists and nurses; keep physicians.
   { key: 'oncology', label: 'Oncologist', taxonomy: 'Oncology', match: /^(?!Pharmac|Nurse|Registered Nurse|Physician Assistant|Clinical Nurse).*Oncolog/, kind: 'NPI-1' },
@@ -66,6 +69,7 @@ export const SPECIALTIES: Specialty[] = [
   { key: 'ortho', label: 'Orthopedic surgeon', taxonomy: 'Orthopaedic Surgery', match: /Orthop/, kind: 'NPI-1' },
   { key: 'pediatrics', label: 'Pediatrician', taxonomy: 'Pediatrics', match: /Pediatric/, kind: 'NPI-1' },
   { key: 'pt', label: 'Physical therapist', taxonomy: 'Physical Therapist', match: /Physical Therap/, kind: 'NPI-1' },
+  { key: 'pa', label: 'Physician assistant', taxonomy: 'Physician Assistant', match: /Physician Assistant/, kind: 'NPI-1' },
   { key: 'podiatry', label: 'Podiatrist (feet)', taxonomy: 'Podiatrist', match: /Podiatr/, kind: 'NPI-1' },
   { key: 'psychiatry', label: 'Psychiatrist', taxonomy: 'Psychiatry', match: /^Psychiatry$|,\s*[^,]*Psychiatry[^,]*$/, kind: 'NPI-1' },
   { key: 'psychologist', label: 'Psychologist', taxonomy: 'Psychologist', match: /Psycholog/, kind: 'NPI-1' },
@@ -95,9 +99,12 @@ export const FINDERS: Record<FinderKind, Finder> = {
   urgent: { title: 'Urgent care', subtitle: 'Urgent care clinics near you, from the official US provider registry.', fixed: URGENT_CARE },
 }
 
+/** Unknown keys fall back to the family doctor, the sensible default. */
 export function specialtyByKey(key: string): Specialty {
-  return SPECIALTIES.find((s) => s.key === key) ?? SPECIALTIES[0]!
+  return SPECIALTIES.find((s) => s.key === key) ?? SPECIALTIES.find((s) => s.key === 'family')!
 }
+
+export const ALL_PROVIDERS: Specialty = SPECIALTIES[0]!
 
 export interface Taxonomy {
   desc: string
@@ -330,7 +337,7 @@ async function fetchJson(url: string, params: Record<string, string>, signal?: A
 /** One registry call. `byName` searches organisation names instead of the taxonomy and skips the taxonomy filter. */
 async function query(sp: Specialty, extra: Record<string, string>, signal?: AbortSignal, byName = false): Promise<Doctor[]> {
   const base: Record<string, string> = { version: '2.1', enumeration_type: sp.kind, limit: PAGE }
-  if (!byName) base.taxonomy_description = sp.taxonomy
+  if (!byName && sp.taxonomy) base.taxonomy_description = sp.taxonomy
   const json = await fetchJson(NPI_API, { ...base, ...extra }, signal)
   const errors = (json as { Errors?: Array<{ description?: string }> } | null)?.Errors
   if (Array.isArray(errors) && errors.length > 0) {
@@ -340,7 +347,14 @@ async function query(sp: Specialty, extra: Record<string, string>, signal?: Abor
   return byName ? rows : filterBySpecialty(rows, sp)
 }
 
-export type SearchMode = 'zip' | 'city' | 'near'
+export type SearchMode = 'zip' | 'city' | 'near' | 'name'
+
+export interface NameQuery {
+  last: string
+  first?: string
+  /** Two-letter state, optional. */
+  state?: string
+}
 
 export interface DoctorSearch {
   specialty: Specialty
@@ -349,6 +363,23 @@ export interface DoctorSearch {
   zip?: string
   /** city mode */
   city?: { city: string; state: string }
+  /** name mode (any specialty) */
+  name?: NameQuery
+}
+
+/**
+ * Registry parameters for a name search. A trailing `*` makes it a prefix match,
+ * so "Ander" finds Anderson; the registry needs at least two letters before it.
+ */
+export function nameParams(n: NameQuery): Record<string, string> | null {
+  const last = n.last.trim().replace(/[^A-Za-z' -]/g, '')
+  if (last.length < 2) return null
+  const out: Record<string, string> = { last_name: `${last}*` }
+  const first = (n.first ?? '').trim().replace(/[^A-Za-z' -]/g, '')
+  if (first.length >= 2) out.first_name = `${first}*`
+  const state = (n.state ?? '').trim().toUpperCase()
+  if (/^[A-Z]{2}$/.test(state)) out.state = state
+  return out
 }
 
 export interface DoctorResults {
@@ -369,7 +400,11 @@ export async function searchDoctors(q: DoctorSearch, table: ZipTable | null, sig
   try {
     let lists: Doctor[][]
     let origin: Origin | null = null
-    if (q.mode === 'city') {
+    if (q.mode === 'name') {
+      const params = q.name ? nameParams(q.name) : null
+      if (!params) throw new ApiError('bad_request', 'Enter at least two letters of the last name.', { retryable: false })
+      lists = [await query(ALL_PROVIDERS, params, signal, true)]
+    } else if (q.mode === 'city') {
       const c = q.city
       if (!c?.city || !c.state) throw new ApiError('bad_request', 'Pick a city from the list.', { retryable: false })
       const hit = table ? findCity(table, c.city, c.state) : null
@@ -451,7 +486,7 @@ export async function loadDoctorPrefs(kind: FinderKind = 'doctors'): Promise<Doc
     const p = JSON.parse(value) as Partial<DoctorPrefs>
     return {
       specialty: typeof p.specialty === 'string' ? p.specialty : DEFAULT_PREFS.specialty,
-      mode: p.mode === 'city' || p.mode === 'near' ? p.mode : 'zip',
+      mode: p.mode === 'city' || p.mode === 'near' || p.mode === 'name' ? p.mode : 'zip',
       zip: typeof p.zip === 'string' ? p.zip : '',
       city: typeof p.city === 'string' ? p.city : '',
       state: typeof p.state === 'string' ? p.state : '',

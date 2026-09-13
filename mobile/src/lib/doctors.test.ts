@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ALL_PROVIDERS,
   FINDERS,
   PHARMACY,
   SPECIALTIES,
@@ -8,6 +9,7 @@ import {
   isValidZip,
   mapsUrl,
   mergeResults,
+  nameParams,
   nppesUrl,
   parseNpiResponse,
   rankByDistance,
@@ -152,12 +154,14 @@ describe('helpers', () => {
 
   it('every specialty has a taxonomy, a filter and a kind; unknown keys fall back', () => {
     for (const s of SPECIALTIES) {
-      expect(s.taxonomy.length).toBeGreaterThan(3)
+      if (s.key !== 'all') expect(s.taxonomy.length).toBeGreaterThan(3)
       expect(s.match).toBeInstanceOf(RegExp)
       expect(['NPI-1', 'NPI-2']).toContain(s.kind)
     }
     expect(new Set(SPECIALTIES.map((s) => s.key)).size).toBe(SPECIALTIES.length)
     expect(specialtyByKey('nope').key).toBe('family')
+    expect(ALL_PROVIDERS.key).toBe('all')
+    expect(filterBySpecialty(parseNpiResponse(sample), ALL_PROVIDERS)).toHaveLength(3) // "all" keeps everyone
     expect(specialtyByKey('dentist').key).toBe('dentist')
     // Pharmacies and urgent care are organisations with their own tiles, not in the doctor pulldown.
     expect(SPECIALTIES.some((s) => s.key === 'pharmacy' || s.key === 'urgent')).toBe(false)
@@ -165,6 +169,12 @@ describe('helpers', () => {
     expect(FINDERS.urgent.fixed).toBe(URGENT_CARE)
     expect(PHARMACY.kind).toBe('NPI-2')
     expect(FINDERS.doctors.fixed).toBeNull()
+  })
+
+  it('builds name-search parameters with prefix wildcards', () => {
+    expect(nameParams({ last: 'Ander', first: 'Na', state: 'ca' })).toEqual({ last_name: 'Ander*', first_name: 'Na*', state: 'CA' })
+    expect(nameParams({ last: " O'Neil ", first: 'J', state: 'texas' })).toEqual({ last_name: "O'Neil*" })
+    expect(nameParams({ last: 'A' })).toBeNull()
   })
 
   it('filters out the neighbours the word search drags in', () => {
