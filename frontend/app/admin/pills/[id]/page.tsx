@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback, useRef, useId } from 'react'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../../lib/supabase'
+import { MISSING_OPTIONS, missingLabel, type ReviewFlags } from '../../lib/reviewFlags'
 import { ArrowLeft, Bell, Save, FileEdit, Upload, Trash2, Star, X, RotateCcw, ExternalLink, Copy, Eye } from 'lucide-react'
 import {
   FIELD_SCHEMA,
@@ -664,6 +665,12 @@ export default function EditPillPage() {
   const [pronunciationError, setPronunciationError] = useState('')
   const [pronunciationPlaying, setPronunciationPlaying] = useState(false)
   const pronunciationAudioRef = useRef<HTMLAudioElement | null>(null)
+  // "What's missing?" tags (unpublished pills only)
+  const [reviewFlags, setReviewFlags] = useState<ReviewFlags | null>(null)
+  const [missingOpen, setMissingOpen] = useState(false)
+  const [missingSel, setMissingSel] = useState<string[]>([])
+  const [missingNote, setMissingNote] = useState('')
+  const [missingSaving, setMissingSaving] = useState(false)
 
   const getSession = useCallback(async () => {
     const supabase = createClient()
@@ -726,6 +733,17 @@ export default function EditPillPage() {
           setPronunciationText(pData.pronunciation_text ?? '')
         }
       } catch (e) { console.error(`[loadPill] pill=${pillId} pronunciation fetch failed:`, e) /* pronunciation is optional */ }
+
+      // Fetch "what's missing" tags alongside pill
+      try {
+        const flagsRes = await fetch(`/api/admin/pills/${pillId}/review-flags`, {
+          headers: { Authorization: 'Bearer ' + session.access_token },
+        })
+        if (flagsRes.ok) {
+          const fData: ReviewFlags = await flagsRes.json()
+          setReviewFlags(fData.flagged_at ? fData : null)
+        }
+      } catch (e) { console.error(`[loadPill] pill=${pillId} review-flags fetch failed:`, e) /* flags are optional */ }
     } catch (e) {
       setError(String(e))
     } finally {
@@ -922,6 +940,7 @@ export default function EditPillPage() {
       setSuccessDismissed(false)
       setIndexNowBannerVisible(data.indexnow_queued === true)
       setJustPublished(true)
+      setReviewFlags(null) // publishing clears the "what's missing" tags server-side
       await loadPill(); await fetchCompleteness()
     } catch (e) { setError(String(e)); setErrorDismissed(false) } finally { setSaving(false) }
   }
@@ -1051,16 +1070,86 @@ export default function EditPillPage() {
   const showError = error && !errorDismissed
   const showSuccess = success && !successDismissed
 
+  // Unpublished pill from the Drafts list: leaving without publishing asks what is missing.
+  const isDraftPill = String(pill?.['published']) === 'false'
+  const openMissing = () => {
+    setMissingSel(reviewFlags?.missing ?? [])
+    setMissingNote(reviewFlags?.note ?? '')
+    setMissingOpen(true)
+  }
+  const saveMissing = async () => {
+    setMissingSaving(true)
+    const session = await getSession()
+    if (!session) { setMissingSaving(false); router.push('/admin/login'); return }
+    try {
+      const res = await fetch(`/api/admin/pills/${pillId}/review-flags`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ missing: missingSel, note: missingNote.trim() || null }),
+      })
+      if (!res.ok) throw new Error(await safeErrorDetail(res, 'Could not save what is missing'))
+      window.dispatchEvent(new Event('draft-count-changed'))
+      router.push('/admin/drafts')
+    } catch (e) {
+      setError(String(e)); setErrorDismissed(false); setMissingOpen(false)
+    } finally {
+      setMissingSaving(false)
+    }
+  }
+  const clearMissing = async () => {
+    const session = await getSession()
+    if (!session) return
+    try {
+      const res = await fetch(`/api/admin/pills/${pillId}/review-flags`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (!res.ok) throw new Error(await safeErrorDetail(res, 'Could not clear the tags'))
+      setReviewFlags(null)
+      window.dispatchEvent(new Event('draft-count-changed'))
+    } catch (e) { setError(String(e)); setErrorDismissed(false) }
+  }
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center gap-3">
-        <Link href="/admin/pills" className="text-gray-500 hover:text-gray-700 flex items-center gap-1 text-sm">
+        <Link
+          href={isDraftPill ? '/admin/drafts' : '/admin/pills'}
+          onClick={(e) => {
+            if (isDraftPill && !justPublished) { e.preventDefault(); openMissing() }
+          }}
+          className="text-gray-500 hover:text-gray-700 flex items-center gap-1 text-sm"
+        >
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
         <h1 className="text-2xl font-bold text-gray-900">Edit: {pill?.medicine_name || pillId}</h1>
+        {isDraftPill && !justPublished && (
+          <button
+            type="button"
+            onClick={openMissing}
+            className="ml-auto text-xs font-medium text-amber-800 border border-amber-300 bg-amber-50 rounded-md px-2 py-1 hover:bg-amber-100"
+          >
+            What&apos;s missing?
+          </button>
+        )}
       </div>
 
       <CompletenessBar completeness={completeness} />
+
+      {reviewFlags?.flagged_at && (
+        <div className="bg-amber-50 border border-amber-300 rounded-md px-4 py-3 text-sm text-amber-900 flex items-center justify-between gap-3 flex-wrap">
+          <span>
+            {reviewFlags.missing.length > 0
+              ? <>Missing: <strong>{reviewFlags.missing.map(missingLabel).join(', ')}</strong></>
+              : <>Opened but not published</>}
+            {reviewFlags.note && <> · {reviewFlags.note}</>}
+            <span className="text-amber-700"> · {reviewFlags.flagged_by ?? 'someone'}, {new Date(reviewFlags.flagged_at).toLocaleDateString()}</span>
+          </span>
+          <button type="button" onClick={clearMissing} className="text-xs font-medium underline hover:text-amber-950">
+            Clear
+          </button>
+        </div>
+      )}
 
       {pill?.slug && <IndexStatusPanel slug={pill.slug} token={token} />}
 
@@ -1370,6 +1459,55 @@ export default function EditPillPage() {
                 </Link>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {missingOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="What's missing?">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-5 space-y-4">
+            <h2 className="text-lg font-bold text-gray-900">What&apos;s missing?</h2>
+            <p className="text-sm text-gray-500">
+              Tick everything the team still needs to fix. The draft turns amber in the list with these tags.
+              Nothing ticked still marks it as opened but not published.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {MISSING_OPTIONS.map((o) => (
+                <label
+                  key={o.key}
+                  className={`flex items-center gap-2 border rounded-md px-3 py-2 text-sm cursor-pointer ${
+                    missingSel.includes(o.key) ? 'border-amber-400 bg-amber-50' : 'border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={missingSel.includes(o.key)}
+                    onChange={(e) => setMissingSel((s) => (e.target.checked ? [...s, o.key] : s.filter((k) => k !== o.key)))}
+                  />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+            <input
+              value={missingNote}
+              onChange={(e) => setMissingNote(e.target.value)}
+              maxLength={200}
+              placeholder="Note (optional)"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+            />
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setMissingOpen(false)} className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveMissing()}
+                disabled={missingSaving}
+                className="px-4 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {missingSaving ? 'Saving…' : 'Save & back to drafts'}
+              </button>
+            </div>
           </div>
         </div>
       )}
