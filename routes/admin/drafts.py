@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 import bleach
+import html
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -28,7 +29,9 @@ def _sanitize(value: object) -> Optional[str]:
     s = str(value)
     if s == "":
         return None
-    return bleach.clean(s, tags=_BLEACH_ALLOWED_TAGS, strip=True)
+    # Strip tags, then decode entities: these are plain-text columns and
+    # bleach's &amp; would otherwise be stored (and re-escaped on every save).
+    return html.unescape(bleach.clean(s, tags=_BLEACH_ALLOWED_TAGS, strip=True))
 
 
 PUBLISHABLE_FIELDS = [

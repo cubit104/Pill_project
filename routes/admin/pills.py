@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 import bleach
+import html
 
 import database
 from services.synonym_resolver import ensure_synonym_mapping
@@ -199,7 +200,10 @@ def _sanitize(value: Optional[str]) -> Optional[str]:
         return None
     if value == "":
         return None
-    return bleach.clean(str(value), tags=ALLOWED_TAGS, strip=True)
+    # Plain-text fields: strip any tags, then decode entities so "G&W" is
+    # stored as typed. bleach escapes & < > for HTML output, which is not
+    # what these columns hold; React and JSON-LD escape again at render time.
+    return html.unescape(bleach.clean(str(value), tags=ALLOWED_TAGS, strip=True))
 
 
 class PillCreate(BaseModel):
