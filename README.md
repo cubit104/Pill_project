@@ -6,6 +6,8 @@
 
 ## Architecture
 
+For what runs where in production (Render, Vercel, the iMac reader, Supabase, Cloudflare) and how each piece ships, see [OPERATIONS.md](OPERATIONS.md).
+
 ```
 pillseek.com → Render → FastAPI serves everything
                           ├── /api/*  → Python endpoints (search, details, filters, suggestions)
