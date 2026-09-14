@@ -24,3 +24,6 @@ android/capacitor-cordova-android-plugins/
 *.keystore
 *.jks
 .env.local
+
+# Play upload key config (local only)
+android/keystore.properties
