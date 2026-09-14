@@ -146,8 +146,16 @@ cd android && ./gradlew assembleDebug        # -> app/build/outputs/apk/debug/ap
 ```
 
 `npx cap sync` merges the `CAMERA` permission from the plugins into `AndroidManifest.xml`.
-For a release build create a keystore, add `signingConfigs` to `android/app/build.gradle`
-and run `./gradlew bundleRelease`. Open in Android Studio with `npx cap open android`.
+Gradle needs JDK 21 (`JAVA_HOME=...`) and `android/local.properties` with `sdk.dir=`.
+
+Install on a phone with `adb install -r app/build/outputs/apk/debug/app-debug.apk`, over USB or
+wireless debugging (pair once with `adb pair IP:PORT CODE`, then `adb connect IP:PORT` with the
+port shown on the phone; it changes each time). Samsung phones need Auto Blocker switched off first.
+
+Release builds are signed with the Play upload key: `android/keystore.properties` (git-ignored)
+points at the `.jks`; `app/build.gradle` reads it and falls back to the debug key when the file
+is missing. `./gradlew bundleRelease` writes `app/build/outputs/bundle/release/app-release.aab`;
+bump `versionCode` before every Play upload. Open in Android Studio with `npx cap open android`.
 
 ## Icons and splash screens
 
