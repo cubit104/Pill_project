@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { directionsComplete, foldFrame, mergeLines, memoryLines, missingFields } from './labelMerge'
+import { betterDirections, directionsComplete, foldFrame, mergeLines, memoryLines, missingFields } from './labelMerge'
 
 describe('mergeLines', () => {
   it('keeps the longer reading of a line seen across frames', () => {
@@ -60,5 +60,26 @@ describe('directionsComplete', () => {
     expect(directionsComplete('TAKE 1 TABLET BY MOUTH ONCE DAILY')).toBe(true)
     expect(directionsComplete('TAKE 1 TABLET EVERY 8 HOURS')).toBe(true)
     expect(directionsComplete(null)).toBe(false)
+  })
+})
+
+describe('betterDirections', () => {
+  it('keeps the reading with a frequency word over a cut-off one glued to the next line', () => {
+    const cut = 'TAKE 1 TABLET BY MOUTH FOR 10 DAYS' // same length as the right one
+    const full = 'TAKE 1 TABLET BY MOUTH TWICE DAILY'
+    expect(betterDirections(cut, full)).toBe(full)
+    expect(betterDirections(full, cut)).toBe(full)
+  })
+
+  it('otherwise takes the longer reading, and fills blanks', () => {
+    expect(betterDirections('TAKE 1 TABLET BY MOUTH TWICE DAILY', 'TAKE 1 TABLET BY MOUTH TWICE DAILY FOR 10 DAYS')).toBe('TAKE 1 TABLET BY MOUTH TWICE DAILY FOR 10 DAYS')
+    expect(betterDirections(null, 'TAKE 1 TABLET')).toBe('TAKE 1 TABLET')
+    expect(betterDirections('TAKE 1 TABLET', null)).toBe('TAKE 1 TABLET')
+  })
+})
+
+describe('directionsComplete', () => {
+  it('accepts a course length as the ending', () => {
+    expect(directionsComplete('TAKE 1 TABLET BY MOUTH TWICE DAILY FOR 10 DAYS')).toBe(true)
   })
 })

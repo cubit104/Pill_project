@@ -88,7 +88,25 @@ const EMPTY: ParsedLabel = {
   prescriber: null,
 }
 
-/** Field-level merge: fill blanks; directions and pharmacy take the longest reading. */
+/** Frequency words a finished directions line carries ("twice daily", "every 8 hours", "at bedtime"). */
+const FREQ_RE = /\b(daily|twice|once|times|every|hours?|bedtime|morning|evening|night|needed|weekly|bid|tid|qid|qd)\b/i
+
+/**
+ * Pick the better of two directions readings. A reading with a frequency word
+ * beats one without, whatever the length: the bottle's curve cuts "TWICE DAILY"
+ * off some frames, and gluing the next line on ("…BY MOUTH FOR 10 DAYS") makes
+ * a wrong reading as long as the right one. Then the longer reading wins.
+ */
+export function betterDirections(x: string | null, y: string | null): string | null {
+  if (!y) return x
+  if (!x) return y
+  const fx = FREQ_RE.test(x)
+  const fy = FREQ_RE.test(y)
+  if (fx !== fy) return fy ? y : x
+  return y.length > x.length ? y : x
+}
+
+/** Field-level merge: fill blanks; directions take the best reading, pharmacy the longest. */
 export function mergeLabels(acc: ParsedLabel | null, next: ParsedLabel): ParsedLabel {
   const a = acc ?? EMPTY
   const longer = (x: string | null, y: string | null) => (y && (!x || y.length > x.length) ? y : x)
@@ -96,7 +114,7 @@ export function mergeLabels(acc: ParsedLabel | null, next: ParsedLabel): ParsedL
     drugName: a.drugName ?? next.drugName,
     strength: a.strength ?? next.strength,
     form: a.form ?? next.form,
-    directions: longer(a.directions, next.directions),
+    directions: betterDirections(a.directions, next.directions),
     quantity: a.quantity ?? next.quantity,
     rxNumber: a.rxNumber ?? next.rxNumber,
     refills: a.refills ?? next.refills,
@@ -119,7 +137,7 @@ export function foldFrame(state: { memory: LineMemory[]; label: ParsedLabel | nu
 export function directionsComplete(d: string | null): boolean {
   if (!d) return false
   const s = d.toLowerCase()
-  return s.split(' ').length >= 4 && /(daily|day|hours?|bedtime|morning|evening|night|needed|meals?|weekly|week|mouth|tablets?|capsules?)\b\.?$/.test(s)
+  return s.split(' ').length >= 4 && /(daily|days?|hours?|bedtime|morning|evening|night|needed|meals?|weekly|week|mouth|tablets?|capsules?)\b\.?$/.test(s)
 }
 
 export type Missing = 'drug' | 'directions' | 'quantity' | 'rx'

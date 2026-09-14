@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { doseLine } from './reminders'
+import { doseLine, doseNotificationText } from './reminders'
 
 describe('doseLine', () => {
   it('counts the doses when there is more than one that day', () => {
@@ -27,5 +27,16 @@ describe('doseLine', () => {
 
   it('counts doses when the pill has no refill tracking', () => {
     expect(doseLine({ index: 1, total: 2, supplyLeftAtDose: null })).toBe('Dose 1 of 2 today')
+  })
+})
+
+describe('doseNotificationText', () => {
+  it('gives iOS a subtitle line and Android the dose in the body', () => {
+    expect(doseNotificationText('ios', 'Take 1 tablet', 'Dose 1 of 2 today')).toEqual({ subtitle: 'Take 1 tablet', body: 'Dose 1 of 2 today' })
+    expect(doseNotificationText('android', 'Take 1 tablet', 'Dose 1 of 2 today')).toEqual({
+      body: 'Take 1 tablet · Dose 1 of 2 today',
+      largeBody: 'Take 1 tablet\nDose 1 of 2 today',
+    })
+    expect(doseNotificationText('android', 'Take 1 tablet', '')).toEqual({ body: 'Take 1 tablet' })
   })
 })

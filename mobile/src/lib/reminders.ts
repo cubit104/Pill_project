@@ -11,7 +11,7 @@ import {
 import { Badge } from "@capawesome/capacitor-badge";
 import type { Reminder } from "./cabinet";
 import { tr } from "./i18n";
-import { isNative } from "./native";
+import { isNative, platform } from "./native";
 
 const DAYS_AHEAD = 14;
 const ID_BASE = 700_000;
@@ -77,6 +77,20 @@ const SOUND = "default";
 
 /** `badge` and `interruptionLevel` are added to the iOS plugin by
  * patches/@capacitor+local-notifications (patch-package). */
+/**
+ * The lines under the title, per platform. iOS shows a subtitle line, so the
+ * dose gets its own line there. Android has no subtitle: the dose goes into
+ * the body, one line when collapsed and two when the banner is expanded.
+ */
+export function doseNotificationText(
+  os: "ios" | "android" | "web",
+  what: string,
+  line: string,
+): { subtitle?: string; body: string; largeBody?: string } {
+  if (os === "ios") return { subtitle: what, body: line };
+  return line ? { body: `${what} · ${line}`, largeBody: `${what}\n${line}` } : { body: what };
+}
+
 type Notification = LocalNotificationSchema & {
   badge?: number;
   subtitle?: string;
@@ -177,8 +191,11 @@ export async function syncNotifications(
       id: notificationId(seq++),
       title: tr("Time for {name}", { name: title }),
       // Three lines: what, how much, and something worth knowing.
-      subtitle: reminder.dose ? tr("Take {dose}", { dose: reminder.dose }) : tr("Time to take it"),
-      body: doseLine({ index, total: perDay.get(key) ?? 1, supplyLeftAtDose }),
+      ...doseNotificationText(
+        platform(),
+        reminder.dose ? tr("Take {dose}", { dose: reminder.dose }) : tr("Time to take it"),
+        doseLine({ index, total: perDay.get(key) ?? 1, supplyLeftAtDose }),
+      ),
       schedule: { at, allowWhileIdle: true },
       sound: SOUND,
       channelId: CHANNEL_ID,
