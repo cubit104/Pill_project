@@ -31,7 +31,7 @@ import {
   type SearchMode,
   type Specialty,
 } from '../lib/doctors'
-import { formatMiles, loadZipTable, suggestCities, type CityHit, type ZipTable } from '../lib/geo'
+import { US_STATES, formatMiles, loadZipTable, suggestCities, type CityHit, type ZipTable } from '../lib/geo'
 import { useT } from '../lib/i18n'
 import { hapticTick, hideKeyboard, isNative, platform, shareTextNative } from '../lib/native'
 
@@ -283,21 +283,24 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
               </div>
             </div>
             <div className="flex items-end gap-2">
-              <div className="w-32">
-                <TextField
-                  label={t('State (optional), e.g. TX')}
-                  value={nameState}
-                  onChange={(v) => setNameState(v.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 2))}
-                  onClear={() => setNameState('')}
-                  autoCapitalize="characters"
-                  autoCorrect="off"
-                  placeholder={t('State')}
-                  enterKeyHint="search"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') submit()
-                  }}
-                />
-              </div>
+              <label className="block min-w-0 flex-1">
+                <span className="mb-1 block px-1 text-[13px] font-semibold uppercase tracking-wide text-muted">{t('State')}</span>
+                <div className="relative">
+                  <select
+                    value={nameState}
+                    onChange={(e) => setNameState(e.target.value)}
+                    className="h-12 w-full appearance-none rounded-2xl border border-line bg-surface px-4 pr-11 text-[17px] text-ink focus:border-brand focus:outline-none"
+                  >
+                    <option value="">{t('Any state')}</option>
+                    {US_STATES.map(([code, name]) => (
+                      <option key={code} value={code}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronRightIcon size={20} className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 rotate-90 text-muted" />
+                </div>
+              </label>
               <Button onClick={submit} disabled={!canSearch} loading={loading} size="md">
                 {t('Search')}
               </Button>
