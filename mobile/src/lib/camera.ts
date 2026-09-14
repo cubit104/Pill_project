@@ -220,7 +220,11 @@ export interface PreviewCaptureInput {
  */
 export async function capturePreview(input: PreviewCaptureInput): Promise<CapturedPhoto> {
   if (!previewRunning) throw new Error('Camera is not running')
-  const result = await CameraPreview.capture({ quality: 92 })
+  // Android: without a requested size the plugin caps the picture below 2 megapixels,
+  // which leaves a faint debossed imprint too small to read after the circle crop.
+  // Asking for a large size makes it pick the sensor's biggest picture (iOS already does).
+  const size = Capacitor.getPlatform() === 'android' ? { width: 4032, height: 3024 } : {}
+  const result = await CameraPreview.capture({ quality: 92, ...size })
   const base64 = result.value
   if (!base64) throw new Error('Empty capture')
   const img = await loadImage(`data:image/jpeg;base64,${base64}`)
