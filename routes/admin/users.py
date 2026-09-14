@@ -200,14 +200,18 @@ def create_user(
     try:
         with database.db_engine.begin() as conn:
             conn.execute(
+                # The auth trigger has usually inserted the row already (role 'member');
+                # profiles.email is NOT NULL, so the insert must carry it or the whole
+                # statement is rejected before the ON CONFLICT update runs.
                 text("""
-                    INSERT INTO profiles (id, role, full_name)
-                    VALUES (:id, :role, :full_name)
+                    INSERT INTO profiles (id, email, role, full_name)
+                    VALUES (:id, :email, :role, :full_name)
                     ON CONFLICT (id) DO UPDATE
                       SET role = :role,
+                          email = COALESCE(profiles.email, :email),
                           full_name = COALESCE(:full_name, profiles.full_name)
                 """),
-                {"id": user_id, "role": body.role, "full_name": body.full_name},
+                {"id": user_id, "email": body.email, "role": body.role, "full_name": body.full_name},
             )
             log_audit(
                 conn,
@@ -221,8 +225,13 @@ def create_user(
                 user_agent=request.headers.get("user-agent"),
             )
     except SQLAlchemyError as e:
+        # The auth account exists but still has the sign-up default role ('member').
+        # Say so instead of reporting success, so the admin can retry or fix the role.
         logger.error(f"create_user profiles DB error: {e}")
-        logger.warning(f"Profile role update failed for {user_id}; manual fix may be needed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Account created but the role could not be set ({body.role}); the user is a member until fixed.",
+        )
 
     return {"id": user_id, "email": body.email, "role": body.role, "created": True}
 
