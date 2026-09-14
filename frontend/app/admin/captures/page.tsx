@@ -38,6 +38,21 @@ interface Capture {
   side_labels: string[] | null
   reviewed_at: string | null
   reviewed_by: string | null
+  /** Where the photo was taken (Cloudflare visitor location); null before this feature. */
+  country: string | null
+  region: string | null
+  city: string | null
+}
+
+/** "MX" -> the flag emoji; "" when unknown. */
+function flagOf(cc: string | null): string {
+  if (!cc || cc.length !== 2) return ''
+  return String.fromCodePoint(...[...cc.toUpperCase()].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65))
+}
+
+function originOf(c: { country: string | null; region: string | null; city: string | null }): string {
+  const place = [c.city, c.region].filter(Boolean).join(', ')
+  return [flagOf(c.country), place || c.country || ''].filter(Boolean).join(' ')
 }
 
 interface CaptureDetail extends Capture {
@@ -68,6 +83,7 @@ export default function AdminCapturesPage() {
   const router = useRouter()
   const [role, setRole] = useState<string | null>(null)
   const [status, setStatus] = useState<Status>('unreviewed')
+  const [nonUs, setNonUs] = useState(false)
   const [page, setPage] = useState(1)
   const [list, setList] = useState<Capture[]>([])
   const [total, setTotal] = useState(0)
@@ -102,7 +118,7 @@ export default function AdminCapturesPage() {
     setLoading(true)
     setError('')
     try {
-      const data = await adminApi.getCaptures({ status, page, per_page: PER_PAGE })
+      const data = await adminApi.getCaptures({ status, page, per_page: PER_PAGE, ...(nonUs ? { country: 'non-US' } : {}) })
       const captures: Capture[] = data.captures
       setList(captures)
       setTotal(data.total)
@@ -115,7 +131,7 @@ export default function AdminCapturesPage() {
     } finally {
       setLoading(false)
     }
-  }, [status, page, router])
+  }, [status, page, nonUs, router])
 
   useEffect(() => {
     const init = async () => {
@@ -372,6 +388,10 @@ export default function AdminCapturesPage() {
             {t.label}{status === t.key && !loading ? ` · ${total}` : ''}
           </button>
         ))}
+        <label className="ml-2 flex items-center gap-1.5 text-sm text-gray-700">
+          <input type="checkbox" checked={nonUs} onChange={(e) => { setNonUs(e.target.checked); setPage(1) }} />
+          Outside the US only
+        </label>
       </div>
 
       {error && <div className="bg-red-50 text-red-700 px-4 py-2 rounded-md text-sm">{error}</div>}
@@ -404,6 +424,7 @@ export default function AdminCapturesPage() {
                   </div>
                   <div className="text-xs text-gray-500 truncate">
                     {fmtDate(c.created_at)} · {c.photo_paths.length} photo{c.photo_paths.length === 1 ? '' : 's'}
+                    {originOf(c) && <> · {originOf(c)}</>}
                   </div>
                 </div>
                 {c.verdict === 'up' && <ThumbsUp className="w-4 h-4 text-emerald-600 shrink-0" />}
@@ -479,7 +500,10 @@ export default function AdminCapturesPage() {
                 </div>
                 <div>
                   <dt className="text-xs text-gray-500">Captured</dt>
-                  <dd>{fmtDate(detail.created_at)}</dd>
+                  <dd>
+                    {fmtDate(detail.created_at)}
+                    {originOf(detail) && <span className="block text-xs text-gray-500" title={detail.country ?? ''}>{originOf(detail)}</span>}
+                  </dd>
                 </div>
               </dl>
 

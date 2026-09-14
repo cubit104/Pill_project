@@ -60,6 +60,23 @@ _rate_lock = threading.Lock()
 _rate_hits: dict[str, list[float]] = {}
 
 
+def _visitor_location(request: Request) -> dict:
+    """City / region / country from Cloudflare's visitor-location headers, never the IP.
+
+    Cloudflare adds cf-ipcountry on every plan; cf-ipcity and cf-region need the
+    Managed Transform "Add visitor location headers" switched on for the zone.
+    """
+    h = request.headers
+    country = (h.get("cf-ipcountry") or "").strip().upper()
+    if len(country) != 2 or not country.isalpha() or country in ("XX", "T1"):
+        country = ""
+    return {
+        "country": country or None,
+        "region": (h.get("cf-region") or "").strip()[:80] or None,
+        "city": (h.get("cf-ipcity") or "").strip()[:80] or None,
+    }
+
+
 def _client_ip(request: Request) -> str:
     """Best-effort client address for rate limiting.
 
@@ -309,6 +326,7 @@ async def identify_photo(
         [m["slug"] for m in result.get("matches", [])],
         keep_photos,
         raws if keep_photos else [],
+        _visitor_location(request),
     )
     return result
 

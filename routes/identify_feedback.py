@@ -43,8 +43,12 @@ def record_capture(
     top_slugs: list[str],
     consent: bool,
     photos: list[bytes],
+    location: dict | None = None,
 ) -> str | None:
     """Insert one identify_feedback row, then (with consent) attach photos.
+
+    `location` = {"country", "region", "city"} from the edge's visitor headers
+    (any key may be None); the IP address is deliberately not recorded.
 
     The row is written first so an upload can never leave orphaned objects;
     if the upload fails the row simply has no photos. Never raises.
@@ -57,11 +61,14 @@ def record_capture(
             conn.execute(
                 text(
                     "INSERT INTO identify_feedback "
-                    "(capture_id, imprint_read, tokens, attrs_guess, top_slugs, consent) "
+                    "(capture_id, imprint_read, tokens, attrs_guess, top_slugs, consent, country, region, city) "
                     "VALUES (CAST(:id AS uuid), :read, CAST(:tokens AS jsonb), CAST(:attrs AS jsonb), "
-                    "CAST(:top AS jsonb), :consent)"
+                    "CAST(:top AS jsonb), :consent, :country, :region, :city)"
                 ),
                 {
+                    "country": (location or {}).get("country") or None,
+                    "region": (location or {}).get("region") or None,
+                    "city": (location or {}).get("city") or None,
                     "id": capture_id,
                     "read": imprint_read or None,
                     "tokens": json.dumps(tokens),

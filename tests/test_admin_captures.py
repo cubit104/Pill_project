@@ -25,14 +25,14 @@ SIGNED = {PATHS[0]: "https://signed.test/1", PATHS[1]: "https://signed.test/2"}
 
 COLUMNS = (
     "capture_id created_at imprint_read tokens attrs_guess top_slugs consent photo_paths verdict "
-    "chosen_slug corrected_imprint reviewed reviewed_label side_labels reviewed_at reviewed_by"
+    "chosen_slug corrected_imprint reviewed reviewed_label side_labels reviewed_at reviewed_by country region city"
 ).split()
 IDX = {name: i for i, name in enumerate(COLUMNS)}
 
 
 def _row(**over):
     base = [CID, NOW, "BX 2", ["BX", "2"], {"shape": "ROUND", "color": "YELLOW"}, ["baxfendy-2-mg", "fanapt-2-2"],
-            True, list(PATHS), "up", "baxfendy-2-mg", None, False, None, None, None, None]
+            True, list(PATHS), "up", "baxfendy-2-mg", None, False, None, None, None, None, "MX", "Jalisco", "Guadalajara"]
     for k, v in over.items():
         base[IDX[k]] = v
     return tuple(base)
@@ -123,9 +123,21 @@ def test_queue_lists_unreviewed_with_signed_photo_urls():
     assert cap["capture_id"] == CID
     assert cap["photo_urls"] == ["https://signed.test/1", "https://signed.test/2"]
     assert cap["imprint_read"] == "BX 2" and cap["verdict"] == "up" and cap["reviewed"] is False
+    assert (cap["country"], cap["region"], cap["city"]) == ("MX", "Jalisco", "Guadalajara")
     sign.assert_called_once_with(PATHS)
     list_sql = _sql(log, "order by created_at desc")[0][0]
     assert "reviewed = false" in list_sql and "jsonb_array_length(photo_paths) > 0" in list_sql
+
+
+def test_queue_filters_by_country():
+    with patch("routes.admin.captures.user_photos.sign_urls", return_value=SIGNED):
+        with _client() as (client, log):
+            assert client.get("/api/admin/captures?country=non-US").status_code == 200
+            assert client.get("/api/admin/captures?country=mx").status_code == 200
+    non_us = _sql(log, "country is not null and country <> 'us'")
+    assert non_us and any("order by created_at desc" in s for s, _ in non_us)  # count query + list query both filtered
+    by_code = [p for s, p in log if "country = :country" in s]
+    assert by_code and by_code[0]["country"] == "MX"
 
 
 def test_detail_joins_candidates_and_marks_user_pick():
@@ -154,6 +166,14 @@ def test_review_confirms_pill_and_stores_per_photo_labels():
     assert update[1]["slug"] == "baxfendy-2-mg" and update[1]["label"] == "BX;2"
     assert json.loads(update[1]["sides"]) == ["BX 2", ""] and update[1]["by"] == "rev@test.com"
     assert _sql(log, "insert into audit_log")
+
+
+def test_review_with_empty_photo_boxes_stores_no_side_labels():
+    with _client() as (client, log):
+        resp = client.post(f"/api/admin/captures/{CID}/review", json={"chosen_slug": "baxfendy-2-mg", "side_labels": ["", "  "]})
+    assert resp.status_code == 200 and resp.json()["side_labels"] is None
+    update = _sql(log, "update identify_feedback set reviewed = true, chosen_slug")[0]
+    assert update[1]["sides"] is None
 
 
 def test_review_typed_label_wins_over_catalog():
@@ -210,9 +230,9 @@ def test_reopen_puts_capture_back_in_queue():
 
 def test_export_manifest_one_row_per_photo():
     export_rows = [
-        (CID, NOW, list(PATHS), "baxfendy-2-mg", "BX;2", ["BX 2", ""], NOW, "Baxfendy", "BX;2", "YELLOW", "ROUND"),
+        (CID, NOW, list(PATHS), "baxfendy-2-mg", "BX;2", ["BX 2", ""], NOW, "Baxfendy", "BX;2", "YELLOW", "ROUND", "US"),
         ("22222222-2222-4222-8222-222222222222", NOW, ["22222222-2222-4222-8222-222222222222/side1.jpg"],
-         None, "C 73", None, NOW, None, None, None, None),
+         None, "C 73", None, NOW, None, None, None, None, "MX"),
     ]
     signed = dict(SIGNED, **{"22222222-2222-4222-8222-222222222222/side1.jpg": "https://signed.test/3"})
     with patch("routes.admin.captures.user_photos.sign_urls", return_value=signed) as sign:
@@ -229,6 +249,7 @@ def test_export_manifest_one_row_per_photo():
     assert rows[0]["pill_imprint"] == "BX;2" and rows[0]["side"] == 1 and rows[1]["side"] == 2
     # No per-photo labels: the pill label applies to every photo.
     assert rows[2]["imprint"] == "C 73" and rows[2]["label_scope"] == "pill" and rows[2]["slug"] == ""
+    assert rows[0]["country"] == "US" and rows[2]["country"] == "MX"
     from services.user_photos import EXPORT_TTL_S
 
     assert sign.call_args[0][1] == EXPORT_TTL_S
