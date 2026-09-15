@@ -164,9 +164,9 @@ export function drugQueries(name: string, ndc: string | null, now = new Date()):
   return q
 }
 
-async function fetchFeed(search: string, limit: number, signal?: AbortSignal): Promise<unknown> {
+async function fetchFeed(search: string, limit: number, signal?: AbortSignal, timeoutMs = TIMEOUT_MS): Promise<unknown> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   const onAbort = () => controller.abort()
   signal?.addEventListener('abort', onAbort)
   try {
@@ -191,13 +191,13 @@ async function fetchFeed(search: string, limit: number, signal?: AbortSignal): P
 const memo = new Map<string, { at: number; rows: Recall[] }>()
 
 /** Recalls for one drug in the last 12 months, newest first; cached for a day in this process. */
-export async function recallsForDrug(name: string, ndc: string | null, signal?: AbortSignal): Promise<Recall[]> {
+export async function recallsForDrug(name: string, ndc: string | null, signal?: AbortSignal, timeoutMs = TIMEOUT_MS): Promise<Recall[]> {
   const key = `${name.trim().toLowerCase()}|${ndc ?? ''}`
   const hit = memo.get(key)
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.rows
   const queries = drugQueries(name, ndc)
   if (queries.length === 0) return []
-  const pages = await Promise.all(queries.map((q) => fetchFeed(q, 50, signal)))
+  const pages = await Promise.all(queries.map((q) => fetchFeed(q, 50, signal, timeoutMs)))
   const merged = new Map<string, Recall>()
   for (const page of pages) for (const r of parseRecalls(page, ndc)) if (!merged.has(r.id) || r.exact) merged.set(r.id, r)
   const rows = [...merged.values()].sort((a, b) => b.date.localeCompare(a.date) || Number(b.exact) - Number(a.exact))
@@ -215,12 +215,19 @@ export async function latestRecalls(limit = 20, signal?: AbortSignal): Promise<R
   return rows
 }
 
-/** Same as recallsForDrug but never throws: pill pages render without the section when the FDA is down. */
-export async function recallsForDrugSafe(name: string, ndc: string | null): Promise<Recall[]> {
+/** Server-side page render: how long a pill page waits for the FDA before going out without the section. */
+const SSR_TIMEOUT_MS = 4000
+
+/**
+ * For pill pages: recalls, or undefined when the FDA did not answer in time, so the
+ * page omits the section instead of claiming "no recalls". Never throws, never
+ * holds the page for more than a few seconds; the answer is cached a day by Next.
+ */
+export async function recallsForDrugSafe(name: string, ndc: string | null): Promise<Recall[] | undefined> {
   try {
-    return await recallsForDrug(name, ndc)
+    return await recallsForDrug(name, ndc, undefined, SSR_TIMEOUT_MS)
   } catch {
-    return []
+    return undefined
   }
 }
 

@@ -491,7 +491,11 @@ export default function CabinetClient() {
   const [recallsBySlug, setRecallsBySlug] = useState<Record<string, Recall[]>>({})
   useEffect(() => {
     const ready = items.map((i) => pills[i.slug]).filter((p): p is PillInfo => Boolean(p))
-    if (items.length === 0 || ready.length < items.length) return
+    if (items.length === 0) {
+      setRecallsBySlug({}) // last pill removed or signed out: nothing to warn about
+      return
+    }
+    if (ready.length < items.length) return
     const key = ready.map((p) => p.slug).sort().join('|')
     try {
       const c = JSON.parse(sessionStorage.getItem(RECALLS_CACHE_KEY) || 'null') as { key: string; at: number; bySlug: Record<string, Recall[]> } | null

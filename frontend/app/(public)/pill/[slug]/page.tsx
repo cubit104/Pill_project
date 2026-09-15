@@ -375,7 +375,7 @@ export default async function PillDetailPage(
 
   // FDA recalls for this drug in the last 12 months (openFDA, cached a day; empty when the FDA is down).
   const recallName = (pill.generic_name?.trim() || (pill.drug_name !== 'Unknown' ? pill.drug_name : '') || '').trim()
-  const recalls = recallName ? await recallsForDrugSafe(recallName, productNdc({ ndc: pill.ndc ?? null, ndc9: pill.ndc9 ?? null })) : []
+  const recalls = recallName ? await recallsForDrugSafe(recallName, productNdc({ ndc: pill.ndc ?? null, ndc9: pill.ndc9 ?? null })) : undefined
 
   // Breadcrumb JSON-LD uses absolute URLs to match canonical
   const breadcrumbs = breadcrumbSchema([
