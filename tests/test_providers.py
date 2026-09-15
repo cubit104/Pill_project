@@ -49,6 +49,9 @@ def test_parse_npi_response_shapes_rows():
     assert r["specialty"] == "Internal Medicine, Cardiovascular Disease" and r["since"] == "2011"
     assert rows[1]["organisation"] is True and rows[1]["name"] == "Heart Place LLC" and rows[1]["last"] == ""
     assert p.parse_npi_response(None) == [] and p.parse_npi_response({"Errors": []}) == []
+    paris = _npi(5)
+    paris["addresses"][0].update({"country_code": "FR", "city": "PARIS", "state": "ILE DE FRANCE", "postal_code": "75116"})
+    assert p.parse_npi_response({"results": [paris]}) == []  # a foreign office never ranks as 4.7 mi from Texas
     dup = _npi(4)
     dup["addresses"][0].update({"address_1": "2520 AVENUE K, SUITE 600", "address_2": "SUITE 600"})
     assert p.parse_npi_response({"results": [dup]})[0]["address"] == "2520 Avenue K, Suite 600"

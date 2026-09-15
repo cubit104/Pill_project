@@ -274,6 +274,9 @@ def parse_npi_response(data: Any) -> List[dict]:
         loc = next((a for a in addresses if a.get("address_purpose") == "LOCATION"), addresses[0] if addresses else None)
         if not loc or not loc.get("address_1"):
             continue
+        # Foreign practice addresses (a Paris office, postal code 75116) would collide with US ZIPs.
+        if str(loc.get("country_code") or "US").upper() not in ("US", ""):
+            continue
         basic = r.get("basic") or {}
         organisation = r.get("enumeration_type") == "NPI-2"
         org_name = str(basic.get("organization_name") or basic.get("name") or "")
