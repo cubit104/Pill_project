@@ -74,11 +74,11 @@ def test_specialty_filter_keeps_what_we_mean():
     assert not onc.match.search("Pharmacist, Oncology") and onc.match.search("Internal Medicine, Medical Oncology")
 
 
-def test_rank_by_distance_unknown_zips_go_last():
-    rows = [{"npi": "a", "zip": "75082"}, {"npi": "b", "zip": "00000"}, {"npi": "c", "zip": "75074"}]
+def test_rank_by_distance_unknown_zips_go_last_and_far_ones_are_dropped():
+    rows = [{"npi": "a", "zip": "75082"}, {"npi": "b", "zip": "00000"}, {"npi": "c", "zip": "75074"}, {"npi": "far", "zip": "94107"}]
     origin = {"lat": 33.03, "lon": -96.68}
     ranked = p.rank_by_distance(rows, origin, TABLE)
-    assert [r["npi"] for r in ranked] == ["c", "a", "b"]
+    assert [r["npi"] for r in ranked] == ["c", "a", "b"]  # San Francisco (mailing-address match) is not "near Plano"
     assert ranked[0]["distanceMiles"] == 0 and ranked[2]["distanceMiles"] is None
 
 

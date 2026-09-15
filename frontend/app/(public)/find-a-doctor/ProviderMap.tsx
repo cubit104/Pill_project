@@ -10,6 +10,14 @@ import type { Origin, Position, Provider } from '../../lib/providers'
  * for the search origin, the selected provider highlighted. Positions arrive a
  * moment after the list (Census geocoder), so pins fill in as they come.
  */
+function milesBetween(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return 2 * 3958.8 * Math.asin(Math.sqrt(a))
+}
+
 export default function ProviderMap({
   providers,
   positions,
@@ -78,6 +86,7 @@ export default function ProviderMap({
       points.push([origin.lat, origin.lon])
     }
 
+    const nearOrigin = (lat: number, lon: number) => !origin || milesBetween(origin.lat, origin.lon, lat, lon) <= 60
     providers.forEach((d, i) => {
       const pos = positions[d.npi]
       if (!pos) return
@@ -93,7 +102,7 @@ export default function ProviderMap({
       })
       m.on('click', () => onSelectRef.current(d.npi))
       m.addTo(layer)
-      points.push([pos.lat, pos.lon])
+      if (nearOrigin(pos.lat, pos.lon)) points.push([pos.lat, pos.lon])
     })
 
     // Fit to the pins: again as more arrive (they come a moment after the list), never

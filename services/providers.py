@@ -64,6 +64,10 @@ CACHE_DAYS = 30
 GEOCODE_BATCH_MAX = 100
 # A browser location farther than this from any US ZIP is not a US location.
 MAX_NEAREST_ZIP_MILES = 60
+# A place search keeps results within this radius. The registry's city/state filter also
+# matches MAILING addresses, so a clinic that only receives post in town would otherwise
+# show up with its real practice a thousand miles away.
+MAX_RESULT_MILES = 60
 ZIP_TABLE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "us-zips.json")
 
 
@@ -327,14 +331,15 @@ def merge_results(lists: Iterable[List[dict]]) -> List[dict]:
     return out
 
 
-def rank_by_distance(rows: List[dict], origin: Optional[dict], table: ZipTable) -> List[dict]:
+def rank_by_distance(rows: List[dict], origin: Optional[dict], table: ZipTable, max_miles: float = MAX_RESULT_MILES) -> List[dict]:
+    """Nearest first, within `max_miles` of the origin; rows whose ZIP the table does not know go last."""
     if not origin:
         return rows
     ranked = []
     for d in rows:
         z = table.by_zip.get(d["zip"])
         ranked.append({**d, "distanceMiles": round(distance_miles(origin["lat"], origin["lon"], z["lat"], z["lon"]), 2) if z else None})
-    known = sorted((d for d in ranked if d["distanceMiles"] is not None), key=lambda d: d["distanceMiles"])
+    known = sorted((d for d in ranked if d["distanceMiles"] is not None and d["distanceMiles"] <= max_miles), key=lambda d: d["distanceMiles"])
     return known + [d for d in ranked if d["distanceMiles"] is None]
 
 
