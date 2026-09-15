@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { resolveImageUrl } from '../../lib/image-url'
+import { checkCabinet, productNdc, type Recall } from '../../lib/recalls'
 import {
   addToCabinet,
   currentUser,
@@ -31,6 +32,9 @@ interface PillInfo {
   strength: string | null
   imprint: string | null
   image: string
+  /** For the FDA recall check. */
+  generic: string | null
+  ndc: string | null
 }
 
 const TIME_PRESETS: { label: string; time: string }[] = [
@@ -53,8 +57,12 @@ async function fetchPill(slug: string): Promise<PillInfo> {
     strength: str(raw.strength),
     imprint: str(raw.imprint),
     image: resolveImageUrl(raw as { image_url?: string | null; images?: string[] }),
+    generic: str(raw.generic_name),
+    ndc: productNdc({ ndc11: str(raw.ndc11), ndc: str(raw.ndc), ndc9: str(raw.ndc9) }),
   }
 }
+
+const RECALLS_CACHE_KEY = 'pillseek.cabinetRecalls.v1'
 
 const inputClass =
   'w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500'
@@ -479,6 +487,37 @@ export default function CabinetClient() {
   const [items, setItems] = useState<CabinetItem[]>([])
   const [reminders, setReminders] = useState<Reminder[]>([])
   const [pills, setPills] = useState<Record<string, PillInfo>>({})
+  // FDA recalls per saved pill, checked once a day in this browser (same feed the app uses).
+  const [recallsBySlug, setRecallsBySlug] = useState<Record<string, Recall[]>>({})
+  useEffect(() => {
+    const ready = items.map((i) => pills[i.slug]).filter((p): p is PillInfo => Boolean(p))
+    if (items.length === 0 || ready.length < items.length) return
+    const key = ready.map((p) => p.slug).sort().join('|')
+    try {
+      const c = JSON.parse(sessionStorage.getItem(RECALLS_CACHE_KEY) || 'null') as { key: string; at: number; bySlug: Record<string, Recall[]> } | null
+      if (c && c.key === key && Date.now() - c.at < 24 * 60 * 60 * 1000) {
+        setRecallsBySlug(c.bySlug)
+        return
+      }
+    } catch {
+      /* ignore */
+    }
+    let cancelled = false
+    checkCabinet(ready.map((p) => ({ slug: p.slug, name: p.name, generic: p.generic, ndc: p.ndc })))
+      .then((bySlug) => {
+        if (cancelled) return
+        setRecallsBySlug(bySlug)
+        try {
+          sessionStorage.setItem(RECALLS_CACHE_KEY, JSON.stringify({ key, at: Date.now(), bySlug }))
+        } catch {
+          /* ignore */
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [items, pills])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -626,6 +665,22 @@ export default function CabinetClient() {
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           Next today: <strong>{upcoming.name}</strong> at {formatTime(upcoming.time)}
         </p>
+      )}
+
+      {Object.keys(recallsBySlug).length > 0 && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900" role="alert">
+          <p className="font-semibold">
+            FDA recall may affect: {Object.keys(recallsBySlug).map((s) => pills[s]?.name ?? s).join(', ')}
+          </p>
+          <p className="mt-1">
+            Compare the lot numbers with your bottle. If they match, call your pharmacy before taking more.{' '}
+            {Object.keys(recallsBySlug).map((s) => (
+              <Link key={s} href={`/recalls?drug=${encodeURIComponent(pills[s]?.generic || pills[s]?.name || s)}`} className="mr-2 font-semibold underline">
+                See {pills[s]?.name ?? s} recalls
+              </Link>
+            ))}
+          </p>
+        </div>
       )}
 
       {loading && items.length === 0 ? (
