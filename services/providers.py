@@ -240,8 +240,12 @@ def _short_zip(z: str) -> str:
 
 
 def _address(a: dict) -> dict:
+    line1 = str(a.get("address_1") or "").strip()
+    line2 = str(a.get("address_2") or "").strip()
+    if line2 and line2.upper() in line1.upper():  # "2520 AVENUE K, SUITE 600" + "SUITE 600"
+        line2 = ""
     return {
-        "address": _title(", ".join(str(x) for x in (a.get("address_1"), a.get("address_2")) if x)),
+        "address": _title(", ".join(x for x in (line1, line2) if x)),
         "city": _title(str(a.get("city") or "")),
         "state": str(a.get("state") or ""),
         "zip": _short_zip(str(a.get("postal_code") or "")),
