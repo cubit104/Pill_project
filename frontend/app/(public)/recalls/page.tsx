@@ -68,7 +68,7 @@ export default async function RecallsPage({ searchParams }: { searchParams: Prom
       <div className="bg-emerald-50 border-b border-emerald-100">
         <div className="mx-auto max-w-6xl px-4 pb-10 pt-10 sm:pt-14">
           <div className="mx-auto mb-6 max-w-2xl text-center">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-5xl">FDA alerts</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-5xl">FDA drug recalls and safety alerts</h1>
             <p className="mt-3 text-base text-slate-600 sm:text-lg">Drug recalls from the FDA, last 12 months. Search any medicine and compare the lot numbers with your bottle.</p>
           </div>
           <RecallsClient initialDrug={initialDrug} />
