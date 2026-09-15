@@ -64,6 +64,10 @@ CACHE_DAYS = 30
 GEOCODE_BATCH_MAX = 100
 # A browser location farther than this from any US ZIP is not a US location.
 MAX_NEAREST_ZIP_MILES = 60
+# A place search keeps results within this radius. The registry's city/state filter also
+# matches MAILING addresses, so a clinic that only receives post in town would otherwise
+# show up with its real practice a thousand miles away.
+MAX_RESULT_MILES = 60
 ZIP_TABLE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "us-zips.json")
 
 
@@ -270,6 +274,9 @@ def parse_npi_response(data: Any) -> List[dict]:
         loc = next((a for a in addresses if a.get("address_purpose") == "LOCATION"), addresses[0] if addresses else None)
         if not loc or not loc.get("address_1"):
             continue
+        # Foreign practice addresses (a Paris office, postal code 75116) would collide with US ZIPs.
+        if str(loc.get("country_code") or "US").upper() not in ("US", ""):
+            continue
         basic = r.get("basic") or {}
         organisation = r.get("enumeration_type") == "NPI-2"
         org_name = str(basic.get("organization_name") or basic.get("name") or "")
@@ -327,14 +334,15 @@ def merge_results(lists: Iterable[List[dict]]) -> List[dict]:
     return out
 
 
-def rank_by_distance(rows: List[dict], origin: Optional[dict], table: ZipTable) -> List[dict]:
+def rank_by_distance(rows: List[dict], origin: Optional[dict], table: ZipTable, max_miles: float = MAX_RESULT_MILES) -> List[dict]:
+    """Nearest first, within `max_miles` of the origin; rows whose ZIP the table does not know go last."""
     if not origin:
         return rows
     ranked = []
     for d in rows:
         z = table.by_zip.get(d["zip"])
         ranked.append({**d, "distanceMiles": round(distance_miles(origin["lat"], origin["lon"], z["lat"], z["lon"]), 2) if z else None})
-    known = sorted((d for d in ranked if d["distanceMiles"] is not None), key=lambda d: d["distanceMiles"])
+    known = sorted((d for d in ranked if d["distanceMiles"] is not None and d["distanceMiles"] <= max_miles), key=lambda d: d["distanceMiles"])
     return known + [d for d in ranked if d["distanceMiles"] is None]
 
 
@@ -394,7 +402,7 @@ def search(kind: str, specialty_key: str, zip_code: str = "", city: str = "", st
         typed = clean_last.lower()
         rows = [d for d in _npi_query(SPECIALTIES[0], params, by_name=True) if d["last"].lower().startswith(typed)]
         rows.sort(key=lambda d: (d["last"], d["name"]))
-        return {"origin": None, "results": rows[:MAX_RESULTS]}
+        return {"origin": None, "results": attach_cached(rows[:MAX_RESULTS])}
 
     if lat is not None and lon is not None:
         z = nearest_zip(table, lat, lon)
@@ -413,7 +421,7 @@ def search(kind: str, specialty_key: str, zip_code: str = "", city: str = "", st
         if sp.name_hint:
             jobs.append((sp, {"organization_name": sp.name_hint, "city": hit["city"], "state": hit["state"]}, True))
         rows = rank_by_distance(merge_results(_parallel(jobs)), origin, table)
-        return {"origin": origin, "results": rows[:MAX_RESULTS]}
+        return {"origin": origin, "results": attach_cached(rows[:MAX_RESULTS])}
 
     zip_code = zip_code.strip()
     if not re.fullmatch(r"\d{5}", zip_code):
@@ -430,7 +438,34 @@ def search(kind: str, specialty_key: str, zip_code: str = "", city: str = "", st
     if sp.name_hint and z:
         jobs.append((sp, {"organization_name": sp.name_hint, "city": z["city"], "state": z["state"]}, True))
     rows = rank_by_distance(merge_results(_parallel(jobs)), origin, table)
-    return {"origin": origin, "results": rows[:MAX_RESULTS]}
+    return {"origin": origin, "results": attach_cached(rows[:MAX_RESULTS])}
+
+
+def google_summary(g: Optional[dict]) -> Optional[dict]:
+    """The bits of a cached Google record a result card shows."""
+    if not g:
+        return None
+    return {"rating": g.get("rating"), "ratings_count": g.get("ratings_count"), "open_now": g.get("open_now"),
+            "hours": g.get("hours") or [], "website": g.get("website") or ""}
+
+
+def attach_cached(rows: List[dict]) -> List[dict]:
+    """Add the map pin and the Google summary we already hold for each result (one cache read,
+    no outbound calls): cards show a rating and hours for listings someone has opened before."""
+    if not rows:
+        return rows
+    cached = cache_get([d["npi"] for d in rows])
+    out = []
+    for d in rows:
+        c = cached.get(d["npi"])
+        if not c:
+            out.append({**d, "google": None})
+            continue
+        same_address = c.get("addr_hash") == addr_key(d)  # a provider that moved gets neither the old pin nor the old rating
+        pin = c.get("lat") is not None and same_address
+        out.append({**d, "lat": c["lat"] if pin else d.get("lat"), "lon": c["lon"] if pin else d.get("lon"),
+                    "google": google_summary(c.get("google")) if same_address and _fresh(c.get("google_at")) else None})
+    return out
 
 
 def lookup(npi: str) -> Optional[dict]:

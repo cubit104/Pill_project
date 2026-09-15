@@ -91,6 +91,16 @@ export interface Provider {
   distanceMiles: number | null
   lat: number | null
   lon: number | null
+  /** What Google already told us about this listing (only when someone opened it before). */
+  google?: GoogleSummary | null
+}
+
+export interface GoogleSummary {
+  rating: number | null
+  ratings_count: number | null
+  open_now: boolean | null
+  hours: string[]
+  website: string
 }
 
 export interface Origin {

@@ -49,6 +49,9 @@ def test_parse_npi_response_shapes_rows():
     assert r["specialty"] == "Internal Medicine, Cardiovascular Disease" and r["since"] == "2011"
     assert rows[1]["organisation"] is True and rows[1]["name"] == "Heart Place LLC" and rows[1]["last"] == ""
     assert p.parse_npi_response(None) == [] and p.parse_npi_response({"Errors": []}) == []
+    paris = _npi(5)
+    paris["addresses"][0].update({"country_code": "FR", "city": "PARIS", "state": "ILE DE FRANCE", "postal_code": "75116"})
+    assert p.parse_npi_response({"results": [paris]}) == []  # a foreign office never ranks as 4.7 mi from Texas
     dup = _npi(4)
     dup["addresses"][0].update({"address_1": "2520 AVENUE K, SUITE 600", "address_2": "SUITE 600"})
     assert p.parse_npi_response({"results": [dup]})[0]["address"] == "2520 Avenue K, Suite 600"
@@ -74,11 +77,11 @@ def test_specialty_filter_keeps_what_we_mean():
     assert not onc.match.search("Pharmacist, Oncology") and onc.match.search("Internal Medicine, Medical Oncology")
 
 
-def test_rank_by_distance_unknown_zips_go_last():
-    rows = [{"npi": "a", "zip": "75082"}, {"npi": "b", "zip": "00000"}, {"npi": "c", "zip": "75074"}]
+def test_rank_by_distance_unknown_zips_go_last_and_far_ones_are_dropped():
+    rows = [{"npi": "a", "zip": "75082"}, {"npi": "b", "zip": "00000"}, {"npi": "c", "zip": "75074"}, {"npi": "far", "zip": "94107"}]
     origin = {"lat": 33.03, "lon": -96.68}
     ranked = p.rank_by_distance(rows, origin, TABLE)
-    assert [r["npi"] for r in ranked] == ["c", "a", "b"]
+    assert [r["npi"] for r in ranked] == ["c", "a", "b"]  # San Francisco (mailing-address match) is not "near Plano"
     assert ranked[0]["distanceMiles"] == 0 and ranked[2]["distanceMiles"] is None
 
 
@@ -178,6 +181,24 @@ def test_google_details_two_calls(monkeypatch):
     assert post.call_args.kwargs["headers"]["X-Goog-FieldMask"] == "places.id"  # ids-only search, the free tier
     assert "4100 W 15th St" in post.call_args.kwargs["json"]["textQuery"]
     assert get.call_args.args[0].endswith("/places/pid")
+
+
+def test_search_attaches_cached_pins_and_google_summaries():
+    from datetime import datetime, timezone
+    row = {"npi": "n75075", "name": "x", "last": "x", "zip": "75075", "taxonomies": [], "specialty": "", "address": "1 Main St", "city": "Plano", "state": "TX"}
+    cached = {"n75075": {"lat": 33.02, "lon": -96.74, "addr_hash": p.addr_key(row), "google_at": datetime.now(timezone.utc),
+                         "google": {"rating": 4.9, "ratings_count": 62, "open_now": True, "hours": ["Monday: 8 AM – 5 PM"], "website": "https://x.example", "place_id": "p"}}}
+    with patch.object(p, "zip_table", return_value=TABLE), patch.object(p, "_npi_query", return_value=[row]), patch.object(p, "cache_get", return_value=cached):
+        out = p.search("doctors", "cardiology", zip_code="75075")
+    r = out["results"][0]
+    assert (r["lat"], r["lon"]) == (33.02, -96.74)
+    assert r["google"] == {"rating": 4.9, "ratings_count": 62, "open_now": True, "hours": ["Monday: 8 AM – 5 PM"], "website": "https://x.example"}
+    with patch.object(p, "zip_table", return_value=TABLE), patch.object(p, "_npi_query", return_value=[row]), patch.object(p, "cache_get", return_value={}):
+        assert p.search("doctors", "cardiology", zip_code="75075")["results"][0]["google"] is None
+    moved = {"n75075": {**cached["n75075"], "addr_hash": "somewhere-else"}}
+    with patch.object(p, "zip_table", return_value=TABLE), patch.object(p, "_npi_query", return_value=[row]), patch.object(p, "cache_get", return_value=moved):
+        r2 = p.search("doctors", "cardiology", zip_code="75075")["results"][0]
+    assert r2["google"] is None and r2["lat"] is None  # the old practice's rating never follows a move
 
 
 def test_near_me_outside_the_us_is_rejected():
