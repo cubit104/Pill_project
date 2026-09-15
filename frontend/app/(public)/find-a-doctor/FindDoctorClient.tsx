@@ -177,6 +177,7 @@ export default function FindDoctorClient({ initial }: { initial: InitialQuery })
       if (ctrl.signal.aborted) return
       setResults(res.results)
       setOrigin(res.origin)
+      setLoading(false) // the list is in; the pins follow in the background
       setPositions(Object.fromEntries(res.results.filter((d) => d.lat !== null && d.lon !== null).map((d) => [d.npi, { lat: d.lat!, lon: d.lon!, approx: false }])))
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
       const pos = await geocodeProviders(res.results.slice(0, 60), ctrl.signal)
