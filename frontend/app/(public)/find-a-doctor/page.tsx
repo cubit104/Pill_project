@@ -79,11 +79,7 @@ export default async function FindDoctorPage({ searchParams }: { searchParams: P
       <div className="bg-emerald-50 border-b border-emerald-100">
         <div className="mx-auto max-w-6xl px-4 pb-10 pt-10 sm:pt-14">
           <div className="mx-auto mb-6 max-w-2xl text-center">
-            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-800 sm:text-sm">
-              <svg className="h-3.5 w-3.5 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
-              Free · Official US provider registry · No paid listings
-            </span>
-            <h1 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-5xl">Find a doctor near you</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-5xl">Find a doctor near you</h1>
             <p className="mt-3 text-base text-slate-600 sm:text-lg">Every doctor, nurse practitioner, pharmacy and urgent care clinic in the official US registry, sorted by distance from you.</p>
           </div>
           <FindDoctorClient initial={initial} />
