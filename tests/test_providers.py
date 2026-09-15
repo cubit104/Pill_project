@@ -263,6 +263,8 @@ def test_search_pharmacy_adds_name_query_and_validates():
         p.search("doctors", "family", city="Nowhere", state="TX")
     with pytest.raises(p.ProviderError):
         p.search("doctors", "family", last="A")
+    with pytest.raises(p.ProviderError):
+        p.search("pharmacy", "", last="Walgreens")  # name search is for clinicians only
 
 
 def test_search_by_name_keeps_current_surname():
@@ -322,6 +324,37 @@ def test_routes(client):
         r = client.get("/api/providers/1234567890/extras")
     assert r.status_code == 200 and r.json()["cms"]["medical_school"] == "X"
 
+
+
+def test_detail_is_rate_limited(client, monkeypatch):
+    import routes.providers as rp
+    monkeypatch.setattr(rp, "SEARCH_PER_HOUR", 1)
+    with patch.object(p, "details", return_value={"provider": {"npi": "1234567890"}, "cms": None, "google": None, "extras_pending": False}):
+        codes = [client.get("/api/providers/1234567890").status_code for _ in range(2)]
+    assert codes == [200, 429]
+
+
+def test_inflight_prune_keeps_held_locks():
+    p._inflight.clear()
+    held = p._npi_lock("held")
+    held.acquire()
+    try:
+        for i in range(5001):
+            p._npi_lock(f"idle{i}")
+        assert p._npi_lock("held") is held  # still the same lock object, still held
+    finally:
+        held.release()
+        p._inflight.clear()
+
+
+def test_details_google_cache_needs_same_address(monkeypatch):
+    from datetime import datetime, timezone
+    monkeypatch.setenv("GOOGLE_PLACES_KEY", "k")
+    prov = {"npi": "1234567890", "organisation": True, "zip": "75093", "address": "1 New St", "city": "Plano", "state": "TX", "name": "x", "credential": ""}
+    stale = {"lat": 1.0, "lon": 2.0, "addr_hash": "old-address", "google": {"rating": 4.9}, "google_at": datetime.now(timezone.utc)}
+    with patch.object(p, "lookup", return_value=prov), patch.object(p, "cache_get", return_value={"1234567890": stale}), patch.object(p, "_geo_for", return_value=None):
+        out = p.details("1234567890")
+    assert out["google"] is None and out["extras_pending"] is True
 
 
 def test_extras_are_rate_limited(client, monkeypatch):

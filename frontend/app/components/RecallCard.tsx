@@ -34,11 +34,11 @@ export default function RecallCard({ recall, showMatch = false }: { recall: Reca
       )}
       <p className="mt-1 text-sm text-slate-500">{[recall.firm, ongoing ? 'Recall still open' : recall.status].filter(Boolean).join(' · ')}</p>
       {recall.lots && (
-        <button type="button" onClick={() => setOpen((o) => !o)} className="mt-2 text-sm font-medium text-emerald-700 hover:text-emerald-800">
+        <button type="button" aria-expanded={open} aria-controls={`lots-${recall.id}`} onClick={() => setOpen((o) => !o)} className="mt-2 text-sm font-medium text-emerald-700 hover:text-emerald-800">
           {open ? 'Hide lot numbers' : 'Show lot numbers to compare with your bottle'}
         </button>
       )}
-      {open && recall.lots && <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-700">{recall.lots}</p>}
+      {open && recall.lots && <p id={`lots-${recall.id}`} className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-700">{recall.lots}</p>}
     </article>
   )
 }

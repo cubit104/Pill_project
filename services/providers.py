@@ -399,6 +399,8 @@ def search(kind: str, specialty_key: str, zip_code: str = "", city: str = "", st
             params["first_name"] = f"{clean_first}*"
         if re.fullmatch(r"[A-Za-z]{2}", state.strip()):
             params["state"] = state.strip().upper()
+        if fixed:
+            raise ProviderError(400, "Search by name is only available for doctors.")
         typed = clean_last.lower()
         rows = [d for d in _npi_query(SPECIALTIES[0], params, by_name=True) if d["last"].lower().startswith(typed)]
         rows.sort(key=lambda d: (d["last"], d["name"]))
@@ -749,9 +751,10 @@ def details(npi: str) -> Optional[dict]:
         return None
     c = cache_get([npi]).get(npi, {})
     geo = _geo_for(p, c)
+    same_address = c.get("addr_hash") == addr_key(p)  # a provider that moved gets a fresh Google lookup
     cms = c.get("cms") if _fresh(c.get("cms_at")) else None
-    google = c.get("google") if (google_key() and _fresh(c.get("google_at"))) else None
-    pending = (not p["organisation"] and not _fresh(c.get("cms_at"))) or (bool(google_key()) and not _fresh(c.get("google_at")))
+    google = c.get("google") if (google_key() and same_address and _fresh(c.get("google_at"))) else None
+    pending = (not p["organisation"] and not _fresh(c.get("cms_at"))) or (bool(google_key()) and (not same_address or not _fresh(c.get("google_at"))))
     return {"provider": {**p, "lat": (geo or {}).get("lat"), "lon": (geo or {}).get("lon")}, "cms": cms, "google": google,
             "extras_pending": pending, "sources": {"registry": True, "cms": cms is not None, "google": google is not None}}
 
@@ -763,8 +766,9 @@ _inflight_guard = threading.Lock()
 def _npi_lock(npi: str) -> threading.Lock:
     """One lock per NPI so concurrent requests for the same uncached provider fetch once."""
     with _inflight_guard:
-        if len(_inflight) > 5000:
-            _inflight.clear()
+        if len(_inflight) > 5000:  # prune idle locks only; a held one stays so its waiters still queue behind it
+            for k in [k for k, v in _inflight.items() if not v.locked()]:
+                _inflight.pop(k, None)
         return _inflight.setdefault(npi, threading.Lock())
 
 
@@ -793,12 +797,12 @@ def extras(npi: str) -> Optional[dict]:
 
         if not google_key():
             google = None
-        elif _fresh(c.get("google_at")):
+        elif _fresh(c.get("google_at")) and c.get("addr_hash") == addr_key(p):
             google = c.get("google")
         else:
             try:
                 google = google_details(p, geo)
-                cache_put(npi, google=google, google_at=datetime.now(timezone.utc))
+                cache_put(npi, google=google, google_at=datetime.now(timezone.utc), addr_hash=addr_key(p))
             except UpstreamError as e:
                 logger.warning("%s", e)
                 google = c.get("google")
