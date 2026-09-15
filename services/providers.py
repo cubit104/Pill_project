@@ -449,22 +449,37 @@ def google_summary(g: Optional[dict]) -> Optional[dict]:
             "hours": g.get("hours") or [], "website": g.get("website") or ""}
 
 
+def approx_position(d: dict, table: ZipTable) -> Optional[dict]:
+    """The ZIP centre, nudged up to ~0.3 mi per provider so same-ZIP pins do not stack: an
+    instant placeholder on the map until the exact geocode arrives."""
+    z = table.by_zip.get(d.get("zip") or "")
+    if not z:
+        return None
+    h = int(hashlib.sha1(d["npi"].encode("utf-8")).hexdigest()[:8], 16)
+    dlat = ((h % 1000) / 1000 - 0.5) * 0.008
+    dlon = (((h // 1000) % 1000) / 1000 - 0.5) * 0.008
+    return {"lat": round(z["lat"] + dlat, 5), "lon": round(z["lon"] + dlon, 5)}
+
+
 def attach_cached(rows: List[dict]) -> List[dict]:
-    """Add the map pin and the Google summary we already hold for each result (one cache read,
-    no outbound calls): cards show a rating and hours for listings someone has opened before."""
+    """Add a map position and the Google summary we already hold for each result (one cache
+    read, no outbound calls). The position is exact when a geocode is cached for this address,
+    otherwise the ZIP centre flagged `approx` so the map fills instantly and refines later;
+    the Google summary shows a rating and hours for listings someone has opened before."""
     if not rows:
         return rows
     cached = cache_get([d["npi"] for d in rows])
+    table = zip_table()
     out = []
     for d in rows:
-        c = cached.get(d["npi"])
-        if not c:
-            out.append({**d, "google": None})
-            continue
+        c = cached.get(d["npi"]) or {}
         same_address = c.get("addr_hash") == addr_key(d)  # a provider that moved gets neither the old pin nor the old rating
-        pin = c.get("lat") is not None and same_address
-        out.append({**d, "lat": c["lat"] if pin else d.get("lat"), "lon": c["lon"] if pin else d.get("lon"),
-                    "google": google_summary(c.get("google")) if same_address and _fresh(c.get("google_at")) else None})
+        if c.get("lat") is not None and same_address:
+            pos = {"lat": c["lat"], "lon": c["lon"], "approx": False}
+        else:
+            a = approx_position(d, table)
+            pos = {"lat": a["lat"], "lon": a["lon"], "approx": True} if a else {"lat": d.get("lat"), "lon": d.get("lon"), "approx": True}
+        out.append({**d, **pos, "google": google_summary(c.get("google")) if c and same_address and _fresh(c.get("google_at")) else None})
     return out
 
 

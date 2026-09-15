@@ -194,11 +194,14 @@ def test_search_attaches_cached_pins_and_google_summaries():
     assert (r["lat"], r["lon"]) == (33.02, -96.74)
     assert r["google"] == {"rating": 4.9, "ratings_count": 62, "open_now": True, "hours": ["Monday: 8 AM – 5 PM"], "website": "https://x.example"}
     with patch.object(p, "zip_table", return_value=TABLE), patch.object(p, "_npi_query", return_value=[row]), patch.object(p, "cache_get", return_value={}):
-        assert p.search("doctors", "cardiology", zip_code="75075")["results"][0]["google"] is None
+        r0 = p.search("doctors", "cardiology", zip_code="75075")["results"][0]
+    assert r0["google"] is None
+    assert r0["approx"] is True and abs(r0["lat"] - 33.02) < 0.01 and abs(r0["lon"] + 96.74) < 0.01  # instant placeholder at the ZIP centre
+    assert r["approx"] is False
     moved = {"n75075": {**cached["n75075"], "addr_hash": "somewhere-else"}}
     with patch.object(p, "zip_table", return_value=TABLE), patch.object(p, "_npi_query", return_value=[row]), patch.object(p, "cache_get", return_value=moved):
         r2 = p.search("doctors", "cardiology", zip_code="75075")["results"][0]
-    assert r2["google"] is None and r2["lat"] is None  # the old practice's rating never follows a move
+    assert r2["google"] is None and r2["approx"] is True  # the old practice's rating and exact pin never follow a move
 
 
 def test_near_me_outside_the_us_is_rejected():

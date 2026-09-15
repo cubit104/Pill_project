@@ -91,9 +91,10 @@ export default function ProviderMap({
       const pos = positions[d.npi]
       if (!pos) return
       const isSel = d.npi === selected
+      const soft = pos.approx ? 'opacity:.55;border-style:dashed;' : ''
       const html = isSel
-        ? `<div style="width:32px;height:32px;border-radius:9999px;background:#059669;color:#fff;border:2px solid #fff;box-shadow:0 2px 8px rgba(15,23,42,.35);display:flex;align-items:center;justify-content:center;font:700 13px system-ui,sans-serif">${i + 1}</div>`
-        : `<div style="width:26px;height:26px;border-radius:9999px;background:#fff;color:#0f172a;border:2px solid #059669;box-shadow:0 2px 6px rgba(15,23,42,.2);display:flex;align-items:center;justify-content:center;font:700 11px system-ui,sans-serif">${i + 1}</div>`
+        ? `<div style="width:32px;height:32px;border-radius:9999px;background:#059669;color:#fff;border:2px solid #fff;box-shadow:0 2px 8px rgba(15,23,42,.35);display:flex;align-items:center;justify-content:center;font:700 13px system-ui,sans-serif;${soft}">${i + 1}</div>`
+        : `<div style="width:26px;height:26px;border-radius:9999px;background:#fff;color:#0f172a;border:2px solid #059669;box-shadow:0 2px 6px rgba(15,23,42,.2);display:flex;align-items:center;justify-content:center;font:700 11px system-ui,sans-serif;${soft}">${i + 1}</div>`
       const size = isSel ? 32 : 26
       const m = L.marker([pos.lat, pos.lon], {
         icon: L.divIcon({ className: '', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] }),

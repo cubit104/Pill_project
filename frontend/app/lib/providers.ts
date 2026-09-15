@@ -91,6 +91,8 @@ export interface Provider {
   distanceMiles: number | null
   lat: number | null
   lon: number | null
+  /** True while lat/lon is the ZIP centre placeholder; the geocode call replaces it. */
+  approx?: boolean
   /** What Google already told us about this listing (only when someone opened it before). */
   google?: GoogleSummary | null
 }
