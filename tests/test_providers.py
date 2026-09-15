@@ -67,6 +67,9 @@ def test_specialty_filter_keeps_what_we_mean():
     assert [r["npi"] for r in kept] == ["1", "3"]
     assert kept[1]["specialty"] == "Psychiatry & Neurology, Psychiatry"  # the matching one is shown, not Emergency Medicine
     assert [r["npi"] for r in p.filter_by_specialty(rows, neuro)] == ["2"]
+    blank = {**rows[0], "npi": "9", "specialty": "", "taxonomies": []}
+    assert p.filter_by_specialty([blank], psych) == []  # unknown specialty only on "All providers"
+    assert [r["npi"] for r in p.filter_by_specialty([blank], p.specialty_by_key("all"))] == ["9"]
     onc = p.specialty_by_key("oncology")
     assert not onc.match.search("Pharmacist, Oncology") and onc.match.search("Internal Medicine, Medical Oncology")
 
@@ -105,7 +108,8 @@ def test_parse_census_batch():
 
 def test_geocode_batch_uses_cache_census_and_zip_fallback():
     census = MagicMock(status_code=200, text='"2","a","Match","Exact","a","-96.70,33.01","1","L"\n')
-    with patch.object(p, "cache_get", return_value={"1": {"lat": 1.0, "lon": 2.0}}), \
+    cached_item = {"npi": "1", "address": "cached", "city": "", "state": "", "zip": ""}
+    with patch.object(p, "cache_get", return_value={"1": {"lat": 1.0, "lon": 2.0, "addr_hash": p.addr_key(cached_item)}}), \
             patch.object(p, "cache_put") as put, patch.object(p, "zip_table", return_value=TABLE), \
             patch.object(p.requests, "post", return_value=census) as post:
         out = p.geocode_batch([
@@ -118,7 +122,19 @@ def test_geocode_batch_uses_cache_census_and_zip_fallback():
     assert out["3"] == {"lat": 33.03, "lon": -96.68, "approx": True}  # ZIP centroid, flagged
     post.assert_called_once()
     put.assert_called_once()
-    assert put.call_args.args[0] == "2"
+    assert put.call_args.args[0] == "2" and put.call_args.kwargs["addr_hash"] == p.addr_key({"address": "4100 W 15th St", "city": "Plano", "state": "TX", "zip": "75093"})
+
+
+def test_cached_position_is_only_reused_for_the_same_address():
+    item = {"npi": "1", "address": "4100 W 15th St", "city": "Plano", "state": "TX", "zip": "75093"}
+    cached = {"1": {"lat": 1.0, "lon": 2.0, "addr_hash": p.addr_key({**item, "address": "999 Elsewhere Rd"})}}
+    census = MagicMock(status_code=200, text="")
+    with patch.object(p, "cache_get", return_value=cached), patch.object(p, "cache_put"), patch.object(p, "zip_table", return_value=TABLE), \
+            patch.object(p.requests, "post", return_value=census) as post:
+        out = p.geocode_batch([item])
+    post.assert_called_once()  # the poisoned pin was not trusted; the real address was geocoded
+    assert out["1"]["approx"] is True
+    assert p.addr_key(item) == p.addr_key({**item, "address": " 4100  w 15th st "})
 
 
 def test_shape_cms_picks_practice_zip_and_trims():
@@ -162,6 +178,35 @@ def test_google_details_two_calls(monkeypatch):
     assert post.call_args.kwargs["headers"]["X-Goog-FieldMask"] == "places.id"  # ids-only search, the free tier
     assert "4100 W 15th St" in post.call_args.kwargs["json"]["textQuery"]
     assert get.call_args.args[0].endswith("/places/pid")
+
+
+def test_near_me_outside_the_us_is_rejected():
+    with patch.object(p, "zip_table", return_value=TABLE), patch.object(p, "_npi_query", return_value=[]):
+        with pytest.raises(p.ProviderError):
+            p.search("doctors", "family", lat=51.5, lon=-0.12)  # London
+        out = p.search("doctors", "family", lat=33.03, lon=-96.68)
+    assert out["origin"]["label"] == "Plano, TX"
+
+
+def test_city_search_fans_out_around_the_centre():
+    calls = []
+    with patch.object(p, "zip_table", return_value=TABLE), patch.object(p, "_npi_query", side_effect=lambda sp, extra, by_name=False: calls.append(extra) or []):
+        p.search("doctors", "cardiology", city="Plano", state="TX")
+    assert {"city": "Plano", "state": "TX"} in calls
+    assert {c.get("postal_code") for c in calls if "postal_code" in c} >= {"75074*", "75075*", "75093*"}
+
+
+def test_extras_never_caches_an_upstream_failure(monkeypatch):
+    monkeypatch.setenv("GOOGLE_PLACES_KEY", "k")
+    prov = {"npi": "1234567890", "organisation": False, "zip": "75093", "address": "a", "city": "b", "state": "TX", "name": "x", "credential": "MD"}
+    with patch.object(p, "lookup", return_value=prov), patch.object(p, "cache_get", return_value={}), \
+            patch.object(p, "_geo_for", return_value=None), patch.object(p, "cache_put") as put, \
+            patch.object(p, "cms_details", side_effect=p.UpstreamError("cms down")), \
+            patch.object(p, "google_details", return_value=None):
+        out = p.extras("1234567890")
+    assert out["cms"] is None and out["google"] is None
+    assert [c.kwargs.get("google_at") is not None for c in put.call_args_list] == [True]  # only the confirmed no-match was cached
+    assert all("cms_at" not in c.kwargs for c in put.call_args_list)
 
 
 def test_search_by_zip_fans_out_to_nearby_zips_and_ranks():
@@ -208,11 +253,14 @@ def test_search_by_name_keeps_current_surname():
 
 @pytest.fixture()
 def client():
+    from services import ratelimit
+    ratelimit.reset()
     with patch("main.connect_to_database", return_value=True), patch("main.warmup_system", return_value=None):
         from fastapi.testclient import TestClient
         import main as app_module
         with TestClient(app_module.app) as c:
             yield c
+    ratelimit.reset()
 
 
 def test_routes(client):
@@ -225,7 +273,10 @@ def test_routes(client):
 
     with patch.object(p, "search", return_value={"origin": None, "results": [{"npi": "1"}]}) as s:
         r = client.get("/api/providers/search", params={"kind": "urgent", "zip": "75074"})
-    assert r.status_code == 200 and r.json()["count"] == 1 and s.call_args.args[0] == "urgent"
+        near = client.get("/api/providers/search", params={"lat": "33.03", "lon": "-96.68"})
+    assert r.status_code == 200 and r.json()["count"] == 1 and s.call_args_list[0].args[0] == "urgent"
+    assert r.headers["cache-control"].startswith("public")
+    assert near.headers["cache-control"] == "private, no-store"  # the visitor's coordinates never sit in a shared cache
     assert client.get("/api/providers/search", params={"kind": "hospital"}).status_code == 422
 
     with patch.object(p, "search", side_effect=p.ProviderError(400, "Enter a 5-digit ZIP code.")):
@@ -246,3 +297,12 @@ def test_routes(client):
     with patch.object(p, "extras", return_value={"cms": {"medical_school": "X"}, "google": None}):
         r = client.get("/api/providers/1234567890/extras")
     assert r.status_code == 200 and r.json()["cms"]["medical_school"] == "X"
+
+
+
+def test_extras_are_rate_limited(client, monkeypatch):
+    import routes.providers as rp
+    monkeypatch.setattr(rp, "EXTRAS_PER_HOUR", 2)
+    with patch.object(p, "extras", return_value={"cms": None, "google": None}):
+        codes = [client.get("/api/providers/1234567890/extras").status_code for _ in range(3)]
+    assert codes == [200, 200, 429]

@@ -23,6 +23,7 @@ Everything network-facing is small and mockable; the pure helpers are tested.
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -61,6 +62,8 @@ NEARBY_ZIPS = 10
 NEARBY_MILES = 12
 CACHE_DAYS = 30
 GEOCODE_BATCH_MAX = 100
+# A browser location farther than this from any US ZIP is not a US location.
+MAX_NEAREST_ZIP_MILES = 60
 ZIP_TABLE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "us-zips.json")
 
 
@@ -304,7 +307,7 @@ def filter_by_specialty(rows: List[dict], sp: Specialty) -> List[dict]:
     """Keep rows carrying the specialty in any taxonomy; show that one on the card."""
     out = []
     for d in rows:
-        if (not d["taxonomies"] and not d["specialty"]) or sp.match.search(d["specialty"]):
+        if (sp.key == "all" and not d["taxonomies"] and not d["specialty"]) or sp.match.search(d["specialty"]):
             out.append(d)
             continue
         hit = next((t for t in d["taxonomies"] if sp.match.search(t["desc"])), None)
@@ -333,6 +336,10 @@ def rank_by_distance(rows: List[dict], origin: Optional[dict], table: ZipTable) 
         ranked.append({**d, "distanceMiles": round(distance_miles(origin["lat"], origin["lon"], z["lat"], z["lon"]), 2) if z else None})
     known = sorted((d for d in ranked if d["distanceMiles"] is not None), key=lambda d: d["distanceMiles"])
     return known + [d for d in ranked if d["distanceMiles"] is None]
+
+
+class UpstreamError(Exception):
+    """A data source did not answer properly; the result must not be cached as a negative."""
 
 
 class ProviderError(Exception):
@@ -391,8 +398,8 @@ def search(kind: str, specialty_key: str, zip_code: str = "", city: str = "", st
 
     if lat is not None and lon is not None:
         z = nearest_zip(table, lat, lon)
-        if not z:
-            raise ProviderError(400, "That location is outside the US.")
+        if not z or distance_miles(lat, lon, z["lat"], z["lon"]) > MAX_NEAREST_ZIP_MILES:
+            raise ProviderError(400, "That location is outside the US. Search by ZIP or city instead.")
         origin = {"lat": lat, "lon": lon, "label": f"{z['city']}, {z['state']}", "zip": z["zip"]}
         zip_code = z["zip"]
     elif city.strip():
@@ -400,7 +407,9 @@ def search(kind: str, specialty_key: str, zip_code: str = "", city: str = "", st
         if not hit:
             raise ProviderError(400, "Pick a city from the list.")
         origin = {"lat": hit["lat"], "lon": hit["lon"], "label": f"{hit['city']}, {hit['state']}", "zip": ""}
-        jobs = [(sp, {"city": hit["city"], "state": hit["state"]}, False)]
+        codes = [r["zip"] for r in nearby_zips(table, hit["lat"], hit["lon"])]
+        jobs = [(sp, {"postal_code": f"{c}*"}, False) for c in codes]
+        jobs.append((sp, {"city": hit["city"], "state": hit["state"]}, False))
         if sp.name_hint:
             jobs.append((sp, {"organization_name": sp.name_hint, "city": hit["city"], "state": hit["state"]}, True))
         rows = rank_by_distance(merge_results(_parallel(jobs)), origin, table)
@@ -446,6 +455,12 @@ def _engine():
     return database.db_engine
 
 
+def addr_key(i: dict) -> str:
+    """Hash of the address a position was geocoded from; a cached pin is only reused for it."""
+    raw = " ".join(re.sub(r"\s+", " ", str(i.get(k) or "").strip().upper()) for k in ("address", "city", "state", "zip"))
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
 def cache_get(npis: List[str]) -> Dict[str, dict]:
     eng = _engine()
     if not eng or not npis:
@@ -453,10 +468,10 @@ def cache_get(npis: List[str]) -> Dict[str, dict]:
     try:
         with eng.connect() as conn:
             rows = conn.execute(
-                text("SELECT npi, lat, lon, geocoded_at, cms, cms_at, google, google_at FROM provider_cache WHERE npi = ANY(:npis)"),
+                text("SELECT npi, lat, lon, geocoded_at, cms, cms_at, google, google_at, addr_hash FROM provider_cache WHERE npi = ANY(:npis)"),
                 {"npis": list(npis)},
             ).fetchall()
-        return {r[0]: {"lat": r[1], "lon": r[2], "geocoded_at": r[3], "cms": r[4], "cms_at": r[5], "google": r[6], "google_at": r[7]} for r in rows}
+        return {r[0]: {"lat": r[1], "lon": r[2], "geocoded_at": r[3], "cms": r[4], "cms_at": r[5], "google": r[6], "google_at": r[7], "addr_hash": r[8]} for r in rows}
     except Exception as e:  # cache is an optimisation, never a failure
         logger.warning("provider_cache read failed: %s", e)
         return {}
@@ -514,7 +529,7 @@ def geocode_batch(items: List[dict]) -> Dict[str, dict]:
     todo = []
     for i in items:
         c = cached.get(i["npi"])
-        if c and c.get("lat") is not None:
+        if c and c.get("lat") is not None and c.get("addr_hash") == addr_key(i):
             out[i["npi"]] = {"lat": c["lat"], "lon": c["lon"], "approx": False}
         else:
             todo.append(i)
@@ -540,7 +555,7 @@ def geocode_batch(items: List[dict]) -> Dict[str, dict]:
             hit = found.get(i["npi"])
             if hit:
                 out[i["npi"]] = {**hit, "approx": False}
-                cache_put(i["npi"], lat=hit["lat"], lon=hit["lon"], geocoded_at=datetime.now(timezone.utc))
+                cache_put(i["npi"], lat=hit["lat"], lon=hit["lon"], geocoded_at=datetime.now(timezone.utc), addr_hash=addr_key(i))
             else:
                 z = table.by_zip.get(_short_zip(i.get("zip", "")))
                 if z:
@@ -553,9 +568,12 @@ def geocode_batch(items: List[dict]) -> Dict[str, dict]:
 def _cms_rows(dataset: str, prop: str, value: str, limit: int = 5) -> List[dict]:
     params = {"conditions[0][property]": prop, "conditions[0][value]": value, "conditions[0][operator]": "=",
               "limit": str(limit), "count": "false", "schema": "false"}
-    r = requests.get(CMS_QUERY.format(dataset=dataset), params=params, headers=UA, timeout=CMS_TIMEOUT)
+    try:
+        r = requests.get(CMS_QUERY.format(dataset=dataset), params=params, headers=UA, timeout=CMS_TIMEOUT)
+    except Exception as e:
+        raise UpstreamError(f"cms {dataset}: {e}") from e
     if r.status_code != 200:
-        return []
+        raise UpstreamError(f"cms {dataset}: HTTP {r.status_code}")
     data = r.json()
     return data.get("results") or [] if isinstance(data, dict) else []
 
@@ -585,6 +603,7 @@ def shape_cms(clinician_rows: List[dict], hospitals: List[str], practice_zip: st
 
 
 def cms_details(npi: str, practice_zip: str = "") -> Optional[dict]:
+    """None when CMS has no record for this NPI; raises UpstreamError when CMS is unreachable."""
     try:
         with ThreadPoolExecutor(max_workers=2) as ex:
             rows_f = ex.submit(_cms_rows, CMS_CLINICIANS, "npi", npi, 10)
@@ -601,9 +620,10 @@ def cms_details(npi: str, practice_zip: str = "") -> Optional[dict]:
                     if h and h[0].get("facility_name"):
                         hospitals.append(_title(str(h[0]["facility_name"])))
         return shape_cms(rows, hospitals, practice_zip)
+    except UpstreamError:
+        raise
     except Exception as e:
-        logger.warning("cms lookup failed for %s: %s", npi, e)
-        return None
+        raise UpstreamError(f"cms lookup failed for {npi}: {e}") from e
 
 
 # ---- Google Places (optional) ---------------------------------------------------------------
@@ -633,7 +653,8 @@ def shape_place(place: dict) -> dict:
 
 
 def google_details(provider: dict, near: Optional[dict] = None) -> Optional[dict]:
-    """Ids-only text search (free tier) then one place-details call; None without a key or a match."""
+    """Ids-only text search (free tier) then one place-details call. None without a key or
+    without a match (cacheable); raises UpstreamError when Google does not answer properly."""
     key = google_key()
     if not key:
         return None
@@ -646,8 +667,7 @@ def google_details(provider: dict, near: Optional[dict] = None) -> Optional[dict
         r = requests.post(PLACES_SEARCH, json=body, timeout=TIMEOUT,
                           headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": "places.id", "Content-Type": "application/json"})
         if r.status_code != 200:
-            logger.warning("places search %s: %s", r.status_code, r.text[:160])
-            return None
+            raise UpstreamError(f"places search HTTP {r.status_code}: {r.text[:160]}")
         places = r.json().get("places") or []
         if not places:
             return None
@@ -655,18 +675,18 @@ def google_details(provider: dict, near: Optional[dict] = None) -> Optional[dict
         d = requests.get(PLACES_DETAILS.format(place_id=pid), timeout=TIMEOUT,
                          headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": PLACES_DETAIL_FIELDS})
         if d.status_code != 200:
-            logger.warning("places details %s: %s", d.status_code, d.text[:160])
-            return None
+            raise UpstreamError(f"places details HTTP {d.status_code}: {d.text[:160]}")
         return shape_place(d.json())
+    except UpstreamError:
+        raise
     except Exception as e:
-        logger.warning("places lookup failed: %s", e)
-        return None
+        raise UpstreamError(f"places lookup failed: {e}") from e
 
 
 # ---- Details -----------------------------------------------------------------------------------
 
 def _geo_for(p: dict, cached: dict) -> Optional[dict]:
-    if cached.get("lat") is not None:
+    if cached.get("lat") is not None and cached.get("addr_hash") == addr_key(p):
         return {"lat": cached["lat"], "lon": cached["lon"], "approx": False}
     return geocode_batch([{k: p[k] for k in ("npi", "address", "city", "state", "zip")}]).get(p["npi"])
 
@@ -686,26 +706,50 @@ def details(npi: str) -> Optional[dict]:
             "extras_pending": pending, "sources": {"registry": True, "cms": cms is not None, "google": google is not None}}
 
 
+_inflight: Dict[str, threading.Lock] = {}
+_inflight_guard = threading.Lock()
+
+
+def _npi_lock(npi: str) -> threading.Lock:
+    """One lock per NPI so concurrent requests for the same uncached provider fetch once."""
+    with _inflight_guard:
+        if len(_inflight) > 5000:
+            _inflight.clear()
+        return _inflight.setdefault(npi, threading.Lock())
+
+
 def extras(npi: str) -> Optional[dict]:
     """CMS clinician details and Google Places details, fetched (slow, 5-15 s the first time)
-    or served from the 30-day cache."""
+    or served from the 30-day cache. A source that fails to answer is retried next time,
+    never cached as "no record"."""
     p = lookup(npi)
     if not p:
         return None
-    c = cache_get([npi]).get(npi, {})
-    geo = _geo_for(p, c)
+    with _npi_lock(npi):
+        c = cache_get([npi]).get(npi, {})  # re-read under the lock: a waiter sees the fresh write
+        geo = _geo_for(p, c)
 
-    if _fresh(c.get("cms_at")):
-        cms = c.get("cms")
-    else:
-        cms = cms_details(npi, p["zip"]) if not p["organisation"] else None
-        cache_put(npi, cms=cms, cms_at=datetime.now(timezone.utc))
+        if _fresh(c.get("cms_at")):
+            cms = c.get("cms")
+        elif p["organisation"]:
+            cms = None
+        else:
+            try:
+                cms = cms_details(npi, p["zip"])
+                cache_put(npi, cms=cms, cms_at=datetime.now(timezone.utc))
+            except UpstreamError as e:
+                logger.warning("%s", e)
+                cms = c.get("cms")  # stale or None, not recorded as fresh
 
-    if not google_key():
-        google = None
-    elif _fresh(c.get("google_at")):
-        google = c.get("google")
-    else:
-        google = google_details(p, geo)
-        cache_put(npi, google=google, google_at=datetime.now(timezone.utc))
+        if not google_key():
+            google = None
+        elif _fresh(c.get("google_at")):
+            google = c.get("google")
+        else:
+            try:
+                google = google_details(p, geo)
+                cache_put(npi, google=google, google_at=datetime.now(timezone.utc))
+            except UpstreamError as e:
+                logger.warning("%s", e)
+                google = c.get("google")
     return {"cms": cms, "google": google, "sources": {"cms": cms is not None, "google": google is not None}}

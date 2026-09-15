@@ -12,18 +12,24 @@ GET  /api/providers/{npi}/extras           CMS and Google details (slow the firs
 from __future__ import annotations
 
 import logging
+import os
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from services import providers as svc
+from services import ratelimit
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/providers", tags=["providers"])
 
 SEARCH_CACHE = "public, max-age=300, stale-while-revalidate=3600"
 DETAIL_CACHE = "public, max-age=3600, stale-while-revalidate=86400"
+# Per-client budgets (per hour). Searches fan out to the registry; extras cost CMS time and Google quota.
+SEARCH_PER_HOUR = int(os.getenv("PILL_PROVIDER_SEARCH_PER_HOUR", "120"))
+GEOCODE_PER_HOUR = int(os.getenv("PILL_PROVIDER_GEOCODE_PER_HOUR", "120"))
+EXTRAS_PER_HOUR = int(os.getenv("PILL_PROVIDER_EXTRAS_PER_HOUR", "60"))
 
 
 @router.get("/specialties")
@@ -43,6 +49,7 @@ def cities(response: Response, q: str = Query("", max_length=60), limit: int = Q
 
 @router.get("/search")
 def search(
+    request: Request,
     response: Response,
     kind: str = Query("doctors", pattern="^(doctors|pharmacy|urgent)$"),
     specialty: str = Query("family", max_length=30),
@@ -54,6 +61,7 @@ def search(
     last: str = Query("", max_length=40),
     first: str = Query("", max_length=40),
 ):
+    ratelimit.check(request, "providers.search", SEARCH_PER_HOUR, "Too many searches; please try again in a while.")
     try:
         out = svc.search(kind, specialty, zip_code=zip, city=city, state=state, lat=lat, lon=lon, last=last, first=first)
     except svc.ProviderError as e:
@@ -61,7 +69,8 @@ def search(
     except Exception as e:
         logger.error("provider search failed: %s", e, exc_info=True)
         raise HTTPException(status_code=502, detail="Could not reach the provider registry. Try again in a minute.")
-    response.headers["Cache-Control"] = SEARCH_CACHE
+    # A "near me" answer carries the visitor's coordinates: never let a shared cache keep it.
+    response.headers["Cache-Control"] = "private, no-store" if (lat is not None or lon is not None) else SEARCH_CACHE
     return {"origin": out["origin"], "results": out["results"], "count": len(out["results"])}
 
 
@@ -78,7 +87,8 @@ class GeocodeBody(BaseModel):
 
 
 @router.post("/geocode")
-def geocode(body: GeocodeBody):
+def geocode(body: GeocodeBody, request: Request):
+    ratelimit.check(request, "providers.geocode", GEOCODE_PER_HOUR)
     try:
         positions = svc.geocode_batch([i.model_dump() for i in body.items])
     except Exception as e:
@@ -105,9 +115,10 @@ def detail(npi: str, response: Response):
 
 
 @router.get("/{npi}/extras")
-def detail_extras(npi: str, response: Response):
+def detail_extras(npi: str, request: Request, response: Response):
     if not npi.isdigit() or len(npi) != 10:
         raise HTTPException(status_code=404, detail="Not found")
+    ratelimit.check(request, "providers.extras", EXTRAS_PER_HOUR, "Too many lookups; please try again in a while.")
     try:
         out = svc.extras(npi)
     except svc.ProviderError as e:
