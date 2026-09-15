@@ -183,6 +183,20 @@ def test_google_details_two_calls(monkeypatch):
     assert get.call_args.args[0].endswith("/places/pid")
 
 
+def test_search_attaches_cached_pins_and_google_summaries():
+    from datetime import datetime, timezone
+    row = {"npi": "n75075", "name": "x", "last": "x", "zip": "75075", "taxonomies": [], "specialty": "", "address": "1 Main St", "city": "Plano", "state": "TX"}
+    cached = {"n75075": {"lat": 33.02, "lon": -96.74, "addr_hash": p.addr_key(row), "google_at": datetime.now(timezone.utc),
+                         "google": {"rating": 4.9, "ratings_count": 62, "open_now": True, "hours": ["Monday: 8 AM – 5 PM"], "website": "https://x.example", "place_id": "p"}}}
+    with patch.object(p, "zip_table", return_value=TABLE), patch.object(p, "_npi_query", return_value=[row]), patch.object(p, "cache_get", return_value=cached):
+        out = p.search("doctors", "cardiology", zip_code="75075")
+    r = out["results"][0]
+    assert (r["lat"], r["lon"]) == (33.02, -96.74)
+    assert r["google"] == {"rating": 4.9, "ratings_count": 62, "open_now": True, "hours": ["Monday: 8 AM – 5 PM"], "website": "https://x.example"}
+    with patch.object(p, "zip_table", return_value=TABLE), patch.object(p, "_npi_query", return_value=[row]), patch.object(p, "cache_get", return_value={}):
+        assert p.search("doctors", "cardiology", zip_code="75075")["results"][0]["google"] is None
+
+
 def test_near_me_outside_the_us_is_rejected():
     with patch.object(p, "zip_table", return_value=TABLE), patch.object(p, "_npi_query", return_value=[]):
         with pytest.raises(p.ProviderError):

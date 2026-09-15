@@ -23,6 +23,7 @@ import {
   type CmsDetails,
   type FinderKind,
   type GoogleDetails,
+  type GoogleSummary,
   type Origin,
   type Position,
   type Provider,
@@ -281,7 +282,13 @@ export default function FindDoctorClient({ initial }: { initial: InitialQuery })
       if (d.extras_pending) {
         setExtrasLoading(true)
         const x = await providerExtras(npi, ctrl.signal)
-        if (!ctrl.signal.aborted) setExtras({ cms: x.cms, google: x.google })
+        if (ctrl.signal.aborted) return
+        setExtras({ cms: x.cms, google: x.google })
+        if (x.google) {
+          const g = x.google
+          const summary: GoogleSummary = { rating: g.rating, ratings_count: g.ratings_count, open_now: g.open_now, hours: g.hours, website: g.website }
+          setResults((prev) => prev?.map((r) => (r.npi === npi ? { ...r, google: summary } : r)) ?? prev)
+        }
       }
     } catch (err) {
       if (ctrl.signal.aborted) return
@@ -522,6 +529,7 @@ function ProviderCard({ d, index, active, onOpen }: { d: Provider; index: number
           <p className="mt-0.5 text-sm text-slate-500">
             {d.address}, {d.city}, {d.state} {d.zip}
           </p>
+          <GoogleLine g={d.google} />
           <div className="mt-3 flex flex-wrap gap-2">
             {d.phone && (
               <a href={telHref(d.phone)} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700">
@@ -539,6 +547,29 @@ function ProviderCard({ d, index, active, onOpen }: { d: Provider; index: number
         </div>
       </div>
     </article>
+  )
+}
+
+/** "★ 4.9 · 62 reviews · Open until 5 PM", only for listings Google has told us about already. */
+function GoogleLine({ g }: { g?: GoogleSummary | null }) {
+  if (!g || (g.rating === null && !g.hours.length)) return null
+  const today = todaysHours(g.hours)
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-slate-600">
+      {g.rating !== null && (
+        <span className="inline-flex items-center gap-1">
+          <Icon d={STAR} className="h-4 w-4" stroke="#f59e0b" />
+          <span className="font-semibold text-slate-800">{g.rating.toFixed(1)}</span>
+          {g.ratings_count !== null && <span className="text-slate-500">({g.ratings_count})</span>}
+        </span>
+      )}
+      {today && (
+        <span className={g.open_now ? 'font-medium text-emerald-700' : g.open_now === false ? 'text-slate-500' : ''}>
+          {g.open_now === true ? 'Open · ' : g.open_now === false ? 'Closed · ' : ''}
+          {today}
+        </span>
+      )}
+    </p>
   )
 }
 
