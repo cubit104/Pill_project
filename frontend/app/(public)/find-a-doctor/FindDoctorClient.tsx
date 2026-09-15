@@ -179,7 +179,8 @@ export default function FindDoctorClient({ initial }: { initial: InitialQuery })
       setResults(res.results)
       setOrigin(res.origin)
       setLoading(false) // the list is in; the pins follow in the background
-      setPositions(Object.fromEntries(res.results.filter((d) => d.lat !== null && d.lon !== null).map((d) => [d.npi, { lat: d.lat!, lon: d.lon!, approx: false }])))
+      // Pins at once: exact where cached, else the ZIP centre (lighter) until the geocode lands.
+      setPositions(Object.fromEntries(res.results.filter((d) => d.lat !== null && d.lon !== null).map((d) => [d.npi, { lat: d.lat!, lon: d.lon!, approx: d.approx === true }])))
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
       const pos = await geocodeProviders(res.results.slice(0, 60), ctrl.signal)
       if (ctrl.signal.aborted) return
