@@ -461,9 +461,10 @@ def attach_cached(rows: List[dict]) -> List[dict]:
         if not c:
             out.append({**d, "google": None})
             continue
-        pin = c.get("lat") is not None and c.get("addr_hash") == addr_key(d)
+        same_address = c.get("addr_hash") == addr_key(d)  # a provider that moved gets neither the old pin nor the old rating
+        pin = c.get("lat") is not None and same_address
         out.append({**d, "lat": c["lat"] if pin else d.get("lat"), "lon": c["lon"] if pin else d.get("lon"),
-                    "google": google_summary(c.get("google")) if _fresh(c.get("google_at")) else None})
+                    "google": google_summary(c.get("google")) if same_address and _fresh(c.get("google_at")) else None})
     return out
 
 
