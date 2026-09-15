@@ -29,9 +29,15 @@ def _sanitize(value: object) -> Optional[str]:
     s = str(value)
     if s == "":
         return None
-    # Strip tags, then decode entities: these are plain-text columns and
-    # bleach's &amp; would otherwise be stored (and re-escaped on every save).
-    return html.unescape(bleach.clean(s, tags=_BLEACH_ALLOWED_TAGS, strip=True))
+    # Strip tags, then decode entities (plain-text columns; bleach's &amp;
+    # would otherwise be stored and re-escaped on every save). Repeat until
+    # stable so an encoded tag is stripped rather than decoded into a real one.
+    for _ in range(4):
+        cleaned = html.unescape(bleach.clean(s, tags=_BLEACH_ALLOWED_TAGS, strip=True))
+        if cleaned == s:
+            break
+        s = cleaned
+    return s or None
 
 
 PUBLISHABLE_FIELDS = [

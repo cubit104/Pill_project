@@ -23,3 +23,11 @@ def test_tags_are_stripped_and_old_entities_decoded(sanitize):
     assert sanitize('<script>alert("x")</script>Procter & Gamble') == 'alert("x")Procter & Gamble'
     assert sanitize("") is None
     assert sanitize(None) is None
+
+
+@pytest.mark.parametrize("sanitize", [pills._sanitize, drafts._sanitize])
+def test_encoded_tags_are_stripped_not_revived(sanitize):
+    assert sanitize("&lt;script&gt;alert(1)&lt;/script&gt;hi") == "alert(1)hi"
+    assert sanitize("&amp;lt;b&amp;gt;bold") == "bold"
+    assert sanitize("a &amp;amp; b") == "a & b"
+    assert sanitize("&lt;br&gt;") is None
