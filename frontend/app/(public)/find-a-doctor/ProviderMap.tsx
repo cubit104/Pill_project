@@ -29,6 +29,11 @@ export default function ProviderMap({
   const fittedRef = useRef<string>('')
   const fittedCount = useRef(0)
   const userMoved = useRef(false)
+  // The parent passes a new handler on every render; keep the latest without rebuilding the markers.
+  const onSelectRef = useRef(onSelect)
+  useEffect(() => {
+    onSelectRef.current = onSelect
+  }, [onSelect])
 
   useEffect(() => {
     if (!boxRef.current || mapRef.current) return
@@ -45,6 +50,10 @@ export default function ProviderMap({
     })
     mapRef.current = map
     layerRef.current = L.layerGroup().addTo(map)
+    // A fresh map has not been fitted yet, even if this component instance was mounted before.
+    fittedRef.current = ''
+    fittedCount.current = 0
+    userMoved.current = false
     return () => {
       map.stop() // cancel any pan/zoom animation before the container goes away
       map.remove()
@@ -82,7 +91,7 @@ export default function ProviderMap({
         title: d.name,
         zIndexOffset: isSel ? 1000 : 0,
       })
-      m.on('click', () => onSelect(d.npi))
+      m.on('click', () => onSelectRef.current(d.npi))
       m.addTo(layer)
       points.push([pos.lat, pos.lon])
     })
@@ -107,17 +116,17 @@ export default function ProviderMap({
         const m = map as L.Map & { _fitting?: boolean }
         m._fitting = true
         map.invalidateSize()
-        map.fitBounds(bounds, { padding: [28, 28], maxZoom: 13 })
+        map.fitBounds(bounds, { padding: [28, 28], maxZoom: 13, animate: false })
         setTimeout(() => (m._fitting = false), 400)
       }
       requestAnimationFrame(fit)
     }
-  }, [providers, positions, origin, selected, onSelect])
+  }, [providers, positions, origin, selected])
 
   useEffect(() => {
     const map = mapRef.current
     const pos = selected ? positions[selected] : null
-    if (map && pos && map.getContainer().isConnected) map.panTo([pos.lat, pos.lon], { animate: true })
+    if (map && pos && map.getContainer().isConnected) map.panTo([pos.lat, pos.lon], { animate: false })
   }, [selected, positions])
 
   return <div ref={boxRef} className="h-full w-full" aria-label="Map of results" role="region" />
