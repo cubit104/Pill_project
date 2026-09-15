@@ -19,6 +19,7 @@ import { fetchPriceSnapshot, fetchInitialPriceData } from './price/priceData'
 import { snapshotToPriceCardInitialData } from './pricing/priceCardData'
 import ReviewedBy from '../../../components/ReviewedBy'
 import CabinetSaveButton from './CabinetSaveButton'
+import { productNdc, recallsForDrugSafe } from '../../../lib/recalls'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 const SITE_URL = (
@@ -372,6 +373,10 @@ export default async function PillDetailPage(
     ? snapshotToPriceCardInitialData(priceSnapshot).price
     : fallbackPriceData?.price
 
+  // FDA recalls for this drug in the last 12 months (openFDA, cached a day; empty when the FDA is down).
+  const recallName = (pill.generic_name?.trim() || (pill.drug_name !== 'Unknown' ? pill.drug_name : '') || '').trim()
+  const recalls = recallName ? await recallsForDrugSafe(recallName, productNdc({ ndc: pill.ndc ?? null, ndc9: pill.ndc9 ?? null })) : undefined
+
   // Breadcrumb JSON-LD uses absolute URLs to match canonical
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: `${SITE_URL}/` },
@@ -463,6 +468,7 @@ export default async function PillDetailPage(
       <PillDetailClient
         pill={pill}
         slug={slug}
+        recalls={recalls}
         lastUpdatedIso={lastUpdatedIso}
         formattedDate={formattedDate}
         related={relatedData.related}

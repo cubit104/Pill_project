@@ -8,6 +8,8 @@ import type { PriceResponse } from './pricing/priceCardData'
 import { classSlugify, slugifyDrugName } from '../../../lib/slug'
 import { slugifyUrl } from '../../../lib/url-utils'
 import DrugIndicationSection from './DrugIndicationSection'
+import RecallsSection from './RecallsSection'
+import type { Recall } from '../../../lib/recalls'
 import PriceSummaryCard from './pricing/PriceSummaryCard'
 import { usePillView } from './usePillView'
 
@@ -321,6 +323,7 @@ function InteractionsPreviewCard({ slug, drugName }: { slug: string; drugName: s
 export default function PillDetailClient({
   pill,
   slug,
+  recalls,
   lastUpdatedIso,
   formattedDate,
   children,
@@ -335,6 +338,8 @@ export default function PillDetailClient({
 }: {
   pill: PillDetail
   slug?: string
+  /** FDA recalls for this drug, last 12 months (server-fetched). Undefined = not looked up. */
+  recalls?: Recall[]
   lastUpdatedIso?: string
   formattedDate?: string
   children?: ReactNode
@@ -858,6 +863,7 @@ export default function PillDetailClient({
           />
         )}
         {resolvedSlug && <InteractionsPreviewCard slug={resolvedSlug} drugName={pill.drug_name} />}
+        {recalls && <RecallsSection recalls={recalls} drugName={pill.drug_name} />}
 
         {/* FAQ Block */}
         {faqItems && faqItems.length > 0 && (
