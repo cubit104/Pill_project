@@ -98,9 +98,10 @@ def geocode(body: GeocodeBody, request: Request):
 
 
 @router.get("/{npi}")
-def detail(npi: str, response: Response):
+def detail(npi: str, request: Request, response: Response):
     if not npi.isdigit() or len(npi) != 10:
         raise HTTPException(status_code=404, detail="Not found")
+    ratelimit.check(request, "providers.detail", SEARCH_PER_HOUR, "Too many lookups; please try again in a while.")
     try:
         out = svc.details(npi)
     except svc.ProviderError as e:
