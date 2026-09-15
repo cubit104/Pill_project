@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 import bleach
+import html
 
 import database
 from services.synonym_resolver import ensure_synonym_mapping
@@ -199,7 +200,17 @@ def _sanitize(value: Optional[str]) -> Optional[str]:
         return None
     if value == "":
         return None
-    return bleach.clean(str(value), tags=ALLOWED_TAGS, strip=True)
+    # Plain-text fields: strip tags, then decode entities so "G&W" is stored
+    # as typed (bleach escapes & < > for HTML output, which these columns are
+    # not). Repeat until stable so an encoded tag ("&lt;script&gt;") is
+    # stripped too instead of being decoded into a literal one.
+    text_value = str(value)
+    for _ in range(4):
+        cleaned = html.unescape(bleach.clean(text_value, tags=ALLOWED_TAGS, strip=True))
+        if cleaned == text_value:
+            break
+        text_value = cleaned
+    return text_value or None
 
 
 class PillCreate(BaseModel):
@@ -1383,9 +1394,9 @@ def update_pill_pronunciation(
     body: PronunciationUpdate,
     admin: dict = Depends(get_admin_user),
 ):
-    """Upsert pronunciation_text with source='manual' (editor role or higher)."""
-    if admin["role"] not in ("superuser", "editor"):
-        raise HTTPException(status_code=403, detail="Requires editor role or higher")
+    """Upsert pronunciation_text with source='manual' (any admin role: reviewer, editor, superuser)."""
+    if admin["role"] not in ("superuser", "editor", "reviewer"):
+        raise HTTPException(status_code=403, detail="Requires reviewer role or higher")
 
     if not database.db_engine:
         database.connect_to_database()
@@ -1869,6 +1880,10 @@ def update_pill(
                         ip_address=request.client.host if request.client else None,
                         user_agent=request.headers.get("user-agent"),
                     )
+
+            if publish:
+                # The "what's missing?" tags describe an unpublished pill; once it is live they are done.
+                conn.execute(text("DELETE FROM pill_review_flags WHERE pill_id = :pill_id"), {"pill_id": pill_id})
 
             should_submit_indexnow = publish or current_published
             indexnow_slug = str(updates.get("slug") or before.get("slug") or current[2] or "").strip()

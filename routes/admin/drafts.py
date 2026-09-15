@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 import bleach
+import html
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -28,7 +29,15 @@ def _sanitize(value: object) -> Optional[str]:
     s = str(value)
     if s == "":
         return None
-    return bleach.clean(s, tags=_BLEACH_ALLOWED_TAGS, strip=True)
+    # Strip tags, then decode entities (plain-text columns; bleach's &amp;
+    # would otherwise be stored and re-escaped on every save). Repeat until
+    # stable so an encoded tag is stripped rather than decoded into a real one.
+    for _ in range(4):
+        cleaned = html.unescape(bleach.clean(s, tags=_BLEACH_ALLOWED_TAGS, strip=True))
+        if cleaned == s:
+            break
+        s = cleaned
+    return s or None
 
 
 PUBLISHABLE_FIELDS = [
@@ -321,9 +330,14 @@ def list_drafts(
                        d.review_notes::text AS review_notes,
                        COALESCE(p.medicine_name, d.draft_data->>'medicine_name')::text AS medicine_name,
                        d.created_by::text AS created_by,
-                       'pill_drafts'::text AS source
+                       'pill_drafts'::text AS source,
+                       f.missing::text[] AS missing,
+                       f.note::text AS flag_note,
+                       f.flagged_by::text AS flagged_by,
+                       f.flagged_at::timestamptz AS flagged_at
                 FROM pill_drafts d
                 LEFT JOIN pillfinder p ON p.id = d.pill_id
+                LEFT JOIN pill_review_flags f ON f.pill_id = d.pill_id
                 WHERE 1=1{pd_extra}
                 """
             ]
@@ -339,8 +353,13 @@ def list_drafts(
                            NULL::text AS review_notes,
                            medicine_name::text AS medicine_name,
                            NULL::text AS created_by,
-                           'pillfinder'::text AS source
+                           'pillfinder'::text AS source,
+                           f.missing::text[] AS missing,
+                           f.note::text AS flag_note,
+                           f.flagged_by::text AS flagged_by,
+                           f.flagged_at::timestamptz AS flagged_at
                     FROM pillfinder
+                    LEFT JOIN pill_review_flags f ON f.pill_id = pillfinder.id
                     WHERE published = false AND deleted_at IS NULL
                     """
                 )
@@ -353,7 +372,8 @@ def list_drafts(
             data_params = {**filter_params, "limit": limit, "offset": offset}
             data_sql = f"""
                 SELECT id, pill_id, status, created_at, updated_at,
-                       review_notes, medicine_name, created_by, source
+                       review_notes, medicine_name, created_by, source,
+                       missing, flag_note, flagged_by, flagged_at
                 FROM (
                     {union_sql}
                 ) AS combined_drafts
@@ -373,6 +393,11 @@ def list_drafts(
                 "medicine_name": r[6],
                 "created_by": str(r[7]) if r[7] else None,
                 "source": r[8],
+                # "What's missing?" tags left by a reviewer (see routes/admin/review_flags.py)
+                "missing": list(r[9]) if len(r) > 9 and r[9] else [],
+                "note": r[10] if len(r) > 10 else None,
+                "flagged_by": r[11] if len(r) > 11 else None,
+                "flagged_at": r[12].isoformat() if len(r) > 12 and r[12] else None,
             }
             for r in rows
         ]
@@ -641,6 +666,8 @@ def publish_draft(
                     text(f"UPDATE pillfinder SET {', '.join(set_parts)} WHERE id = :pill_id"),
                     params,
                 )
+                # Live now: any "what's missing?" tags left on the draft are done.
+                conn.execute(text("DELETE FROM pill_review_flags WHERE pill_id = :pill_id"), {"pill_id": pill_id})
                 published_slug = str(publishable.get("slug") or existing_slug or "").strip() or None
 
             conn.execute(

@@ -5,7 +5,7 @@ two photos are kept in the private bucket. Reviewers turn those rows into
 training data here: confirm which pill it was, write down what is readable on
 each photo, or throw the photos away when they are unusable.
 
-GET    /api/admin/captures?status=unreviewed|reviewed|unusable&page&per_page
+GET    /api/admin/captures?status=unreviewed|reviewed|unusable&page&per_page[&country=US|non-US|<code>]
 GET    /api/admin/captures/count            unreviewed captures with photos (sidebar badge)
 GET    /api/admin/captures/export[?since=]  training manifest: one row per photo, signed URLs
 GET    /api/admin/captures/{id}             detail with candidate pills
@@ -47,7 +47,7 @@ _STATUS_SQL = {
 _COLUMNS = (
     "capture_id::text, created_at, imprint_read, tokens, attrs_guess, top_slugs, consent, "
     "photo_paths, verdict, chosen_slug, corrected_imprint, reviewed, reviewed_label, "
-    "side_labels, reviewed_at, reviewed_by"
+    "side_labels, reviewed_at, reviewed_by, country, region, city"
 )
 
 
@@ -108,6 +108,10 @@ def _row_to_capture(row, urls: dict[str, str]) -> dict:
         "side_labels": _jsonish(row[13], None),
         "reviewed_at": _iso(row[14]),
         "reviewed_by": row[15],
+        # Where the photo was taken (Cloudflare visitor location); None before this feature.
+        "country": row[16] if len(row) > 16 else None,
+        "region": row[17] if len(row) > 17 else None,
+        "city": row[18] if len(row) > 18 else None,
     }
 
 
@@ -176,7 +180,7 @@ def export_captures(
         rows = conn.execute(
             text(
                 "SELECT f.capture_id::text, f.created_at, f.photo_paths, f.chosen_slug, f.reviewed_label, "
-                "f.side_labels, f.reviewed_at, p.medicine_name, p.splimprint, p.splcolor_text, p.splshape_text "
+                "f.side_labels, f.reviewed_at, p.medicine_name, p.splimprint, p.splcolor_text, p.splshape_text, f.country "
                 "FROM identify_feedback f "
                 "LEFT JOIN pillfinder p ON p.slug = f.chosen_slug AND p.deleted_at IS NULL "
                 f"WHERE {where} ORDER BY f.created_at"
@@ -217,6 +221,7 @@ def export_captures(
                     "path": path,
                     "captured_at": _iso(r[1]),
                     "reviewed_at": _iso(r[6]),
+                    "country": r[11] if len(r) > 11 else None,
                 }
             )
     filename = f"captures_manifest_{date.today().isoformat()}.json"
@@ -236,17 +241,25 @@ def list_captures(
     status: str = Query(default="unreviewed", pattern="^(unreviewed|reviewed|unusable)$"),
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=200),
+    country: str | None = Query(default=None, description="US, non-US, or a 2-letter code"),
     admin: dict = Depends(require_role(*REVIEWERS)),
 ):
     where = _STATUS_SQL[status]
+    params: dict = {"limit": per_page, "offset": (page - 1) * per_page}
+    cc = (country or "").strip().upper()
+    if cc == "NON-US":
+        where += " AND country IS NOT NULL AND country <> 'US'"
+    elif len(cc) == 2 and cc.isalpha():
+        where += " AND country = :country"
+        params["country"] = cc
     with _db().connect() as conn:
-        total = conn.execute(text(f"SELECT count(*) FROM identify_feedback WHERE {where}")).scalar() or 0
+        total = conn.execute(text(f"SELECT count(*) FROM identify_feedback WHERE {where}"), params).scalar() or 0
         rows = conn.execute(
             text(
                 f"SELECT {_COLUMNS} FROM identify_feedback WHERE {where} "
                 "ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
             ),
-            {"limit": per_page, "offset": (page - 1) * per_page},
+            params,
         ).fetchall()
     paths = [p for r in rows for p in _paths(r[7])]
     urls = user_photos.sign_urls(paths) if paths else {}
@@ -312,6 +325,10 @@ def review_capture(capture_id: uuid.UUID, payload: Review, admin: dict = Depends
             if len(payload.side_labels) != len(paths):
                 raise HTTPException(status_code=422, detail=f"side_labels needs one entry per photo ({len(paths)})")
             sides = [_norm_label(s) for s in payload.side_labels]
+            # Boxes left empty mean "not labelled per photo", not "both sides blank":
+            # storing [] blanks would teach the reader to stay silent on readable pills.
+            if not any(sides):
+                sides = None
 
         # The whole pill's imprint: what the reviewer wrote, else the catalog's.
         label = _norm_label(payload.reviewed_label) if payload.reviewed_label is not None else catalog_imprint

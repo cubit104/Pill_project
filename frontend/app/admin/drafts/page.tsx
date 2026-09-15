@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../lib/supabase'
+import { missingLabel } from '../lib/reviewFlags'
 import { CheckCircle, XCircle, Send, Pencil, Upload, Trash2, Eye, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 
 interface Draft {
@@ -17,6 +18,11 @@ interface Draft {
   medicine_name: string | null
   created_by: string | null
   source: string | null
+  /** "What's missing?" tags left by a reviewer who opened the pill and did not publish. */
+  missing: string[]
+  note: string | null
+  flagged_by: string | null
+  flagged_at: string | null
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -232,7 +238,7 @@ function DraftsListInner() {
               </tr>
             )}
             {drafts.map((draft) => (
-              <tr key={draft.id} className={`hover:bg-gray-50 ${draft.pill_id ? 'cursor-pointer' : ''}`}>
+              <tr key={draft.id} className={`${draft.flagged_at ? 'bg-amber-50 hover:bg-amber-100' : 'hover:bg-gray-50'} ${draft.pill_id ? 'cursor-pointer' : ''}`}>
                 <td className="px-4 py-3 font-mono text-xs text-gray-600">
                   {draft.pill_id ? (
                     <Link href={`/admin/pills/${draft.pill_id}`} className="hover:text-indigo-600 hover:underline">
@@ -261,8 +267,20 @@ function DraftsListInner() {
                 <td className="px-4 py-3 text-gray-400 text-xs">
                   {draft.updated_at ? new Date(draft.updated_at).toLocaleDateString() : '—'}
                 </td>
-                <td className="px-4 py-3 text-gray-500 text-xs max-w-xs truncate">
-                  {draft.review_notes || '—'}
+                <td className="px-4 py-3 text-gray-500 text-xs max-w-xs">
+                  {draft.flagged_at && (
+                    <div
+                      className="flex flex-wrap gap-1 mb-1"
+                      title={`${draft.flagged_by ?? 'someone'}, ${new Date(draft.flagged_at).toLocaleDateString()}${draft.note ? ` — ${draft.note}` : ''}`}
+                    >
+                      {(draft.missing.length > 0 ? draft.missing : ['opened']).map((k) => (
+                        <span key={k} className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium">
+                          {k === 'opened' ? 'Opened, not published' : missingLabel(k)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <span className="block truncate">{draft.note || draft.review_notes || (draft.flagged_at ? '' : '—')}</span>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-2 items-center">

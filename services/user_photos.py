@@ -69,8 +69,11 @@ def delete_objects(paths: list[str]) -> bool:
         logger.warning("photo delete skipped: storage credentials not configured")
         return False
     try:
-        r = requests.post(
-            f"{base}/storage/v1/object/{PHOTO_BUCKET}/remove",
+        # Same call as supabase-js `storage.from(bucket).remove(paths)`:
+        # DELETE /object/{bucket} with the paths in the body. (There is no
+        # /remove route; a POST there hits the upload route and stores a file.)
+        r = requests.delete(
+            f"{base}/storage/v1/object/{PHOTO_BUCKET}",
             headers=_headers(key),
             json={"prefixes": paths},
             timeout=15,

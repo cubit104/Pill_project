@@ -208,6 +208,29 @@ Endpoints: `GET /api/admin/captures?status=unreviewed|reviewed|unusable`,
 Requires migration `supabase/migrations/20260912000000_identify_feedback_review.sql`
 (adds `side_labels`, `reviewed_at`, `reviewed_by`) - apply it before deploying.
 
+**Where a photo came from.** Each capture stores city, region and country from Cloudflare's
+visitor-location headers (never the IP): migration `20260914000000_identify_feedback_location.sql`; apply it before deploying.
+The Photo Captures list shows a flag and place and has an "Outside the US only" filter
+(`?country=non-US`, or a 2-letter code). For city and region, switch on Cloudflare -> Rules ->
+Transform Rules -> Managed Transforms -> "Add visitor location headers" for pillseek.com;
+country alone works without it.
+
+## "What's missing?" on drafts
+
+Team members add pills as drafts (pillfinder rows with `published = false`). When a
+reviewer opens one from Drafts and leaves without publishing, the Back button asks
+**What's missing?** with checkboxes (Images, Meds use, Imprint, Other) and an optional
+note. The row turns amber in the Drafts list with those tags, so the team sees what to
+fix without a note. Nothing ticked still marks it "Opened, not published". The pill page
+shows the same banner with a Clear button, and publishing clears it automatically.
+
+Endpoints (any admin role, audit-logged as `pill_flagged` / `pill_flags_cleared`):
+`GET|PUT|DELETE /api/admin/pills/{id}/review-flags`. Table `pill_review_flags`
+(migration `20260913000000_pill_review_flags.sql`, apply before deploying).
+
+Pronunciation text on the pill page can now be saved by reviewers as well as editors and
+superusers.
+
 ## Migrations
 
 SQL migrations are in `supabase/migrations/`. The `profiles` table and its trigger were created manually in Supabase by the site owner and do not have a migration file in this repo.
