@@ -78,9 +78,6 @@ const es: Record<string, string> = {
   'Licensed in {state}': 'Licencia en {state}',
   'Not listed': 'No consta',
   'Practice address': 'Dirección del consultorio',
-  'Call {phone}': 'Llamar al {phone}',
-  'Open in Maps': 'Abrir en Mapas',
-  Registry: 'Registro',
   'Pick a city from the list.': 'Elija una ciudad de la lista.',
   'Enter a 5-digit ZIP code.': 'Escriba un código postal de 5 dígitos.',
   'Location is off for PillSeek. Turn it on in Settings, or search by ZIP or city.':
@@ -88,6 +85,7 @@ const es: Record<string, string> = {
   'Could not get your location. Try again, or search by ZIP or city.':
     'No se pudo obtener su ubicación. Inténtelo de nuevo, o busque por código postal o ciudad.',
   Website: 'Sitio web',
+  'Get directions': 'Cómo llegar',
   'Open now': 'Abierto ahora',
   'Closed now': 'Cerrado ahora',
   Hours: 'Horario',

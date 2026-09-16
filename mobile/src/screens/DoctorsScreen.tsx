@@ -247,7 +247,7 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
   // What the sheet shows: the slow fetch wins over the fast one, which wins over the card's summary.
   const cms = extras?.cms ?? details?.cms ?? null
   const google: (GoogleSummary & Partial<GoogleDetails>) | null = extras?.google ?? details?.google ?? selected?.google ?? null
-  const hoursToday = google ? todaysHours(google.hours) : null
+  const phone = selected ? selected.phone || google?.phone || '' : ''
   const todayIndex = (new Date().getDay() + 6) % 7
   const pending = extrasLoading && !detailsError
 
@@ -515,74 +515,102 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
 
       <Sheet open={selected !== null} onClose={closeDetails} title={selected?.name ?? ''}>
         {selected && (
-          <div className="space-y-4 pb-4">
+          <div className="space-y-3 pb-2">
+            {/* Who: specialty, credential, rating, open/closed, distance */}
             <div>
-              <p className="text-[17px] font-semibold text-ink">
-                {selected.name}
-                {selected.credential && <span className="ml-1 text-[15px] font-normal text-muted">{selected.credential}</span>}
+              <p className="text-[15px] text-ink">
+                {selected.specialty || selected.taxonomies[0]?.desc || (selected.organisation ? t('Organisation') : '')}
+                {selected.credential && <span className="text-muted"> · {selected.credential}</span>}
               </p>
-              <p className="text-[14px] text-muted">
+              <p className="mt-0.5 text-[13px] text-muted">
                 {[selected.organisation ? t('Organisation') : genderLabel(selected.gender), selected.since && t('In the registry since {year}', { year: selected.since })]
                   .filter(Boolean)
                   .join(' · ')}
               </p>
-              {selected.distanceMiles !== null && <p className="text-[14px] text-brand">{t('{distance} from your search', { distance: formatMiles(selected.distanceMiles) })}</p>}
-              {google && google.rating !== null && (
-                <p className="mt-1 text-[15px] text-ink">
-                  <span className="text-amber-500" aria-hidden>★</span> <span className="font-semibold">{google.rating.toFixed(1)}</span>
-                  <span className="text-muted"> · {t('{n} Google reviews', { n: google.ratings_count ?? 0 })}</span>
-                </p>
-              )}
-              {detailsError && <p className="mt-1 text-[13px] text-muted">{t('Extra details are not available right now.')}</p>}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {google && google.rating !== null && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[14px] font-semibold text-amber-800">
+                    <span aria-hidden>★</span> {google.rating.toFixed(1)}
+                    <span className="font-normal text-amber-700/80">({google.ratings_count ?? 0})</span>
+                  </span>
+                )}
+                {google?.open_now === true && <span className="rounded-full bg-brand-tint px-2.5 py-1 text-[13px] font-semibold text-brand">{t('Open now')}</span>}
+                {google?.open_now === false && <span className="rounded-full bg-line/60 px-2.5 py-1 text-[13px] font-semibold text-muted">{t('Closed now')}</span>}
+                {selected.distanceMiles !== null && <span className="text-[13px] text-muted">{t('{distance} from your search', { distance: formatMiles(selected.distanceMiles) })}</span>}
+              </div>
             </div>
 
+            {/* Actions */}
+            <div className={`grid gap-2 ${google?.website ? 'grid-cols-3' : 'grid-cols-2'}`}>
+              <Button variant="primary" size="md" full disabled={!phone} onClick={() => phone && open(telUrl(phone))}>
+                {t('Call')}
+              </Button>
+              <Button variant="secondary" size="md" full onClick={() => open(mapsUrl(selected, platform()))}>
+                {t('Get directions')}
+              </Button>
+              {google?.website && (
+                <Button variant="secondary" size="md" full onClick={() => open(google.website)}>
+                  {t('Website')}
+                </Button>
+              )}
+            </div>
+            {detailsError && <p className="px-1 text-[13px] text-muted">{t('Extra details are not available right now.')}</p>}
+
+            {/* Hours */}
             {(google?.hours.length || pending) && (
-              <div>
-                <SectionLabel>{t('Hours')}</SectionLabel>
+              <Card>
+                <SectionLabel className="!px-0">{t('Hours')}</SectionLabel>
                 {google?.hours.length ? (
-                  <>
-                    {hoursToday && (
-                      <p className={`mt-1 text-[15px] ${google.open_now ? 'font-semibold text-brand' : 'text-ink'}`}>
-                        {google.open_now === true ? `${t('Open now')} · ` : google.open_now === false ? `${t('Closed now')} · ` : ''}
-                        {hoursToday}
-                      </p>
-                    )}
-                    <ul className="mt-1 space-y-0.5">
-                      {google.hours.map((line, i) => {
-                        const [day, ...rest] = line.split(':')
-                        return (
-                          <li key={i} className={`flex justify-between gap-3 text-[14px] ${i === todayIndex ? 'font-semibold text-ink' : 'text-muted'}`}>
-                            <span>{t(day ?? '')}</span>
-                            <span className="text-right">{rest.join(':').trim()}</span>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </>
+                  <ul className="space-y-1">
+                    {google.hours.map((line, i) => {
+                      const [day, ...rest] = line.split(':')
+                      const today = i === todayIndex
+                      return (
+                        <li key={i} className={`flex justify-between gap-3 text-[14px] ${today ? 'font-semibold text-ink' : 'text-muted'}`}>
+                          <span>{t(day ?? '')}</span>
+                          <span className={`text-right ${today && google.open_now ? 'text-brand' : ''}`}>{rest.join(':').trim()}</span>
+                        </li>
+                      )
+                    })}
+                  </ul>
                 ) : (
-                  <p className="mt-1 text-[15px] text-muted"><Shimmer /></p>
+                  <Shimmer />
                 )}
-              </div>
+              </Card>
             )}
 
+            {/* CMS facts, clinicians only */}
             {!selected.organisation && (
-              <div>
-                <SectionLabel>{t('Practice details')}</SectionLabel>
-                <dl className="mt-1 space-y-2">
-                  <DetailRow label={t('Medical school')}>{cms ? cms.medical_school || t('Not listed') : pending ? <Shimmer /> : '—'}</DetailRow>
+              <Card>
+                <SectionLabel className="!px-0">{t('Practice details')}</SectionLabel>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                  <DetailRow label={t('Medical school')} wide>{cms ? cms.medical_school || t('Not listed') : pending ? <Shimmer /> : '—'}</DetailRow>
                   <DetailRow label={t('In practice')}>{cms ? (cms.years_in_practice !== null ? t('{n} years', { n: cms.years_in_practice }) : t('Not listed')) : pending ? <Shimmer /> : '—'}</DetailRow>
-                  <DetailRow label={t('Group practice')}>{cms ? cms.group_name || t('Independent') : pending ? <Shimmer /> : '—'}</DetailRow>
-                  <DetailRow label={t('Hospital affiliation')}>{cms ? cms.hospitals.join(', ') || t('None listed') : pending ? <Shimmer /> : '—'}</DetailRow>
                   <DetailRow label={t('Accepts')}>
                     {cms ? [cms.medicare ? t('Medicare') : null, cms.telehealth ? t('Telehealth visits') : null].filter(Boolean).join(' · ') || t('Not listed') : pending ? <Shimmer /> : '—'}
                   </DetailRow>
+                  <DetailRow label={t('Group practice')} wide>{cms ? cms.group_name || t('Independent') : pending ? <Shimmer /> : '—'}</DetailRow>
+                  <DetailRow label={t('Hospital affiliation')} wide>{cms ? cms.hospitals.join(', ') || t('None listed') : pending ? <Shimmer /> : '—'}</DetailRow>
                 </dl>
-              </div>
+              </Card>
             )}
 
-            <div>
-              <SectionLabel>{t('Specialties')}</SectionLabel>
-              <ul className="mt-1 space-y-1">
+            {/* Where */}
+            <Card>
+              <SectionLabel className="!px-0">{t('Practice address')}</SectionLabel>
+              <p className="text-[15px] text-ink">
+                {selected.address}
+                <br />
+                {selected.city}, {selected.state} {selected.zip}
+              </p>
+              {phone && <p className="mt-1 text-[14px] text-muted">{phone}</p>}
+              {google?.website && <p className="mt-0.5 text-[14px] text-brand">{websiteLabel(google.website)}</p>}
+            </Card>
+
+            {/* Registry record */}
+            <Card>
+              <SectionLabel className="!px-0">{t('Specialties')}</SectionLabel>
+              <ul className="space-y-1">
                 {selected.taxonomies.map((tx, i) => (
                   <li key={i} className="text-[15px] text-ink">
                     {tx.desc}
@@ -596,41 +624,15 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
                 ))}
                 {selected.taxonomies.length === 0 && <li className="text-[15px] text-muted">{t('Not listed')}</li>}
               </ul>
-            </div>
-
-            <div>
-              <SectionLabel>{t('Practice address')}</SectionLabel>
-              <p className="mt-1 text-[15px] text-ink">
-                {selected.address}
-                <br />
-                {selected.city}, {selected.state} {selected.zip}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {(selected.phone || google?.phone) && (
-                  <Button variant="primary" size="sm" onClick={() => open(telUrl(selected.phone || google!.phone!))}>
-                    {t('Call {phone}', { phone: selected.phone || google!.phone! })}
-                  </Button>
-                )}
-                <Button variant="secondary" size="sm" onClick={() => open(mapsUrl(selected, platform()))}>
-                  {t('Open in Maps')}
+              <div className="mt-2 flex items-center justify-between">
+                <p className="text-[13px] text-muted">NPI {selected.npi}</p>
+                <Button variant="ghost" size="sm" onClick={() => share(selected)}>
+                  {t('Share')}
                 </Button>
-                {google?.website && (
-                  <Button variant="secondary" size="sm" onClick={() => open(google.website)}>
-                    {websiteLabel(google.website)}
-                  </Button>
-                )}
               </div>
-            </div>
+            </Card>
 
-            <div>
-              <SectionLabel>{t('Registry')}</SectionLabel>
-              <p className="mt-1 text-[15px] text-ink">NPI {selected.npi}</p>
-              <Button variant="ghost" size="sm" className="mt-1" onClick={() => share(selected)}>
-                {t('Share')}
-              </Button>
-            </div>
-
-            <p className="text-[12px] leading-relaxed text-muted">
+            <p className="px-1 text-[12px] leading-relaxed text-muted">
               {t('Identity and licence: NPI Registry.')}
               {!selected.organisation ? ` ${t('School, years, Medicare, telehealth: CMS Doctors & Clinicians.')}` : ''}
               {google ? ` ${t('Hours, website, rating: Google.')}` : ''}
@@ -666,9 +668,9 @@ function GoogleLine({ g }: { g: GoogleSummary | null }) {
   )
 }
 
-function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+function DetailRow({ label, wide = false, children }: { label: string; wide?: boolean; children: React.ReactNode }) {
   return (
-    <div>
+    <div className={wide ? 'col-span-2' : ''}>
       <dt className="text-[12px] font-semibold uppercase tracking-wide text-muted">{label}</dt>
       <dd className="text-[15px] text-ink">{children}</dd>
     </div>
