@@ -1884,6 +1884,29 @@ def update_pill(
             if publish:
                 # The "what's missing?" tags describe an unpublished pill; once it is live they are done.
                 conn.execute(text("DELETE FROM pill_review_flags WHERE pill_id = :pill_id"), {"pill_id": pill_id})
+            else:
+                # A save by anyone but the person who flagged it is the fix arriving: clear the tags so the
+                # Drafts row turns white and the publisher looks again. The flagger's own saves keep them.
+                cleared = conn.execute(
+                    text(
+                        "DELETE FROM pill_review_flags WHERE pill_id = :pill_id "
+                        "AND (flagged_by IS NULL OR lower(flagged_by) <> lower(:email)) "
+                        "RETURNING missing, note, flagged_by"
+                    ),
+                    {"pill_id": pill_id, "email": admin.get("email") or ""},
+                ).fetchone()
+                if cleared:
+                    log_audit(
+                        conn,
+                        actor_id=admin["id"],
+                        actor_email=admin["email"],
+                        action="pill_flag_cleared_by_edit",
+                        entity_type="pill",
+                        entity_id=pill_id,
+                        diff={"missing": list(cleared[0] or []), "note": cleared[1], "flagged_by": cleared[2]},
+                        ip_address=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent"),
+                    )
 
             should_submit_indexnow = publish or current_published
             indexnow_slug = str(updates.get("slug") or before.get("slug") or current[2] or "").strip()
