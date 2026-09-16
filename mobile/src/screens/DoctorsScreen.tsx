@@ -513,7 +513,8 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
         )}
       </main>
 
-      <Sheet open={selected !== null} onClose={closeDetails} title={selected?.name ?? ''}>
+      {/* Capped below full height so the list stays visible behind it and the slide-up reads as a sheet, not a page. */}
+      <Sheet open={selected !== null} onClose={closeDetails} title={selected?.name ?? ''} maxHeight="86dvh">
         {selected && (
           <div className="space-y-3 pb-2">
             {/* Who: specialty, credential, rating, open/closed, distance */}
@@ -584,13 +585,13 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
               <Card>
                 <SectionLabel className="!px-0">{t('Practice details')}</SectionLabel>
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-                  <DetailRow label={t('Medical school')} wide>{cms ? cms.medical_school || t('Not listed') : pending ? <Shimmer /> : '—'}</DetailRow>
-                  <DetailRow label={t('In practice')}>{cms ? (cms.years_in_practice !== null ? t('{n} years', { n: cms.years_in_practice }) : t('Not listed')) : pending ? <Shimmer /> : '—'}</DetailRow>
+                  <DetailRow label={t('Medical school')} wide>{cms ? cms.medical_school || t('Not listed') : pending ? <Shimmer /> : t('Not listed')}</DetailRow>
+                  <DetailRow label={t('In practice')}>{cms ? (cms.years_in_practice !== null ? t('{n} years', { n: cms.years_in_practice }) : t('Not listed')) : pending ? <Shimmer /> : t('Not listed')}</DetailRow>
                   <DetailRow label={t('Accepts')}>
-                    {cms ? [cms.medicare ? t('Medicare') : null, cms.telehealth ? t('Telehealth visits') : null].filter(Boolean).join(' · ') || t('Not listed') : pending ? <Shimmer /> : '—'}
+                    {cms ? [cms.medicare ? t('Medicare') : null, cms.telehealth ? t('Telehealth visits') : null].filter(Boolean).join(' · ') || t('Not listed') : pending ? <Shimmer /> : t('Not listed')}
                   </DetailRow>
-                  <DetailRow label={t('Group practice')} wide>{cms ? cms.group_name || t('Independent') : pending ? <Shimmer /> : '—'}</DetailRow>
-                  <DetailRow label={t('Hospital affiliation')} wide>{cms ? cms.hospitals.join(', ') || t('None listed') : pending ? <Shimmer /> : '—'}</DetailRow>
+                  <DetailRow label={t('Group practice')} wide>{cms ? cms.group_name || t('Independent') : pending ? <Shimmer /> : t('Not listed')}</DetailRow>
+                  <DetailRow label={t('Hospital affiliation')} wide>{cms ? cms.hospitals.join(', ') || t('None listed') : pending ? <Shimmer /> : t('Not listed')}</DetailRow>
                 </dl>
               </Card>
             )}
