@@ -272,7 +272,8 @@ async function readDetail(res: Response): Promise<string | null> {
   return null
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+/** GET/POST JSON from the PillSeek API with the app header, timeout and friendly errors. */
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new ApiError('offline', 'No internet connection. Reconnect and try again.')
   }

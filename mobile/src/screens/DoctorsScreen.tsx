@@ -17,17 +17,24 @@ import {
   isValidZip,
   loadDoctorPrefs,
   mapsUrl,
-  nearestZipTo,
+  providerDetails,
+  providerExtras,
   saveDoctorPrefs,
   nameParams,
   searchDoctors,
   shareText,
   specialtyByKey,
   telUrl,
+  todaysHours,
+  websiteLabel,
+  type CmsDetails,
   type Doctor,
   type DoctorSearch,
   type FinderKind,
+  type GoogleDetails,
+  type GoogleSummary,
   type Origin,
+  type ProviderDetails,
   type SearchMode,
   type Specialty,
 } from '../lib/doctors'
@@ -36,9 +43,11 @@ import { useT } from '../lib/i18n'
 import { hapticTick, hideKeyboard, isNative, platform, shareTextNative } from '../lib/native'
 
 /**
- * Find a doctor: specialty pulldown, then a ZIP, a city (live-filled) or the
- * phone's location. Results come from the official NPI registry, nearest
- * first, each with a call button, a map link and a detail sheet.
+ * Find a doctor: specialty pulldown, then a ZIP, a city (live-filled), the
+ * phone's location or a name. Results come from PillSeek's finder (the official
+ * NPI registry, nearest first), each with a call button, a map link, Google's
+ * rating and hours when known, and a detail sheet that adds the CMS facts
+ * (school, years, hospitals, Medicare, telehealth) and the website.
  */
 export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind }) {
   const t = useT()
@@ -63,7 +72,12 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
   const [locating, setLocating] = useState(false)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [selected, setSelected] = useState<Doctor | null>(null)
+  const [details, setDetails] = useState<ProviderDetails | null>(null)
+  const [extras, setExtras] = useState<{ cms: CmsDetails | null; google: GoogleDetails | null } | null>(null)
+  const [extrasLoading, setExtrasLoading] = useState(false)
+  const [detailsError, setDetailsError] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const detailAbort = useRef<AbortController | null>(null)
 
   const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/home', { replace: true }))
   useBackHandler(true, goBack)
@@ -90,24 +104,35 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
     return () => {
       cancelled = true
       abortRef.current?.abort()
+      detailAbort.current?.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind])
 
   const run = useCallback(
-    async (sp: Specialty, m: SearchMode, z: string, c: { city: string; state: string } | null, n?: { last: string; first: string; state: string }) => {
+    async (
+      sp: Specialty,
+      m: SearchMode,
+      z: string,
+      c: { city: string; state: string } | null,
+      n?: { last: string; first: string; state: string },
+      pos?: { lat: number; lon: number },
+    ) => {
       abortRef.current?.abort()
       const controller = new AbortController()
       abortRef.current = controller
       setLoading(true)
       setError(null)
       try {
-        const search: DoctorSearch = { specialty: sp, mode: m, zip: z, city: c ?? undefined, name: n }
-        const res = await searchDoctors(search, table, controller.signal)
+        const search: DoctorSearch = { specialty: sp, mode: m, zip: z, city: c ?? undefined, name: n, position: pos }
+        const res = await searchDoctors(kind, search, controller.signal)
         if (controller.signal.aborted) return
         setResults(res.doctors)
         setOrigin(res.origin)
-        void saveDoctorPrefs({ specialty: sp.key, mode: m, zip: z, city: c?.city ?? '', state: c?.state ?? '' }, kind)
+        // "Near me" is anchored to the nearest ZIP by the backend; remember that one like a typed ZIP.
+        const savedZip = m === 'near' && res.origin?.zip ? res.origin.zip : z
+        if (m === 'near' && res.origin?.zip) setZip(res.origin.zip)
+        void saveDoctorPrefs({ specialty: sp.key, mode: m, zip: savedZip, city: c?.city ?? '', state: c?.state ?? '' }, kind)
       } catch (err) {
         if (controller.signal.aborted) return
         setError(err instanceof Error ? err : new Error(String(err)))
@@ -117,7 +142,7 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
         if (!controller.signal.aborted) setLoading(false)
       }
     },
-    [table, kind],
+    [kind],
   )
 
   const nameQuery = { last: lastName, first: firstName, state: nameState }
@@ -166,11 +191,7 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
     setError(null)
     try {
       const pos = await getPosition()
-      const tb = table ?? (await loadZipTable())
-      const z = nearestZipTo(tb, pos)
-      if (!z) throw new ApiError('unknown', 'Could not match your location to a US ZIP code.', { retryable: false })
-      setZip(z)
-      await run(specialty, 'near', z, null)
+      await run(specialty, 'near', zip, null, undefined, pos)
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)))
     } finally {
@@ -188,6 +209,47 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
     void hapticTick()
     void shareTextNative(d.name, shareText(d))
   }
+
+  /** Open the sheet at once with the registry record, then fill in the CMS and Google details as they arrive. */
+  const openDetails = (d: Doctor) => {
+    void hapticTick()
+    detailAbort.current?.abort()
+    const controller = new AbortController()
+    detailAbort.current = controller
+    setSelected(d)
+    setDetails(null)
+    setExtras(null)
+    setDetailsError(false)
+    setExtrasLoading(true)
+    void (async () => {
+      try {
+        const det = await providerDetails(d.npi, controller.signal)
+        if (controller.signal.aborted) return
+        setDetails(det)
+        if (det.extras_pending) {
+          const ex = await providerExtras(d.npi, controller.signal)
+          if (controller.signal.aborted) return
+          setExtras(ex)
+        }
+      } catch {
+        if (!controller.signal.aborted) setDetailsError(true)
+      } finally {
+        if (!controller.signal.aborted) setExtrasLoading(false)
+      }
+    })()
+  }
+
+  const closeDetails = () => {
+    detailAbort.current?.abort()
+    setSelected(null)
+  }
+
+  // What the sheet shows: the slow fetch wins over the fast one, which wins over the card's summary.
+  const cms = extras?.cms ?? details?.cms ?? null
+  const google: (GoogleSummary & Partial<GoogleDetails>) | null = extras?.google ?? details?.google ?? selected?.google ?? null
+  const hoursToday = google ? todaysHours(google.hours) : null
+  const todayIndex = (new Date().getDay() + 6) % 7
+  const pending = extrasLoading && !detailsError
 
   const genderLabel = (g: Doctor['gender']) => (g === 'F' ? t('Female') : g === 'M' ? t('Male') : '')
   const originLabel = origin?.label ?? (mode === 'city' && city ? `${city.city}, ${city.state}` : zip)
@@ -405,7 +467,7 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
             </SectionLabel>
             {results.map((d) => (
               <Card key={d.npi} padded={false} className="overflow-hidden">
-                <button type="button" onClick={() => { void hapticTick(); setSelected(d) }} className="pressable block w-full px-4 pt-3 text-left" aria-label={t('{name}, details', { name: d.name })}>
+                <button type="button" onClick={() => openDetails(d)} className="pressable block w-full px-4 pt-3 text-left" aria-label={t('{name}, details', { name: d.name })}>
                   <div className="flex items-start justify-between gap-2">
                     <p className="min-w-0 text-[17px] font-semibold leading-snug text-ink">
                       {d.name}
@@ -416,6 +478,7 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
                     )}
                   </div>
                   {d.specialty && <p className="mt-0.5 text-[14px] text-muted">{d.specialty}</p>}
+                  <GoogleLine g={d.google} />
                   <p className="mt-1 text-[15px] text-ink">
                     {d.address}
                     <br />
@@ -431,20 +494,26 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
                   <Button variant="ghost" size="sm" onClick={() => open(mapsUrl(d, platform()))}>
                     {t('Map')}
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => { void hapticTick(); setSelected(d) }}>
+                  {d.google?.website && (
+                    <Button variant="ghost" size="sm" onClick={() => open(d.google!.website)}>
+                      {t('Website')}
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={() => openDetails(d)}>
                     {t('Details')}
                   </Button>
                 </div>
               </Card>
             ))}
             <p className="px-1 pt-2 text-[12px] leading-relaxed text-muted">
-              {t('Listings come from the NPPES NPI Registry (CMS) and may be out of date. Call ahead to confirm they are accepting patients. ZIP data © GeoNames (CC BY 4.0).')}
+              {t('Listings come from the NPPES NPI Registry (CMS) and may be out of date. Call ahead to confirm they are accepting patients. ZIP data © GeoNames (CC BY 4.0).')}{' '}
+              {t('Ratings and hours: Google.')}
             </p>
           </section>
         )}
       </main>
 
-      <Sheet open={selected !== null} onClose={() => setSelected(null)} title={selected?.name ?? ''}>
+      <Sheet open={selected !== null} onClose={closeDetails} title={selected?.name ?? ''}>
         {selected && (
           <div className="space-y-4 pb-4">
             <div>
@@ -458,7 +527,58 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
                   .join(' · ')}
               </p>
               {selected.distanceMiles !== null && <p className="text-[14px] text-brand">{t('{distance} from your search', { distance: formatMiles(selected.distanceMiles) })}</p>}
+              {google && google.rating !== null && (
+                <p className="mt-1 text-[15px] text-ink">
+                  <span className="text-amber-500" aria-hidden>★</span> <span className="font-semibold">{google.rating.toFixed(1)}</span>
+                  <span className="text-muted"> · {t('{n} Google reviews', { n: google.ratings_count ?? 0 })}</span>
+                </p>
+              )}
+              {detailsError && <p className="mt-1 text-[13px] text-muted">{t('Extra details are not available right now.')}</p>}
             </div>
+
+            {(google?.hours.length || pending) && (
+              <div>
+                <SectionLabel>{t('Hours')}</SectionLabel>
+                {google?.hours.length ? (
+                  <>
+                    {hoursToday && (
+                      <p className={`mt-1 text-[15px] ${google.open_now ? 'font-semibold text-brand' : 'text-ink'}`}>
+                        {google.open_now === true ? `${t('Open now')} · ` : google.open_now === false ? `${t('Closed now')} · ` : ''}
+                        {hoursToday}
+                      </p>
+                    )}
+                    <ul className="mt-1 space-y-0.5">
+                      {google.hours.map((line, i) => {
+                        const [day, ...rest] = line.split(':')
+                        return (
+                          <li key={i} className={`flex justify-between gap-3 text-[14px] ${i === todayIndex ? 'font-semibold text-ink' : 'text-muted'}`}>
+                            <span>{t(day ?? '')}</span>
+                            <span className="text-right">{rest.join(':').trim()}</span>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="mt-1 text-[15px] text-muted"><Shimmer /></p>
+                )}
+              </div>
+            )}
+
+            {!selected.organisation && (
+              <div>
+                <SectionLabel>{t('Practice details')}</SectionLabel>
+                <dl className="mt-1 space-y-2">
+                  <DetailRow label={t('Medical school')}>{cms ? cms.medical_school || t('Not listed') : pending ? <Shimmer /> : '—'}</DetailRow>
+                  <DetailRow label={t('In practice')}>{cms ? (cms.years_in_practice !== null ? t('{n} years', { n: cms.years_in_practice }) : t('Not listed')) : pending ? <Shimmer /> : '—'}</DetailRow>
+                  <DetailRow label={t('Group practice')}>{cms ? cms.group_name || t('Independent') : pending ? <Shimmer /> : '—'}</DetailRow>
+                  <DetailRow label={t('Hospital affiliation')}>{cms ? cms.hospitals.join(', ') || t('None listed') : pending ? <Shimmer /> : '—'}</DetailRow>
+                  <DetailRow label={t('Accepts')}>
+                    {cms ? [cms.medicare ? t('Medicare') : null, cms.telehealth ? t('Telehealth visits') : null].filter(Boolean).join(' · ') || t('Not listed') : pending ? <Shimmer /> : '—'}
+                  </DetailRow>
+                </dl>
+              </div>
+            )}
 
             <div>
               <SectionLabel>{t('Specialties')}</SectionLabel>
@@ -486,27 +606,21 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
                 {selected.city}, {selected.state} {selected.zip}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
-                {selected.phone && (
-                  <Button variant="primary" size="sm" onClick={() => open(telUrl(selected.phone))}>
-                    {t('Call {phone}', { phone: selected.phone })}
+                {(selected.phone || google?.phone) && (
+                  <Button variant="primary" size="sm" onClick={() => open(telUrl(selected.phone || google!.phone!))}>
+                    {t('Call {phone}', { phone: selected.phone || google!.phone! })}
                   </Button>
                 )}
                 <Button variant="secondary" size="sm" onClick={() => open(mapsUrl(selected, platform()))}>
                   {t('Open in Maps')}
                 </Button>
+                {google?.website && (
+                  <Button variant="secondary" size="sm" onClick={() => open(google.website)}>
+                    {websiteLabel(google.website)}
+                  </Button>
+                )}
               </div>
             </div>
-
-            {selected.mailing && (
-              <div>
-                <SectionLabel>{t('Mailing address')}</SectionLabel>
-                <p className="mt-1 text-[15px] text-ink">
-                  {selected.mailing.address}
-                  <br />
-                  {selected.mailing.city}, {selected.mailing.state} {selected.mailing.zip}
-                </p>
-              </div>
-            )}
 
             <div>
               <SectionLabel>{t('Registry')}</SectionLabel>
@@ -515,9 +629,52 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
                 {t('Share')}
               </Button>
             </div>
+
+            <p className="text-[12px] leading-relaxed text-muted">
+              {t('Identity and licence: NPI Registry.')}
+              {!selected.organisation ? ` ${t('School, years, Medicare, telehealth: CMS Doctors & Clinicians.')}` : ''}
+              {google ? ` ${t('Hours, website, rating: Google.')}` : ''}
+              {pending ? ` ${t('Loading more details…')}` : ''}
+            </p>
           </div>
         )}
       </Sheet>
     </div>
   )
+}
+
+/** "★ 4.9 (62) · Open · 8:00 AM – 5:00 PM", only for listings Google has told the backend about already. */
+function GoogleLine({ g }: { g: GoogleSummary | null }) {
+  const t = useT()
+  if (!g || (g.rating === null && !g.hours.length)) return null
+  const today = todaysHours(g.hours)
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[14px] text-muted">
+      {g.rating !== null && (
+        <span>
+          <span className="text-amber-500" aria-hidden>★</span> <span className="font-semibold text-ink">{g.rating.toFixed(1)}</span>
+          {g.ratings_count !== null && <span> ({g.ratings_count})</span>}
+        </span>
+      )}
+      {today && (
+        <span className={g.open_now ? 'font-medium text-brand' : ''}>
+          {g.open_now === true ? `${t('Open now')} · ` : g.open_now === false ? `${t('Closed now')} · ` : ''}
+          {today}
+        </span>
+      )}
+    </p>
+  )
+}
+
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-[12px] font-semibold uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="text-[15px] text-ink">{children}</dd>
+    </div>
+  )
+}
+
+function Shimmer() {
+  return <span className="inline-block h-4 w-28 animate-pulse rounded bg-line align-middle" aria-hidden />
 }
