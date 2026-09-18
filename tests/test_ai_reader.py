@@ -239,3 +239,15 @@ def test_admin_stats_shape():
     assert [w["days"] for w in out["windows"]] == [1, 7, 30]
     assert out["windows"][0] == {"days": 1, "reads": 40, "tracked": 40, "reader_hits": 22, "ai_calls": 18, "ai_hits": 9, "cost_usd": 0.0324}
     assert "make_interval" in engine.calls[0][0]
+
+
+def test_the_cap_fails_closed_when_the_database_is_down(monkeypatch):
+    """A call we cannot count is a call we cannot record, so it must not be spent."""
+    from services import ai_reader as ar
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    with patch.object(ar.database, "db_engine", None), patch.object(ar.database, "connect_to_database", return_value=False):
+        assert ar.calls_last_day() > ar.MAX_DAILY_CAP
+        with patch.object(ar.requests, "post") as post:
+            assert ar.read([b"x"], "gemini-3.8-flash", 1000) is None
+        post.assert_not_called()

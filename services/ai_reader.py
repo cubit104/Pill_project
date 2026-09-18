@@ -103,9 +103,14 @@ def parse_reply(data: dict, model: str) -> Optional[dict]:
 
 
 def calls_last_day() -> int:
-    """How many identifications used the second reader in the last 24 h (the cost fuse counts these)."""
+    """How many identifications used the second reader in the last 24 h (the cost fuse counts these).
+
+    Fails CLOSED: when the count cannot be read, the caller must not spend. A call we cannot
+    count is also a call record_capture cannot store, so the cap would drift with every outage.
+    """
     if not database.db_engine and not database.connect_to_database():
-        return 0
+        logger.warning("second reader: no database, cannot count today's calls; skipping the call")
+        return MAX_DAILY_CAP + 1
     try:
         with database.db_engine.connect() as conn:
             return int(conn.execute(

@@ -18,8 +18,7 @@ export default function IdentifyPage() {
         Snap a photo of each side of the pill. Our own reader, trained on PillSeek&apos;s pill photo
         library, reads the imprint and matches it against 14,000+ medications. Photos are analyzed
         in memory and <strong>never stored</strong> unless you choose to share them to improve the reader.
-        When our reader cannot make out an imprint, the photos may be sent to Google&apos;s Gemini service
-        for a second read of the imprint.
+        Photos may also be sent to Google&apos;s Gemini service for a second reading of the imprint.
       </p>
       <IdentifyClient />
     </main>
