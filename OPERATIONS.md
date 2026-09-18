@@ -38,7 +38,7 @@ If the iMac reboots, the reader, matcher and tunnel come back by themselves thro
 
 ## Where secrets live (never in git)
 
-- Render → Environment: `DATABASE_URL`, Supabase URL and service key, `PILL_OCR_URL/KEY`, `PILL_MATCH_URL/KEY`, `ALLOWED_ORIGINS` (includes `capacitor://localhost` for the app), PostHog keys, IndexNow key.
+- Render → Environment: `DATABASE_URL`, Supabase URL and service key, `PILL_OCR_URL/KEY`, `PILL_MATCH_URL/KEY`, `ALLOWED_ORIGINS` (includes `capacitor://localhost` for the app), PostHog keys, IndexNow key, `GOOGLE_PLACES_KEY` (Find a doctor), `GEMINI_API_KEY` (second imprint reader: paid-tier key; switched on and capped in Admin → Settings → Second reader, results and cost on Admin → Photo Captures).
 - Vercel → both projects: Supabase URL, anon key, `API_BASE_URL`; keep `SUPABASE_SERVICE_ROLE_KEY` only on the Render backend (the site code never reads it).
 - iMac: the reader and matcher keys are arguments in the LaunchAgent plists under `~/Library/LaunchAgents/`; the Cloudflare tunnel token is in `com.pillseek.tunnel.plist`.
 - Laptop: `Pill_backend/.env` holds a real `DATABASE_URL` (for one-off queries via `Pill_project/venv/Scripts/python.exe` with psycopg2) but placeholder Supabase keys, so storage calls do not work locally. `mobile/android/keystore.properties` plus `C:\Users\<user>\.android\pillseek-upload.jks` are the Play upload key; keep a backup of both outside the laptop.

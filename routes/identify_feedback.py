@@ -44,8 +44,15 @@ def record_capture(
     consent: bool,
     photos: list[bytes],
     location: dict | None = None,
+    ai: dict | None = None,
+    read_source: str | None = None,
 ) -> str | None:
     """Insert one identify_feedback row, then (with consent) attach photos.
+
+    `imprint_read` / `tokens` are always OUR reader's output, even when the second
+    reader (`ai` = services.ai_reader.read()'s dict, or None when it was not called)
+    supplied the match: these rows are the training set and the scoreboard for our
+    own model. `read_source` says whose exact match the user saw: reader / ai / none.
 
     `location` = {"country", "region", "city"} from the edge's visitor headers
     (any key may be None); the IP address is deliberately not recorded.
@@ -61,11 +68,18 @@ def record_capture(
             conn.execute(
                 text(
                     "INSERT INTO identify_feedback "
-                    "(capture_id, imprint_read, tokens, attrs_guess, top_slugs, consent, country, region, city) "
+                    "(capture_id, imprint_read, tokens, attrs_guess, top_slugs, consent, country, region, city, "
+                    "ai_read, ai_confidence, ai_cost_micros, read_source) "
                     "VALUES (CAST(:id AS uuid), :read, CAST(:tokens AS jsonb), CAST(:attrs AS jsonb), "
-                    "CAST(:top AS jsonb), :consent, :country, :region, :city)"
+                    "CAST(:top AS jsonb), :consent, :country, :region, :city, "
+                    ":ai_read, :ai_confidence, :ai_cost, :read_source)"
                 ),
                 {
+                    # A call that came back empty still cost money and still counts toward the daily cap.
+                    "ai_read": (" ".join(ai.get("tokens") or [])[:80] or None) if ai else None,
+                    "ai_confidence": ai.get("confidence") if ai else None,
+                    "ai_cost": int(ai.get("cost_micros") or 0) if ai else None,
+                    "read_source": read_source if read_source in ("reader", "ai", "none") else None,
                     "country": (location or {}).get("country") or None,
                     "region": (location or {}).get("region") or None,
                     "city": (location or {}).get("city") or None,

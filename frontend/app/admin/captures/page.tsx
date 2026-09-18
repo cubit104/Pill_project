@@ -79,6 +79,17 @@ function fmtDate(value: string | null) {
   return value ? new Date(value).toLocaleString() : '—'
 }
 
+interface ReadStats {
+  days: number
+  reads: number
+  /** Reads since read_source started being recorded; percentages are over these. */
+  tracked: number
+  reader_hits: number
+  ai_calls: number
+  ai_hits: number
+  cost_usd: number
+}
+
 export default function AdminCapturesPage() {
   const router = useRouter()
   const [role, setRole] = useState<string | null>(null)
@@ -90,6 +101,7 @@ export default function AdminCapturesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [stats, setStats] = useState<ReadStats[] | null>(null)
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<CaptureDetail | null>(null)
@@ -111,6 +123,13 @@ export default function AdminCapturesPage() {
     const { data: { session } } = await supabase.auth.getSession()
     return session?.access_token ?? null
   }
+
+  // Who read what lately (our reader vs the second reader) and what the second reader cost.
+  useEffect(() => {
+    adminApi.getCaptureStats()
+      .then((d: { windows?: ReadStats[] }) => setStats(Array.isArray(d.windows) ? d.windows : []))
+      .catch(() => setStats([]))
+  }, [])
 
   const loadList = useCallback(async (keepSelection = true) => {
     const token = await getToken()
@@ -374,6 +393,28 @@ export default function AdminCapturesPage() {
           </button>
         )}
       </div>
+
+      {stats && stats.length > 0 && (
+        <div className="grid gap-2 sm:grid-cols-3">
+          {stats.map((w) => {
+            const pct = (n: number) => (w.tracked > 0 ? `${Math.round((100 * n) / w.tracked)}%` : '—')
+            return (
+              <div key={w.days} className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm">
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  {w.days === 1 ? 'Last 24 hours' : `Last ${w.days} days`} · {w.reads} reads
+                </div>
+                <div className="mt-1 text-gray-800">
+                  Our reader matched <strong>{pct(w.reader_hits)}</strong>
+                  {w.tracked < w.reads && <span className="text-gray-400"> (of {w.tracked} tracked)</span>}
+                </div>
+                <div className="text-gray-600">
+                  Second reader: called {w.ai_calls}, matched {w.ai_hits} · <strong>${w.cost_usd.toFixed(2)}</strong>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         {TABS.map((t) => (
