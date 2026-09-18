@@ -90,6 +90,7 @@ export const adminApi = {
     return apiFetch(qs ? `/api/admin/captures?${qs}` : '/api/admin/captures')
   },
   getCapture: (id: string) => apiFetch(`/api/admin/captures/${id}`),
+  getCaptureStats: () => apiFetch('/api/admin/captures/stats'),
   reviewCapture: (id: string, data: object) =>
     apiFetch(`/api/admin/captures/${id}/review`, { method: 'POST', body: JSON.stringify(data) }),
   reopenCapture: (id: string) =>

@@ -30,8 +30,9 @@ from sqlalchemy import text
 
 import database
 from routes.identify import IdentifyRequest, identify_pill
-from routes.identify_feedback import record_capture
+from routes.identify_feedback import _bounded_jpeg, record_capture
 from routes.site_settings import _read_flags_uncached, read_flags
+from services import ai_reader
 from services import pill_vision_core as core
 from utils import process_image_filenames
 
@@ -317,16 +318,21 @@ async def identify_photo(
     result = await loop.run_in_executor(_EXECUTOR, _identify_sync, raws)
 
     # Learning loop: log the identification (photos kept only with explicit consent).
+    # The row records OUR reader's read even when the second reader supplied the match.
+    trace = result.pop("_trace", {})
+    reader_read = trace.get("reader_read", result.get("imprint_read", "")) or ""
     keep_photos = str(consent or "").lower() in ("1", "true", "yes", "on")
     result["capture_id"] = await asyncio.to_thread(
         record_capture,
-        result.get("imprint_read", ""),
-        (result.get("imprint_read") or "").split(),
+        reader_read,
+        reader_read.split(),
         result.get("attrs_guess") or {},
         [m["slug"] for m in result.get("matches", [])],
         keep_photos,
         raws if keep_photos else [],
         _visitor_location(request),
+        trace.get("ai"),
+        trace.get("read_source"),
     )
     return result
 
@@ -345,43 +351,90 @@ async def _read_bounded(up: UploadFile) -> bytes:
     return b"".join(chunks)
 
 
-def _identify_sync(raws: list[bytes]) -> dict:
+_EXACT = 0.85  # an imprint match at or above this is shown as the answer
+_AI_EXECUTOR = ThreadPoolExecutor(max_workers=int(os.getenv("PILL_AI_WORKERS", "2")), thread_name_prefix="pill-ai")
 
-    # 1) Imprint reader first — it is the primary signal.
+
+def _imprint_matches(tokens: list[str], side_reads: list[str] | None) -> list[dict]:
+    """Catalogue pills matching these imprint tokens (and their split/merge variants), best first."""
+    best: dict[str, tuple[float, object, float]] = {}
+    variants = _token_variants(tokens, side_reads)
+    results = list(_VARIANT_EXECUTOR.map(
+        lambda vw: identify_pill(IdentifyRequest(imprint_tokens=vw[0], limit=TOP_K)), variants))
+    for (variant, weight), text_result in zip(variants, results):
+        for c in text_result.candidates:
+            if c.score < 0.5:  # inclusion is judged on the raw text score
+                continue
+            score = c.score * weight  # ranking / shortcut use the weighted one
+            if c.slug not in best or score > best[c.slug][0]:
+                best[c.slug] = (score, c, weight)
+    return [
+        {
+            "slug": c.slug,
+            "similarity": score,
+            "lossy": weight < 1.0,
+            "medicine_name": c.medicine_name,
+            "splimprint": c.splimprint,
+            "color": c.color,
+            "shape": c.shape,
+            "strength": c.strength,
+            "image_urls": c.image_urls,
+            "source": "imprint",
+        }
+        for score, c, weight in sorted(best.values(), key=lambda sc: -sc[0])
+    ]
+
+
+def _is_exact(matches: list[dict]) -> bool:
+    return bool(matches) and matches[0]["similarity"] >= _EXACT
+
+
+def _identify_sync(raws: list[bytes]) -> dict:
+    # 0) Second reader (Admin -> Settings): inert without its key. In "always" mode it starts
+    #    now and runs while our own reader works, so the comparison costs the user no time.
+    settings = read_flags()
+    ai_mode = settings.get("ai_reader_mode", "off") if ai_reader.api_key() else "off"
+
+    def _ask_ai():
+        photos = [p for p in (_bounded_jpeg(r) for r in raws[:2]) if p]
+        return ai_reader.read(photos, settings.get("ai_reader_model"), settings.get("ai_reader_daily_cap", 0))
+
+    ai_future = _AI_EXECUTOR.submit(_ask_ai) if ai_mode == "always" else None
+
+    # 1) Our imprint reader first — it is the primary signal.
     imprint_read = ""
     imprint_matches: list[dict] = []
     tokens, side_reads = asyncio.run(_read_imprint(raws))
     if tokens:
         imprint_read = " ".join(tokens)
         try:
-            best: dict[str, tuple[float, object, float]] = {}
-            variants = _token_variants(tokens, side_reads)
-            results = list(_VARIANT_EXECUTOR.map(
-                lambda vw: identify_pill(IdentifyRequest(imprint_tokens=vw[0], limit=TOP_K)), variants))
-            for (variant, weight), text_result in zip(variants, results):
-                for c in text_result.candidates:
-                    if c.score < 0.5:  # inclusion is judged on the raw text score
-                        continue
-                    score = c.score * weight  # ranking / shortcut use the weighted one
-                    if c.slug not in best or score > best[c.slug][0]:
-                        best[c.slug] = (score, c, weight)
-            for score, c, weight in sorted(best.values(), key=lambda sc: -sc[0]):
-                imprint_matches.append(
-                    {
-                        "slug": c.slug,
-                        "similarity": score,
-                        "lossy": weight < 1.0,
-                        "medicine_name": c.medicine_name,
-                        "splimprint": c.splimprint,
-                        "color": c.color,
-                        "shape": c.shape,
-                        "strength": c.strength,
-                        "image_urls": c.image_urls,
-                        "source": "imprint",
-                    }
-                )
+            imprint_matches = _imprint_matches(tokens, side_reads)
         except Exception:
             logger.warning("imprint text match failed", exc_info=True)
+    reader_read = imprint_read
+    read_source = "reader" if _is_exact(imprint_matches) else "none"
+
+    # 1a) The second reader may only fill a gap: it never overrides an exact match of ours, and its
+    #     read counts only when it is an exact match in OUR catalogue. It cannot name a pill.
+    ai = None
+    if ai_future is not None or ai_reader.should_run(ai_mode, read_source == "reader"):
+        try:
+            ai = ai_future.result(timeout=ai_reader.TIMEOUT_S + 5) if ai_future is not None else _ask_ai()
+        except Exception:
+            logger.warning("second reader failed", exc_info=True)
+    if ai and ai.get("tokens") and read_source != "reader":
+        try:
+            ai_matches = _imprint_matches(ai["tokens"], ai.get("side_reads"))
+        except Exception:
+            logger.warning("second reader text match failed", exc_info=True)
+            ai_matches = []
+        if _is_exact(ai_matches):
+            imprint_matches, imprint_read, read_source = ai_matches, " ".join(ai["tokens"]), "ai"
+    trace = {"reader_read": reader_read, "ai": ai, "read_source": read_source}
+
+    def _out(matches: list[dict]) -> dict:
+        return {"matches": _public(matches), "imprint_read": imprint_read, "attrs_guess": attrs_guess,
+                "disclaimer": _DISCLAIMER, "read_source": read_source, "_trace": trace}
 
     # 1b) Let the photo vote on shape/color to order imprint ties
     #     (e.g. "119" on a round pill vs. "119" on an oblong one).
@@ -398,8 +451,8 @@ def _identify_sync(raws: list[bytes]) -> dict:
 
     # 2) Exact imprint hit → done; skip the (slow) visual matching entirely.
     #    (Leave-one-out hits are capped at _LOO_WEIGHT and can't get here.)
-    if imprint_matches and imprint_matches[0]["similarity"] >= 0.85:
-        return {"matches": _public(imprint_matches[:TOP_K]), "imprint_read": imprint_read, "attrs_guess": attrs_guess, "disclaimer": _DISCLAIMER}
+    if _is_exact(imprint_matches):
+        return _out(imprint_matches[:TOP_K])
 
     # 3) Otherwise visual matching fills in / breaks ties. If the visual
     #    stage is unavailable, still return whatever the imprint gave us.
@@ -410,8 +463,7 @@ def _identify_sync(raws: list[bytes]) -> dict:
             # No visual confirmation possible: full-read hits before any
             # leave-one-out guess, whatever their scores.
             ordered = sorted(imprint_matches, key=lambda m: (m["lossy"], -m["similarity"]))
-            return {"matches": _public(ordered[:TOP_K]), "imprint_read": imprint_read,
-                    "attrs_guess": attrs_guess, "disclaimer": _DISCLAIMER}
+            return _out(ordered[:TOP_K])
         raise
     top = hits[:TOP_K]
 
@@ -466,7 +518,7 @@ def _identify_sync(raws: list[bytes]) -> dict:
     unconfirmed = [m for m in imprint_matches if m["lossy"] and m["slug"] not in visual_rank]
     seen_slugs = {m["slug"] for m in imprint_matches}
     fused = confirmed + [m for m in matches if m["slug"] not in seen_slugs] + unconfirmed
-    return {"matches": _public(fused[:TOP_K + 2]), "imprint_read": imprint_read, "attrs_guess": attrs_guess, "disclaimer": _DISCLAIMER}
+    return _out(fused[:TOP_K + 2])
 
 
 def _public(matches: list[dict]) -> list[dict]:

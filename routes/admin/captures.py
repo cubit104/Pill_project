@@ -160,6 +160,44 @@ def count_captures(admin: dict = Depends(require_role(*REVIEWERS))):
     return {"count": int(n or 0)}
 
 
+_STATS_SQL = """
+    SELECT w.days,
+           count(f.capture_id)                                         AS reads,
+           count(f.capture_id) FILTER (WHERE f.read_source IS NOT NULL) AS tracked,
+           count(f.capture_id) FILTER (WHERE f.read_source = 'reader')  AS reader_hits,
+           count(f.capture_id) FILTER (WHERE f.ai_cost_micros IS NOT NULL) AS ai_calls,
+           count(f.capture_id) FILTER (WHERE f.read_source = 'ai')      AS ai_hits,
+           coalesce(sum(f.ai_cost_micros), 0)                          AS cost_micros
+    FROM (VALUES (1), (7), (30)) AS w(days)
+    LEFT JOIN identify_feedback f ON f.created_at > now() - make_interval(days => w.days)
+    GROUP BY w.days
+    ORDER BY w.days
+"""
+
+
+@router.get("/captures/stats")
+def capture_stats(admin: dict = Depends(require_role(*REVIEWERS))):
+    """Who read what, over the last 1 / 7 / 30 days: our reader's exact matches, how often the
+    second reader was called, how often it supplied the match, and what it cost.
+    `tracked` = reads since read_source started being recorded; percentages belong over that."""
+    with _db().connect() as conn:
+        rows = conn.execute(text(_STATS_SQL)).fetchall()
+    return {
+        "windows": [
+            {
+                "days": int(r[0]),
+                "reads": int(r[1]),
+                "tracked": int(r[2]),
+                "reader_hits": int(r[3]),
+                "ai_calls": int(r[4]),
+                "ai_hits": int(r[5]),
+                "cost_usd": round(int(r[6]) / 1_000_000, 4),
+            }
+            for r in rows
+        ]
+    }
+
+
 @router.get("/captures/export")
 def export_captures(
     since: date | None = Query(default=None, description="Only captures reviewed on/after this day"),

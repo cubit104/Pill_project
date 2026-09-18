@@ -1,7 +1,9 @@
 """Site feature flags: public read, superuser write.
 
 GET  /api/features               -> {"photo_id_enabled": bool, "photo_id_reader_mode": "original"|"fast"|"accurate"}
-PUT  /api/admin/features         -> body {"photo_id_enabled": bool, "photo_id_reader_mode": "original"|"fast"|"accurate"} (any subset)
+GET  /api/admin/features         -> the public flags plus the second-reader settings (superuser)
+PUT  /api/admin/features         -> any subset of: photo_id_enabled, photo_id_reader_mode,
+                                    ai_reader_mode ("off"|"fallback"|"always"), ai_reader_model, ai_reader_daily_cap
 
 Backed by public.site_settings (supabase/migrations/20260903000000_create_site_settings.sql).
 If the table is missing, reads fall back to defaults (feature off) so the
@@ -14,11 +16,12 @@ import threading
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 import database
 from routes.admin.auth import require_role
+from services import ai_reader
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -29,13 +32,26 @@ router = APIRouter()
 #   "fast"     = base model only, crops + voting (~1.5 s)
 #   "accurate" = base crops + voting, large overrides when its crops agree (~3 s)
 READER_MODES = ("original", "fast", "accurate")
-DEFAULTS = {"photo_id_enabled": False, "photo_id_reader_mode": "accurate"}
+# ai_reader_*: the second imprint reader (services/ai_reader.py). Off until a superuser turns it on,
+# and inert without GEMINI_API_KEY whatever these say.
+DEFAULTS = {
+    "photo_id_enabled": False,
+    "photo_id_reader_mode": "accurate",
+    "ai_reader_mode": "off",
+    "ai_reader_model": ai_reader.DEFAULT_MODEL,
+    "ai_reader_daily_cap": ai_reader.DEFAULT_DAILY_CAP,
+}
 FLAG_KEYS = tuple(DEFAULTS)
+# What the public site and the app may see; the rest is for the admin only.
+PUBLIC_KEYS = ("photo_id_enabled", "photo_id_reader_mode")
 
 
 class FeatureUpdate(BaseModel):
     photo_id_enabled: bool | None = None
     photo_id_reader_mode: Literal["original", "fast", "accurate"] | None = None
+    ai_reader_mode: Literal["off", "fallback", "always"] | None = None
+    ai_reader_model: str | None = Field(default=None, max_length=60)
+    ai_reader_daily_cap: int | None = Field(default=None, ge=0, le=ai_reader.MAX_DAILY_CAP)
 
 
 def _coerce(key: str, value):
@@ -49,6 +65,13 @@ def _coerce(key: str, value):
         return default  # "no", "0", None, objects... -> default, never a surprise ON
     if key == "photo_id_reader_mode":
         return value if value in READER_MODES else default
+    if key == "ai_reader_mode":
+        return value if value in ai_reader.MODES else default
+    if key == "ai_reader_model":
+        return value if value in ai_reader.MODELS else default
+    if key == "ai_reader_daily_cap":
+        ok = isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= ai_reader.MAX_DAILY_CAP
+        return value if ok else default
     return value
 
 
@@ -107,7 +130,22 @@ def _read_flags_uncached() -> dict:
 
 @router.get("/api/features")
 def get_features():
-    return read_flags()
+    flags = read_flags()
+    return {k: flags[k] for k in PUBLIC_KEYS}
+
+
+def _admin_view(flags: dict) -> dict:
+    """Everything the Settings page needs, including whether the provider key is configured."""
+    return {
+        **flags,
+        "ai_reader_key_present": bool(ai_reader.api_key()),
+        "ai_reader_models": list(ai_reader.MODELS),
+    }
+
+
+@router.get("/api/admin/features")
+def get_admin_features(admin: dict = Depends(require_role("superuser"))):
+    return _admin_view(_read_flags_uncached())
 
 
 @router.put("/api/admin/features")
@@ -117,6 +155,8 @@ def update_features(payload: FeatureUpdate, admin: dict = Depends(require_role("
     updates = {k: v for k, v in payload.model_dump().items() if v is not None and k in FLAG_KEYS}
     if not updates:
         raise HTTPException(status_code=422, detail="No settings provided")
+    if "ai_reader_model" in updates and updates["ai_reader_model"] not in ai_reader.MODELS:
+        raise HTTPException(status_code=422, detail=f"Unknown model. Allowed: {', '.join(ai_reader.MODELS)}")
     try:
         with database.db_engine.begin() as conn:
             for key, value in updates.items():
@@ -133,4 +173,4 @@ def update_features(payload: FeatureUpdate, admin: dict = Depends(require_role("
         logger.error("failed to update site_settings: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Could not save settings (is the site_settings migration applied?)")
     _invalidate_flags()
-    return read_flags()
+    return _admin_view(read_flags())

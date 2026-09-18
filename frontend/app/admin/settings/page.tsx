@@ -5,24 +5,52 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Users, Shield, Camera } from 'lucide-react'
+import { Users, Shield, Camera, Sparkles } from 'lucide-react'
 import { createClient } from '../lib/supabase'
 
 export default function AdminSettingsPage() {
   const router = useRouter()
   type ReaderMode = 'original' | 'fast' | 'accurate'
+  type AiMode = 'off' | 'fallback' | 'always'
+  type Flags = {
+    photo_id_enabled?: unknown
+    photo_id_reader_mode?: unknown
+    ai_reader_mode?: unknown
+    ai_reader_model?: unknown
+    ai_reader_daily_cap?: unknown
+    ai_reader_key_present?: unknown
+    ai_reader_models?: unknown
+  }
   const [photoId, setPhotoId] = useState<boolean | null>(null)
   const [readerMode, setReaderMode] = useState<ReaderMode | null>(null)
+  // Second reader (services/ai_reader.py): null until the admin flags have loaded.
+  const [aiMode, setAiMode] = useState<AiMode | null>(null)
+  const [aiModel, setAiModel] = useState('')
+  const [aiModels, setAiModels] = useState<string[]>([])
+  const [aiCap, setAiCap] = useState('')
+  const [aiKeyPresent, setAiKeyPresent] = useState<boolean | null>(null)
   const [saving, setSaving] = useState(false)
   const [flagError, setFlagError] = useState<string | null>(null)
 
-  const applyFlags = (f: { photo_id_enabled?: unknown; photo_id_reader_mode?: unknown }) => {
+  const applyFlags = (f: Flags) => {
     setPhotoId(Boolean(f.photo_id_enabled))
     setReaderMode(f.photo_id_reader_mode === 'fast' || f.photo_id_reader_mode === 'original' ? f.photo_id_reader_mode : 'accurate')
+    if (typeof f.ai_reader_mode === 'string') {
+      setAiMode(f.ai_reader_mode === 'fallback' || f.ai_reader_mode === 'always' ? f.ai_reader_mode : 'off')
+      setAiModel(typeof f.ai_reader_model === 'string' ? f.ai_reader_model : '')
+      setAiModels(Array.isArray(f.ai_reader_models) ? f.ai_reader_models.filter((m): m is string => typeof m === 'string') : [])
+      setAiCap(typeof f.ai_reader_daily_cap === 'number' ? String(f.ai_reader_daily_cap) : '')
+      setAiKeyPresent(Boolean(f.ai_reader_key_present))
+    }
   }
 
   const loadFlags = async () => {
     try {
+      // The admin view carries the second-reader settings; the public one is the fallback.
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      const admin = await fetch('/api/admin/features', { headers: { Authorization: `Bearer ${session?.access_token ?? ''}` } })
+      if (admin.ok) return applyFlags(await admin.json())
       const res = await fetch('/api/features')
       if (res.ok) applyFlags(await res.json())
     } catch {
@@ -31,7 +59,13 @@ export default function AdminSettingsPage() {
     }
   }
 
-  const saveFlags = async (patch: { photo_id_enabled?: boolean; photo_id_reader_mode?: ReaderMode }) => {
+  const saveFlags = async (patch: {
+    photo_id_enabled?: boolean
+    photo_id_reader_mode?: ReaderMode
+    ai_reader_mode?: AiMode
+    ai_reader_model?: string
+    ai_reader_daily_cap?: number
+  }) => {
     setSaving(true)
     setFlagError(null)
     try {
@@ -56,6 +90,15 @@ export default function AdminSettingsPage() {
 
   const togglePhotoId = () => {
     if (photoId !== null) void saveFlags({ photo_id_enabled: !photoId })
+  }
+
+  const saveAiCap = () => {
+    const n = Number(aiCap)
+    if (aiCap.trim() === '' || !Number.isInteger(n) || n < 0 || n > 100000) {
+      setFlagError('Daily cap must be a whole number from 0 to 100000')
+      return
+    }
+    void saveFlags({ ai_reader_daily_cap: n })
   }
 
   useEffect(() => {
@@ -147,6 +190,94 @@ export default function AdminSettingsPage() {
             </fieldset>
           </div>
           {flagError && <p className="mt-2 text-sm text-red-600">{flagError}</p>}
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="bg-indigo-100 p-2 rounded-lg">
+              <Sparkles className="w-5 h-5 text-indigo-700" />
+            </div>
+            <h2 className="font-semibold text-gray-900">Second reader (Google Gemini)</h2>
+          </div>
+          <p className="text-sm text-gray-500 mb-3">
+            Our own reader always goes first. The second reader only reads the imprint text; its answer is shown
+            only when that imprint exists in our database, and it can never name a pill. Results and cost:
+            Photo Captures page.
+          </p>
+          {aiMode === null ? (
+            <p className="text-sm text-gray-400">Loading…</p>
+          ) : (
+            <>
+              <p className={`text-xs mb-3 ${aiKeyPresent ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {aiKeyPresent
+                  ? 'Key found on the server.'
+                  : 'No GEMINI_API_KEY on the server (Render → Environment): stays off whatever is chosen here.'}
+              </p>
+              <fieldset className="space-y-2" disabled={saving}>
+                <legend className="sr-only">Second reader mode</legend>
+                {([
+                  ['off', 'Off', 'Never called.'],
+                  ['fallback', 'Fallback', 'Only when our reader finds no exact match. Normal setting.'],
+                  ['always', 'Always', 'Every read, side by side with ours, to measure both. Costs the most; ours still wins when it is exact.'],
+                ] as const).map(([value, label, hint]) => (
+                  <label key={value} className="flex items-start gap-2 text-sm text-gray-800 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="ai-reader-mode"
+                      value={value}
+                      checked={aiMode === value}
+                      onChange={() => void saveFlags({ ai_reader_mode: value })}
+                      className="mt-0.5 h-4 w-4 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>
+                      <span className="font-medium">{label}</span>
+                      <span className="block text-xs text-gray-500">{hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+              <div className="mt-4 flex flex-wrap items-end gap-4">
+                <label className="text-sm text-gray-700">
+                  <span className="block text-xs font-medium text-gray-500 mb-1">Model</span>
+                  <select
+                    value={aiModel}
+                    disabled={saving}
+                    onChange={(e) => void saveFlags({ ai_reader_model: e.target.value })}
+                    className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                  >
+                    {aiModels.map((m) => (
+                      <option key={m} value={m}>
+                        {m.includes('flash') ? `${m} (fast, cheapest: well under 1¢ a read)` : `${m} (slower, a few times the cost)`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm text-gray-700">
+                  <span className="block text-xs font-medium text-gray-500 mb-1">Daily cap (calls per 24 h)</span>
+                  <span className="flex gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100000}
+                      value={aiCap}
+                      disabled={saving}
+                      onChange={(e) => setAiCap(e.target.value)}
+                      className="w-28 rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={saveAiCap}
+                      disabled={saving}
+                      className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
+                    >
+                      Save
+                    </button>
+                  </span>
+                </label>
+              </div>
+              <p className="mt-2 text-xs text-gray-500">When the cap is reached the second reader stops until calls age out; our reader keeps working.</p>
+            </>
+          )}
         </div>
 
         <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm opacity-60 cursor-not-allowed">
