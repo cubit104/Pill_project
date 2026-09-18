@@ -92,15 +92,16 @@ def _cand(slug, score):
 
 
 @contextmanager
-def _pipeline(reader_tokens, catalogue, mode, ai_result, key="k"):
+def _pipeline(reader_tokens, catalogue, mode, ai_result, key="k", used=("large",), trust_base=False):
     """catalogue: {"TOKENS JOINED": [(slug, score)]} -> what the text matcher returns for those tokens."""
     def fake_identify(req):
         return SimpleNamespace(candidates=[_cand(s, sc) for s, sc in catalogue.get(" ".join(req.imprint_tokens), [])])
 
     async def fake_reader(raws):
-        return list(reader_tokens), [" ".join(reader_tokens)] if reader_tokens else []
+        return list(reader_tokens), [" ".join(reader_tokens)] if reader_tokens else [], list(used)
 
-    flags = {"ai_reader_mode": mode, "ai_reader_model": "gemini-3.8-flash", "ai_reader_daily_cap": 1000}
+    flags = {"ai_reader_mode": mode, "ai_reader_model": "gemini-3.8-flash", "ai_reader_daily_cap": 1000,
+             "reader_trust_base": trust_base}
     with patch.dict(os.environ, {"GEMINI_API_KEY": key} if key else {}, clear=False), \
          patch.object(ip, "read_flags", return_value=flags), \
          patch.object(ip, "_read_imprint", fake_reader), \
@@ -122,7 +123,7 @@ def test_fallback_fills_the_gap_and_the_row_keeps_our_read():
     ai_read.assert_called_once()
     assert out["read_source"] == "ai" and out["imprint_read"] == "BX 2"
     assert out["matches"][0]["slug"] == "baxlend-bx-2" and out["matches"][0]["source"] == "imprint"
-    assert out["_trace"] == {"reader_read": "BX 1", "ai": AI_BX2, "read_source": "ai"}
+    assert out["_trace"] == {"reader_read": "BX 1", "ai": AI_BX2, "read_source": "ai", "reader_used": "large"}
 
 
 def test_fallback_is_not_called_when_our_reader_is_exact():
@@ -212,12 +213,12 @@ def test_capture_row_keeps_our_read_and_records_the_second_reader():
 
     engine = _FakeEngine()
     with patch.object(fb.database, "db_engine", engine):
-        cid = fb.record_capture("BX 1", ["BX", "1"], {}, ["baxlend-bx-2"], False, [], None, AI_BX2, "ai")
+        cid = fb.record_capture("BX 1", ["BX", "1"], {}, ["baxlend-bx-2"], False, [], None, AI_BX2, "ai", "base")
     assert cid
     sql, params = engine.calls[0]
     assert "ai_read, ai_confidence, ai_cost_micros, read_source" in sql
     assert params["read"] == "BX 1" and params["ai_read"] == "BX 2" and params["ai_confidence"] == "high"
-    assert params["ai_cost"] == 1800 and params["read_source"] == "ai"
+    assert params["ai_cost"] == 1800 and params["read_source"] == "ai" and params["reader_used"] == "base"
 
 
 def test_capture_row_without_the_second_reader_has_nulls():
@@ -225,19 +226,21 @@ def test_capture_row_without_the_second_reader_has_nulls():
 
     engine = _FakeEngine()
     with patch.object(fb.database, "db_engine", engine):
-        fb.record_capture("C 73", ["C", "73"], {}, [], False, [], None, None, "bogus")
+        fb.record_capture("C 73", ["C", "73"], {}, [], False, [], None, None, "bogus", "nonsense")
     params = engine.calls[0][1]
     assert params["ai_read"] is None and params["ai_cost"] is None and params["read_source"] is None
+    assert params["reader_used"] is None
 
 
 def test_admin_stats_shape():
     from routes.admin import captures
 
-    engine = _FakeEngine(rows=[(1, 40, 40, 22, 18, 9, 32400), (7, 300, 120, 70, 50, 24, 90000), (30, 900, 120, 70, 50, 24, 90000)])
+    engine = _FakeEngine(rows=[(1, 40, 40, 22, 6, 18, 9, 32400), (7, 300, 120, 70, 20, 50, 24, 90000)])
     with patch.object(captures, "_db", return_value=engine):
         out = captures.capture_stats(admin={"role": "superuser"})
-    assert [w["days"] for w in out["windows"]] == [1, 7, 30]
-    assert out["windows"][0] == {"days": 1, "reads": 40, "tracked": 40, "reader_hits": 22, "ai_calls": 18, "ai_hits": 9, "cost_usd": 0.0324}
+    assert [w["days"] for w in out["windows"]] == [1, 7]
+    assert out["windows"][0] == {"days": 1, "reads": 40, "tracked": 40, "reader_hits": 22, "base_reads": 6,
+                                 "ai_calls": 18, "ai_hits": 9, "cost_usd": 0.0324}
     assert "make_interval" in engine.calls[0][0]
 
 
@@ -251,3 +254,35 @@ def test_the_cap_fails_closed_when_the_database_is_down(monkeypatch):
         with patch.object(ar.requests, "post") as post:
             assert ar.read([b"x"], "gemini-3.8-flash", 1000) is None
         post.assert_not_called()
+
+
+# ---- the large model decides, base does not ---------------------------------------------
+
+BASE_PHANTOM = ["93", "756", "PLIVA", "448"]  # one pill, two unrelated real imprints: base invented half
+
+
+def test_a_base_only_read_never_settles_the_answer():
+    """The live failure: base's memorised "PLIVA 448" scored exact and showed a confident wrong pill."""
+    with _pipeline(BASE_PHANTOM, {" ".join(BASE_PHANTOM): [("piroxicam-93-756", 1.0)], "SPT 25": [("amlodipine", 1.0)]},
+                   "fallback", {"tokens": ["SPT", "25"], "side_reads": ["SPT 25"], "confidence": "high", "cost_micros": 1500},
+                   used=("base", "base")) as ai_read:
+        out = ip._identify_sync([b"a", b"b"])
+    ai_read.assert_called_once()  # base no longer blocks the second reader
+    assert out["read_source"] == "ai" and out["matches"][0]["slug"] == "amlodipine"
+    assert out["_trace"]["reader_read"] == "93 756 PLIVA 448"  # still recorded for the scoreboard
+    assert out["_trace"]["reader_used"] == "base"
+
+
+def test_the_admin_can_trust_base_again():
+    with _pipeline(BASE_PHANTOM, {" ".join(BASE_PHANTOM): [("piroxicam-93-756", 1.0)]}, "fallback", AI_BX2,
+                   used=("base", "base"), trust_base=True) as ai_read:
+        out = ip._identify_sync([b"a"])
+    ai_read.assert_not_called()
+    assert out["read_source"] == "reader" and out["matches"][0]["slug"] == "piroxicam-93-756"
+
+
+def test_a_large_read_still_settles_it():
+    with _pipeline(["C", "73"], {"C 73": [("metoprolol-c-73", 1.0)]}, "fallback", AI_BX2, used=("large", "blank")) as ai_read:
+        out = ip._identify_sync([b"a"])
+    ai_read.assert_not_called()
+    assert out["read_source"] == "reader" and out["_trace"]["reader_used"] == "large"

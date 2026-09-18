@@ -47,7 +47,9 @@ _STATUS_SQL = {
 _COLUMNS = (
     "capture_id::text, created_at, imprint_read, tokens, attrs_guess, top_slugs, consent, "
     "photo_paths, verdict, chosen_slug, corrected_imprint, reviewed, reviewed_label, "
-    "side_labels, reviewed_at, reviewed_by, country, region, city"
+    "side_labels, reviewed_at, reviewed_by, country, region, city, "
+    # Side by side: what our reader read and with which model, what the second reader read, who won.
+    "reader_used, ai_read, ai_confidence, ai_cost_micros, read_source"
 )
 
 
@@ -112,6 +114,12 @@ def _row_to_capture(row, urls: dict[str, str]) -> dict:
         "country": row[16] if len(row) > 16 else None,
         "region": row[17] if len(row) > 17 else None,
         "city": row[18] if len(row) > 18 else None,
+        # None on rows written before the second reader existed.
+        "reader_used": row[19] if len(row) > 19 else None,
+        "ai_read": row[20] if len(row) > 20 else None,
+        "ai_confidence": row[21] if len(row) > 21 else None,
+        "ai_cost_usd": round(row[22] / 1_000_000, 4) if len(row) > 22 and row[22] is not None else None,
+        "read_source": row[23] if len(row) > 23 else None,
     }
 
 
@@ -165,6 +173,7 @@ _STATS_SQL = """
            count(f.capture_id)                                         AS reads,
            count(f.capture_id) FILTER (WHERE f.read_source IS NOT NULL) AS tracked,
            count(f.capture_id) FILTER (WHERE f.read_source = 'reader')  AS reader_hits,
+           count(f.capture_id) FILTER (WHERE f.reader_used = 'base')     AS base_reads,
            count(f.capture_id) FILTER (WHERE f.ai_cost_micros IS NOT NULL) AS ai_calls,
            count(f.capture_id) FILTER (WHERE f.read_source = 'ai')      AS ai_hits,
            coalesce(sum(f.ai_cost_micros), 0)                          AS cost_micros
@@ -189,9 +198,10 @@ def capture_stats(admin: dict = Depends(require_role(*REVIEWERS))):
                 "reads": int(r[1]),
                 "tracked": int(r[2]),
                 "reader_hits": int(r[3]),
-                "ai_calls": int(r[4]),
-                "ai_hits": int(r[5]),
-                "cost_usd": round(int(r[6]) / 1_000_000, 4),
+                "base_reads": int(r[4]),
+                "ai_calls": int(r[5]),
+                "ai_hits": int(r[6]),
+                "cost_usd": round(int(r[7]) / 1_000_000, 4),
             }
             for r in rows
         ]
