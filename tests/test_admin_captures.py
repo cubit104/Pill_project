@@ -284,3 +284,71 @@ def test_review_rejects_blank_label_without_pill():
 def test_export_is_not_for_reviewers():
     with _client(admin=REVIEWER) as (client, _):
         assert client.get("/api/admin/captures/export").status_code == 403
+
+
+# ---- bulk unusable / delete -------------------------------------------------------------
+
+CID2 = "22222222-2222-4222-8222-222222222222"
+GONE = "33333333-3333-4333-8333-333333333333"
+
+
+def _two_rows():
+    return [_row(), _row(capture_id=CID2, photo_paths=[f"{CID2}/side1.jpg"])]
+
+
+def _bulk(client, ids, action):
+    return client.post("/api/admin/captures/bulk", json={"ids": ids, "action": action})
+
+
+def test_bulk_marks_several_unusable():
+    with patch("routes.admin.captures.user_photos.delete_objects", return_value=True) as rm:
+        with _client(rows=_two_rows(), admin=REVIEWER) as (client, log):
+            r = _bulk(client, [CID, CID2], "unusable")
+    assert r.status_code == 200, r.text
+    assert r.json()["done"] == [CID, CID2] and r.json()["failed"] == []
+    assert rm.call_count == 2  # photos wiped from storage for each
+    assert len(_sql(log, "photo_paths = '[]'::jsonb")) == 2
+    assert not _sql(log, "delete from identify_feedback")  # rows stay, so the stats keep them
+    assert sum(1 for _, p in log if p.get("action") == "capture_unusable") == 2
+
+
+def test_bulk_delete_removes_rows_for_a_superuser():
+    with patch("routes.admin.captures.user_photos.delete_objects", return_value=True):
+        with _client(rows=_two_rows()) as (client, log):
+            r = _bulk(client, [CID, CID2], "delete")
+    assert r.status_code == 200 and r.json()["done"] == [CID, CID2]
+    assert len(_sql(log, "delete from identify_feedback")) == 2
+    assert sum(1 for _, p in log if p.get("action") == "capture_deleted") == 2
+
+
+def test_bulk_skips_repeats_and_keeps_going_after_a_bad_id():
+    with patch("routes.admin.captures.user_photos.delete_objects", return_value=True) as rm:
+        with _client(admin=REVIEWER) as (client, _):
+            r = _bulk(client, [CID, CID, GONE], "unusable")
+    body = r.json()
+    assert body["done"] == [CID]  # the repeat is not processed twice
+    assert [f["capture_id"] for f in body["failed"]] == [GONE]  # one missing capture does not stop the rest
+    assert rm.call_count == 1
+
+
+def test_bulk_reports_a_storage_failure_without_touching_the_row():
+    with patch("routes.admin.captures.user_photos.delete_objects", return_value=False):
+        with _client(admin=REVIEWER) as (client, log):
+            r = _bulk(client, [CID], "unusable")
+    assert r.json()["done"] == [] and len(r.json()["failed"]) == 1
+    assert not _sql(log, "photo_paths = '[]'::jsonb")
+
+
+def test_bulk_delete_is_refused_to_a_reviewer():
+    with _client(admin=REVIEWER) as (client, log):
+        r = _bulk(client, [CID], "delete")
+    assert r.status_code == 403
+    assert not _sql(log, "delete from identify_feedback")
+
+
+def test_bulk_validates_the_request():
+    with _client() as (client, _):
+        assert _bulk(client, [], "unusable").status_code == 422
+        assert _bulk(client, [CID], "burn").status_code == 422
+        assert _bulk(client, [CID] * 101, "unusable").status_code == 422
+        assert _bulk(client, ["not-a-uuid"], "unusable").status_code == 422

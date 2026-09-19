@@ -111,6 +111,9 @@ export default function AdminCapturesPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [stats, setStats] = useState<ReadStats[] | null>(null)
+  // Bulk clear-out: ticked captures on the page currently shown.
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<CaptureDetail | null>(null)
@@ -149,6 +152,7 @@ export default function AdminCapturesPage() {
       const data = await adminApi.getCaptures({ status, page, per_page: PER_PAGE, ...(nonUs ? { country: 'non-US' } : {}) })
       const captures: Capture[] = data.captures
       setList(captures)
+      setPicked(new Set())  // never carry ticks across a page or tab change
       setTotal(data.total)
       setSelectedId((current) => {
         if (keepSelection && current && captures.some((c) => c.capture_id === current)) return current
@@ -370,6 +374,39 @@ export default function AdminCapturesPage() {
   }
 
   const isSuperuser = role === 'superuser' || role === 'superadmin'
+  const togglePick = (id: string) =>
+    setPicked((cur) => {
+      const next = new Set(cur)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+
+  const allPicked = list.length > 0 && picked.size === list.length
+
+  const runBulk = async (action: 'unusable' | 'delete') => {
+    const ids = list.filter((c) => picked.has(c.capture_id)).map((c) => c.capture_id)
+    if (ids.length === 0) return
+    const what = action === 'delete'
+      ? `Delete ${ids.length} capture${ids.length === 1 ? '' : 's'} for good? The photos and the rows go, and this cannot be undone.`
+      : `Mark ${ids.length} capture${ids.length === 1 ? '' : 's'} unusable? The photos are deleted; the rows stay for the statistics.`
+    if (!window.confirm(what)) return
+    setBulkBusy(true)
+    setError('')
+    try {
+      const res = await adminApi.bulkCaptures(ids, action)
+      const done: string[] = res.done ?? []
+      const failed: { capture_id: string; detail: string }[] = res.failed ?? []
+      flash(`${action === 'delete' ? 'Deleted' : 'Marked unusable'}: ${done.length}${failed.length ? ` · ${failed.length} failed` : ''}`)
+      if (failed.length) setError(failed[0].detail)
+      if (selectedId && done.includes(selectedId)) setSelectedId(null)
+      await loadList(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
   const canExport = isSuperuser || role === 'editor'
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE))
 
@@ -453,19 +490,67 @@ export default function AdminCapturesPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4">
         {/* Queue */}
         <aside className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col max-h-[75vh]">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 text-xs">
+            <label className="flex items-center gap-1.5 text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={allPicked}
+                disabled={list.length === 0 || bulkBusy}
+                onChange={() => setPicked(allPicked ? new Set() : new Set(list.map((c) => c.capture_id)))}
+                className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500"
+              />
+              {picked.size > 0 ? `${picked.size} selected` : 'Select all'}
+            </label>
+            {picked.size > 0 && (
+              <div className="ml-auto flex gap-1.5">
+                <button
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={() => void runBulk('unusable')}
+                  className="rounded-md bg-amber-600 px-2 py-1 font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                  title="Delete the photos, keep the row for the statistics"
+                >
+                  Unusable
+                </button>
+                {isSuperuser && (
+                  <button
+                    type="button"
+                    disabled={bulkBusy}
+                    onClick={() => void runBulk('delete')}
+                    className="rounded-md bg-red-600 px-2 py-1 font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                    title="Remove the photos and the row entirely"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           <div className="overflow-y-auto divide-y divide-gray-100 flex-1">
             {loading && <div className="px-4 py-8 text-center text-gray-500 text-sm">Loading…</div>}
             {!loading && list.length === 0 && (
               <div className="px-4 py-8 text-center text-gray-500 text-sm">Nothing here</div>
             )}
             {list.map((c) => (
-              <button
+              <div
                 key={c.capture_id}
-                onClick={() => setSelectedId(c.capture_id)}
-                className={`w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-gray-50 ${
+                className={`w-full px-3 py-2 flex items-center gap-2 hover:bg-gray-50 ${
                   c.capture_id === selectedId ? 'bg-indigo-50' : ''
                 }`}
               >
+                <input
+                  type="checkbox"
+                  checked={picked.has(c.capture_id)}
+                  disabled={bulkBusy}
+                  onChange={() => togglePick(c.capture_id)}
+                  aria-label="Select this capture"
+                  className="h-4 w-4 shrink-0 rounded text-indigo-600 focus:ring-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(c.capture_id)}
+                  className="min-w-0 flex-1 text-left flex items-center gap-3"
+                >
                 {c.photo_urls[0] ? (
                   <img src={c.photo_urls[0]} alt="" className="w-12 h-12 object-cover rounded-md bg-gray-100 shrink-0" />
                 ) : (
@@ -484,7 +569,8 @@ export default function AdminCapturesPage() {
                 </div>
                 {c.verdict === 'up' && <ThumbsUp className="w-4 h-4 text-emerald-600 shrink-0" />}
                 {c.verdict === 'down' && <ThumbsDown className="w-4 h-4 text-red-500 shrink-0" />}
-              </button>
+                </button>
+              </div>
             ))}
           </div>
           <div className="flex items-center justify-between px-3 py-2 border-t border-gray-100 text-xs text-gray-500">

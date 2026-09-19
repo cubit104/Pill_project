@@ -91,6 +91,8 @@ export const adminApi = {
   },
   getCapture: (id: string) => apiFetch(`/api/admin/captures/${id}`),
   getCaptureStats: () => apiFetch('/api/admin/captures/stats'),
+  bulkCaptures: (ids: string[], action: 'unusable' | 'delete') =>
+    apiFetch('/api/admin/captures/bulk', { method: 'POST', body: JSON.stringify({ ids, action }) }),
   reviewCapture: (id: string, data: object) =>
     apiFetch(`/api/admin/captures/${id}/review`, { method: 'POST', body: JSON.stringify(data) }),
   reopenCapture: (id: string) =>
