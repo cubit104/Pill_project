@@ -333,6 +333,7 @@ async def identify_photo(
         _visitor_location(request),
         trace.get("ai"),
         trace.get("read_source"),
+        trace.get("reader_used"),
     )
     return result
 
@@ -404,13 +405,19 @@ def _identify_sync(raws: list[bytes]) -> dict:
     # 1) Our imprint reader first — it is the primary signal.
     imprint_read = ""
     imprint_matches: list[dict] = []
-    tokens, side_reads = asyncio.run(_read_imprint(raws))
+    tokens, side_reads, used = asyncio.run(_read_imprint(raws))
+    # The large model is trusted: it returns nothing rather than guess. A read that only the
+    # small (base) model produced may be an imprint it memorised in training, so unless the
+    # admin trusts it, it must not settle the answer — the second reader decides instead.
+    reader_used = "large" if "large" in used else "base" if "base" in used else "none" if used else None
+    trusted = bool(tokens) and (settings.get("reader_trust_base", False) or reader_used != "base")
     if tokens:
         imprint_read = " ".join(tokens)
-        try:
-            imprint_matches = _imprint_matches(tokens, side_reads)
-        except Exception:
-            logger.warning("imprint text match failed", exc_info=True)
+        if trusted:
+            try:
+                imprint_matches = _imprint_matches(tokens, side_reads)
+            except Exception:
+                logger.warning("imprint text match failed", exc_info=True)
     reader_read = imprint_read
     read_source = "reader" if _is_exact(imprint_matches) else "none"
 
@@ -430,7 +437,7 @@ def _identify_sync(raws: list[bytes]) -> dict:
             ai_matches = []
         if _is_exact(ai_matches):
             imprint_matches, imprint_read, read_source = ai_matches, " ".join(ai["tokens"]), "ai"
-    trace = {"reader_read": reader_read, "ai": ai, "read_source": read_source}
+    trace = {"reader_read": reader_read, "ai": ai, "read_source": read_source, "reader_used": reader_used}
 
     def _out(matches: list[dict]) -> dict:
         return {"matches": _public(matches), "imprint_read": imprint_read, "attrs_guess": attrs_guess,
@@ -526,10 +533,11 @@ def _public(matches: list[dict]) -> list[dict]:
     return [{k: v for k, v in m.items() if k != "lossy"} for m in matches]
 
 
-async def _read_imprint(raws: list[bytes]) -> tuple[list[str], list[str]]:
-    """Ask the imprint-reader service for tokens; [] if disabled/unavailable."""
+async def _read_imprint(raws: list[bytes]) -> tuple[list[str], list[str], list[str]]:
+    """Ask the imprint-reader service for tokens, the per-side reads, and which of our models
+    produced each side ("large" / "base" / "blank" / "none"). Empty lists if disabled/unavailable."""
     if not OCR_URL or not raws:
-        return [], []
+        return [], [], []
     files = {"photo": ("a.jpg", raws[0], "image/jpeg")}
     if len(raws) > 1:
         files["photo2"] = ("b.jpg", raws[1], "image/jpeg")
@@ -546,7 +554,8 @@ async def _read_imprint(raws: list[bytes]) -> tuple[list[str], list[str]]:
         j = r.json()
         tokens = [t for t in j.get("tokens", []) if t][:12]
         reads = [str(x).strip() for x in j.get("reads", []) if str(x).strip()]
-        return tokens, reads
+        used = [str(x).strip() for x in j.get("used", []) if str(x).strip()][:4]
+        return tokens, reads, used
     except Exception as e:
         logger.warning("imprint reader unavailable: %s", e)
-        return [], []
+        return [], [], []

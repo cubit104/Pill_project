@@ -3,7 +3,8 @@
 GET  /api/features               -> {"photo_id_enabled": bool, "photo_id_reader_mode": "original"|"fast"|"accurate"}
 GET  /api/admin/features         -> the public flags plus the second-reader settings (superuser)
 PUT  /api/admin/features         -> any subset of: photo_id_enabled, photo_id_reader_mode,
-                                    ai_reader_mode ("off"|"fallback"|"always"), ai_reader_model, ai_reader_daily_cap
+                                    reader_trust_base, ai_reader_mode ("off"|"fallback"|"always"),
+                                    ai_reader_model, ai_reader_daily_cap
 
 Backed by public.site_settings (supabase/migrations/20260903000000_create_site_settings.sql).
 If the table is missing, reads fall back to defaults (feature off) so the
@@ -34,9 +35,14 @@ router = APIRouter()
 READER_MODES = ("original", "fast", "accurate")
 # ai_reader_*: the second imprint reader (services/ai_reader.py). Off until a superuser turns it on,
 # and inert without GEMINI_API_KEY whatever these say.
+# reader_trust_base: our large model stays silent rather than guess, and the small (base) model
+# then fills in — sometimes inventing an imprint it memorised in training ("PLIVA 448"), which can
+# score as an exact match and show a confident wrong pill. False keeps base out of the answer path:
+# its read is still recorded, but only the second reader or the photo itself can settle those.
 DEFAULTS = {
     "photo_id_enabled": False,
     "photo_id_reader_mode": "accurate",
+    "reader_trust_base": False,
     "ai_reader_mode": "off",
     "ai_reader_model": ai_reader.DEFAULT_MODEL,
     "ai_reader_daily_cap": ai_reader.DEFAULT_DAILY_CAP,
@@ -49,6 +55,7 @@ PUBLIC_KEYS = ("photo_id_enabled", "photo_id_reader_mode")
 class FeatureUpdate(BaseModel):
     photo_id_enabled: bool | None = None
     photo_id_reader_mode: Literal["original", "fast", "accurate"] | None = None
+    reader_trust_base: bool | None = None
     ai_reader_mode: Literal["off", "fallback", "always"] | None = None
     ai_reader_model: str | None = Field(default=None, max_length=60)
     ai_reader_daily_cap: int | None = Field(default=None, ge=0, le=ai_reader.MAX_DAILY_CAP)

@@ -38,6 +38,13 @@ interface Capture {
   side_labels: string[] | null
   reviewed_at: string | null
   reviewed_by: string | null
+  /** Which of our own models read it: large is trusted, base is the fill-in that can invent a label. */
+  reader_used: 'large' | 'base' | 'none' | null
+  ai_read: string | null
+  ai_confidence: 'high' | 'medium' | 'low' | null
+  ai_cost_usd: number | null
+  /** Whose read settled the answer the user saw. */
+  read_source: 'reader' | 'ai' | 'none' | null
   /** Where the photo was taken (Cloudflare visitor location); null before this feature. */
   country: string | null
   region: string | null
@@ -85,6 +92,8 @@ interface ReadStats {
   /** Reads since read_source started being recorded; percentages are over these. */
   tracked: number
   reader_hits: number
+  /** Reads where only the small model produced text. */
+  base_reads: number
   ai_calls: number
   ai_hits: number
   cost_usd: number
@@ -410,6 +419,9 @@ export default function AdminCapturesPage() {
                 <div className="text-gray-600">
                   Second reader: called {w.ai_calls}, matched {w.ai_hits} · <strong>${w.cost_usd.toFixed(2)}</strong>
                 </div>
+                {w.base_reads > 0 && (
+                  <div className="text-xs text-amber-700">Small model read {w.base_reads} (large was silent)</div>
+                )}
               </div>
             )
           })}
@@ -462,6 +474,8 @@ export default function AdminCapturesPage() {
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium text-gray-900 truncate">
                     {c.reviewed_label ?? c.imprint_read ?? <span className="text-gray-400">nothing read</span>}
+                    {c.read_source === 'ai' && <span className="ml-1 text-[10px] font-sans text-indigo-600">2nd</span>}
+                    {c.reader_used === 'base' && c.read_source !== 'ai' && <span className="ml-1 text-[10px] font-sans text-amber-600">small</span>}
                   </div>
                   <div className="text-xs text-gray-500 truncate">
                     {fmtDate(c.created_at)} · {c.photo_paths.length} photo{c.photo_paths.length === 1 ? '' : 's'}
@@ -523,8 +537,31 @@ export default function AdminCapturesPage() {
               {/* What the system and the user said */}
               <dl className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                 <div>
-                  <dt className="text-xs text-gray-500">Reader read</dt>
-                  <dd className="font-mono">{detail.imprint_read || <span className="text-gray-400">nothing</span>}</dd>
+                  <dt className="text-xs text-gray-500">
+                    Our reader
+                    {detail.reader_used && (
+                      <span className={detail.reader_used === 'base' ? 'ml-1 text-amber-700' : 'ml-1 text-gray-400'}>
+                        ({detail.reader_used === 'large' ? 'large' : detail.reader_used === 'base' ? 'small model' : 'silent'})
+                      </span>
+                    )}
+                  </dt>
+                  <dd className="font-mono">
+                    {detail.imprint_read || <span className="text-gray-400">nothing</span>}
+                    {detail.read_source === 'reader' && <span className="ml-1 text-xs font-sans text-emerald-700">✓ used</span>}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500">
+                    Second reader
+                    {detail.ai_confidence && <span className="ml-1 text-gray-400">({detail.ai_confidence})</span>}
+                  </dt>
+                  <dd className="font-mono">
+                    {detail.ai_read || <span className="text-gray-400">{detail.ai_cost_usd === null ? 'not called' : 'nothing'}</span>}
+                    {detail.read_source === 'ai' && <span className="ml-1 text-xs font-sans text-emerald-700">✓ used</span>}
+                    {detail.ai_cost_usd !== null && (
+                      <span className="block text-xs font-sans text-gray-400">${detail.ai_cost_usd.toFixed(4)}</span>
+                    )}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-xs text-gray-500">Shape / color guess</dt>

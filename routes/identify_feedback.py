@@ -46,13 +46,15 @@ def record_capture(
     location: dict | None = None,
     ai: dict | None = None,
     read_source: str | None = None,
+    reader_used: str | None = None,
 ) -> str | None:
     """Insert one identify_feedback row, then (with consent) attach photos.
 
     `imprint_read` / `tokens` are always OUR reader's output, even when the second
     reader (`ai` = services.ai_reader.read()'s dict, or None when it was not called)
     supplied the match: these rows are the training set and the scoreboard for our
-    own model. `read_source` says whose exact match the user saw: reader / ai / none.
+    own model. `read_source` says whose exact match the user saw: reader / ai / none, and
+    `reader_used` which of our own models read it (large / base / none).
 
     `location` = {"country", "region", "city"} from the edge's visitor headers
     (any key may be None); the IP address is deliberately not recorded.
@@ -69,10 +71,10 @@ def record_capture(
                 text(
                     "INSERT INTO identify_feedback "
                     "(capture_id, imprint_read, tokens, attrs_guess, top_slugs, consent, country, region, city, "
-                    "ai_read, ai_confidence, ai_cost_micros, read_source) "
+                    "ai_read, ai_confidence, ai_cost_micros, read_source, reader_used) "
                     "VALUES (CAST(:id AS uuid), :read, CAST(:tokens AS jsonb), CAST(:attrs AS jsonb), "
                     "CAST(:top AS jsonb), :consent, :country, :region, :city, "
-                    ":ai_read, :ai_confidence, :ai_cost, :read_source)"
+                    ":ai_read, :ai_confidence, :ai_cost, :read_source, :reader_used)"
                 ),
                 {
                     # A call that came back empty still cost money and still counts toward the daily cap.
@@ -80,6 +82,7 @@ def record_capture(
                     "ai_confidence": ai.get("confidence") if ai else None,
                     "ai_cost": int(ai.get("cost_micros") or 0) if ai else None,
                     "read_source": read_source if read_source in ("reader", "ai", "none") else None,
+                    "reader_used": reader_used if reader_used in ("large", "base", "none") else None,
                     "country": (location or {}).get("country") or None,
                     "region": (location or {}).get("region") or None,
                     "city": (location or {}).get("city") or None,

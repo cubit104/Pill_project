@@ -15,6 +15,7 @@ export default function AdminSettingsPage() {
   type Flags = {
     photo_id_enabled?: unknown
     photo_id_reader_mode?: unknown
+    reader_trust_base?: unknown
     ai_reader_mode?: unknown
     ai_reader_model?: unknown
     ai_reader_daily_cap?: unknown
@@ -23,6 +24,7 @@ export default function AdminSettingsPage() {
   }
   const [photoId, setPhotoId] = useState<boolean | null>(null)
   const [readerMode, setReaderMode] = useState<ReaderMode | null>(null)
+  const [trustBase, setTrustBase] = useState<boolean | null>(null)
   // Second reader (services/ai_reader.py): null until the admin flags have loaded.
   const [aiMode, setAiMode] = useState<AiMode | null>(null)
   const [aiModel, setAiModel] = useState('')
@@ -35,6 +37,7 @@ export default function AdminSettingsPage() {
   const applyFlags = (f: Flags) => {
     setPhotoId(Boolean(f.photo_id_enabled))
     setReaderMode(f.photo_id_reader_mode === 'fast' || f.photo_id_reader_mode === 'original' ? f.photo_id_reader_mode : 'accurate')
+    if (typeof f.reader_trust_base === 'boolean') setTrustBase(f.reader_trust_base)
     if (typeof f.ai_reader_mode === 'string') {
       setAiMode(f.ai_reader_mode === 'fallback' || f.ai_reader_mode === 'always' ? f.ai_reader_mode : 'off')
       setAiModel(typeof f.ai_reader_model === 'string' ? f.ai_reader_model : '')
@@ -62,6 +65,7 @@ export default function AdminSettingsPage() {
   const saveFlags = async (patch: {
     photo_id_enabled?: boolean
     photo_id_reader_mode?: ReaderMode
+    reader_trust_base?: boolean
     ai_reader_mode?: AiMode
     ai_reader_model?: string
     ai_reader_daily_cap?: number
@@ -188,6 +192,26 @@ export default function AdminSettingsPage() {
                 </label>
               ))}
             </fieldset>
+
+            {trustBase !== null && (
+              <label className="mt-4 flex items-start gap-2 text-sm text-gray-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={trustBase}
+                  disabled={saving}
+                  onChange={() => void saveFlags({ reader_trust_base: !trustBase })}
+                  className="mt-0.5 h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>
+                  <span className="font-medium">Let the small model answer when the large one is silent</span>
+                  <span className="block text-xs text-gray-500">
+                    Off (recommended): the large model stays silent rather than guess, and the small one has been caught
+                    inventing imprints it memorised in training, which can show a confident wrong pill. With this off,
+                    those reads are still recorded but the second reader settles them.
+                  </span>
+                </span>
+              </label>
+            )}
           </div>
           {flagError && <p className="mt-2 text-sm text-red-600">{flagError}</p>}
         </div>
