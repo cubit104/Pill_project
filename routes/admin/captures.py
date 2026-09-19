@@ -11,6 +11,7 @@ GET    /api/admin/captures/export[?since=]  training manifest: one row per photo
 GET    /api/admin/captures/{id}             detail with candidate pills
 POST   /api/admin/captures/{id}/review      {chosen_slug, reviewed_label, side_labels} or {unusable: true}
 POST   /api/admin/captures/{id}/reopen      back to the queue
+POST   /api/admin/captures/bulk           {ids: [...], action: "unusable"|"delete"} up to 100 at once
 DELETE /api/admin/captures/{id}             superuser: row and photos gone
 
 Photos are never public: the API hands out short-lived signed URLs, and the
@@ -21,6 +22,7 @@ import json
 import logging
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
@@ -36,6 +38,8 @@ router = APIRouter(prefix="/api/admin", tags=["admin-captures"])
 
 REVIEWERS = ("superuser", "editor", "reviewer")
 EXPORTERS = ("superuser", "editor")
+# One bulk click handles at most this many captures, so a slip cannot wipe the queue.
+BULK_MAX = 100
 MAX_LABEL = 80
 
 _HAS_PHOTOS = "(jsonb_typeof(photo_paths) = 'array' AND jsonb_array_length(photo_paths) > 0)"
@@ -419,6 +423,54 @@ def reopen_capture(capture_id: uuid.UUID, admin: dict = Depends(require_role(*RE
             raise HTTPException(status_code=404, detail="Capture not found or has no photos to review")
         log_audit(conn, admin["id"], admin.get("email", ""), "capture_reopened", "capture", str(capture_id))
     return {"capture_id": str(capture_id), "reviewed": False}
+
+
+class BulkCaptures(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=BULK_MAX)
+    action: Literal["unusable", "delete"]
+
+
+@router.post("/captures/bulk")
+def bulk_captures(payload: BulkCaptures, admin: dict = Depends(require_role(*REVIEWERS))):
+    """Clear out junk in one go: mark several captures unusable (photos wiped, row kept for the
+    stats) or delete them outright (superuser only, as for a single capture).
+
+    Each capture is its own transaction and its own audit entry, so one storage failure or a
+    capture someone else deleted meanwhile cannot undo the rest; the reply says what happened.
+    """
+    if payload.action == "delete" and admin.get("role") != "superuser":
+        raise HTTPException(status_code=403, detail="Only a superuser may delete captures")
+    done, failed = [], []
+    for capture_id in dict.fromkeys(payload.ids):  # ignore repeats in the request
+        try:
+            with _db().begin() as conn:
+                row = _fetch_capture(conn, capture_id)  # 404s on a capture that is already gone
+                paths = _paths(row[7])
+                if paths and not user_photos.delete_objects(paths):
+                    raise HTTPException(status_code=502, detail="Could not delete the photos from storage")
+                if payload.action == "delete":
+                    conn.execute(text("DELETE FROM identify_feedback WHERE capture_id = CAST(:id AS uuid)"),
+                                 {"id": str(capture_id)})
+                    action = "capture_deleted"
+                else:
+                    conn.execute(
+                        text(
+                            "UPDATE identify_feedback SET reviewed = true, photo_paths = '[]'::jsonb, "
+                            "reviewed_label = NULL, side_labels = NULL, reviewed_at = now(), reviewed_by = :by "
+                            "WHERE capture_id = CAST(:id AS uuid)"
+                        ),
+                        {"by": admin.get("email"), "id": str(capture_id)},
+                    )
+                    action = "capture_unusable"
+                log_audit(conn, admin["id"], admin.get("email", ""), action, "capture", str(capture_id),
+                          diff={"photos_deleted": len(paths), "bulk": True})
+            done.append(str(capture_id))
+        except HTTPException as e:
+            failed.append({"capture_id": str(capture_id), "detail": e.detail})
+        except Exception as e:
+            logger.error("bulk %s failed for %s: %s", payload.action, capture_id, e, exc_info=True)
+            failed.append({"capture_id": str(capture_id), "detail": "Server error"})
+    return {"action": payload.action, "done": done, "failed": failed}
 
 
 @router.delete("/captures/{capture_id}")
