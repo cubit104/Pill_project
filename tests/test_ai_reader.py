@@ -235,12 +235,14 @@ def test_capture_row_without_the_second_reader_has_nulls():
 def test_admin_stats_shape():
     from routes.admin import captures
 
-    engine = _FakeEngine(rows=[(1, 40, 40, 22, 6, 18, 9, 32400), (7, 300, 120, 70, 20, 50, 24, 90000)])
+    engine = _FakeEngine(rows=[(1, 40, 40, 22, 6, 18, 9, 32400), (7, 300, 120, 70, 20, 50, 24, 90000),
+                               (30, 900, 400, 250, 60, 150, 70, 260000)])
     with patch.object(captures, "_db", return_value=engine):
         out = captures.capture_stats(admin={"role": "superuser"})
-    assert [w["days"] for w in out["windows"]] == [1, 7]
+    assert [w["days"] for w in out["windows"]] == [1, 7, 30]  # the query always returns all three
     assert out["windows"][0] == {"days": 1, "reads": 40, "tracked": 40, "reader_hits": 22, "base_reads": 6,
                                  "ai_calls": 18, "ai_hits": 9, "cost_usd": 0.0324}
+    assert out["windows"][2]["cost_usd"] == 0.26
     assert "make_interval" in engine.calls[0][0]
 
 
