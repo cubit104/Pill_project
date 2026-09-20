@@ -21,9 +21,11 @@ function formatDate(iso: string | null): string | null {
  * after a reviewer approved it (the API never sends a draft).
  */
 export default function IvAdministrationCard({ drug, card }: { drug: IvDrug; card: IvCard }) {
-  const stated = FIELDS.filter(([key]) => card.fields[key]?.status === 'stated')
+  // "not applicable" is an answer too ("Mixing: ready to use"), backed by a quote like any other; only
+  // "not stated" is left off the card and summed up in the grey line below
+  const shown = FIELDS.filter(([key]) => ['stated', 'not_applicable'].includes(card.fields[key]?.status ?? ''))
   const silent = FIELDS.filter(([key]) => (card.fields[key]?.status ?? 'not_stated') === 'not_stated')
-  if (stated.length === 0) return null
+  if (shown.length === 0) return null
   const reviewed = formatDate(card.reviewed_at)
 
   return (
@@ -42,13 +44,14 @@ export default function IvAdministrationCard({ drug, card }: { drug: IvDrug; car
       )}
 
       <dl className="divide-y divide-slate-100">
-        {stated.map(([key, label]) => {
+        {shown.map(([key, label]) => {
           const field = card.fields[key]
           const warns = /^do not|^never/i.test(field.value)
+          const tone = warns ? 'font-semibold text-rose-700' : field.status === 'stated' ? 'font-medium text-slate-900' : 'text-slate-600'
           return (
             <div key={key} className="grid gap-x-4 py-2.5 sm:grid-cols-[9rem_1fr]">
               <dt className="text-xs font-semibold uppercase tracking-wider text-slate-500 sm:pt-0.5">{label}</dt>
-              <dd className={`text-[15px] leading-snug ${warns ? 'font-semibold text-rose-700' : 'font-medium text-slate-900'}`}>
+              <dd className={`text-[15px] leading-snug ${tone}`}>
                 {field.value}
                 {field.quotes.length > 0 && (
                   <details className="mt-1 text-sm font-normal">

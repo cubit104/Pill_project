@@ -191,3 +191,16 @@ def test_card_is_six_answers_and_keeps_at_most_three_quotes_each():
     many["quotes"] = [many["quotes"][0]] * 5
     checked = iv_card.verify_card({"infusion": many}, SECTIONS)
     assert len(checked["fields"]["infusion"]["quotes"]) == iv_card.MAX_QUOTES and checked["quotes_checked"] == iv_card.MAX_QUOTES
+
+
+def test_the_ai_is_asked_for_a_little_less_than_the_check_accepts():
+    assert iv_card.VALUE_ASK < iv_card.VALUE_MAX
+    assert f"never more than {iv_card.VALUE_ASK}" in iv_card.build_prompt("Vancomycin", SECTIONS)
+    just_over_the_ask = field(value="x" * (iv_card.VALUE_ASK + 5))
+    assert iv_card.verify_card({"infusion": just_over_the_ask}, SECTIONS)["rejected"] == []
+
+
+def test_not_applicable_answer_survives_the_check_with_its_quote():
+    ready = field(status="not_applicable", value="Ready to use", quote="Reconstitute the 1 g vial with 20 mL of Sterile Water for Injection.")
+    checked = iv_card.verify_card({"mixing": ready}, SECTIONS)
+    assert checked["fields"]["mixing"]["status"] == "not_applicable" and checked["fields"]["mixing"]["value"] == "Ready to use"

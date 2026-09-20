@@ -31,6 +31,7 @@ LABEL_TIMEOUT_S = 60
 MAX_LABEL_CHARS = 60_000
 QUOTE_MIN, QUOTE_MAX = 25, 400
 VALUE_MAX = 170  # two short lines at most: the whole card has to read at a glance (6 to 9 lines)
+VALUE_ASK = 160  # what the AI is told; a little under VALUE_MAX on purpose, so a slight overshoot is not thrown away
 MAX_QUOTES = 3
 STATUSES = ("stated", "not_stated", "not_applicable")
 
@@ -209,7 +210,7 @@ def build_prompt(drug_name: str, sections: List[Dict[str, str]]) -> str:
         '3. If the label does not say it: "status": "not_stated", empty value, no quotes. If the question does not apply '
         '(e.g. a ready-to-use solution needs no mixing): "status": "not_applicable", a few words saying why, and a quote showing it.\n'
         "4. value: clinical shorthand, only what matters at the bedside. Aim for under 90 characters (one line); never more "
-        "than 160. No full sentences, no background, no repeating the drug name. If the label forbids something, start with "
+        f"than {VALUE_ASK}. No full sentences, no background, no repeating the drug name. If the label forbids something, start with "
         "\"Do not\". Keep the label's numbers and units exactly; NS, D5W, SWFI, LR are fine. "
         "Example: \"Over at least 60 min; max 10 mg/min\".\n"
         "5. Adult intravenous use only. Ignore intramuscular, subcutaneous, epidural, oral and paediatric details unless "
