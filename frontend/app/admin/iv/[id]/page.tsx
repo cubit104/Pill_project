@@ -51,6 +51,7 @@ interface IvDrugDetail {
   card_review_notes: string | null
   label_updated_since: boolean
   card_questions: Record<string, string>
+  card_labels: Record<string, string>
   ai_available: boolean
 }
 
@@ -255,9 +256,9 @@ export default function AdminIvDrugPage() {
       {hasCard && (
         <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
           <div>
-            <h2 className="text-sm font-semibold text-slate-800">Administration card</h2>
+            <h2 className="text-sm font-semibold text-slate-800">IV glance card</h2>
             <p className="text-xs text-slate-500 mt-1">
-              Check each answer against its quote. You may reword an answer or clear it; you cannot add a fact without a quote from the label.{' '}
+              Six short answers a nurse reads in seconds; the site hides the ones that say &quot;Not stated&quot;. Check each answer against its quotes. You may reword an answer or clear it; you cannot add a fact without a quote from the label.{' '}
               {drug.card?.quotes_checked ? `${drug.card.quotes_checked} quotes were checked by machine. ` : ''}
               {drug.card?.source ? `Drafted by ${drug.card.source}.` : ''}
             </p>
@@ -266,7 +267,7 @@ export default function AdminIvDrugPage() {
           {thrownOut.length > 0 && (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
               The quote check threw out {thrownOut.length === 1 ? 'one answer' : `${thrownOut.length} answers`} whose quote was not in the label:{' '}
-              {thrownOut.map(title).join(', ')}. They now read &quot;Not stated&quot;.
+              {thrownOut.map((key) => drug.card_labels?.[key] ?? title(key)).join(', ')}. They now read &quot;Not stated&quot;.
             </p>
           )}
           {notes && (
@@ -280,24 +281,32 @@ export default function AdminIvDrugPage() {
               return (
                 <div key={key} className={`rounded-lg border p-3 ${stated ? 'border-slate-200' : 'border-slate-100 bg-slate-50'}`}>
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="text-sm font-semibold text-slate-800">{title(key)}</h3>
+                    <h3 className="text-sm font-semibold text-slate-800">{drug.card_labels?.[key] ?? title(key)}</h3>
                     <span className="text-xs text-slate-500">{question}</span>
                   </div>
                   {stated ? (
                     <>
                       <textarea
                         value={field.value}
-                        maxLength={200}
+                        maxLength={170}
                         rows={2}
                         onChange={(e) => edit(key, { value: e.target.value })}
                         className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
                       />
-                      {field.quotes.map((quote, i) => (
-                        <blockquote key={i} className="mt-2 rounded-r-lg border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-slate-700">
-                          {quote.text}
-                          <span className="mt-1 block text-xs text-slate-500">{quote.section} · found word for word in the label</span>
-                        </blockquote>
-                      ))}
+                      <p className={`mt-1 text-xs ${field.value.length > 90 ? 'text-amber-700' : 'text-slate-400'}`}>
+                        {field.value.length} characters{field.value.length > 90 ? ': long for a glance card, shorten if you can' : ''}
+                      </p>
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-xs text-sky-700 hover:text-sky-900">
+                          {field.quotes.length === 1 ? '1 quote' : `${field.quotes.length} quotes`} from the label (each found word for word)
+                        </summary>
+                        {field.quotes.map((quote, i) => (
+                          <blockquote key={i} className="mt-2 rounded-r-lg border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm text-slate-700">
+                            {quote.text}
+                            <span className="mt-1 block text-xs text-slate-500">{quote.section}</span>
+                          </blockquote>
+                        ))}
+                      </details>
                       <button
                         onClick={() => edit(key, { status: 'not_stated', value: '', quotes: [] })}
                         className="mt-2 inline-flex items-center gap-1 text-xs text-rose-700 hover:underline"

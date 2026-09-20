@@ -40,11 +40,11 @@ def test_label_sections_keep_only_text_about_giving_the_drug():
 
 
 def test_quote_found_word_for_word_survives_ignoring_case_and_whitespace():
-    checked = iv_card.verify_card({"infusion_rate_time": field(quote="administer over a  period of\nAT LEAST 60 minutes.")}, SECTIONS)
-    assert checked["fields"]["infusion_rate_time"]["status"] == "stated"
+    checked = iv_card.verify_card({"infusion": field(quote="administer over a  period of\nAT LEAST 60 minutes.")}, SECTIONS)
+    assert checked["fields"]["infusion"]["status"] == "stated"
     assert checked["rejected"] == []
     assert set(checked["fields"]) == set(iv_card.CARD_FIELDS)
-    assert checked["fields"]["filter"] == {"status": "not_stated", "value": "", "quotes": []}
+    assert checked["fields"]["special_handling"] == {"status": "not_stated", "value": "", "quotes": []}
 
 
 @pytest.mark.parametrize(
@@ -54,27 +54,27 @@ def test_quote_found_word_for_word_survives_ignoring_case_and_whitespace():
         field(quote="Infuse slowly over one hour to avoid reactions."),  # not in the label at all
         field(quote=None),  # a fact with no quote
         field(quote="at least 60 minutes"),  # too short to be a checkable quote
-        field(value="x" * 201),  # a value that is an essay
+        field(value="x" * 171),  # a value that is an essay, not a glance
     ],
 )
 def test_invented_or_unsupported_fact_is_thrown_away(bad):
-    checked = iv_card.verify_card({"infusion_rate_time": bad}, SECTIONS)
-    assert checked["fields"]["infusion_rate_time"] == {"status": "not_stated", "value": "", "quotes": []}
-    assert checked["rejected"] == ["infusion_rate_time"]
+    checked = iv_card.verify_card({"infusion": bad}, SECTIONS)
+    assert checked["fields"]["infusion"] == {"status": "not_stated", "value": "", "quotes": []}
+    assert checked["rejected"] == ["infusion"]
 
 
 def test_one_bad_quote_is_dropped_but_a_good_one_keeps_the_fact():
     mixed = field()
     mixed["quotes"].append({"section": "x", "text": "This sentence was never printed in the label text."})
-    checked = iv_card.verify_card({"infusion_rate_time": mixed}, SECTIONS)
-    assert checked["fields"]["infusion_rate_time"]["status"] == "stated"
-    assert len(checked["fields"]["infusion_rate_time"]["quotes"]) == 1 and checked["quotes_checked"] == 2
+    checked = iv_card.verify_card({"infusion": mixed}, SECTIONS)
+    assert checked["fields"]["infusion"]["status"] == "stated"
+    assert len(checked["fields"]["infusion"]["quotes"]) == 1 and checked["quotes_checked"] == 2
 
 
 def test_prompt_carries_the_label_text_and_every_question():
     prompt = iv_card.build_prompt("Vancomycin", SECTIONS)
     assert "at least 60 minutes" in prompt and "Vancomycin" in prompt
-    assert all(f'"{key}"' in prompt for key in iv_card.CARD_FIELDS)
+    assert all(f'"{key}"' in prompt for key in iv_card.CARD_FIELDS) and "all 6 keys" in prompt
 
 
 def ai_response(payload, status=200):
@@ -86,14 +86,14 @@ def ai_response(payload, status=200):
 
 def test_draft_card_runs_the_ai_reply_through_the_quote_check():
     reply = {
-        "fields": {"infusion_rate_time": field(), "iv_push": field(value="Allowed over 1 minute", quote="May be given as a rapid push over one minute.")},
+        "fields": {"infusion": field(), "iv_push": field(value="Allowed over 1 minute", quote="May be given as a rapid push over one minute.")},
         "notes_for_reviewer": "ok",
     }
     with patch.object(iv_card, "fetch_label_sections", return_value=SECTIONS), patch.object(iv_card, "api_key", return_value="k"), patch.object(
         iv_card.requests, "post", return_value=ai_response(reply)
     ) as post:
         card = iv_card.draft_card("Vancomycin", "set-1")
-    assert card["fields"]["infusion_rate_time"]["status"] == "stated"
+    assert card["fields"]["infusion"]["status"] == "stated"
     assert card["fields"]["iv_push"]["status"] == "not_stated" and card["rejected_by_check"] == ["iv_push"]
     assert card["label_setid"] == "set-1" and card["source"] == iv_card.DEFAULT_MODEL
     assert post.call_args.kwargs["headers"] == {"x-goog-api-key": "k"} and "key=" not in post.call_args.args[0]
@@ -148,7 +148,7 @@ def admin_client(row, role="reviewer"):
 
 def drug_row(**over):
     row = {"id": "x", "generic_name": "Vancomycin", "spl_set_id": "set-1", "label_version": 5, "card_status": "draft",
-           "card": {"fields": {"infusion_rate_time": field()}}, "other_setids": ["set-2"]}  # fmt: skip
+           "card": {"fields": {"infusion": field()}}, "other_setids": ["set-2"]}  # fmt: skip
     row.update(over)
     return row
 
@@ -163,11 +163,11 @@ def test_approve_stores_the_reviewer_and_makes_the_card_public():
 
 
 def test_approve_refuses_when_the_quote_check_removes_a_fact():
-    tampered = drug_row(card={"fields": {"infusion_rate_time": field(value="Over 30 minutes", quote="Administer over a period of at least 30 minutes.")}})
+    tampered = drug_row(card={"fields": {"infusion": field(value="Over 30 minutes", quote="Administer over a period of at least 30 minutes.")}})
     client, engine, audit, log = admin_client(tampered)
     with engine, audit, patch.object(iv_card, "fetch_label_sections", return_value=SECTIONS):
         response = client.post(f"/api/admin/iv/drugs/{uuid.uuid4()}/card/approve")
-    assert response.status_code == 409 and "infusion_rate_time" in response.json()["detail"]
+    assert response.status_code == 409 and "infusion" in response.json()["detail"]
     sql, update = next((sql, params) for sql, params in log if "UPDATE public.iv_drugs" in sql)
     assert update["status"] == "draft"
     # an earlier decision must not stay attached to a draft nobody has reviewed
@@ -182,3 +182,12 @@ def test_approved_card_cannot_be_regenerated_and_reviewers_cannot_publish():
     with engine, audit:
         assert client.put(f"/api/admin/iv/drugs/{uuid.uuid4()}/published", json={"published": True}).status_code == 403
         assert client.post(f"/api/admin/iv/drugs/{uuid.uuid4()}/card/generate").status_code == 403
+
+
+def test_card_is_six_answers_and_keeps_at_most_three_quotes_each():
+    assert list(iv_card.CARD_FIELDS) == ["iv_push", "infusion", "mixing", "special_handling", "storage", "monitoring"]
+    assert iv_card.CARD_LABELS["monitoring"] == "Watch" and set(iv_card.CARD_QUESTIONS) == set(iv_card.CARD_FIELDS)
+    many = field()
+    many["quotes"] = [many["quotes"][0]] * 5
+    checked = iv_card.verify_card({"infusion": many}, SECTIONS)
+    assert len(checked["fields"]["infusion"]["quotes"]) == iv_card.MAX_QUOTES and checked["quotes_checked"] == iv_card.MAX_QUOTES
