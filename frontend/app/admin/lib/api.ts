@@ -99,4 +99,21 @@ export const adminApi = {
     apiFetch(`/api/admin/captures/${id}/reopen`, { method: 'POST' }),
   deleteCapture: (id: string) =>
     apiFetch(`/api/admin/captures/${id}`, { method: 'DELETE' }),
+  getIvDrugs: (params?: Record<string, string | number | boolean>) => {
+    const qs = buildQueryString(params)
+    return apiFetch(qs ? `/api/admin/iv/drugs?${qs}` : '/api/admin/iv/drugs')
+  },
+  getIvDrug: (id: string) => apiFetch(`/api/admin/iv/drugs/${id}`),
+  generateIvCard: (id: string) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/card/generate`, { method: 'POST' }),
+  saveIvCard: (id: string, data: object) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/card`, { method: 'PUT', body: JSON.stringify(data) }),
+  approveIvCard: (id: string) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/card/approve`, { method: 'POST' }),
+  rejectIvCard: (id: string, notes: string) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/card/reject`, { method: 'POST', body: JSON.stringify({ notes }) }),
+  switchIvLabel: (id: string, splSetId: string) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/label`, { method: 'PUT', body: JSON.stringify({ spl_set_id: splSetId }) }),
+  setIvPublished: (id: string, published: boolean) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/published`, { method: 'PUT', body: JSON.stringify({ published }) }),
 }

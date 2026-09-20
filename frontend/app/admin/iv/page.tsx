@@ -1,0 +1,190 @@
+'use client'
+
+export const dynamic = 'force-dynamic'
+
+import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { RefreshCw, Search } from 'lucide-react'
+import { createClient } from '../lib/supabase'
+import { adminApi } from '../lib/api'
+import { STATUS_LABEL, STATUS_STYLE, type CardStatus } from './status'
+
+interface IvDrugRow {
+  id: string
+  slug: string
+  generic_name: string
+  brand_names: string[]
+  label_type: string | null
+  label_brand: string | null
+  label_maker: string | null
+  label_presentation: string | null
+  maker_count: number
+  published: boolean
+  card_status: CardStatus
+  card_reviewed_by: string | null
+  card_reviewed_at: string | null
+  label_updated_since: boolean
+}
+
+interface ListResponse {
+  drugs: IvDrugRow[]
+  total: number
+  page: number
+  per_page: number
+  counts: Partial<Record<CardStatus, number>>
+  published: number
+  ai_available: boolean
+}
+
+const PAGE_SIZE = 50
+const FILTERS: Array<{ id: CardStatus | 'all'; label: string }> = [
+  { id: 'draft', label: 'To review' },
+  { id: 'none', label: 'No card yet' },
+  { id: 'approved', label: 'Approved' },
+  { id: 'rejected', label: 'Rejected' },
+  { id: 'all', label: 'All' },
+]
+
+export default function AdminIvDrugsPage() {
+  const router = useRouter()
+  const [data, setData] = useState<ListResponse | null>(null)
+  const [filter, setFilter] = useState<CardStatus | 'all'>('draft')
+  const [query, setQuery] = useState('')
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    const { data: { session } } = await createClient().auth.getSession()
+    if (!session) {
+      router.push('/admin/login')
+      return
+    }
+    try {
+      const params: Record<string, string | number> = { page, per_page: PAGE_SIZE }
+      if (filter !== 'all') params.status = filter
+      if (search) params.q = search
+      setData((await adminApi.getIvDrugs(params)) as ListResponse)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load IV drugs')
+    } finally {
+      setLoading(false)
+    }
+  }, [filter, page, router, search])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1
+  const count = (id: CardStatus | 'all') =>
+    id === 'all' ? Object.values(data?.counts ?? {}).reduce((sum, n) => sum + (n ?? 0), 0) : data?.counts[id] ?? 0
+
+  return (
+    <div className="p-6 max-w-6xl mx-auto">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">IV drugs and administration cards</h1>
+          <p className="text-sm text-slate-600 mt-1 max-w-2xl">
+            Each card is drafted by AI from the drug&apos;s FDA label, and every quote is machine-checked against that label. Nothing is shown on
+            the site until a reviewer approves it here.
+          </p>
+        </div>
+        <button onClick={() => void load()} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        </button>
+      </div>
+
+      {data && (
+        <p className="mb-4 text-sm text-slate-600">
+          {data.published} of {count('all')} drugs are published on the site.{' '}
+          {!data.ai_available && (
+            <span className="text-amber-700">AI drafting is off on this server (no GEMINI_API_KEY), so new cards cannot be drafted here.</span>
+          )}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        {FILTERS.map((f) => (
+          <button
+            key={f.id}
+            onClick={() => { setFilter(f.id); setPage(1) }}
+            className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${filter === f.id ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+          >
+            {f.label} <span className={filter === f.id ? 'text-emerald-100' : 'text-slate-400'}>{count(f.id)}</span>
+          </button>
+        ))}
+        <form
+          className="ml-auto flex items-center gap-2"
+          onSubmit={(e) => { e.preventDefault(); setSearch(query.trim()); setPage(1) }}
+        >
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Drug or brand name"
+              className="rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm w-56"
+            />
+          </div>
+        </form>
+      </div>
+
+      {error && <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+              <th className="px-4 py-3 font-semibold">Drug</th>
+              <th className="px-4 py-3 font-semibold">Label used</th>
+              <th className="px-4 py-3 font-semibold">Makers</th>
+              <th className="px-4 py-3 font-semibold">Card</th>
+              <th className="px-4 py-3 font-semibold">On site</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data?.drugs.map((drug) => (
+              <tr key={drug.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                <td className="px-4 py-3">
+                  <Link href={`/admin/iv/${drug.id}`} className="font-semibold text-sky-700 hover:underline">{drug.generic_name}</Link>
+                  {drug.brand_names.length > 0 && <div className="text-xs text-slate-500">{drug.brand_names.slice(0, 3).join(', ')}</div>}
+                </td>
+                <td className="px-4 py-3 text-slate-700">
+                  {drug.label_brand || '—'}
+                  <div className="text-xs text-slate-500">
+                    {[drug.label_maker, drug.label_type, drug.label_presentation].filter(Boolean).join(' · ')}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-slate-700">{drug.maker_count}</td>
+                <td className="px-4 py-3">
+                  <span className={`inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[drug.card_status]}`}>
+                    {STATUS_LABEL[drug.card_status]}
+                  </span>
+                  {drug.label_updated_since && <div className="mt-1 text-xs text-amber-700">FDA label updated since</div>}
+                  {drug.card_reviewed_by && drug.card_status !== 'draft' && <div className="mt-1 text-xs text-slate-500">{drug.card_reviewed_by}</div>}
+                </td>
+                <td className="px-4 py-3">{drug.published ? <span className="text-emerald-700 font-medium">Published</span> : <span className="text-slate-400">Hidden</span>}</td>
+              </tr>
+            ))}
+            {data && data.drugs.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-500">Nothing here.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {pages > 1 && (
+        <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
+          <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 disabled:opacity-40">Previous</button>
+          <span>Page {page} of {pages}</span>
+          <button disabled={page >= pages} onClick={() => setPage((p) => p + 1)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 disabled:opacity-40">Next</button>
+        </div>
+      )}
+    </div>
+  )
+}
