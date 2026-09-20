@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-type TabId = 'consumer' | 'dosage' | 'adverse' | 'interactions' | 'pro'
+type TabId = 'iv' | 'consumer' | 'dosage' | 'adverse' | 'interactions' | 'pro'
 
 type TabItem = {
   id: TabId
@@ -27,15 +27,17 @@ function tabClasses(active: boolean): string {
  *   Row 2 – last  2 tabs each span 3 cols  → [Interact.][Pro Info]
  *
  * With ≤ 4 tabs we use the same 6-column grid but every tab spans 3 cols
- * so we always get at most 2 per row.
+ * so we always get at most 2 per row. With 6 tabs (IV drug pages) it is 3 + 3.
  */
 function mobileColSpan(index: number, total: number): string {
   if (total <= 4) return 'col-span-3'
+  if (total === 6) return 'col-span-2'
   return index < 3 ? 'col-span-2' : 'col-span-3'
 }
 
 export default function MedicationGuideTabs({
   activeTab,
+  ivCardHref = null,
   medicationGuideHref,
   summaryHref = null,
   dosageHref = null,
@@ -44,6 +46,8 @@ export default function MedicationGuideTabs({
   professionalHref,
 }: {
   activeTab: TabId
+  /** IV drug pages only: first tab, the drug's own page with the administration card. */
+  ivCardHref?: string | null
   medicationGuideHref: string | null
   summaryHref?: string | null
   dosageHref?: string | null
@@ -55,6 +59,7 @@ export default function MedicationGuideTabs({
   const leftTabLabel = summaryHref ? 'Medication Summary' : 'Medication Guide'
 
   const tabs: TabItem[] = [
+    ...(ivCardHref ? [{ id: 'iv' as const, label: 'IV Administration', mobileLabel: 'IV Admin', href: ivCardHref }] : []),
     ...(leftTabHref ? [{ id: 'consumer' as const, label: leftTabLabel, mobileLabel: 'Med Guide', href: leftTabHref }] : []),
     ...(dosageHref ? [{ id: 'dosage' as const, label: 'Dosage', href: dosageHref }] : []),
     ...(adverseReactionsHref ? [{ id: 'adverse' as const, label: 'Side Effects', mobileLabel: 'Side Fx', href: adverseReactionsHref }] : []),

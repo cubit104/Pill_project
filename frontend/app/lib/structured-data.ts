@@ -202,10 +202,12 @@ export function guidePageSchema(opts: {
   genericName?: string | null
   brandName?: string | null
   fetchedAt?: string | null
+  /** Full path of the page when it does not live under /pill/<slug>/ (IV drug pages). */
+  pagePathOverride?: string
 }) {
-  const { drugName, slug, pageType, rxcui, ndc, splSetId, genericName, brandName, fetchedAt } = opts
+  const { drugName, slug, pageType, rxcui, ndc, splSetId, genericName, brandName, fetchedAt, pagePathOverride } = opts
 
-  const pagePath = pageType === 'medication-guide'
+  const pagePath = pagePathOverride ? pagePathOverride : pageType === 'medication-guide'
     ? `/pill/${encodeURIComponent(slug)}/medication-guide`
     : pageType === 'professional-information'
       ? `/pill/${encodeURIComponent(slug)}/professional-information`
