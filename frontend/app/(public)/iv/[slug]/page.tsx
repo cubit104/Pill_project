@@ -16,21 +16,14 @@ type PageParams = Promise<{ slug: string }>
 const RECALLS_SHOWN = 3
 const STRENGTHS_SHOWN = 8
 
-function describe(drug: IvDrug): string {
-  const brands = drug.brand_names.length ? ` (${drug.brand_names.slice(0, 3).join(', ')})` : ''
-  return (
-    drug.meta_description ||
-    `${drug.name}${brands} injection: how it is given, strengths from ${drug.maker_count} manufacturers, and the full FDA label with dosage, warnings and side effects.`
-  )
-}
-
 export async function generateMetadata({ params }: { params: PageParams }): Promise<Metadata> {
   const { slug } = await params
   const drug = await fetchIvDrug(slug)
   if (!drug) return { title: 'IV drug not found', robots: { index: false, follow: true } }
   return {
-    title: drug.meta_title || `${drug.name} IV: Administration, Strengths and FDA Label`,
-    description: describe(drug),
+    // the API sends the editor's text or, when there is none, the automatic text the admin shows as the suggestion
+    title: drug.meta_title || `${drug.name} IV`,
+    description: drug.meta_description || undefined,
     alternates: { canonical: `/iv/${drug.slug}` },
   }
 }

@@ -36,7 +36,7 @@ from routes.admin.auth import log_audit, require_role
 from routes.admin.iv_drugs import EDITORS, REVIEWERS, _actor, _engine, _get, _row
 from routes.admin.pills import _sanitize
 from services import iv_card
-from services.iv_drugs_import import USER_AGENT, _resolve_ingredient, slugify
+from services.iv_drugs_import import USER_AGENT, _resolve_ingredient, ingredient_identity, slugify
 from services.medication_guide import GuideInternalError, GuideNotFoundError, GuideValidationError, build_guide
 from services.openfda_client import OpenFDAUpstreamError
 
@@ -119,9 +119,12 @@ def add_iv_drug(payload: NewDrugPayload, admin: dict = Depends(require_role(*EDI
 
     # the same identity the importer uses, so a later import refreshes this row instead of adding a twin
     with httpx.Client(timeout=30, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
-        ingredients = _resolve_ingredient(client, name)
-    rxcuis = sorted({rxcui for rxcui, _name in ingredients})
-    key = "+".join(rxcuis) if rxcuis else f"manual:{slugify(name)}"
+        ingredients = {rxcui: ingredient for rxcui, ingredient in _resolve_ingredient(client, name)}
+    if ingredients:
+        key, active = ingredient_identity(ingredients)
+        rxcuis = [k for k in key.split("+") if k in active]
+    else:
+        key, rxcuis = f"manual:{slugify(name)}", []
 
     with _engine().begin() as conn:
         twin = conn.execute(

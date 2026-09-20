@@ -202,3 +202,34 @@ def test_reviewers_may_look_but_not_add_edit_or_switch(call):
         ("POST", f"/api/admin/iv/drugs/{drug_id}/label/clear-cache", None),
     ]:
         assert call(method, path, [], role="reviewer", json=body)[0].status_code == 403
+
+
+def test_a_hand_added_combination_drug_gets_the_same_identity_the_importer_gives_it():
+    """The importer joins ingredient ids in NAME order and ignores carrier fluids; "Add IV drug" must do exactly the
+    same, or the next import would not recognise the row and would add a twin."""
+    from services.iv_drugs_import import group_products, ingredient_identity
+
+    # rxcui order (37617 < 8339 as text) is the opposite of name order (piperacillin < tazobactam)
+    rx = {"PIPERACILLIN SODIUM": [["8339", "piperacillin"]], "TAZOBACTAM SODIUM": [["37617", "tazobactam"]], "DEXTROSE": [["4850", "glucose"]]}
+    product = {
+        "dosage_form": "INJECTION", "setids": ["s"],
+        "ingredients": [{"name": "TAZOBACTAM SODIUM"}, {"name": "PIPERACILLIN SODIUM"}, {"name": "DEXTROSE"}],
+    }  # fmt: skip
+    groups, _ = group_products([product], rx)
+    assert list(groups) == ["8339+37617"]
+    assert ingredient_identity({"37617": "tazobactam", "4850": "glucose", "8339": "piperacillin"})[0] == "8339+37617"
+
+
+def test_add_uses_the_importers_identity_for_a_combination_drug(call):
+    answers = [("SELECT slug FROM", []), ("RETURNING id", [(uuid.uuid4(),)]), ("WHERE id = :id", drug())]
+    with patch.object(iv_manage, "_resolve_ingredient", return_value=[["37617", "tazobactam"], ["4850", "glucose"], ["8339", "piperacillin"]]):
+        log = []
+        engine = SimpleNamespace(connect=lambda: FakeConn(answers, log), begin=lambda: FakeConn(answers, log))
+        app = FastAPI()
+        app.include_router(iv_manage.router)
+        app.dependency_overrides[auth.get_admin_user] = lambda: {"id": str(uuid.uuid4()), "email": "ed@example.com", "role": "editor"}
+        with patch.object(database, "db_engine", engine), patch.object(iv_manage, "log_audit"), patch.object(iv_card, "fetch_label_xml", return_value=label_xml("INTRAVENOUS")):
+            response = TestClient(app).post("/api/admin/iv/drugs", json={"name": "Piperacillin and Tazobactam", "spl_set_id": INJECTION})
+    assert response.status_code == 201
+    params = next(p for s, p in log if s.startswith("INSERT INTO public.iv_drugs"))
+    assert params["key"] == "8339+37617" and params["rxcuis"] == ["8339", "37617"]
