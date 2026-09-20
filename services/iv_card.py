@@ -29,23 +29,30 @@ DEFAULT_MODEL = "gemini-3.1-pro-preview"  # the careful one: a wrong push rate i
 AI_TIMEOUT_S = 120
 LABEL_TIMEOUT_S = 60
 MAX_LABEL_CHARS = 60_000
-QUOTE_MIN, QUOTE_MAX, VALUE_MAX = 25, 400, 200
+QUOTE_MIN, QUOTE_MAX = 25, 400
+VALUE_MAX = 170  # two short lines at most: the whole card has to read at a glance (6 to 9 lines)
+VALUE_ASK = 160  # what the AI is told; a little under VALUE_MAX on purpose, so a slight overshoot is not thrown away
+MAX_QUOTES = 3
 STATUSES = ("stated", "not_stated", "not_applicable")
 
-# key -> the question it answers (the prompt and the admin screen both read this)
-CARD_FIELDS: Dict[str, str] = {
-    "iv_push": "May it be given as a direct IV push or bolus, and how fast? If the label forbids it, say so.",
-    "infusion_rate_time": "Usual infusion time and any maximum rate.",
-    "reconstitution": "Which diluent, how much, and the resulting concentration.",
-    "dilution": "Which fluids, and the final volume or concentration.",
-    "filter": "Is a filter required or recommended, and what size.",
-    "light_protection": "Must it be protected from light.",
-    "line_and_site": "Central or peripheral line, extravasation or irritant warnings, site rotation.",
-    "storage_unopened": "Storage of the unopened product.",
-    "stability_after_mixing": "How long it keeps after reconstitution or dilution, and at what temperature.",
-    "incompatibilities": "Drugs or fluids the label says not to mix with.",
-    "monitoring": "What to watch during or right after the infusion.",
+# A glance card for the bedside, not a monograph: six answers, the full label is one tap away.
+# key -> (label on the card, what the AI is asked). The prompt, the admin and the site all read this.
+CARD_FIELDS: Dict[str, tuple] = {
+    "iv_push": ("Push", "May it be given as a direct IV push or bolus, and how fast? If the label forbids it, say so."),
+    "infusion": ("Infusion", "Usual infusion time or rate, and any maximum rate."),
+    "mixing": (
+        "Mixing",
+        "Reconstitution diluent and volume, dilution fluid and final concentration, and anything the label says not to mix it with.",
+    ),
+    "special_handling": (
+        "Special handling",
+        "Only if the label says so: filter, protect from light, central line only, extravasation or irritant warning.",
+    ),
+    "storage": ("Storage", "Storage of the unopened product, and how long it keeps after mixing and at what temperature."),
+    "monitoring": ("Watch", "What to monitor during or right after giving it, including infusion reactions."),
 }
+CARD_LABELS = {key: label for key, (label, _question) in CARD_FIELDS.items()}
+CARD_QUESTIONS = {key: question for key, (_label, question) in CARD_FIELDS.items()}
 
 _NS = "{urn:hl7-org:v3}"
 # LOINC codes of the label sections a card is built from
@@ -170,7 +177,7 @@ def verify_card(fields: Dict[str, Any], sections: List[Dict[str, str]]) -> Dict[
         status = raw.get("status") if raw.get("status") in STATUSES else "not_stated"
         value = str(raw.get("value") or "").strip()
         quotes = []
-        for quote in raw.get("quotes") or []:
+        for quote in (raw.get("quotes") or [])[:MAX_QUOTES]:
             text_value = str((quote or {}).get("text") or "").strip()
             quotes_checked += 1
             if QUOTE_MIN <= len(text_value) <= QUOTE_MAX and _norm(text_value) in haystack:
@@ -191,23 +198,26 @@ def verify_card(fields: Dict[str, Any], sections: List[Dict[str, str]]) -> Dict[
 
 def build_prompt(drug_name: str, sections: List[Dict[str, str]]) -> str:
     label_text = "\n\n".join(f"=== SECTION: {s['name']} ===\n{s['text']}" for s in sections)[:MAX_LABEL_CHARS]
-    questions = "\n".join(f'- "{key}": {question}' for key, question in CARD_FIELDS.items())
+    questions = "\n".join(f'- "{key}": {question}' for key, question in CARD_QUESTIONS.items())
     return (
-        f"You fill an IV administration card for nurses about {drug_name}, using ONLY the FDA label text below.\n\n"
+        f"You fill a bedside IV glance card about {drug_name} for nurses and doctors, using ONLY the FDA label text below. "
+        "They read it in seconds; whoever wants detail opens the full label.\n\n"
         "Rules:\n"
         "1. Use only the label text. No outside knowledge, no memory of the drug, no guessing.\n"
-        "2. Every stated fact needs at least one quote: ONE continuous span copied character for character from a "
+        f"2. Every stated fact needs one to {MAX_QUOTES} quotes: each ONE continuous span copied character for character from a "
         f"section (same words, numbers and punctuation; no '...', no fixing typos), {QUOTE_MIN} to {QUOTE_MAX} characters. "
         "A program checks each quote against the label and throws away any fact whose quote is not found.\n"
         '3. If the label does not say it: "status": "not_stated", empty value, no quotes. If the question does not apply '
-        '(e.g. reconstitution of a ready-to-use solution): "status": "not_applicable", a short value saying why, and a quote showing it.\n'
-        f"4. value: plain English for a nurse, at most 160 characters, nothing the quotes do not support; keep the label's "
-        "numbers and units exactly.\n"
+        '(e.g. a ready-to-use solution needs no mixing): "status": "not_applicable", a few words saying why, and a quote showing it.\n'
+        "4. value: clinical shorthand, only what matters at the bedside. Aim for under 90 characters (one line); never more "
+        f"than {VALUE_ASK}. No full sentences, no background, no repeating the drug name. If the label forbids something, start with "
+        "\"Do not\". Keep the label's numbers and units exactly; NS, D5W, SWFI, LR are fine. "
+        "Example: \"Over at least 60 min; max 10 mg/min\".\n"
         "5. Adult intravenous use only. Ignore intramuscular, subcutaneous, epidural, oral and paediatric details unless "
         "the label gives nothing else, and then say so in the value.\n\n"
         f"Fields:\n{questions}\n\n"
         'Reply with JSON only: {"fields": {"<key>": {"status": "stated|not_stated|not_applicable", "value": "...", '
-        '"quotes": [{"section": "<section name>", "text": "..."}]}, ...all 11 keys...}, '
+        f'"quotes": [{{"section": "<section name>", "text": "..."}}]}}, ...all {len(CARD_FIELDS)} keys...}}, '
         '"notes_for_reviewer": "anything odd about this label, e.g. it is a premixed bag, or has no adult dosing"}\n\n'
         f"FDA LABEL TEXT:\n{label_text}"
     )

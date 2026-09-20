@@ -144,7 +144,8 @@ def list_iv_drugs(
 def get_iv_drug(drug_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWERS))):
     with _engine().connect() as conn:
         drug = _row(_get(conn, drug_id))
-    drug["card_questions"] = iv_card.CARD_FIELDS
+    drug["card_questions"] = iv_card.CARD_QUESTIONS
+    drug["card_labels"] = iv_card.CARD_LABELS
     drug["ai_available"] = bool(iv_card.api_key())
     return drug
 
