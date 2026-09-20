@@ -136,7 +136,35 @@ def label_sections(xml: bytes) -> List[Dict[str, str]]:
     return [s for s in sections if s["text"]]
 
 
-def fetch_label_sections(spl_set_id: str) -> List[Dict[str, str]]:
+def label_facts(xml: bytes) -> Dict[str, Any]:
+    """Who made the label, what it is called, and by which routes its products are given.
+
+    The routes are the guard against mixing forms up: vancomycin has a capsule label and an injection
+    label, and only one with an intravenous product may be attached to an IV drug.
+    """
+    root = ET.fromstring(xml)
+    # the product's own name ("Vancomycin Hydrochloride"); the document title is usually FDA's highlights boilerplate
+    title_el = next(
+        (n for p in root.iter(f"{_NS}manufacturedProduct") if (n := p.find(f"{_NS}name")) is not None and _text_of(n)),
+        root.find(f"{_NS}title"),
+    )
+    maker_el = root.find(f"{_NS}author/{_NS}assignedEntity/{_NS}representedOrganization/{_NS}name")
+    version_el = root.find(f"{_NS}versionNumber")
+    routes = {(el.get("displayName") or "").strip().upper() for el in root.iter(f"{_NS}routeCode")}
+    version = (version_el.get("value") or "") if version_el is not None else ""
+    effective_el = root.find(f"{_NS}effectiveTime")
+    effective = (effective_el.get("value") or "")[:8] if effective_el is not None else ""
+    return {
+        "date": f"{effective[:4]}-{effective[4:6]}-{effective[6:8]}" if len(effective) == 8 and effective.isdigit() else None,
+        "title": re.sub(r"\s+", " ", _text_of(title_el))[:300] if title_el is not None else "",
+        "maker": (maker_el.text or "").strip() if maker_el is not None else "",
+        "version": int(version) if version.isdigit() else None,
+        "routes": sorted(r for r in routes if r),
+        "is_intravenous": any("INTRAVENOUS" in r for r in routes),
+    }
+
+
+def fetch_label_xml(spl_set_id: str) -> bytes:
     try:
         response = requests.get(
             DAILYMED_XML_URL.format(setid=spl_set_id),
@@ -145,9 +173,15 @@ def fetch_label_sections(spl_set_id: str) -> List[Dict[str, str]]:
         )
     except requests.RequestException as exc:
         raise CardError("DailyMed did not answer. Try again in a minute.") from exc
+    if response.status_code == 404:
+        raise CardError("DailyMed has no label with this Set ID.")
     if response.status_code != 200:
         raise CardError(f"DailyMed returned {response.status_code} for this label.")
-    sections = label_sections(response.content)
+    return response.content
+
+
+def fetch_label_sections(spl_set_id: str) -> List[Dict[str, str]]:
+    sections = label_sections(fetch_label_xml(spl_set_id))
     if not sections:
         raise CardError("This label has no dosage or storage section to build a card from.")
     return sections

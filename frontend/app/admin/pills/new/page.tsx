@@ -262,6 +262,10 @@ export default function NewPillPage() {
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
         <h1 className="text-2xl font-bold text-gray-900">Add New Pill</h1>
+        {/* injections have no imprint, color or NDC to fill in: they are added from their own short form */}
+        <Link href="/admin/iv/new" className="ml-auto text-sm text-sky-700 hover:underline">
+          Adding an IV drug instead?
+        </Link>
       </div>
 
       {duplicateBanner && (
