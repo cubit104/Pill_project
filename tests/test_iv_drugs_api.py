@@ -93,6 +93,18 @@ def test_approved_card_is_returned_with_label_pages_and_never_the_reviewers_emai
     assert "deleted_at IS NULL AND published" in log[0]
 
 
+def test_page_gets_the_editors_meta_text_or_the_same_automatic_text_the_admin_shows(get):
+    from services import iv_seo
+
+    automatic, _ = get("/api/iv/vancomycin", [("FROM public.iv_drugs", [iv_row()])] + DETAIL_EXTRAS)
+    body = automatic.json()
+    assert body["meta_title"] == iv_seo.build_meta_title({"generic_name": "Vancomycin", "brand_names": ["Tyzavan"]})
+    assert body["meta_title"] == "Vancomycin IV (Tyzavan): Infusion Rate, Mixing & FDA Label" and "24 manufacturers" in body["meta_description"]
+
+    typed, _ = get("/api/iv/vancomycin", [("FROM public.iv_drugs", [iv_row(meta_title="My title", meta_description="My text")])] + DETAIL_EXTRAS)
+    assert (typed.json()["meta_title"], typed.json()["meta_description"]) == ("My title", "My text")
+
+
 @pytest.mark.parametrize("status", ["none", "draft", "rejected"])
 def test_a_card_that_is_not_approved_never_leaves_the_api(get, status):
     response, _ = get("/api/iv/vancomycin", [("FROM public.iv_drugs", [iv_row(card_status=status)])] + DETAIL_EXTRAS)

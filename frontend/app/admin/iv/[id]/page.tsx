@@ -10,6 +10,8 @@ import { createClient } from '../../lib/supabase'
 import { adminApi } from '../../lib/api'
 import { useUserRole } from '../../lib/useUserRole'
 import { STATUS_LABEL, STATUS_STYLE, type CardStatus } from '../status'
+import DetailsForm from './DetailsForm'
+import LabelTools from './LabelTools'
 
 type FieldStatus = 'stated' | 'not_stated' | 'not_applicable'
 
@@ -53,6 +55,10 @@ interface IvDrugDetail {
   card_questions: Record<string, string>
   card_labels: Record<string, string>
   ai_available: boolean
+  meta_title: string | null
+  meta_description: string | null
+  suggested_meta_title: string
+  suggested_meta_description: string
 }
 
 const EMPTY: CardField = { status: 'not_stated', value: '', quotes: [] }
@@ -76,6 +82,7 @@ export default function AdminIvDrugPage() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [rejectNotes, setRejectNotes] = useState('')
+  const [otherSetid, setOtherSetid] = useState('')
 
   const show = useCallback((next: IvDrugDetail) => {
     setDrug((previous) => ({ ...(previous ?? {}), ...next }) as IvDrugDetail)
@@ -173,9 +180,9 @@ export default function AdminIvDrugPage() {
             Draft the card again or re-check it before approving.
           </p>
         )}
-        {canEdit && drug.other_setids.length > 0 && (
+        {canEdit && (
           <details className="mt-3 text-sm">
-            <summary className="cursor-pointer text-slate-600 hover:text-slate-800">Wrong label? Use another one ({drug.other_setids.length} alternatives)</summary>
+            <summary className="cursor-pointer text-slate-600 hover:text-slate-800">Wrong label? Use another one{drug.other_setids.length > 0 ? ` (${drug.other_setids.length} alternatives)` : ''}</summary>
             <p className="mt-2 text-xs text-slate-500">Open a label to check it first. Switching clears the current card, because a card belongs to the label it was made from.</p>
             <ul className="mt-2 space-y-1.5">
               {drug.other_setids.map((setid) => (
@@ -195,9 +202,42 @@ export default function AdminIvDrugPage() {
                 </li>
               ))}
             </ul>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input
+                value={otherSetid}
+                onChange={(e) => setOtherSetid(e.target.value)}
+                placeholder="…or paste any DailyMed Set ID"
+                className="min-w-72 flex-1 rounded-lg border border-slate-200 px-3 py-1.5 font-mono text-xs"
+              />
+              <button
+                disabled={Boolean(busy) || !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(otherSetid)}
+                onClick={() => {
+                  const setid = otherSetid.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0] ?? ''
+                  if (window.confirm('Use this label instead? The current card will be cleared. The label must be an injection label.')) {
+                    void run('label', () => adminApi.switchIvLabel(drug.id, setid), 'Label switched. Draft a new card from it.')
+                    setOtherSetid('')
+                  }
+                }}
+                className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                Check and use
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              The label is checked first: it must have an intravenous product, so the label of the tablets or capsules cannot be attached here.
+            </p>
           </details>
         )}
+        <LabelTools drugId={drug.id} splSetId={drug.spl_set_id} canEdit={canEdit} />
       </section>
+
+      {canEdit && (
+        <DetailsForm
+          drug={drug}
+          busy={Boolean(busy)}
+          onSave={(changes) => void run('details', () => adminApi.editIvDetails(drug.id, changes), 'Details saved.')}
+        />
+      )}
 
       {/* Actions */}
       <section className="flex flex-wrap items-center gap-2">

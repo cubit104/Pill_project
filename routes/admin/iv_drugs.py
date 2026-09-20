@@ -9,8 +9,9 @@ POST /api/admin/iv/drugs/{id}/card/generate            draft a card with AI (sup
 PUT  /api/admin/iv/drugs/{id}/card                     save a reviewer's edits (quotes are re-checked)
 POST /api/admin/iv/drugs/{id}/card/approve             re-check, then approve: the card goes public
 POST /api/admin/iv/drugs/{id}/card/reject              {notes}
-PUT  /api/admin/iv/drugs/{id}/label                    {spl_set_id}: switch to another label and lock it
 PUT  /api/admin/iv/drugs/{id}/published                {published} (superuser, editor)
+
+Adding a drug, editing its details and SEO text, and the FDA label tools are in routes/admin/iv_manage.py.
 """
 
 import json
@@ -24,7 +25,7 @@ from sqlalchemy import text
 
 import database
 from routes.admin.auth import log_audit, require_role
-from services import iv_card
+from services import iv_card, iv_seo
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/iv", tags=["admin-iv"])
@@ -40,7 +41,8 @@ _LIST_COLUMNS = (
 )
 _DETAIL_COLUMNS = _LIST_COLUMNS + (
     ", drug_class, routes, dea_schedule, spl_set_id, other_setids, setid_locked, application_number, "
-    "label_version, label_date, strengths, product_count, card, card_label_version, card_review_notes, updated_at"
+    "label_version, label_date, strengths, product_count, card, card_label_version, card_review_notes, updated_at, "
+    "ingredient_key, meta_title, meta_description"
 )
 
 
@@ -51,10 +53,6 @@ class CardPayload(BaseModel):
 
 class RejectPayload(BaseModel):
     notes: str = Field("", max_length=1000)
-
-
-class LabelPayload(BaseModel):
-    spl_set_id: str = Field(..., min_length=8, max_length=64, pattern=r"^[0-9a-fA-F-]+$")
 
 
 class PublishedPayload(BaseModel):
@@ -144,6 +142,8 @@ def list_iv_drugs(
 def get_iv_drug(drug_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWERS))):
     with _engine().connect() as conn:
         drug = _row(_get(conn, drug_id))
+    drug["suggested_meta_title"] = iv_seo.build_meta_title(drug)
+    drug["suggested_meta_description"] = iv_seo.build_meta_description(drug)
     drug["card_questions"] = iv_card.CARD_QUESTIONS
     drug["card_labels"] = iv_card.CARD_LABELS
     drug["ai_available"] = bool(iv_card.api_key())
@@ -261,37 +261,6 @@ def reject_card(drug_id: uuid.UUID, payload: RejectPayload, admin: dict = Depend
             {"notes": payload.notes.strip() or None, "by": admin.get("email", ""), "id": str(drug_id)},
         )
         log_audit(conn, *_actor(admin), "iv_card_rejected", "iv_drug", str(drug_id), metadata={"notes": payload.notes.strip()})
-        return _row(_get(conn, drug_id))
-
-
-@router.put("/drugs/{drug_id}/label")
-def switch_label(drug_id: uuid.UUID, payload: LabelPayload, admin: dict = Depends(require_role(*EDITORS))):
-    """Use one of the drug's other labels and lock the choice so the importer keeps it. A card belongs to the
-    label it was made from, so the old card is cleared."""
-    new_setid = payload.spl_set_id.lower()
-    with _engine().begin() as conn:
-        m = _get(conn, drug_id, lock=True)._mapping
-        if new_setid == m["spl_set_id"]:
-            raise HTTPException(status_code=409, detail="This label is already in use.")
-        if new_setid not in (m["other_setids"] or []):
-            raise HTTPException(status_code=422, detail="Pick one of this drug's other labels.")
-        others = [m["spl_set_id"]] + [s for s in m["other_setids"] if s != new_setid]
-        conn.execute(
-            text(
-                """
-                UPDATE public.iv_drugs
-                SET spl_set_id = :new, other_setids = :others, setid_locked = true,
-                    label_type = NULL, label_brand = NULL, label_maker = NULL, label_presentation = NULL,
-                    application_number = NULL, label_version = NULL, label_date = NULL,
-                    card = NULL, card_status = 'none', card_label_version = NULL, card_generated_at = NULL,
-                    card_reviewed_by = NULL, card_reviewed_at = NULL, card_review_notes = NULL
-                WHERE id = :id
-                """
-            ),
-            {"new": new_setid, "others": others, "id": str(drug_id)},
-        )
-        log_audit(conn, *_actor(admin), "iv_label_switched", "iv_drug", str(drug_id),
-                  diff={"spl_set_id": {"old": m["spl_set_id"], "new": new_setid}, "card_cleared": bool(m["card"])})  # fmt: skip
         return _row(_get(conn, drug_id))
 
 

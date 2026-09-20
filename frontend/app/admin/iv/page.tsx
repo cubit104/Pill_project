@@ -5,9 +5,10 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { RefreshCw, Search } from 'lucide-react'
+import { Plus, RefreshCw, Search } from 'lucide-react'
 import { createClient } from '../lib/supabase'
 import { adminApi } from '../lib/api'
+import { useUserRole } from '../lib/useUserRole'
 import { STATUS_LABEL, STATUS_STYLE, type CardStatus } from './status'
 
 interface IvDrugRow {
@@ -48,6 +49,7 @@ const FILTERS: Array<{ id: CardStatus | 'all'; label: string }> = [
 
 export default function AdminIvDrugsPage() {
   const router = useRouter()
+  const { role } = useUserRole()
   const [data, setData] = useState<ListResponse | null>(null)
   const [filter, setFilter] = useState<CardStatus | 'all'>('draft')
   const [query, setQuery] = useState('')
@@ -94,9 +96,16 @@ export default function AdminIvDrugsPage() {
             the site until a reviewer approves it here.
           </p>
         </div>
-        <button onClick={() => void load()} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {(role === 'superuser' || role === 'editor') && (
+            <Link href="/admin/iv/new" className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+              <Plus className="h-4 w-4" /> Add IV drug
+            </Link>
+          )}
+          <button onClick={() => void load()} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
       </div>
 
       {data && (

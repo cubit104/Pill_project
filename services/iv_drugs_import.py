@@ -238,11 +238,21 @@ def group_products(products: List[Dict], rx: Dict[str, List[List[str]]]) -> Tupl
         if not ingredients:
             skipped["no ingredient"] += 1
             continue
-        active = {k: v for k, v in ingredients.items() if v not in CARRIERS} or ingredients
+        key, active = ingredient_identity(ingredients)
         product["_in_names"] = sorted(active.values())
-        key = "+".join(sorted(active, key=lambda k: active[k]))
         groups[key].append(product)
     return groups, skipped
+
+
+def ingredient_identity(ingredients: Dict[str, str]) -> Tuple[str, Dict[str, str]]:
+    """The one definition of "which drug is this": (ingredient_key, its active ingredients).
+
+    ``ingredients`` maps an RxNorm ingredient rxcui (or ``name:<x>`` when RxNorm does not know it) to its name.
+    Carrier fluids never count unless they are all there is, and the key joins the ids in NAME order. The importer
+    and the admin's "Add IV drug" both go through here, so a drug added by hand is the same row to the next import.
+    """
+    active = {k: v for k, v in ingredients.items() if v not in CARRIERS} or ingredients
+    return "+".join(sorted(active, key=lambda k: active[k])), active
 
 
 def merge_same_name(groups: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:

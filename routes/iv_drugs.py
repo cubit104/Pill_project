@@ -23,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
+from services import iv_seo
 
 logger = logging.getLogger(__name__)
 
@@ -215,8 +216,9 @@ def get_iv_drug(response: Response, slug: str = Path(..., pattern=SLUG_PATTERN, 
         "maker_count": m["maker_count"],
         "card": card,
         "pill_drugs": pill_drugs,
-        "meta_title": m["meta_title"],
-        "meta_description": m["meta_description"],
+        # what the page should use: the editor's own text, otherwise the same automatic text the admin shows
+        "meta_title": m["meta_title"] or iv_seo.build_meta_title(m),
+        "meta_description": m["meta_description"] or iv_seo.build_meta_description(m),
         "updated_at": _iso(m["updated_at"]),
     }
 

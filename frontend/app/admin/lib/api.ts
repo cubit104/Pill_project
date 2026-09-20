@@ -114,6 +114,15 @@ export const adminApi = {
     apiFetch(`/api/admin/iv/drugs/${id}/card/reject`, { method: 'POST', body: JSON.stringify({ notes }) }),
   switchIvLabel: (id: string, splSetId: string) =>
     apiFetch(`/api/admin/iv/drugs/${id}/label`, { method: 'PUT', body: JSON.stringify({ spl_set_id: splSetId }) }),
+  addIvDrug: (data: { name: string; spl_set_id: string; brand_names: string[] }) =>
+    apiFetch('/api/admin/iv/drugs', { method: 'POST', body: JSON.stringify(data) }),
+  editIvDetails: (id: string, data: object) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/details`, { method: 'PUT', body: JSON.stringify(data) }),
+  getIvLabel: (id: string) => apiFetch(`/api/admin/iv/drugs/${id}/label`),
+  refetchIvLabel: (id: string) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/label/refetch`, { method: 'POST' }),
+  clearIvLabelCache: (id: string) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/label/clear-cache`, { method: 'POST' }),
   setIvPublished: (id: string, published: boolean) =>
     apiFetch(`/api/admin/iv/drugs/${id}/published`, { method: 'PUT', body: JSON.stringify({ published }) }),
 }
