@@ -204,3 +204,10 @@ def test_not_applicable_answer_survives_the_check_with_its_quote():
     ready = field(status="not_applicable", value="Ready to use", quote="Reconstitute the 1 g vial with 20 mL of Sterile Water for Injection.")
     checked = iv_card.verify_card({"mixing": ready}, SECTIONS)
     assert checked["fields"]["mixing"]["status"] == "not_applicable" and checked["fields"]["mixing"]["value"] == "Ready to use"
+
+
+def test_prompt_asks_for_shorthand_and_keeps_routine_label_text_off_the_card():
+    prompt = iv_card.build_prompt("Heparin", SECTIONS)
+    assert "q4h" in prompt and "Telegraphic" in prompt
+    assert "inspect visually" in prompt and "discard unused portion" in prompt  # named so the AI leaves them out
+    assert 'ONLY for "mixing"' in prompt and "Anything else is not_stated" in prompt
