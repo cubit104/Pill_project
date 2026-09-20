@@ -46,7 +46,8 @@ CARD_FIELDS: Dict[str, tuple] = {
     ),
     "special_handling": (
         "Special handling",
-        "Only if the label says so: filter, protect from light, central line only, extravasation or irritant warning.",
+        "ONLY these, and only if the label says so: filter, protect from light, central line only, extravasation / "
+        "irritant / vesicant warning. Anything else is not_stated.",
     ),
     "storage": ("Storage", "Storage of the unopened product, and how long it keeps after mixing and at what temperature."),
     "monitoring": ("Watch", "What to monitor during or right after giving it, including infusion reactions."),
@@ -207,13 +208,18 @@ def build_prompt(drug_name: str, sections: List[Dict[str, str]]) -> str:
         f"2. Every stated fact needs one to {MAX_QUOTES} quotes: each ONE continuous span copied character for character from a "
         f"section (same words, numbers and punctuation; no '...', no fixing typos), {QUOTE_MIN} to {QUOTE_MAX} characters. "
         "A program checks each quote against the label and throws away any fact whose quote is not found.\n"
-        '3. If the label does not say it: "status": "not_stated", empty value, no quotes. If the question does not apply '
-        '(e.g. a ready-to-use solution needs no mixing): "status": "not_applicable", a few words saying why, and a quote showing it.\n'
+        '3. If the label does not say it: "status": "not_stated", empty value, no quotes. "not_applicable" is ONLY for '
+        '"mixing" when the product is ready to use (a few words saying so, and a quote showing it); every other answer the '
+        'label does not give is "not_stated".\n'
         "4. value: clinical shorthand, only what matters at the bedside. Aim for under 90 characters (one line); never more "
-        f"than {VALUE_ASK}. No full sentences, no background, no repeating the drug name. If the label forbids something, start with "
-        "\"Do not\". Keep the label's numbers and units exactly; NS, D5W, SWFI, LR are fine. "
-        "Example: \"Over at least 60 min; max 10 mg/min\".\n"
-        "5. Adult intravenous use only. Ignore intramuscular, subcutaneous, epidural, oral and paediatric details unless "
+        f"than {VALUE_ASK}. Telegraphic: no full sentences, no verbs like Give / Store / Monitor, no background, no repeating "
+        "the drug name. Use standard abbreviations: NS, D5W, SWFI, LR, min, h, q4h, D/C, plt, Hct, BP, HR. If the label forbids "
+        "something, start with \"Do not\". Keep the label's numbers and units exactly. "
+        "Examples: \"Over at least 60 min; max 10 mg/min\" · \"aPTT q4h; plt, Hct. D/C if plt <100,000/mm3\" · \"20-25 C; "
+        "after mixing 24 h refrigerated\".\n"
+        "5. Leave out routine text that every injectable label carries: inspect visually for particles or discoloration, use "
+        "aseptic technique, discard unused portion, single-dose vial. It is never a special-handling, storage or mixing fact.\n"
+        "6. Adult intravenous use only. Ignore intramuscular, subcutaneous, epidural, oral and paediatric details unless "
         "the label gives nothing else, and then say so in the value.\n\n"
         f"Fields:\n{questions}\n\n"
         'Reply with JSON only: {"fields": {"<key>": {"status": "stated|not_stated|not_applicable", "value": "...", '
