@@ -168,8 +168,10 @@ def test_approve_refuses_when_the_quote_check_removes_a_fact():
     with engine, audit, patch.object(iv_card, "fetch_label_sections", return_value=SECTIONS):
         response = client.post(f"/api/admin/iv/drugs/{uuid.uuid4()}/card/approve")
     assert response.status_code == 409 and "infusion_rate_time" in response.json()["detail"]
-    update = next(params for sql, params in log if "UPDATE public.iv_drugs" in sql)
+    sql, update = next((sql, params) for sql, params in log if "UPDATE public.iv_drugs" in sql)
     assert update["status"] == "draft"
+    # an earlier decision must not stay attached to a draft nobody has reviewed
+    assert "card_reviewed_by = NULL" in sql and "card_reviewed_at = NULL" in sql
 
 
 def test_approved_card_cannot_be_regenerated_and_reviewers_cannot_publish():

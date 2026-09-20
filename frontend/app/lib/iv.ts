@@ -19,7 +19,6 @@ export interface IvCardField {
 
 export interface IvCard {
   fields: Record<string, IvCardField>
-  reviewed_by: string | null
   reviewed_at: string | null
   label_version: number | null
   label_updated_since: boolean

@@ -159,7 +159,7 @@ def get_iv_drug(response: Response, slug: str = Path(..., pattern=SLUG_PATTERN, 
                     SELECT slug, generic_name, brand_names, drug_class, routes, dea_schedule, rxcuis,
                            spl_set_id, label_type, label_brand, label_maker, label_presentation, label_version, label_date,
                            strengths, product_count, maker_count,
-                           card, card_status, card_label_version, card_reviewed_by, card_reviewed_at,
+                           card, card_status, card_label_version, card_reviewed_at,
                            meta_title, meta_description, updated_at
                     FROM public.iv_drugs
                     WHERE slug = :slug AND {LIVE}
@@ -179,9 +179,10 @@ def get_iv_drug(response: Response, slug: str = Path(..., pattern=SLUG_PATTERN, 
 
     card = None
     if m["card_status"] == "approved" and m["card"]:
+        # who approved it stays in the admin: card_reviewed_by is a staff email, and the page credits
+        # reviewers through the public editorial-team list instead
         card = {
             "fields": m["card"].get("fields") or {},
-            "reviewed_by": m["card_reviewed_by"],
             "reviewed_at": _iso(m["card_reviewed_at"]),
             "label_version": m["card_label_version"],
             # the label moved on since the card was approved: the page says so until it is reviewed again

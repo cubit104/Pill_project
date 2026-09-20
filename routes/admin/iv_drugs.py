@@ -224,7 +224,8 @@ def approve_card(drug_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWE
         if current["spl_set_id"] != m["spl_set_id"]:
             raise HTTPException(status_code=409, detail="The label was switched. Reload the page.")
         if card["rejected_by_check"]:
-            _store_card(conn, drug_id, card, current["label_version"], "draft")
+            # back to draft, and nobody has reviewed this cleaned version yet
+            _store_card(conn, drug_id, card, current["label_version"], "draft", ", card_reviewed_by = NULL, card_reviewed_at = NULL")
             raise_after = card["rejected_by_check"]
         else:
             raise_after = None

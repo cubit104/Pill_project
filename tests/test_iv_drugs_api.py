@@ -76,12 +76,15 @@ def get():
 DETAIL_EXTRAS = [("medication_guide", [(True, True, False, False, False)]), ("rxcui_to_ingredient", [("Vancocin", 1)])]
 
 
-def test_approved_card_is_returned_with_reviewer_and_label_pages(get):
+def test_approved_card_is_returned_with_label_pages_and_never_the_reviewers_email(get):
     response, log = get("/api/iv/vancomycin", [("FROM public.iv_drugs", [iv_row()])] + DETAIL_EXTRAS)
     body = response.json()
     assert response.status_code == 200
-    assert body["card"]["fields"] == CARD["fields"] and body["card"]["reviewed_by"] == "pharmacist@example.com"
+    assert body["card"]["fields"] == CARD["fields"] and body["card"]["reviewed_at"].startswith("2026-09-20")
     assert body["card"]["label_updated_since"] is False
+    # the reviewer's staff email is for the admin only: not in the payload, and not even selected
+    assert "pharmacist@example.com" not in response.text and "reviewed_by" not in response.text
+    assert "card_reviewed_by" not in log[0]
     assert body["label_pages"] == {
         "has_professional": True, "has_dosage": True, "has_adverse_reactions": False, "has_medguide": False, "has_boxed_warning": False,
     }  # fmt: skip
