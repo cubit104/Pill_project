@@ -41,10 +41,19 @@ test('counts what is limited or unavailable, worst first, oldest posting date, n
   })
   assert.ok(shortage)
   assert.equal(shortage.constrained, 2)
+  assert.equal(shortage.available, 1)
   assert.deepEqual(shortage.items.map((i) => i.availability), ['unavailable', 'limited', 'available'])
   assert.equal(shortage.items[0].presentation, 'Heparin 200 Units/100 mL') // the NDC suffix is dropped
   assert.equal(shortage.since, '2016-01-02')
   assert.equal(shortage.updated, '2026-09-15')
+})
+
+test('a status that cannot be read is never counted as available', () => {
+  const shortage = parseShortage({ results: [row(), row({ availability: undefined, presentation: 'Heparin 5,000 Units/mL (NDC 4-5-6)' })] })
+  assert.ok(shortage)
+  assert.equal(shortage.constrained, 0)
+  assert.equal(shortage.available, 1) // not 2: the banner may say "supply available" only when available === items.length
+  assert.equal(shortage.items.length, 2)
 })
 
 test('tablets, resolved records and empty answers are not an IV shortage', () => {

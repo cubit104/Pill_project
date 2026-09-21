@@ -107,7 +107,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       }),
       fetchSitemapJson<Array<{ name: string }>>('color slugs', `${API_BASE}/api/slugs/colors`, []),
       fetchSitemapJson<Array<{ name: string }>>('shape slugs', `${API_BASE}/api/slugs/shapes`, []),
-      fetchSitemapJson<Array<{ slug: string; has_card: boolean; has_professional: boolean; has_dosage: boolean }>>(
+      fetchSitemapJson<Array<{ slug: string; has_card: boolean; has_professional: boolean; has_dosage: boolean; has_adverse_reactions: boolean }>>(
         'IV slugs',
         `${API_BASE}/api/slugs/iv`,
         [],
@@ -175,13 +175,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
     // only published IV drugs come back, and only their own page is listed: the label pages under it are noindex
     const ivPages: MetadataRoute.Sitemap = ivSlugs
-      .filter((d) => d.slug && isIvPageIndexable({ hasCard: d.has_card, hasProfessional: d.has_professional, hasDosage: d.has_dosage }))
+      .filter(
+        (d) =>
+          d.slug &&
+          isIvPageIndexable({
+            hasCard: d.has_card,
+            hasProfessional: d.has_professional,
+            hasDosage: d.has_dosage,
+            hasAdverseReactions: d.has_adverse_reactions,
+          }),
+      )
       .map((d) => ({
         url: `${SITE_URL}/iv/${encodeURIComponent(d.slug)}`,
         changeFrequency: 'monthly' as const,
         priority: 0.8,
       }))
-    if (ivPages.length > 0) {
+    // the hub lists every published IV drug, so it is there as soon as one is published, whether or not that page is indexable
+    if (ivSlugs.length > 0) {
       ivPages.unshift({ url: `${SITE_URL}/iv`, changeFrequency: 'weekly' as const, priority: 0.7 })
     }
 

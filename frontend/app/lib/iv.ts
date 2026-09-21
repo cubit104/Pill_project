@@ -126,8 +126,13 @@ export async function fetchIvForPillDrug(pillDrugSlug: string): Promise<Array<{ 
  * An IV drug page is worth indexing once it has something of its own: an approved card, or a label behind its tabs.
  * The label pages themselves are always noindex (they reprint the label), the same rule the pill label pages follow.
  */
-export function isIvPageIndexable(page: { hasCard: boolean; hasProfessional: boolean; hasDosage: boolean }): boolean {
-  return page.hasCard || page.hasProfessional || page.hasDosage
+export function isIvPageIndexable(page: {
+  hasCard: boolean
+  hasProfessional: boolean
+  hasDosage: boolean
+  hasAdverseReactions: boolean
+}): boolean {
+  return page.hasCard || page.hasProfessional || page.hasDosage || page.hasAdverseReactions
 }
 
 export function fetchDrugIndex(prefix: string): Promise<DrugIndex | null> {

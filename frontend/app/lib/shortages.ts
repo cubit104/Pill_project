@@ -27,6 +27,8 @@ export interface Shortage {
   items: ShortageItem[]
   /** How many of the items are limited or unavailable right now. */
   constrained: number
+  /** How many are reported available; the rest of the unconstrained ones carry a status this code could not read. */
+  available: number
 }
 
 /** '11/14/2017' -> '2017-11-14' ('' when the FDA sent something else). */
@@ -74,7 +76,8 @@ export function parseShortage(json: unknown): Shortage | null {
   if (items.length === 0) return null
   const rank: Record<Availability, number> = { unavailable: 0, limited: 1, unknown: 2, available: 3 }
   items.sort((a, b) => rank[a.availability] - rank[b.availability] || a.presentation.localeCompare(b.presentation))
-  return { since, updated, items, constrained: items.filter((i) => i.availability === 'unavailable' || i.availability === 'limited').length }
+  const count = (...wanted: Availability[]) => items.filter((i) => wanted.includes(i.availability)).length
+  return { since, updated, items, constrained: count('unavailable', 'limited'), available: count('available') }
 }
 
 /**

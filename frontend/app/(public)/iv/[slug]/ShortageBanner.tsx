@@ -9,10 +9,12 @@ function monthYear(iso: string): string {
 
 /**
  * Shown only while the drug is on the shortage list. FDA keeps a drug listed even when supply is back, so the
- * banner says how much is actually limited: amber when something is, quiet when every listed product is available.
+ * banner says how much is actually limited: amber when something is, quiet otherwise. "Supply available" is said
+ * only when every listed product is reported available; a status that could not be read is never counted as that.
  */
 export default function ShortageBanner({ shortage }: { shortage: Shortage }) {
   const tight = shortage.constrained > 0
+  const allAvailable = shortage.available === shortage.items.length
   const affected = shortage.items.filter((i) => i.availability === 'unavailable' || i.availability === 'limited')
   const since = monthYear(shortage.since)
   return (
@@ -24,12 +26,14 @@ export default function ShortageBanner({ shortage }: { shortage: Shortage }) {
         <TriangleAlert className="h-5 w-5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className={`font-semibold ${tight ? 'text-amber-800' : 'text-slate-800'}`}>{tight ? 'Currently in shortage' : 'On the shortage list, supply available'}</p>
+        <p className={`font-semibold ${tight ? 'text-amber-800' : 'text-slate-800'}`}>{tight ? 'Currently in shortage' : allAvailable ? 'On the shortage list, supply available' : 'On the shortage list'}</p>
         <p className="mt-0.5 text-sm text-slate-700">
           {since && `Since ${since}: `}
           {tight
             ? `${shortage.constrained} of ${shortage.items.length} listed presentations limited or unavailable.`
-            : `all ${shortage.items.length} listed presentations are reported available.`}
+            : allAvailable
+              ? `all ${shortage.items.length} listed presentations are reported available.`
+              : `${shortage.available} of ${shortage.items.length} listed presentations are reported available; check the rest.`}
         </p>
         {tight && (
           <details className="mt-1.5 text-sm">

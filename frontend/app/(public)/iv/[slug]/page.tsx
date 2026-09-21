@@ -34,6 +34,7 @@ export async function generateMetadata({ params }: { params: PageParams }): Prom
         hasCard: Boolean(drug.card),
         hasProfessional: drug.label_pages.has_professional,
         hasDosage: drug.label_pages.has_dosage,
+        hasAdverseReactions: drug.label_pages.has_adverse_reactions,
       }),
       follow: true,
     },
