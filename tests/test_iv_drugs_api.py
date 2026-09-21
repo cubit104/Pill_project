@@ -153,9 +153,9 @@ def test_drug_index_merges_pills_and_iv_names(get):
 
 
 def test_pill_drug_page_finds_its_iv_drug_by_name_never_by_ingredient(get):
-    response, log = get("/api/iv/for-pill-drug?name=vancomycin-hydrochloride", [("JOIN public.iv_drugs", [("Vancomycin", "vancomycin")])])
+    response, log = get("/api/iv/for-pill-drug?name=vancomycin-hydrochloride", [("JOIN public.iv_drugs", [("Vancomycin", "vancomycin", True)])])
     # reached its own route, not /api/iv/{slug}
-    assert response.status_code == 200 and response.json() == {"results": [{"name": "Vancomycin", "slug": "vancomycin"}]}
+    assert response.status_code == 200 and response.json() == {"results": [{"name": "Vancomycin", "slug": "vancomycin", "intravenous": True}]}
     sql = log[0]
     assert "i.deleted_at IS NULL AND i.published" in sql
     # rxcui_to_ingredient keeps one ingredient per product: Percocet would pass for plain acetaminophen
@@ -186,11 +186,15 @@ def test_sitemap_feed_says_which_drugs_have_a_card(get):
 
 
 def test_search_dropdown_gets_published_iv_drugs_by_generic_or_brand_name(get):
-    rows = [("Heparin", "heparin", True, None), ("Norepinephrine", "norepinephrine", False, "Levophed")]
+    rows = [("Heparin", "heparin", True, None, True), ("Medroxyprogesterone", "medroxyprogesterone", False, "Depo-Provera", False)]
     response, log = get("/api/iv/suggest?q=He%25", [("FROM public.iv_drugs", rows)])
     # reached its own route, not /api/iv/{slug}; a brand match says which drug it is
     assert response.status_code == 200
-    assert response.json() == [{"label": "Heparin", "slug": "heparin"}, {"label": "Levophed (Norepinephrine)", "slug": "norepinephrine"}]
+    # an intramuscular shot is listed too, and the page can tell it is not an IV drug
+    assert response.json() == [
+        {"label": "Heparin", "slug": "heparin", "intravenous": True},
+        {"label": "Depo-Provera (Medroxyprogesterone)", "slug": "medroxyprogesterone", "intravenous": False},
+    ]
     assert "deleted_at IS NULL AND published" in log[0]
     # too short to suggest anything: no query at all (the % the visitor typed is dropped, not used as a wildcard)
     short, short_log = get("/api/iv/suggest?q=h%25", [])

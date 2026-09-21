@@ -89,8 +89,8 @@ export default async function DrugsLetterPage({ params }: { params: PageParams }
             {index.entries.length.toLocaleString('en-US')} names, brand and generic together.{' '}
             <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">pills</span> = photos
             and imprints,{' '}
-            <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-700">IV</span> = IV drug
-            page.
+            <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-700">IV</span> = IV or
+            injection drug page.
           </p>
         </header>
 

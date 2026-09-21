@@ -264,7 +264,7 @@ export default function AdminIvDrugPage() {
               </button>
             </div>
             <p className="mt-1 text-xs text-slate-500">
-              The label is checked first: it must have an intravenous product, so the label of the tablets or capsules cannot be attached here.
+              The label is checked first: it must have an injection product (intravenous, intramuscular, subcutaneous…), so the label of the tablets or capsules cannot be attached here.
             </p>
           </details>
         )}

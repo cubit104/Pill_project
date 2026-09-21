@@ -136,11 +136,23 @@ def label_sections(xml: bytes) -> List[Dict[str, str]]:
     return [s for s in sections if s["text"]]
 
 
+# FDA route names that mean "given with a needle". Matched as a substring, so "INTRAVENOUS DRIP" counts too.
+# Left out on purpose: oral, topical, ophthalmic, nasal, rectal, vaginal, inhalation, intravesical, intrauterine.
+INJECTION_ROUTES = (
+    "INTRAVENOUS", "INTRAMUSCULAR", "SUBCUTANEOUS", "INTRADERMAL", "INTRA-ARTERIAL", "INTRA-ARTICULAR", "INTRATHECAL",
+    "EPIDURAL", "INTRAVITREAL", "INTRALESIONAL", "INTRAPERITONEAL", "INTRACAVERNOUS", "INTRACARDIAC", "INTRAOSSEOUS",
+    "INTRAPLEURAL", "INTRASYNOVIAL", "INTRABURSAL", "PERINEURAL", "INFILTRATION", "INTRACAUDAL", "INTRAVENTRICULAR",
+    "INTRASPINAL", "SUBARACHNOID", "PARENTERAL", "INTRACAMERAL", "SUBCONJUNCTIVAL", "RETROBULBAR", "INTRATUMORAL",
+    "PERIARTICULAR", "SOFT TISSUE", "INTRAVASCULAR", "INTRACORONARY", "INTRADISCAL", "INTRALYMPHATIC", "SUBMUCOSAL",
+)  # fmt: skip
+PILL_FORMS = ("TABLET", "CAPSULE")
+
+
 def label_facts(xml: bytes) -> Dict[str, Any]:
     """Who made the label, what it is called, and by which routes its products are given.
 
-    The routes are the guard against mixing forms up: vancomycin has a capsule label and an injection
-    label, and only one with an intravenous product may be attached to an IV drug.
+    The routes and dosage forms are the guard against mixing forms up: vancomycin has a capsule label and an
+    injection label, and only a label with an injection product and no tablets or capsules may be attached here.
     """
     root = ET.fromstring(xml)
     # the product's own name ("Vancomycin Hydrochloride"); the document title is usually FDA's highlights boilerplate
@@ -151,6 +163,7 @@ def label_facts(xml: bytes) -> Dict[str, Any]:
     maker_el = root.find(f"{_NS}author/{_NS}assignedEntity/{_NS}representedOrganization/{_NS}name")
     version_el = root.find(f"{_NS}versionNumber")
     routes = {(el.get("displayName") or "").strip().upper() for el in root.iter(f"{_NS}routeCode")}
+    forms = {(el.get("displayName") or "").strip().upper() for el in root.iter(f"{_NS}formCode")}
     version = (version_el.get("value") or "") if version_el is not None else ""
     effective_el = root.find(f"{_NS}effectiveTime")
     effective = (effective_el.get("value") or "")[:8] if effective_el is not None else ""
@@ -161,6 +174,8 @@ def label_facts(xml: bytes) -> Dict[str, Any]:
         "version": int(version) if version.isdigit() else None,
         "routes": sorted(r for r in routes if r),
         "is_intravenous": any("INTRAVENOUS" in r for r in routes),
+        "is_injection": any(name in r for r in routes for name in INJECTION_ROUTES),
+        "has_pill_form": any(name in f for f in forms for name in PILL_FORMS),
     }
 
 
