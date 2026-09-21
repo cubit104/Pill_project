@@ -147,8 +147,9 @@ def get_iv_drug(drug_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWER
         drug = _row(_get(conn, drug_id))
     drug["suggested_meta_title"] = iv_seo.build_meta_title(drug)
     drug["suggested_meta_description"] = iv_seo.build_meta_description(drug)
-    drug["card_questions"] = iv_card.CARD_QUESTIONS
-    drug["card_labels"] = iv_card.CARD_LABELS
+    fields = iv_card.card_fields(iv_seo.routes_are_intravenous(drug.get("routes")))
+    drug["card_questions"] = {key: question for key, (_label, question) in fields.items()}
+    drug["card_labels"] = {key: label for key, (label, _question) in fields.items()}
     drug["ai_available"] = bool(iv_card.api_key())
     return drug
 
@@ -174,7 +175,8 @@ def generate_card(drug_id: uuid.UUID, admin: dict = Depends(require_role(*EDITOR
     if m["card_status"] == "approved":
         raise HTTPException(status_code=409, detail="This card is approved and live. Reject it first to draft a new one.")
     try:
-        card = iv_card.draft_card(m["generic_name"], m["spl_set_id"])  # slow (label download + AI): no transaction held open
+        # slow (label download + AI): no transaction held open
+        card = iv_card.draft_card(m["generic_name"], m["spl_set_id"], intravenous=iv_seo.routes_are_intravenous(m["routes"]))
     except iv_card.CardError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

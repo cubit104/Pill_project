@@ -318,3 +318,15 @@ def test_strengths_table_is_in_dose_order_with_plain_form_names_and_no_bulk_powd
         ("10 g", "Powder for solution", 1),
         ("5000 [USP'U]/mL", "Solution", 1),
     ]
+
+
+def test_the_injection_run_lists_every_needle_route_and_only_counts_real_injection_forms():
+    from services.iv_drugs_import import INJECTION_SEARCH, IV_SEARCH, is_injectable_form
+
+    assert 'route:"INTRAMUSCULAR"' in INJECTION_SEARCH and 'route:"SUBCUTANEOUS"' in INJECTION_SEARCH and 'route:"INTRAVENOUS"' in INJECTION_SEARCH
+    assert INJECTION_SEARCH.endswith('AND finished:true AND product_type:"HUMAN PRESCRIPTION DRUG"') and IV_SEARCH.startswith('route:"INTRAVENOUS"')
+    for form in ("INJECTION, SOLUTION", "INJECTION, POWDER, LYOPHILIZED, FOR SOLUTION", "SOLUTION", "LIQUID", "INJECTABLE, LIPOSOMAL"):
+        assert is_injectable_form(form)
+    # FDA files these under a needle route too: eye drops, implants, a gas, a tablet, talc
+    for form in ("SOLUTION/ DROPS", "IMPLANT", "GAS", "TABLET, FILM COATED", "POWDER", "CONCENTRATE", ""):
+        assert not is_injectable_form(form)

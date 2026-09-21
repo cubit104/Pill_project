@@ -91,6 +91,16 @@ export function Thermometer({ className }: IconProps) {
   )
 }
 
+export function Target({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </Svg>
+  )
+}
+
 export function Activity({ className }: IconProps) {
   return (
     <Svg className={className}>

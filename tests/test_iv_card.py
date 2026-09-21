@@ -209,6 +209,17 @@ def test_not_applicable_answer_survives_the_check_with_its_quote():
     assert elsewhere["fields"]["storage"] == {"status": "not_stated", "value": "", "quotes": []} and elsewhere["rejected"] == ["storage"]
 
 
+def test_a_drug_that_is_not_given_iv_is_asked_where_and_how_to_inject_instead_of_push_and_infusion():
+    shot = iv_card.build_prompt("Tirzepatide", SECTIONS, intravenous=False)
+    assert "injection glance card" in shot and "Injection site(s) the label names" in shot and "Do not answer about IV push or infusion" in shot
+    assert "direct IV push" not in shot and "Usual infusion time" not in shot and "Adult intravenous use only" not in shot
+    # the keys are the same six, so stored cards and the quote check are unchanged
+    assert list(iv_card.card_fields(False)) == list(iv_card.CARD_FIELDS) and iv_card.card_fields(False)["iv_push"][0] == "Where to inject"
+    assert iv_card.card_fields(False)["mixing"] == iv_card.CARD_FIELDS["mixing"]
+    iv = iv_card.build_prompt("Heparin", SECTIONS)
+    assert "bedside IV glance card" in iv and "direct IV push" in iv and "Adult intravenous use only" in iv
+
+
 def test_prompt_asks_for_shorthand_and_keeps_routine_label_text_off_the_card():
     prompt = iv_card.build_prompt("Heparin", SECTIONS)
     assert "q4h" in prompt and "Telegraphic" in prompt
