@@ -43,7 +43,7 @@ def test_label_facts_name_maker_version_date_and_routes():
     oral = iv_card.label_facts(label_xml("ORAL", "CAPSULE"))
     assert (oral["is_intravenous"], oral["is_injection"], oral["has_pill_form"]) == (False, False, True)
     # a shot in the muscle or under the skin is an injection, just not an intravenous one
-    for route in ("INTRAMUSCULAR", "SUBCUTANEOUS", "INTRAVENOUS DRIP", "INTRA-ARTICULAR"):
+    for route in ("INTRAMUSCULAR", "SUBCUTANEOUS", "INTRAVENOUS DRIP", "INTRA-ARTICULAR", "INTRAOCULAR", "INTRACAVERNOSAL"):
         assert iv_card.label_facts(label_xml(route))["is_injection"] is True
     assert iv_card.label_facts(label_xml("INTRAMUSCULAR"))["is_intravenous"] is False
     for route in ("ORAL", "TOPICAL", "OPHTHALMIC", "NASAL", "RESPIRATORY (INHALATION)", "INTRAVESICAL"):
