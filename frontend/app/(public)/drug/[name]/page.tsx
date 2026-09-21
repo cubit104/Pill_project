@@ -26,21 +26,59 @@ export type DrugSearchResult = {
   fallbackTerm: string | null
 }
 
-async function searchDrug(term: string): Promise<DrugSearchResult> {
+const NO_RESULTS: DrugSearchResult = { results: [], fallbackUsed: false, fallbackTerm: null }
+const ALL_PILLS_PER_PAGE = 100 // the API's maximum
+const ALL_PILLS_MAX_PAGES = 6 // 600 rows; the biggest drug today has about 160
+
+async function fetchSearchPage(term: string, page: number, perPage: number): Promise<SearchResponse | null> {
   try {
-    const params = new URLSearchParams({ q: term, type: 'drug', per_page: '48' })
+    const params = new URLSearchParams({ q: term, type: 'drug', per_page: String(perPage) })
+    if (page > 1) params.set('page', String(page))
     const res = await fetch(`${API_BASE}/api/search?${params}`, {
       next: { revalidate: 3600 },
     })
-    if (!res.ok) return { results: [], fallbackUsed: false, fallbackTerm: null }
-    const data: SearchResponse = await res.json()
-    return {
-      results: data.results,
-      fallbackUsed: Boolean(data.fallback_used),
-      fallbackTerm: data.fallback_term ?? null,
-    }
+    return res.ok ? ((await res.json()) as SearchResponse) : null
   } catch {
-    return { results: [], fallbackUsed: false, fallbackTerm: null }
+    return null
+  }
+}
+
+async function searchDrug(term: string): Promise<DrugSearchResult> {
+  const data = await fetchSearchPage(term, 1, 48)
+  if (!data) return NO_RESULTS
+  return {
+    results: data.results,
+    fallbackUsed: Boolean(data.fallback_used),
+    fallbackTerm: data.fallback_term ?? null,
+  }
+}
+
+/**
+ * Every pill of the drug. The search API pages over database rows but returns one card per name + imprint, so a
+ * single page of 48 rows showed 32 of lamotrigine's 65 imprints and the rest never appeared on this page.
+ * `total` counts the name + imprint groups: keep asking until they are all here, or a page comes back empty.
+ */
+async function searchDrugAll(term: string): Promise<DrugSearchResult> {
+  const first = await fetchSearchPage(term, 1, ALL_PILLS_PER_PAGE)
+  if (!first) return NO_RESULTS
+  const cards = new Map<string, PillResult>()
+  const add = (pills: PillResult[]) => {
+    for (const pill of pills) {
+      // a group cut in two by a page boundary comes back on both pages: keep its first card
+      const key = `${pill.drug_name}|${pill.imprint}`.toLowerCase()
+      if (!cards.has(key)) cards.set(key, pill)
+    }
+  }
+  add(first.results)
+  for (let page = 2; page <= ALL_PILLS_MAX_PAGES && cards.size < first.total; page++) {
+    const next = await fetchSearchPage(term, page, ALL_PILLS_PER_PAGE)
+    if (!next || next.results.length === 0) break
+    add(next.results)
+  }
+  return {
+    results: Array.from(cards.values()),
+    fallbackUsed: Boolean(first.fallback_used),
+    fallbackTerm: first.fallback_term ?? null,
   }
 }
 
@@ -57,6 +95,14 @@ export async function fetchPillsByDrug(name: string): Promise<DrugSearchResult> 
   return searchDrug(deSlugged)
 }
 
+async function fetchAllPillsByDrug(name: string): Promise<DrugSearchResult> {
+  const firstPass = await searchDrugAll(name)
+  if (firstPass.results.length > 0) return firstPass
+  const deSlugged = name.replace(/-/g, ' ')
+  if (deSlugged === name) return firstPass
+  return searchDrugAll(deSlugged)
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ name: string }> }
 ): Promise<Metadata> {
@@ -66,7 +112,7 @@ export async function generateMetadata(
   const decoded = decodeURIComponent(name)
   const canonicalSlug = slugifyDrugName(decoded) || decoded
   const displayName = toTitleCase(canonicalSlug.replace(/-/g, ' '))
-  const searchResult = await fetchPillsByDrug(decoded)
+  const searchResult = await fetchAllPillsByDrug(decoded)
   const robots = searchResult.results.length >= 2
     ? { index: true, follow: true }
     : { index: false, follow: true }
@@ -94,7 +140,7 @@ export default async function DrugHubPage(
     redirect(`/drug/${canonicalSlug}`)
   }
   const displayName = toTitleCase(canonicalSlug.replace(/-/g, ' '))
-  const [searchResult, ivDrugs] = await Promise.all([fetchPillsByDrug(decoded), fetchIvForPillDrug(canonicalSlug)])
+  const [searchResult, ivDrugs] = await Promise.all([fetchAllPillsByDrug(decoded), fetchIvForPillDrug(canonicalSlug)])
   const pills = searchResult.results
 
   if (!displayName) notFound()
@@ -197,7 +243,7 @@ export default async function DrugHubPage(
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {pills.map((pill, idx) => (
-                <PillCard key={pill.ndc || pill.slug || idx} pill={pill} />
+                <PillCard key={`${pill.slug || pill.ndc || 'pill'}-${idx}`} pill={pill} />
               ))}
             </div>
           </>
