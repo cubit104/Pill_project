@@ -36,7 +36,19 @@ logger = logging.getLogger(__name__)
 OPENFDA_NDC_URL = "https://api.fda.gov/drug/ndc.json"
 RXNORM_URL = "https://rxnav.nlm.nih.gov/REST"
 DAILYMED_SPLS_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls.json"
-IV_SEARCH = 'route:"INTRAVENOUS" AND finished:true AND product_type:"HUMAN PRESCRIPTION DRUG"'
+_FINISHED_RX = ' AND finished:true AND product_type:"HUMAN PRESCRIPTION DRUG"'
+IV_SEARCH = 'route:"INTRAVENOUS"' + _FINISHED_RX
+# Every route given with a needle (FDA's names). Used by the injection run, which only ever ADDS drugs that are not
+# in the table yet, so the intravenous drugs already there keep their label, strengths and counts.
+INJECTION_ROUTES = (
+    "INTRAVENOUS", "INTRAMUSCULAR", "SUBCUTANEOUS", "INTRADERMAL", "INTRA-ARTERIAL", "INTRA-ARTICULAR", "INTRATHECAL",
+    "EPIDURAL", "INTRAVITREAL", "INTRAOCULAR", "INTRALESIONAL", "INTRAPERITONEAL", "INTRACAVERNOUS", "INTRACARDIAC",
+    "INTRAOSSEOUS", "INTRAPLEURAL", "INTRASYNOVIAL", "INTRABURSAL", "PERINEURAL", "INFILTRATION", "INTRACAUDAL",
+    "INTRAVENTRICULAR", "INTRASPINAL", "SUBARACHNOID", "PARENTERAL", "INTRACAMERAL", "SUBCONJUNCTIVAL", "RETROBULBAR",
+    "INTRATUMORAL", "PERIARTICULAR", "SOFT TISSUE", "INTRAVASCULAR", "INTRACORONARY", "INTRADISCAL", "INTRALYMPHATIC",
+    "SUBMUCOSAL",
+)  # fmt: skip
+INJECTION_SEARCH = "(" + " OR ".join(f'route:"{r}"' for r in INJECTION_ROUTES) + ")" + _FINISHED_RX
 USER_AGENT = "Mozilla/5.0 (PillSeek IV import)"
 DEFAULT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "pillseek_iv_import")
 MAX_ALTERNATES = 5
@@ -147,14 +159,24 @@ def _slim_product(raw: Dict) -> Dict:
     }
 
 
-def fetch_products(client: httpx.Client, cache: DiskCache) -> List[Dict]:
-    cached = cache.load("ndc_iv_products.json")
+def is_injectable_form(dosage_form: str) -> bool:
+    """FDA files some non-injections under a needle route: azelastine eye drops as INTRAOCULAR, implants as
+    SUBCUTANEOUS, helium as INTRACORONARY. An injection is an INJECTION form, or a plain liquid that is not drops."""
+    form = (dosage_form or "").upper()
+    if "INJECT" in form:
+        return True
+    return any(word in form for word in ("SOLUTION", "LIQUID", "SUSPENSION", "EMULSION")) and "DROPS" not in form
+
+
+def fetch_products(client: httpx.Client, cache: DiskCache, injection: bool = False) -> List[Dict]:
+    search, cache_file = (INJECTION_SEARCH, "ndc_injection_products.json") if injection else (IV_SEARCH, "ndc_iv_products.json")
+    cached = cache.load(cache_file)
     if cached:
         return cached
     products: List[Dict] = []
     skip = 0
     while True:
-        page = _get_json(client, OPENFDA_NDC_URL, {"search": IV_SEARCH, "limit": 1000, "skip": skip})
+        page = _get_json(client, OPENFDA_NDC_URL, {"search": search, "limit": 1000, "skip": skip})
         if not page or not page.get("results"):
             break
         products.extend(_slim_product(r) for r in page["results"])
@@ -164,8 +186,8 @@ def fetch_products(client: httpx.Client, cache: DiskCache) -> List[Dict]:
         if skip >= total:
             break
     if not products:
-        raise RuntimeError("openFDA returned no IV products")
-    cache.save("ndc_iv_products.json", products)
+        raise RuntimeError("openFDA returned no products")
+    cache.save(cache_file, products)
     return products
 
 
@@ -710,13 +732,19 @@ def run_import(
     decisions_csv: Optional[str] = None,
     report_csv: Optional[str] = None,
     fix_unpublished: bool = False,
+    injection: bool = False,
 ) -> Counter:
+    """``injection``: list every injection route instead of intravenous only, and add NEW drugs only. A drug already in
+    the table is left exactly as it is (its group would now also hold its intramuscular products), and nothing is
+    cleaned up, so this run can never change or remove an existing row."""
+    if injection and fix_unpublished:
+        raise ValueError("--injection only adds new drugs; it cannot be combined with --fix-unpublished")
     cache = DiskCache(cache_dir, refresh=refresh)
     decisions = read_decisions(decisions_csv)
     today = date.today().strftime("%Y%m%d")
 
     with httpx.Client(timeout=40, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
-        products = fetch_products(client, cache)
+        products = fetch_products(client, cache, injection=injection)
         rx = resolve_ingredients(client, sorted({i["name"] for p in products for i in p["ingredients"] if i["name"]}), cache)
         groups, skipped = group_products(products, rx)
         groups = merge_same_name(groups)
@@ -732,14 +760,19 @@ def run_import(
     rows = []
     for key, plist in groups.items():
         keep = (existing.get(key) or {}).get("spl_set_id")
-        rows.append(build_row(key, plist, ranked[key], meta, keep_setid=keep))
+        row = build_row(key, plist, ranked[key], meta, keep_setid=keep)
+        if injection and not row["excluded_because"] and not any(is_injectable_form(p["dosage_form"]) for p in plist):
+            row["excluded_because"] = "not an injection dosage form (drops, implant, gas, tablet, powder)"
+        rows.append(row)
 
     stats: Counter = Counter()
     wanted = []
     for row in rows:
         decision = decisions.get(row["slug"]) or ("exclude" if row["excluded_because"] else "include")
         row["decision"] = decision
-        if decision == "include" or row["ingredient_key"] in existing:
+        if injection and row["ingredient_key"] in existing:
+            stats["already in the table (left untouched)"] += 1
+        elif decision == "include" or row["ingredient_key"] in existing:
             wanted.append(row)
         else:
             stats["excluded: " + (row["excluded_because"] or "your decision")] += 1
@@ -753,5 +786,6 @@ def run_import(
 
     with engine.begin() as conn:
         stats.update(upsert_rows(conn, wanted, existing, dry_run, fix_unpublished=fix_unpublished))
-    stats["gone from FDA list (left untouched)"] = len(set(existing) - set(groups))
+    if not injection:
+        stats["gone from FDA list (left untouched)"] = len(set(existing) - set(groups))
     return stats

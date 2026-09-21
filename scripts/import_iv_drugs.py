@@ -3,6 +3,7 @@
     python -m scripts.import_iv_drugs                      # dry run: shows what would change, writes nothing
     python -m scripts.import_iv_drugs --report iv.csv      # dry run + spreadsheet of every row it would write
     python -m scripts.import_iv_drugs --apply              # write to the database
+    python -m scripts.import_iv_drugs --injection          # every injection route (IM, subcutaneous, ...): adds NEW drugs only
 
 Safe to re-run: new rows arrive unpublished, a label already in use is kept while FDA still lists it,
 rows with setid_locked keep their label, slugs never change and nothing is deleted.
@@ -43,6 +44,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="fix_unpublished",
         help="before launch: rows never published and without a card may get a corrected slug or be dropped if now excluded",
     )
+    parser.add_argument(
+        "--injection",
+        action="store_true",
+        default=False,
+        help="list every injection route (intramuscular, subcutaneous, ...) and add only drugs that are not in the table yet",
+    )
     return parser.parse_args(argv)
 
 
@@ -60,6 +67,7 @@ def main(argv: list[str] | None = None) -> None:
         decisions_csv=args.decisions,
         report_csv=args.report,
         fix_unpublished=args.fix_unpublished,
+        injection=args.injection,
     )
     logger.info("%s", "APPLIED" if args.apply else "DRY RUN (nothing written; add --apply to write)")
     for name, count in sorted(stats.items()):
