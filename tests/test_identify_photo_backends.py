@@ -139,7 +139,7 @@ def test_identification_survives_a_matcher_outage_with_imprint_results(monkeypat
     """The reader found the pill; a dead matcher must not lose that answer."""
 
     async def fake_read(raws):
-        return ["X1"], ["X1"]
+        return ["X1"], ["X1"], ["large"]
 
     monkeypatch.setattr(ip, "_read_imprint", fake_read)
     monkeypatch.setattr(ip, "identify_pill", lambda req: _TextResult([_Cand("pill-a", 0.80), _Cand("pill-b", 0.70)]))
@@ -158,7 +158,7 @@ def test_identification_survives_a_matcher_outage_with_imprint_results(monkeypat
 
 def test_a_matcher_outage_with_nothing_from_the_reader_still_raises(monkeypatch):
     async def fake_read(raws):
-        return [], []
+        return [], [], []
 
     monkeypatch.setattr(ip, "_read_imprint", fake_read)
 

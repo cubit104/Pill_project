@@ -275,6 +275,16 @@ def test_a_base_only_read_never_settles_the_answer():
     assert out["_trace"]["reader_used"] == "base"
 
 
+def test_one_base_only_side_is_enough_to_ask_the_second_reader():
+    """Large read one side, only base could read the other: base's tokens are in the same list, so it is not settled."""
+    with _pipeline(BASE_PHANTOM, {" ".join(BASE_PHANTOM): [("piroxicam-93-756", 1.0)], "SPT 25": [("amlodipine", 1.0)]},
+                   "fallback", {"tokens": ["SPT", "25"], "side_reads": ["SPT 25"], "confidence": "high", "cost_micros": 1500},
+                   used=("large", "base")) as ai_read:
+        out = ip._identify_sync([b"a", b"b"])
+    ai_read.assert_called_once()
+    assert out["read_source"] == "ai" and out["matches"][0]["slug"] == "amlodipine"
+
+
 def test_the_admin_can_trust_base_again():
     with _pipeline(BASE_PHANTOM, {" ".join(BASE_PHANTOM): [("piroxicam-93-756", 1.0)]}, "fallback", AI_BX2,
                    used=("base", "base"), trust_base=True) as ai_read:

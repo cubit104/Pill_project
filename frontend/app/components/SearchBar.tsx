@@ -63,7 +63,7 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
       const data: IvSuggestion[] = res.ok ? await res.json() : []
       // an answer to an older keystroke must not replace a newer one
       if (latestIvQueryRef.current === `${type}:${q}`) setIvSuggestions(Array.isArray(data) ? data.slice(0, 4) : [])
-    } catch { setIvSuggestions([]) }
+    } catch { if (latestIvQueryRef.current === `${type}:${q}`) setIvSuggestions([]) }
   }, [])
 
   useEffect(() => {

@@ -410,7 +410,8 @@ def _identify_sync(raws: list[bytes]) -> dict:
     # small (base) model produced may be an imprint it memorised in training, so unless the
     # admin trusts it, it must not settle the answer — the second reader decides instead.
     reader_used = "large" if "large" in used else "base" if "base" in used else "none" if used else None
-    trusted = bool(tokens) and (settings.get("reader_trust_base", False) or reader_used != "base")
+    # per side: large on one side does not vouch for a side only base could read, whose tokens are in the same list
+    trusted = bool(tokens) and (settings.get("reader_trust_base", False) or "base" not in used)
     if tokens:
         imprint_read = " ".join(tokens)
         if trusted:

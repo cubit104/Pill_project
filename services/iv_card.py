@@ -217,6 +217,9 @@ def verify_card(fields: Dict[str, Any], sections: List[Dict[str, str]]) -> Dict[
             quotes_checked += 1
             if QUOTE_MIN <= len(text_value) <= QUOTE_MAX and _norm(text_value) in haystack:
                 quotes.append({"section": str(quote.get("section") or "")[:120], "text": text_value})
+        if status == "not_applicable" and key != "mixing":
+            rejected.append(key)
+            status = "not_stated"
         if status in ("stated", "not_applicable") and (not quotes or not value or len(value) > VALUE_MAX):
             rejected.append(key)
             status = "not_stated"

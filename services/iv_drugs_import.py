@@ -583,7 +583,8 @@ def load_existing(conn) -> Dict[str, Dict]:
         text(
             """
             SELECT ingredient_key, slug, spl_set_id, setid_locked, card_status,
-                   (NOT published AND card_status = 'none' AND deleted_at IS NULL) AS untouched
+                   -- a label picked or a drug added by hand (setid_locked) is somebody's work: never cleaned up
+                   (NOT published AND card_status = 'none' AND deleted_at IS NULL AND NOT setid_locked) AS untouched
             FROM public.iv_drugs
             """
         )

@@ -204,6 +204,9 @@ def test_not_applicable_answer_survives_the_check_with_its_quote():
     ready = field(status="not_applicable", value="Ready to use", quote="Reconstitute the 1 g vial with 20 mL of Sterile Water for Injection.")
     checked = iv_card.verify_card({"mixing": ready}, SECTIONS)
     assert checked["fields"]["mixing"]["status"] == "not_applicable" and checked["fields"]["mixing"]["value"] == "Ready to use"
+    # only Mixing may say so: on any other answer it is thrown out, and the reviewer is told
+    elsewhere = iv_card.verify_card({"storage": ready}, SECTIONS)
+    assert elsewhere["fields"]["storage"] == {"status": "not_stated", "value": "", "quotes": []} and elsewhere["rejected"] == ["storage"]
 
 
 def test_prompt_asks_for_shorthand_and_keeps_routine_label_text_off_the_card():
