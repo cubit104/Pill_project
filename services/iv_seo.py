@@ -17,14 +17,19 @@ def _brands(row: Mapping[str, Any], limit: int) -> list:
 
 
 def build_meta_title(row: Mapping[str, Any]) -> str:
-    """'Vancomycin IV (Vancocin): Infusion Rate, Mixing & FDA Label', shortened until it fits a search result."""
+    """'Norepinephrine IV (Levophed): Infusion Rate, Mixing & Calculator', shortened until it fits a search result.
+
+    Names what the page really has and what a nurse types; "uses, side effects, price" would promise sections the page
+    does not have. The brand name is kept before a longer tail: people search the brand ("levophed drip rate").
+    """
     name = str(row.get("generic_name") or "").strip()
     if not name:
         return ""
     brand = _brands(row, 1)
-    head = f"{name} IV ({brand[0]})" if brand else f"{name} IV"
-    for tail in (": Infusion Rate, Mixing & FDA Label", ": Infusion, Mixing & Label", " Injection: FDA Label", ""):
-        for start in (head, f"{name} IV"):
+    starts = ([f"{name} IV ({brand[0]})"] if brand else []) + [f"{name} IV"]
+    tails = (": Infusion Rate, Mixing, Calculator & Shortage", ": Infusion Rate, Mixing & Calculator", ": Infusion Rate & Mixing")
+    for start in starts:
+        for tail in tails:
             if len(start + tail) <= TITLE_MAX:
                 return start + tail
     return f"{name} IV"[:TITLE_MAX]
@@ -37,11 +42,9 @@ def build_meta_description(row: Mapping[str, Any]) -> str:
     brands = _brands(row, 2)
     known_as = f" ({', '.join(brands)})" if brands else ""
     makers = int(row.get("maker_count") or 0)
-    supply = f" Strengths from {makers} manufacturers," if makers > 1 else " All strengths,"
-    text = (
-        f"{name}{known_as} IV: infusion rate, mixing and storage from the FDA label."
-        f"{supply} recalls, dosage, side effects."
-    )
-    if len(text) <= DESCRIPTION_MAX:
-        return text
-    return f"{name} IV: how it is given, infusion rate, mixing and storage from the FDA label, plus dosage and side effects."[:DESCRIPTION_MAX]
+    supply = f" Strengths from {makers} manufacturers" if makers > 1 else " All strengths"
+    for who in (f"{name}{known_as}", name):
+        text = f"{who} IV: infusion rate, mixing and storage, drip rate calculator, current shortage status.{supply} and recalls."
+        if len(text) <= DESCRIPTION_MAX:
+            return text
+    return f"{name} IV: infusion rate, mixing and storage, drip rate calculator, shortage status and recalls."[:DESCRIPTION_MAX]

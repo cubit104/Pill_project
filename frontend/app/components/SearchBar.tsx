@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import type { FilterOption } from '../types'
 
 interface SearchBarProps {
@@ -12,6 +13,8 @@ interface SearchBarProps {
 
 type SearchType = 'drug' | 'imprint' | 'ndc'
 type SuggestionItem = string | { label: string; kind?: string; generic?: string }
+/** A published IV drug; picking it opens its page instead of running a pill search. */
+type IvSuggestion = { label: string; slug: string }
 
 const SUGGESTION_CLOSE_DELAY_MS = 150
 
@@ -22,6 +25,7 @@ const TABS: { id: SearchType; label: string; placeholder: string }[] = [
 ]
 
 export default function SearchBar({ colors, shapes, onSearch, initialValues }: SearchBarProps) {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<SearchType>(
     (initialValues?.type as SearchType) || 'drug'
   )
@@ -29,6 +33,8 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
   const [color, setColor] = useState(initialValues?.color || '')
   const [shape, setShape] = useState(initialValues?.shape || '')
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>([])
+  // listed under the pill suggestions on the Drug Name tab; its own request, so the pill list never waits for or depends on it
+  const [ivSuggestions, setIvSuggestions] = useState<IvSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
 
@@ -36,6 +42,7 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const suggestionsRef = useRef<HTMLUListElement>(null)
+  const latestIvQueryRef = useRef('')
 
   const fetchSuggestions = useCallback(async (q: string, type: SearchType) => {
     if (q.length < 2) { setSuggestions([]); return }
@@ -48,11 +55,22 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
     } catch { setSuggestions([]) }
   }, [])
 
+  const fetchIvSuggestions = useCallback(async (q: string, type: SearchType) => {
+    latestIvQueryRef.current = `${type}:${q}`
+    if (type !== 'drug' || q.trim().length < 2) { setIvSuggestions([]); return }
+    try {
+      const res = await fetch(`/api/iv/suggest?q=${encodeURIComponent(q.trim())}`)
+      const data: IvSuggestion[] = res.ok ? await res.json() : []
+      // an answer to an older keystroke must not replace a newer one
+      if (latestIvQueryRef.current === `${type}:${q}`) setIvSuggestions(Array.isArray(data) ? data.slice(0, 4) : [])
+    } catch { setIvSuggestions([]) }
+  }, [])
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => { fetchSuggestions(query, activeTab) }, 120)
+    debounceRef.current = setTimeout(() => { fetchSuggestions(query, activeTab); fetchIvSuggestions(query, activeTab) }, 120)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [query, activeTab, fetchSuggestions])
+  }, [query, activeTab, fetchSuggestions, fetchIvSuggestions])
 
   useEffect(() => {
     return () => { if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current) }
@@ -63,9 +81,19 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
     onSearch({ q: query, type: activeTab, color: color || undefined, shape: shape || undefined })
   }
 
+  const optionCount = suggestions.length + ivSuggestions.length
+
+  const openIvDrug = (iv: IvSuggestion) => {
+    setShowSuggestions(false)
+    setHighlightedIndex(-1)
+    router.push(`/iv/${iv.slug}`)
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {
+      if (highlightedIndex >= suggestions.length && ivSuggestions[highlightedIndex - suggestions.length]) {
+        openIvDrug(ivSuggestions[highlightedIndex - suggestions.length])
+      } else if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {
         const pickedItem = suggestions[highlightedIndex]
         const picked = typeof pickedItem === 'string' ? pickedItem : pickedItem.label
         setQuery(picked)
@@ -74,14 +102,14 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
         onSearch({ q: picked, type: activeTab, color: color || undefined, shape: shape || undefined })
       } else { handleSubmit() }
     } else if (e.key === 'ArrowDown') {
-      e.preventDefault(); setHighlightedIndex((prev) => Math.min(prev + 1, suggestions.length - 1))
+      e.preventDefault(); setHighlightedIndex((prev) => Math.min(prev + 1, optionCount - 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault(); setHighlightedIndex((prev) => Math.max(prev - 1, -1))
     } else if (e.key === 'Escape') { setShowSuggestions(false) }
   }
 
   const handleTabChange = (tab: SearchType) => {
-    setActiveTab(tab); setQuery(''); setSuggestions([]); setShowSuggestions(false); inputRef.current?.focus()
+    setActiveTab(tab); setQuery(''); setSuggestions([]); setIvSuggestions([]); setShowSuggestions(false); inputRef.current?.focus()
   }
 
   return (
@@ -114,7 +142,7 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
           value={query}
           onChange={(e) => { setQuery(e.target.value); setShowSuggestions(true); setHighlightedIndex(-1) }}
           onKeyDown={handleKeyDown}
-          onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true) }}
+          onFocus={() => { if (optionCount > 0) setShowSuggestions(true) }}
           onBlur={() => {
             if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current)
             blurTimeoutRef.current = setTimeout(() => setShowSuggestions(false), SUGGESTION_CLOSE_DELAY_MS)
@@ -123,9 +151,9 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
           className="w-full border border-slate-300 rounded-lg px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-base"
           aria-autocomplete="list"
           aria-controls="suggestions-list"
-          aria-expanded={showSuggestions && suggestions.length > 0}
+          aria-expanded={showSuggestions && optionCount > 0}
         />
-        {showSuggestions && suggestions.length > 0 && (
+        {showSuggestions && optionCount > 0 && (
           <ul
             id="suggestions-list"
             ref={suggestionsRef}
@@ -153,6 +181,23 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
                 {label}
               </li>
             )})}
+            {ivSuggestions.map((iv, i) => {
+              const index = suggestions.length + i
+              return (
+                <li
+                  key={`iv-${iv.slug}`}
+                  role="option"
+                  aria-selected={index === highlightedIndex}
+                  onMouseDown={(e) => { e.preventDefault(); openIvDrug(iv) }}
+                  className={`flex items-center justify-between gap-3 px-4 py-2.5 text-sm cursor-pointer transition-colors ${
+                    i === 0 && suggestions.length > 0 ? 'border-t border-slate-100 ' : ''
+                  }${index === highlightedIndex ? 'bg-teal-50 text-teal-800' : 'text-slate-700 hover:bg-slate-50'}`}
+                >
+                  <span>{iv.label}</span>
+                  <span className="shrink-0 rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-teal-700">IV drug</span>
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>

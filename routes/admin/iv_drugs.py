@@ -9,6 +9,7 @@ POST /api/admin/iv/drugs/{id}/card/generate            draft a card with AI (sup
 PUT  /api/admin/iv/drugs/{id}/card                     save a reviewer's edits (quotes are re-checked)
 POST /api/admin/iv/drugs/{id}/card/approve             re-check, then approve: the card goes public
 POST /api/admin/iv/drugs/{id}/card/reject              {notes}
+GET  /api/admin/iv/drugs/{id}/preview                  the drug page as the site would show it, hidden drug and draft card included
 PUT  /api/admin/iv/drugs/{id}/published                {published} (superuser, editor); publishing pings IndexNow
 
 Adding a drug, editing its details and SEO text, and the FDA label tools are in routes/admin/iv_manage.py.
@@ -25,7 +26,8 @@ from sqlalchemy import text
 
 import database
 from routes.admin.auth import log_audit, require_role
-from routes.admin.indexnow import submit_iv_slug_to_indexnow
+from routes import iv_drugs as public_iv
+from routes.admin.indexnow import can_submit_pill_slug_to_indexnow, submit_iv_slug_to_indexnow
 from services import iv_card, iv_seo
 
 logger = logging.getLogger(__name__)
@@ -265,6 +267,23 @@ def reject_card(drug_id: uuid.UUID, payload: RejectPayload, admin: dict = Depend
         return _row(_get(conn, drug_id))
 
 
+@router.get("/drugs/{drug_id}/preview")
+def preview_iv_drug(drug_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWERS))):
+    """The public page payload for staff: a hidden drug is shown, and so is a card nobody approved yet."""
+    with _engine().connect() as conn:
+        row = conn.execute(
+            text(f"SELECT {public_iv.DRUG_PAGE_COLUMNS}, published FROM public.iv_drugs WHERE id = :id AND deleted_at IS NULL"),
+            {"id": str(drug_id)},
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="IV drug not found")
+        m = row._mapping
+        payload = public_iv.drug_page_payload(conn, m, any_card=True)
+    payload["card_status"] = m["card_status"]
+    payload["published"] = bool(m["published"])
+    return payload
+
+
 @router.put("/drugs/{drug_id}/published")
 def set_published(
     drug_id: uuid.UUID,
@@ -277,7 +296,9 @@ def set_published(
         conn.execute(text("UPDATE public.iv_drugs SET published = :p WHERE id = :id"), {"p": payload.published, "id": str(drug_id)})
         log_audit(conn, *_actor(admin), "iv_drug_published" if payload.published else "iv_drug_unpublished", "iv_drug", str(drug_id))
         drug = _row(_get(conn, drug_id))
-    if payload.published:
+    # the helper only checks that a slug and an IndexNow key exist, nothing about pills
+    if payload.published and can_submit_pill_slug_to_indexnow(drug["slug"]):
         # after the response, so after the commit; best effort, a failed ping never undoes the publish
         background_tasks.add_task(submit_iv_slug_to_indexnow, drug["slug"])
+        drug["indexnow_queued"] = True
     return drug

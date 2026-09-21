@@ -104,6 +104,7 @@ export const adminApi = {
     return apiFetch(qs ? `/api/admin/iv/drugs?${qs}` : '/api/admin/iv/drugs')
   },
   getIvDrug: (id: string) => apiFetch(`/api/admin/iv/drugs/${id}`),
+  previewIvDrug: (id: string) => apiFetch(`/api/admin/iv/drugs/${id}/preview`),
   generateIvCard: (id: string) =>
     apiFetch(`/api/admin/iv/drugs/${id}/card/generate`, { method: 'POST' }),
   saveIvCard: (id: string, data: object) =>

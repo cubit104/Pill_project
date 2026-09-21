@@ -10,6 +10,9 @@ GET /api/iv/{slug}
 GET /api/iv/for-pill-drug?name=<pill drug slug>
     The published IV drug with the same name as a pill drug (the box on /drug/<name>).
 
+GET /api/iv/suggest?q=<typed text>
+    Published IV drugs whose generic or brand name starts with the text, for the search dropdown.
+
 GET /api/slugs/iv
     Slugs for the sitemap.
 
@@ -115,6 +118,48 @@ def list_iv_drugs(
     }
 
 
+IV_SUGGESTIONS = 4
+
+
+@router.get("/api/iv/suggest")
+def suggest_iv_drugs(response: Response, q: str = Query(..., max_length=80)):
+    """Published IV drugs whose generic name or a brand name starts with what was typed.
+
+    The search box asks this next to the pill /suggestions call and lists the answers under the pills with an
+    "IV" tag; a brand match says which drug it is ("Levophed (Norepinephrine)"). Declared before /api/iv/{slug}.
+    """
+    typed = q.strip().lower().replace("%", "").replace("_", "")
+    if len(typed) < 2:
+        return []
+    try:
+        with _engine().connect() as conn:
+            rows = conn.execute(
+                text(
+                    f"""
+                    SELECT generic_name, slug,
+                           (lower(generic_name) LIKE :like) AS by_generic,
+                           (SELECT b FROM unnest(brand_names) b WHERE lower(b) LIKE :like ORDER BY b LIMIT 1) AS brand
+                    FROM public.iv_drugs
+                    WHERE {LIVE}
+                      AND (lower(generic_name) LIKE :like
+                           OR EXISTS (SELECT 1 FROM unnest(brand_names) b WHERE lower(b) LIKE :like))
+                    ORDER BY 3 DESC, lower(generic_name)
+                    LIMIT :limit
+                    """
+                ),
+                {"like": f"{typed}%", "limit": IV_SUGGESTIONS},
+            ).fetchall()
+    except SQLAlchemyError as exc:
+        logger.error("Failed to suggest IV drugs for %r: %s", q, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to suggest IV drugs") from exc
+
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return [
+        {"label": name if by_generic or not brand else f"{brand} ({name})", "slug": slug}
+        for name, slug, by_generic, brand in rows
+    ]
+
+
 @router.get("/api/iv/for-pill-drug")
 def iv_for_pill_drug(response: Response, name: str = Query(..., pattern=SLUG_PATTERN, max_length=200)):
     """The published IV drug with the same name as a pill drug, for the box on /drug/<name>.
@@ -193,37 +238,23 @@ def _pill_drugs(conn, slug: str) -> list:
     return [{"name": r[0], "pill_count": int(r[1])} for r in rows]
 
 
-@router.get("/api/iv/{slug}")
-def get_iv_drug(response: Response, slug: str = Path(..., pattern=SLUG_PATTERN, max_length=200)):
-    """One published IV drug."""
-    try:
-        with _engine().connect() as conn:
-            row = conn.execute(
-                text(
-                    f"""
-                    SELECT slug, generic_name, brand_names, drug_class, routes, dea_schedule, rxcuis,
-                           spl_set_id, label_type, label_brand, label_maker, label_presentation, label_version, label_date,
-                           strengths, product_count, maker_count,
-                           card, card_status, card_label_version, card_reviewed_at,
-                           meta_title, meta_description, updated_at
-                    FROM public.iv_drugs
-                    WHERE slug = :slug AND {LIVE}
-                    LIMIT 1
-                    """
-                ),
-                {"slug": slug},
-            ).fetchone()
-            if row is None:
-                raise HTTPException(status_code=404, detail="IV drug not found")
-            m = row._mapping
-            label_pages = _label_pages(conn, m["spl_set_id"])
-            pill_drugs = _pill_drugs(conn, m["slug"])
-    except SQLAlchemyError as exc:
-        logger.error("Failed to fetch IV drug %s: %s", slug, exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to fetch IV drug") from exc
+DRUG_PAGE_COLUMNS = (
+    "slug, generic_name, brand_names, drug_class, routes, dea_schedule, rxcuis, "
+    "spl_set_id, label_type, label_brand, label_maker, label_presentation, label_version, label_date, "
+    "strengths, product_count, maker_count, "
+    "card, card_status, card_label_version, card_reviewed_at, "
+    "meta_title, meta_description, updated_at"
+)
 
+
+def drug_page_payload(conn, m, *, any_card: bool = False) -> dict:
+    """Everything the IV drug page shows, from one iv_drugs row (`m`, selected with DRUG_PAGE_COLUMNS).
+
+    The public endpoint leaves `any_card` off: a card leaves the API only once a reviewer approved it.
+    Only the staff preview in the admin turns it on, to show a draft the way it would look on the page.
+    """
     card = None
-    if m["card_status"] == "approved" and m["card"]:
+    if m["card"] and (any_card or m["card_status"] == "approved"):
         # who approved it stays in the admin: card_reviewed_by is a staff email, and the page credits
         # reviewers through the public editorial-team list instead
         card = {
@@ -235,8 +266,6 @@ def get_iv_drug(response: Response, slug: str = Path(..., pattern=SLUG_PATTERN, 
                 m["card_label_version"] and m["label_version"] and m["label_version"] > m["card_label_version"]
             ),
         }
-
-    response.headers["Cache-Control"] = CACHE_CONTROL
     return {
         "slug": m["slug"],
         "name": m["generic_name"],
@@ -254,17 +283,37 @@ def get_iv_drug(response: Response, slug: str = Path(..., pattern=SLUG_PATTERN, 
             "date": _iso(m["label_date"]),
             "source_url": DAILYMED_LABEL_URL.format(setid=m["spl_set_id"]),
         },
-        "label_pages": label_pages,
+        "label_pages": _label_pages(conn, m["spl_set_id"]),
         "strengths": m["strengths"] or [],
         "product_count": m["product_count"],
         "maker_count": m["maker_count"],
         "card": card,
-        "pill_drugs": pill_drugs,
+        "pill_drugs": _pill_drugs(conn, m["slug"]),
         # what the page should use: the editor's own text, otherwise the same automatic text the admin shows
         "meta_title": m["meta_title"] or iv_seo.build_meta_title(m),
         "meta_description": m["meta_description"] or iv_seo.build_meta_description(m),
         "updated_at": _iso(m["updated_at"]),
     }
+
+
+@router.get("/api/iv/{slug}")
+def get_iv_drug(response: Response, slug: str = Path(..., pattern=SLUG_PATTERN, max_length=200)):
+    """One published IV drug."""
+    try:
+        with _engine().connect() as conn:
+            row = conn.execute(
+                text(f"SELECT {DRUG_PAGE_COLUMNS} FROM public.iv_drugs WHERE slug = :slug AND {LIVE} LIMIT 1"),
+                {"slug": slug},
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="IV drug not found")
+            payload = drug_page_payload(conn, row._mapping)
+    except SQLAlchemyError as exc:
+        logger.error("Failed to fetch IV drug %s: %s", slug, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch IV drug") from exc
+
+    response.headers["Cache-Control"] = CACHE_CONTROL
+    return payload
 
 
 @router.get("/api/iv/{slug}/label-sections")
