@@ -131,6 +131,8 @@ export default function IvDrugBody({
 }) {
   const tabs = ivTabHrefs(drug)
   const intravenous = isIntravenous(drug)
+  // the right column holds the infusion calculator and the recalls; with neither, the page uses the full width
+  const hasAside = intravenous || Boolean(recalls && recalls.length > 0)
   const labelLinks = [
     tabs.dosageHref && { href: tabs.dosageHref, label: 'Dosage', note: 'How much and how often' },
     tabs.adverseReactionsHref && { href: tabs.adverseReactionsHref, label: 'Side effects', note: 'Adverse reactions in the label' },
@@ -150,7 +152,7 @@ export default function IvDrugBody({
       {shortage && <ShortageBanner shortage={shortage} />}
       <SafetyNotices drug={drug} />
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className={`grid items-start gap-6 ${hasAside ? 'lg:grid-cols-[minmax(0,1fr)_22rem]' : ''}`}>
         <div className="min-w-0 space-y-6">
           {drug.card && <IvAdministrationCard drug={drug} card={drug.card} />}
 
@@ -191,11 +193,13 @@ export default function IvDrugBody({
           )}
         </div>
 
-        <aside className="space-y-6 lg:sticky lg:top-20">
-          {/* a pump rate means nothing for a shot in the muscle or under the skin */}
-          {intravenous && <InfusionCalculator />}
-          {recalls && <RecallsBox drugName={drug.name} recalls={recalls} />}
-        </aside>
+        {hasAside && (
+          <aside className="space-y-6 lg:sticky lg:top-20">
+            {/* a pump rate means nothing for a shot in the muscle or under the skin */}
+            {intravenous && <InfusionCalculator />}
+            {recalls && <RecallsBox drugName={drug.name} recalls={recalls} />}
+          </aside>
+        )}
       </div>
     </>
   )

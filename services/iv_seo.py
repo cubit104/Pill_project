@@ -16,10 +16,14 @@ def _brands(row: Mapping[str, Any], limit: int) -> list:
     return [b for b in (row.get("brand_names") or []) if b and b.lower() != name][:limit]
 
 
-def _is_intravenous(row: Mapping[str, Any]) -> bool:
+def routes_are_intravenous(routes: Any) -> bool:
     """No routes on file counts as IV: every imported drug has them, and IV is what this section began as."""
-    routes = row.get("routes") or []
+    routes = routes or []
     return not routes or any("intravenous" in str(r).lower() for r in routes)
+
+
+def _is_intravenous(row: Mapping[str, Any]) -> bool:
+    return routes_are_intravenous(row.get("routes"))
 
 
 def build_meta_title(row: Mapping[str, Any]) -> str:

@@ -52,6 +52,24 @@ CARD_FIELDS: Dict[str, tuple] = {
     "storage": ("Storage", "Storage of the unopened product, and how long it keeps after mixing and at what temperature."),
     "monitoring": ("Watch", "What to monitor during or right after giving it, including infusion reactions."),
 }
+# A drug that is not given intravenously has no push and no infusion. The same two slots then ask where and how it
+# is injected (the keys stay, so a stored card and the quote check need nothing new).
+NON_IV_FIELDS: Dict[str, tuple] = {
+    "iv_push": ("Where to inject", "Injection site(s) the label names (e.g. abdomen, thigh, upper arm; deltoid, gluteal) and rotating sites."),
+    "infusion": (
+        "How to give it",
+        "Route and how it is injected: device (pen, prefilled syringe, vial and needle), technique (e.g. deep IM, Z-track), "
+        "how fast. If the label forbids intravenous use, say so.",
+    ),
+    "monitoring": ("Watch", "What to monitor during or right after giving it, including injection site reactions."),
+}
+
+
+def card_fields(intravenous: bool = True) -> Dict[str, tuple]:
+    """(label, question) per card key, for an IV drug or for an injection that is not given IV."""
+    return CARD_FIELDS if intravenous else {**CARD_FIELDS, **NON_IV_FIELDS}
+
+
 CARD_LABELS = {key: label for key, (label, _question) in CARD_FIELDS.items()}
 CARD_QUESTIONS = {key: question for key, (_label, question) in CARD_FIELDS.items()}
 
@@ -250,11 +268,18 @@ def verify_card(fields: Dict[str, Any], sections: List[Dict[str, str]]) -> Dict[
 # ---------------------------------------------------------------------------
 
 
-def build_prompt(drug_name: str, sections: List[Dict[str, str]]) -> str:
+def build_prompt(drug_name: str, sections: List[Dict[str, str]], intravenous: bool = True) -> str:
     label_text = "\n\n".join(f"=== SECTION: {s['name']} ===\n{s['text']}" for s in sections)[:MAX_LABEL_CHARS]
-    questions = "\n".join(f'- "{key}": {question}' for key, question in CARD_QUESTIONS.items())
+    questions = "\n".join(f'- "{key}": {question}' for key, (_label, question) in card_fields(intravenous).items())
+    scope = (
+        "6. Adult intravenous use only. Ignore intramuscular, subcutaneous, epidural, oral and paediatric details unless "
+        "the label gives nothing else, and then say so in the value.\n\n"
+        if intravenous
+        else "6. Adult use by the injection route(s) the label gives (this drug is not given intravenously). Ignore oral and "
+        "paediatric details. Do not answer about IV push or infusion.\n\n"
+    )
     return (
-        f"You fill a bedside IV glance card about {drug_name} for nurses and doctors, using ONLY the FDA label text below. "
+        f"You fill a bedside {'IV' if intravenous else 'injection'} glance card about {drug_name} for nurses and doctors, using ONLY the FDA label text below. "
         "They read it in seconds; whoever wants detail opens the full label.\n\n"
         "Rules:\n"
         "1. Use only the label text. No outside knowledge, no memory of the drug, no guessing.\n"
@@ -272,8 +297,7 @@ def build_prompt(drug_name: str, sections: List[Dict[str, str]]) -> str:
         "after mixing 24 h refrigerated\".\n"
         "5. Leave out routine text that every injectable label carries: inspect visually for particles or discoloration, use "
         "aseptic technique, discard unused portion, single-dose vial. It is never a special-handling, storage or mixing fact.\n"
-        "6. Adult intravenous use only. Ignore intramuscular, subcutaneous, epidural, oral and paediatric details unless "
-        "the label gives nothing else, and then say so in the value.\n\n"
+        f"{scope}"
         f"Fields:\n{questions}\n\n"
         'Reply with JSON only: {"fields": {"<key>": {"status": "stated|not_stated|not_applicable", "value": "...", '
         f'"quotes": [{{"section": "<section name>", "text": "..."}}]}}, ...all {len(CARD_FIELDS)} keys...}}, '
@@ -310,10 +334,10 @@ def ask_ai(prompt: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
     return reply
 
 
-def draft_card(drug_name: str, spl_set_id: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+def draft_card(drug_name: str, spl_set_id: str, model: str = DEFAULT_MODEL, intravenous: bool = True) -> Dict[str, Any]:
     """A machine-checked draft, ready to store in iv_drugs.card."""
     sections = fetch_label_sections(spl_set_id)
-    reply = ask_ai(build_prompt(drug_name, sections), model)
+    reply = ask_ai(build_prompt(drug_name, sections, intravenous), model)
     checked = verify_card(reply["fields"], sections)
     return {
         "fields": checked["fields"],
