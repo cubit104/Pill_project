@@ -1,5 +1,5 @@
 import { Activity, Droplet, FlaskConical, ShieldAlert, Syringe, Thermometer, type IvIcon } from '../../../components/IvIcons'
-import type { IvCard, IvDrug } from '../../../lib/iv'
+import { isIntravenous, type IvCard, type IvDrug } from '../../../lib/iv'
 
 /** The six answers, in the order they are needed at the bedside. Same on every drug. */
 const FIELDS: Array<{ key: string; label: string; icon: IvIcon; tint: string }> = [
@@ -25,7 +25,7 @@ export default function IvAdministrationCard({ drug, card }: { drug: IvDrug; car
   return (
     <section className="rounded-xl border border-emerald-200 bg-white p-6 shadow-sm" aria-labelledby="iv-card-heading">
       <h2 id="iv-card-heading" className="mb-4 border-l-4 border-emerald-500 pl-3 text-base font-semibold text-slate-800">
-        IV at a glance
+        {isIntravenous(drug) ? 'IV at a glance' : 'Injection at a glance'}
       </h2>
 
       {card.label_updated_since && (

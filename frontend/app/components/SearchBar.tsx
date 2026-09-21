@@ -14,7 +14,7 @@ interface SearchBarProps {
 type SearchType = 'drug' | 'imprint' | 'ndc'
 type SuggestionItem = string | { label: string; kind?: string; generic?: string }
 /** A published IV drug; picking it opens its page instead of running a pill search. */
-type IvSuggestion = { label: string; slug: string }
+type IvSuggestion = { label: string; slug: string; intravenous?: boolean }
 
 const SUGGESTION_CLOSE_DELAY_MS = 150
 
@@ -194,7 +194,7 @@ export default function SearchBar({ colors, shapes, onSearch, initialValues }: S
                   }${index === highlightedIndex ? 'bg-teal-50 text-teal-800' : 'text-slate-700 hover:bg-slate-50'}`}
                 >
                   <span>{iv.label}</span>
-                  <span className="shrink-0 rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-teal-700">IV drug</span>
+                  <span className="shrink-0 rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-teal-700">{iv.intravenous === false ? 'Injection' : 'IV drug'}</span>
                 </li>
               )
             })}

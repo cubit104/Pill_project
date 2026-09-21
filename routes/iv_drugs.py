@@ -44,6 +44,10 @@ if os.getenv("IV_DRUGS_PREVIEW", "").lower() in {"1", "true", "yes"}:
     LIVE, LIVE_I = "deleted_at IS NULL", "i.deleted_at IS NULL"
     logger.warning("IV_DRUGS_PREVIEW is on: unpublished IV drugs are visible through the API")
 SLUG_PATTERN = r"^[a-z0-9]+(-[a-z0-9]+)*$"
+# The section began as IV only and now holds every injection (intramuscular, subcutaneous, ...): pages and links
+# say "IV" only for a drug that is given intravenously. No routes on file counts as IV.
+IS_INTRAVENOUS = "(cardinality(routes) = 0 OR EXISTS (SELECT 1 FROM unnest(routes) r WHERE lower(r) ~ 'intravenous'))"
+IS_INTRAVENOUS_I = "(cardinality(i.routes) = 0 OR EXISTS (SELECT 1 FROM unnest(i.routes) r WHERE lower(r) ~ 'intravenous'))"
 DAILYMED_LABEL_URL = "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={setid}"
 
 # A pill drug page (drug_summary row `ds`) and an IV drug (`i`) are tied by NAME, the way the A to Z index does it:
@@ -138,7 +142,8 @@ def suggest_iv_drugs(response: Response, q: str = Query(..., max_length=80)):
                     f"""
                     SELECT generic_name, slug,
                            (lower(generic_name) LIKE :like) AS by_generic,
-                           (SELECT b FROM unnest(brand_names) b WHERE lower(b) LIKE :like ORDER BY b LIMIT 1) AS brand
+                           (SELECT b FROM unnest(brand_names) b WHERE lower(b) LIKE :like ORDER BY b LIMIT 1) AS brand,
+                           {IS_INTRAVENOUS} AS intravenous
                     FROM public.iv_drugs
                     WHERE {LIVE}
                       AND (lower(generic_name) LIKE :like
@@ -155,8 +160,8 @@ def suggest_iv_drugs(response: Response, q: str = Query(..., max_length=80)):
 
     response.headers["Cache-Control"] = "public, max-age=300"
     return [
-        {"label": name if by_generic or not brand else f"{brand} ({name})", "slug": slug}
-        for name, slug, by_generic, brand in rows
+        {"label": name if by_generic or not brand else f"{brand} ({name})", "slug": slug, "intravenous": bool(intravenous)}
+        for name, slug, by_generic, brand, intravenous in rows
     ]
 
 
@@ -171,7 +176,7 @@ def iv_for_pill_drug(response: Response, name: str = Query(..., pattern=SLUG_PAT
             rows = conn.execute(
                 text(
                     f"""
-                    SELECT DISTINCT i.generic_name, i.slug
+                    SELECT DISTINCT i.generic_name, i.slug, {IS_INTRAVENOUS_I} AS intravenous
                     FROM public.drug_summary ds
                     JOIN public.iv_drugs i ON {SAME_DRUG_NAME}
                     WHERE btrim(regexp_replace(ds.key, '[^a-z0-9]+', '-', 'g'), '-') = :name AND {LIVE_I}
@@ -186,7 +191,7 @@ def iv_for_pill_drug(response: Response, name: str = Query(..., pattern=SLUG_PAT
         raise HTTPException(status_code=500, detail="Failed to match IV drugs") from exc
 
     response.headers["Cache-Control"] = CACHE_CONTROL
-    return {"results": [{"name": r[0], "slug": r[1]} for r in rows]}
+    return {"results": [{"name": r[0], "slug": r[1], "intravenous": bool(r[2])} for r in rows]}
 
 
 def _label_pages(conn, spl_set_id: str) -> dict:

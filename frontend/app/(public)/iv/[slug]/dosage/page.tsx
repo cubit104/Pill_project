@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { cleanDosageHtml } from '../../../pill/[slug]/dosage/cleanDosageHtml'
 import { SHARED_CONTENT_CARD_CLASSES, SHARED_READING_PROSE_CLASSES } from '../../../pill/[slug]/medication-guide/layoutStyles'
 import { sanitizeRenderedHtml } from '../../../pill/[slug]/medication-guide/sanitizeRenderedHtml'
-import { fetchIvDrug, fetchIvLabelSections } from '../../../../lib/iv'
+import { fetchIvDrug, fetchIvLabelSections, isIntravenous } from '../../../../lib/iv'
 import IvLabelPageShell from '../IvLabelPageShell'
 
 type PageParams = Promise<{ slug: string }>
@@ -13,8 +13,9 @@ export async function generateMetadata({ params }: { params: PageParams }): Prom
   const drug = await fetchIvDrug(slug)
   if (!drug) return { title: 'IV drug not found', robots: { index: false, follow: true } }
   return {
-    title: `${drug.name} IV Dosage and Administration`,
-    description: `Recommended dosage and administration of ${drug.name} injection from the FDA label: dosing, preparation, infusion instructions, and dosage forms and strengths.`,
+    // "IV" and "infusion" only for a drug that is given intravenously
+    title: `${drug.name} ${isIntravenous(drug) ? 'IV' : 'Injection'} Dosage and Administration`,
+    description: `Recommended dosage and administration of ${drug.name} injection from the FDA label: dosing, preparation, ${isIntravenous(drug) ? 'infusion instructions, ' : ''}and dosage forms and strengths.`,
     alternates: { canonical: `/iv/${drug.slug}/dosage` },
     // a reprint of the label, so it stays out of the index like the pill label pages; the drug's own page is indexed
     robots: { index: false, follow: true },

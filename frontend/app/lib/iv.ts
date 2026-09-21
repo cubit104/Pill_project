@@ -115,9 +115,9 @@ export async function hasPublishedIvDrugs(): Promise<boolean> {
 }
 
 /** The published IV drug with the same name as a pill drug page (`/drug/<slug>`), for its "Also given by IV" box. */
-export async function fetchIvForPillDrug(pillDrugSlug: string): Promise<Array<{ name: string; slug: string }>> {
+export async function fetchIvForPillDrug(pillDrugSlug: string): Promise<Array<{ name: string; slug: string; intravenous?: boolean }>> {
   if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(pillDrugSlug)) return []
-  const data = await getJson<{ results: Array<{ name: string; slug: string }> }>(
+  const data = await getJson<{ results: Array<{ name: string; slug: string; intravenous?: boolean }> }>(
     `/api/iv/for-pill-drug?name=${encodeURIComponent(pillDrugSlug)}`,
     IV_REVALIDATE_SECONDS,
   )
@@ -169,11 +169,20 @@ export function fetchIvGuide<T>(
   return getJson<T>(`/api/drugs/by-setid/${encodeURIComponent(splSetId)}/guide?${params}`, GUIDE_REVALIDATE_SECONDS)
 }
 
+/**
+ * The section holds every injection now (intramuscular, subcutaneous, ...), so a page says "IV" and offers the
+ * infusion calculator only for a drug that is given intravenously. No routes on file counts as IV.
+ */
+export function isIntravenous(drug: Pick<IvDrug, 'routes'>): boolean {
+  return drug.routes.length === 0 || drug.routes.some((route) => /intravenous/i.test(route))
+}
+
 /** Links shared by every page of one IV drug; a tab is null when the label has nothing for it. */
 export function ivTabHrefs(drug: IvDrug) {
   const base = `/iv/${drug.slug}`
   return {
     ivCardHref: base,
+    ivCardLabels: isIntravenous(drug) ? undefined : { label: 'Administration', mobileLabel: 'Admin' },
     // few IV drugs have an FDA medication guide; that page is not built yet, so no tab for now
     medicationGuideHref: null as string | null,
     dosageHref: drug.label_pages.has_dosage ? `${base}/dosage` : null,

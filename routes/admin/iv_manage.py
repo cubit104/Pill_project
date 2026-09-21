@@ -9,7 +9,8 @@ an IV screen can never change a pill:
     label text of either  -> medication_guide, keyed by that Set ID
 
 Some drugs come both ways (vancomycin capsules and vancomycin injection) with a separate FDA label each. Before a
-Set ID is attached to an IV drug the label is downloaded and must list an INTRAVENOUS product, so a capsule label
+Set ID is attached here the label is downloaded and must list an INJECTION product (intravenous, intramuscular,
+subcutaneous, ...) and no tablets or capsules, so a capsule label
 cannot land here by mistake.
 
 POST /api/admin/iv/drugs                          {name, spl_set_id, brand_names?}  add a drug (hidden, label locked)
@@ -75,7 +76,7 @@ def _names(values: Optional[List[str]], limit: int = 80) -> List[str]:
     return list(dict.fromkeys(v for v in cleaned if v))
 
 
-def _intravenous_label(spl_set_id: str) -> dict:
+def _injection_label(spl_set_id: str) -> dict:
     """Facts about the label, or an error the admin can read when it is not an injection label."""
     try:
         facts = iv_card.label_facts(iv_card.fetch_label_xml(spl_set_id))
@@ -83,12 +84,18 @@ def _intravenous_label(spl_set_id: str) -> dict:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ET.ParseError as exc:
         raise HTTPException(status_code=502, detail="DailyMed returned a label that could not be read.") from exc
-    if not facts["is_intravenous"]:
-        routes = ", ".join(r.title() for r in facts["routes"]) or "none listed"
+    routes = ", ".join(r.title() for r in facts["routes"]) or "none listed"
+    if not facts["is_injection"]:
         raise HTTPException(
             status_code=422,
-            detail=f"This label is not for an intravenous product (routes: {routes}). An IV drug needs the injection label, "
+            detail=f"This label is not for an injection product (routes: {routes}). Use the injection label, "
             "not the label of the tablets or capsules.",
+        )
+    if facts["has_pill_form"]:
+        raise HTTPException(
+            status_code=422,
+            detail=f"This label includes tablets or capsules (routes: {routes}). Pills belong in the pill section; "
+            "attach a label that covers the injection only.",
         )
     return facts
 
@@ -115,7 +122,7 @@ def add_iv_drug(payload: NewDrugPayload, admin: dict = Depends(require_role(*EDI
     if len(name) < 2:
         raise HTTPException(status_code=422, detail="Give the drug a name.")
     setid = payload.spl_set_id.lower()
-    facts = _intravenous_label(setid)
+    facts = _injection_label(setid)
 
     # the same identity the importer uses, so a later import refreshes this row instead of adding a twin
     with httpx.Client(timeout=30, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
@@ -209,7 +216,7 @@ def switch_label(drug_id: uuid.UUID, payload: LabelPayload, admin: dict = Depend
     with _engine().connect() as conn:
         if new_setid == _get(conn, drug_id)._mapping["spl_set_id"]:
             raise HTTPException(status_code=409, detail="This label is already in use.")
-    facts = _intravenous_label(new_setid)  # slow (DailyMed): no transaction held open
+    facts = _injection_label(new_setid)  # slow (DailyMed): no transaction held open
 
     with _engine().begin() as conn:
         m = _get(conn, drug_id, lock=True)._mapping

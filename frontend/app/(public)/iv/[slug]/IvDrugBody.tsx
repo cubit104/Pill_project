@@ -4,7 +4,7 @@ import DrugPageHeader from '../../pill/[slug]/medication-guide/DrugPageHeader'
 import MedguideMetaBar from '../../pill/[slug]/medication-guide/MedguideMetaBar'
 import MedicationGuideTabs from '../../pill/[slug]/medication-guide/MedicationGuideTabs'
 import { OctagonAlert } from '../../../components/IvIcons'
-import { ivHeaderProps, ivTabHrefs, type IvDrug } from '../../../lib/iv'
+import { isIntravenous, ivHeaderProps, ivTabHrefs, type IvDrug } from '../../../lib/iv'
 import { classText, prettyDate, type Recall } from '../../../lib/recalls'
 import type { Shortage } from '../../../lib/shortages'
 import { slugifyDrugName } from '../../../lib/slug'
@@ -130,6 +130,7 @@ export default function IvDrugBody({
   reviewedBy?: ReactNode
 }) {
   const tabs = ivTabHrefs(drug)
+  const intravenous = isIntravenous(drug)
   const labelLinks = [
     tabs.dosageHref && { href: tabs.dosageHref, label: 'Dosage', note: 'How much and how often' },
     tabs.adverseReactionsHref && { href: tabs.adverseReactionsHref, label: 'Side effects', note: 'Adverse reactions in the label' },
@@ -140,7 +141,7 @@ export default function IvDrugBody({
 
   return (
     <>
-      <DrugPageHeader pageLabel="IV Drug" {...ivHeaderProps(drug)} />
+      <DrugPageHeader pageLabel={intravenous ? 'IV Drug' : 'Injection'} {...ivHeaderProps(drug)} />
       <MedicationGuideTabs activeTab="iv" interactionsHref="/interactions" {...tabs} />
       {/* a reviewer's name goes on this page only once they approved its card */}
       {drug.card && reviewedBy}
@@ -191,7 +192,8 @@ export default function IvDrugBody({
         </div>
 
         <aside className="space-y-6 lg:sticky lg:top-20">
-          <InfusionCalculator />
+          {/* a pump rate means nothing for a shot in the muscle or under the skin */}
+          {intravenous && <InfusionCalculator />}
           {recalls && <RecallsBox drugName={drug.name} recalls={recalls} />}
         </aside>
       </div>

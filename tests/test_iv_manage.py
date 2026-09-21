@@ -22,13 +22,13 @@ INJECTION = "8eccafe8-40c9-495a-872d-7f45a98ee759"
 CAPSULES = "01234567-89ab-cdef-0123-456789abcdef"
 
 
-def label_xml(route: str) -> bytes:
+def label_xml(route: str, form: str = "INJECTION, SOLUTION") -> bytes:
     return f"""<?xml version="1.0"?>
 <document xmlns="urn:hl7-org:v3">
  <effectiveTime value="20250813"/><title>These highlights do not include all the information needed</title><versionNumber value="5"/>
  <author><assignedEntity><representedOrganization><name>Hikma Pharmaceuticals USA Inc.</name></representedOrganization></assignedEntity></author>
  <component><structuredBody><component><section><subject><manufacturedProduct><manufacturedProduct>
-   <name>Vancomycin Hydrochloride</name></manufacturedProduct>
+   <name>Vancomycin Hydrochloride</name><formCode code="C2" displayName="{form}"/></manufacturedProduct>
    <consumedIn><substanceAdministration><routeCode code="C1" displayName="{route}"/></substanceAdministration></consumedIn>
  </manufacturedProduct></subject></section></component></structuredBody></component>
 </document>""".encode()
@@ -38,9 +38,16 @@ def test_label_facts_name_maker_version_date_and_routes():
     facts = iv_card.label_facts(label_xml("INTRAVENOUS"))
     assert facts == {
         "date": "2025-08-13", "title": "Vancomycin Hydrochloride", "maker": "Hikma Pharmaceuticals USA Inc.",
-        "version": 5, "routes": ["INTRAVENOUS"], "is_intravenous": True,
+        "version": 5, "routes": ["INTRAVENOUS"], "is_intravenous": True, "is_injection": True, "has_pill_form": False,
     }  # fmt: skip
-    assert iv_card.label_facts(label_xml("ORAL"))["is_intravenous"] is False
+    oral = iv_card.label_facts(label_xml("ORAL", "CAPSULE"))
+    assert (oral["is_intravenous"], oral["is_injection"], oral["has_pill_form"]) == (False, False, True)
+    # a shot in the muscle or under the skin is an injection, just not an intravenous one
+    for route in ("INTRAMUSCULAR", "SUBCUTANEOUS", "INTRAVENOUS DRIP", "INTRA-ARTICULAR", "INTRAOCULAR", "INTRACAVERNOSAL"):
+        assert iv_card.label_facts(label_xml(route))["is_injection"] is True
+    assert iv_card.label_facts(label_xml("INTRAMUSCULAR"))["is_intravenous"] is False
+    for route in ("ORAL", "TOPICAL", "OPHTHALMIC", "NASAL", "RESPIRATORY (INHALATION)", "INTRAVESICAL"):
+        assert iv_card.label_facts(label_xml(route))["is_injection"] is False
 
 
 def test_meta_text_is_generated_like_the_pill_pages_and_fits_a_search_result():
@@ -53,6 +60,12 @@ def test_meta_text_is_generated_like_the_pill_pages_and_fits_a_search_result():
     # no brand: room for the whole tail; nothing the page does not have ("FDA label", uses, price) is promised
     assert iv_seo.build_meta_title({"generic_name": "Heparin"}) == "Heparin IV: Infusion Rate, Mixing, Calculator & Shortage"
     assert "FDA" not in iv_seo.build_meta_title(row) + iv_seo.build_meta_description(row)
+    # an injection that is not given IV is not called IV and promises no infusion rate or drip calculator
+    shot = {"generic_name": "Medroxyprogesterone", "brand_names": ["Depo-Provera"], "maker_count": 4, "routes": ["Intramuscular"]}
+    assert iv_seo.build_meta_title(shot) == "Medroxyprogesterone Injection (Depo-Provera): Mixing & Storage"
+    text = iv_seo.build_meta_title(shot) + iv_seo.build_meta_description(shot)
+    assert " IV" not in text and "nfusion" not in text and "calculator" not in text and len(iv_seo.build_meta_description(shot)) <= 160
+    assert iv_seo.build_meta_title({**row, "routes": ["Intravenous", "Oral"]}).startswith("Vancomycin IV")
 
 
 # ---- endpoints ------------------------------------------------------------------------------------------
@@ -125,10 +138,21 @@ def test_add_creates_a_hidden_drug_with_its_label_locked(call):
 
 def test_a_tablet_or_capsule_label_is_refused_for_an_iv_drug(call):
     response, log = call("POST", "/api/admin/iv/drugs", [], xml=label_xml("ORAL"), json={"name": "Vancomycin", "spl_set_id": CAPSULES})
-    assert response.status_code == 422 and "not for an intravenous product" in response.json()["detail"]
+    assert response.status_code == 422 and "not for an injection product" in response.json()["detail"]
     response2, log2 = call("PUT", f"/api/admin/iv/drugs/{uuid.uuid4()}/label", [("WHERE id = :id", drug())], xml=label_xml("ORAL"), json={"spl_set_id": CAPSULES})
     assert response2.status_code == 422
     assert writes(log) == [] and writes(log2) == []
+
+
+def test_an_intramuscular_label_is_accepted_but_never_one_that_includes_tablets(call):
+    answers = [("SELECT slug FROM", []), ("RETURNING id", [(uuid.uuid4(),)]), ("WHERE id = :id", drug())]
+    added, log = call("POST", "/api/admin/iv/drugs", answers, xml=label_xml("INTRAMUSCULAR"), json={"name": "Ceftriaxone", "spl_set_id": INJECTION})
+    assert added.status_code == 201
+    params = next(p for s, p in log if s.startswith("INSERT INTO public.iv_drugs"))
+    assert params["routes"] == ["Intramuscular"]
+    # a kit that packs tablets with the injection: the injection route alone is not enough
+    kit, kit_log = call("POST", "/api/admin/iv/drugs", [], xml=label_xml("INTRAMUSCULAR", "TABLET, FILM COATED"), json={"name": "Kit", "spl_set_id": INJECTION})
+    assert kit.status_code == 422 and "tablets or capsules" in kit.json()["detail"] and writes(kit_log) == []
 
 
 def test_the_same_ingredient_or_label_cannot_be_added_twice(call):
