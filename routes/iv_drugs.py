@@ -10,6 +10,9 @@ GET /api/iv/{slug}
 GET /api/iv/for-pill-drug?name=<pill drug slug>
     The published IV drug with the same name as a pill drug (the box on /drug/<name>).
 
+GET /api/iv/suggest?q=<typed text>
+    Published IV drugs whose generic or brand name starts with the text, for the search dropdown.
+
 GET /api/slugs/iv
     Slugs for the sitemap.
 
@@ -113,6 +116,48 @@ def list_iv_drugs(
         "page": page,
         "per_page": per_page,
     }
+
+
+IV_SUGGESTIONS = 4
+
+
+@router.get("/api/iv/suggest")
+def suggest_iv_drugs(response: Response, q: str = Query(..., max_length=80)):
+    """Published IV drugs whose generic name or a brand name starts with what was typed.
+
+    The search box asks this next to the pill /suggestions call and lists the answers under the pills with an
+    "IV" tag; a brand match says which drug it is ("Levophed (Norepinephrine)"). Declared before /api/iv/{slug}.
+    """
+    typed = q.strip().lower().replace("%", "").replace("_", "")
+    if len(typed) < 2:
+        return []
+    try:
+        with _engine().connect() as conn:
+            rows = conn.execute(
+                text(
+                    f"""
+                    SELECT generic_name, slug,
+                           (lower(generic_name) LIKE :like) AS by_generic,
+                           (SELECT b FROM unnest(brand_names) b WHERE lower(b) LIKE :like ORDER BY b LIMIT 1) AS brand
+                    FROM public.iv_drugs
+                    WHERE {LIVE}
+                      AND (lower(generic_name) LIKE :like
+                           OR EXISTS (SELECT 1 FROM unnest(brand_names) b WHERE lower(b) LIKE :like))
+                    ORDER BY 3 DESC, lower(generic_name)
+                    LIMIT :limit
+                    """
+                ),
+                {"like": f"{typed}%", "limit": IV_SUGGESTIONS},
+            ).fetchall()
+    except SQLAlchemyError as exc:
+        logger.error("Failed to suggest IV drugs for %r: %s", q, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to suggest IV drugs") from exc
+
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return [
+        {"label": name if by_generic or not brand else f"{brand} ({name})", "slug": slug}
+        for name, slug, by_generic, brand in rows
+    ]
 
 
 @router.get("/api/iv/for-pill-drug")

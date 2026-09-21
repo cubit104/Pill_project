@@ -183,3 +183,15 @@ def test_sitemap_feed_says_which_drugs_have_a_card(get):
          "has_dosage": True, "has_adverse_reactions": False}
     ]  # fmt: skip
     assert "i.deleted_at IS NULL AND i.published" in log[0]
+
+
+def test_search_dropdown_gets_published_iv_drugs_by_generic_or_brand_name(get):
+    rows = [("Heparin", "heparin", True, None), ("Norepinephrine", "norepinephrine", False, "Levophed")]
+    response, log = get("/api/iv/suggest?q=He%25", [("FROM public.iv_drugs", rows)])
+    # reached its own route, not /api/iv/{slug}; a brand match says which drug it is
+    assert response.status_code == 200
+    assert response.json() == [{"label": "Heparin", "slug": "heparin"}, {"label": "Levophed (Norepinephrine)", "slug": "norepinephrine"}]
+    assert "deleted_at IS NULL AND published" in log[0]
+    # too short to suggest anything: no query at all (the % the visitor typed is dropped, not used as a wildcard)
+    short, short_log = get("/api/iv/suggest?q=h%25", [])
+    assert short.json() == [] and short_log == []
