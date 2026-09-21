@@ -36,6 +36,8 @@ export async function generateMetadata({ params }: { params: PageParams }): Prom
     title: `${drug.name} Injection Professional Prescribing Information`,
     description: `FDA prescribing information for ${drug.name} injection: indications, dosage and administration, warnings, adverse reactions, pharmacology and how supplied.`,
     alternates: { canonical: `/iv/${drug.slug}/professional-information` },
+    // a reprint of the label, so it stays out of the index like the pill label pages; the drug's own page is indexed
+    robots: { index: false, follow: true },
   }
 }
 

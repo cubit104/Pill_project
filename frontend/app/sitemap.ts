@@ -1,4 +1,5 @@
 import type { MetadataRoute } from 'next'
+import { INDEX_LETTERS, isIvPageIndexable } from './lib/iv'
 import { slugifyDrugName } from './lib/slug'
 import { slugifyUrl } from './lib/url-utils'
 
@@ -88,10 +89,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'monthly',
       priority: 0.5,
     },
+    {
+      url: `${SITE_URL}/drugs`,
+      changeFrequency: 'weekly',
+      priority: 0.6,
+    },
   ]
 
   try {
-    const [slugs, classes, drugSlugs, drugPriceSlugs, conditionPayload, colorSlugs, shapeSlugs] = await Promise.all([
+    const [slugs, classes, drugSlugs, drugPriceSlugs, conditionPayload, colorSlugs, shapeSlugs, ivSlugs, drugIndex] = await Promise.all([
       fetchSitemapJson<string[]>('slugs', `${API_BASE}/api/slugs`, []),
       fetchSitemapJson<Array<{ slug: string }>>('classes', `${API_BASE}/api/classes`, []),
       fetchSitemapJson<Array<{ drug_name: string }>>('drug slugs', `${API_BASE}/api/slugs/drugs`, []),
@@ -101,6 +107,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       }),
       fetchSitemapJson<Array<{ name: string }>>('color slugs', `${API_BASE}/api/slugs/colors`, []),
       fetchSitemapJson<Array<{ name: string }>>('shape slugs', `${API_BASE}/api/slugs/shapes`, []),
+      fetchSitemapJson<Array<{ slug: string; has_card: boolean; has_professional: boolean; has_dosage: boolean }>>(
+        'IV slugs',
+        `${API_BASE}/api/slugs/iv`,
+        [],
+      ),
+      // any letter answers with the count of names under every letter
+      fetchSitemapJson<{ letters?: Record<string, number> }>('drug index', `${API_BASE}/api/drug-index?prefix=a`, {}),
     ])
 
     // No trailing slash — matches actual browser URLs and canonical tags
@@ -160,6 +173,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.5,
       }))
 
+    // only published IV drugs come back, and only their own page is listed: the label pages under it are noindex
+    const ivPages: MetadataRoute.Sitemap = ivSlugs
+      .filter((d) => d.slug && isIvPageIndexable({ hasCard: d.has_card, hasProfessional: d.has_professional, hasDosage: d.has_dosage }))
+      .map((d) => ({
+        url: `${SITE_URL}/iv/${encodeURIComponent(d.slug)}`,
+        changeFrequency: 'monthly' as const,
+        priority: 0.8,
+      }))
+    if (ivPages.length > 0) {
+      ivPages.unshift({ url: `${SITE_URL}/iv`, changeFrequency: 'weekly' as const, priority: 0.7 })
+    }
+
+    const drugIndexPages: MetadataRoute.Sitemap = INDEX_LETTERS.filter((letter) => (drugIndex.letters?.[letter] ?? 0) > 0).map((letter) => ({
+      url: `${SITE_URL}/drugs/${letter}`,
+      changeFrequency: 'weekly' as const,
+      priority: 0.5,
+    }))
+
     const urls = [
       ...staticPages,
       ...pillPages,
@@ -169,6 +200,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       ...conditionPages,
       ...colorPages,
       ...shapePages,
+      ...drugIndexPages,
+      ...ivPages,
     ]
 
     const deduped = new Map<string, MetadataRoute.Sitemap[number]>()

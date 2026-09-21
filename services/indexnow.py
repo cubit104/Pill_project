@@ -171,6 +171,14 @@ def build_pill_page_urls(slug: str, config: IndexNowConfig) -> list[str]:
     return [f"{pill_base}{suffix}" for suffix in PILL_PAGE_SUFFIXES]
 
 
+def build_iv_page_urls(slug: str, config: IndexNowConfig) -> list[str]:
+    """An IV drug's own page only: its label pages are noindex, like the pill label pages."""
+    normalized_slug = (slug or "").strip()
+    if not normalized_slug:
+        return []
+    return [f"{config.site_url}/iv/{quote(normalized_slug, safe='')}"]
+
+
 def _iter_batches(urls: Sequence[str], batch_size: int) -> Iterable[list[str]]:
     for start in range(0, len(urls), batch_size):
         yield list(urls[start : start + batch_size])

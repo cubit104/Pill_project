@@ -7,6 +7,8 @@ import HomeSearch from '../components/HomeSearch'
 import PopularMedications from '../components/PopularMedications'
 import TrendingPills from '../components/TrendingPills'
 import { HOME_FAQS } from '../components/homeFaqItems'
+import { Droplet } from '../components/IvIcons'
+import { hasPublishedIvDrugs } from '../lib/iv'
 import {
   faqSchema,
   organizationSchema,
@@ -50,7 +52,9 @@ export const metadata: Metadata = {
   },
 }
 
-export default function HomePage() {
+export default async function HomePage() {
+  // the IV card appears with the first published IV drug; same cached request the layout makes for the menu
+  const ivDrugs = await hasPublishedIvDrugs()
   const pillarCards: PillarCard[] = [
     {
       href: '/pill/plavix-75-1171',
@@ -197,6 +201,31 @@ export default function HomePage() {
                 </span>
               </Link>
             ))}
+          </div>
+
+          <div className={`mt-3 grid gap-3 text-left ${ivDrugs ? 'sm:grid-cols-2' : ''}`}>
+            <Link href="/drugs" className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-sm font-bold text-emerald-700" aria-hidden="true">
+                A–Z
+              </span>
+              <span>
+                <h3 className="text-lg font-semibold text-slate-900">Drugs A–Z</h3>
+                <span className="block text-sm text-slate-600">
+                  {ivDrugs ? 'Every drug, brand and generic: pills and IV.' : 'Every drug on PillSeek, brand and generic.'}
+                </span>
+              </span>
+            </Link>
+            {ivDrugs && (
+              <Link href="/iv" className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+                  <Droplet className="h-5 w-5" />
+                </span>
+                <span>
+                  <h3 className="text-lg font-semibold text-slate-900">IV drugs</h3>
+                  <span className="block text-sm text-slate-600">How each one is given, mixing, shortages and recalls.</span>
+                </span>
+              </Link>
+            )}
           </div>
         </div>
       </section>

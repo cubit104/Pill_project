@@ -16,6 +16,8 @@ export async function generateMetadata({ params }: { params: PageParams }): Prom
     title: `${drug.name} IV Dosage and Administration`,
     description: `Recommended dosage and administration of ${drug.name} injection from the FDA label: dosing, preparation, infusion instructions, and dosage forms and strengths.`,
     alternates: { canonical: `/iv/${drug.slug}/dosage` },
+    // a reprint of the label, so it stays out of the index like the pill label pages; the drug's own page is indexed
+    robots: { index: false, follow: true },
   }
 }
 

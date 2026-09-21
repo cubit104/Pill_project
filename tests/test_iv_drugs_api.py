@@ -73,11 +73,13 @@ def get():
     return _get
 
 
-DETAIL_EXTRAS = [("medication_guide", [(True, True, False, False, False)]), ("rxcui_to_ingredient", [("Vancocin", 1)])]
+# answers are tried in order, so the pill-names query (it also reads iv_drugs) has to come before the drug row
+PILL_NAMES = ("JOIN public.drug_summary", [("Vancocin", 1)])
+LABEL_PAGES = ("medication_guide", [(True, True, False, False, False)])
 
 
 def test_approved_card_is_returned_with_label_pages_and_never_the_reviewers_email(get):
-    response, log = get("/api/iv/vancomycin", [("FROM public.iv_drugs", [iv_row()])] + DETAIL_EXTRAS)
+    response, log = get("/api/iv/vancomycin", [PILL_NAMES, ("FROM public.iv_drugs", [iv_row()]), LABEL_PAGES])
     body = response.json()
     assert response.status_code == 200
     assert body["card"]["fields"] == CARD["fields"] and body["card"]["reviewed_at"].startswith("2026-09-20")
@@ -96,24 +98,24 @@ def test_approved_card_is_returned_with_label_pages_and_never_the_reviewers_emai
 def test_page_gets_the_editors_meta_text_or_the_same_automatic_text_the_admin_shows(get):
     from services import iv_seo
 
-    automatic, _ = get("/api/iv/vancomycin", [("FROM public.iv_drugs", [iv_row()])] + DETAIL_EXTRAS)
+    automatic, _ = get("/api/iv/vancomycin", [PILL_NAMES, ("FROM public.iv_drugs", [iv_row()]), LABEL_PAGES])
     body = automatic.json()
     assert body["meta_title"] == iv_seo.build_meta_title({"generic_name": "Vancomycin", "brand_names": ["Tyzavan"]})
     assert body["meta_title"] == "Vancomycin IV (Tyzavan): Infusion Rate, Mixing & FDA Label" and "24 manufacturers" in body["meta_description"]
 
-    typed, _ = get("/api/iv/vancomycin", [("FROM public.iv_drugs", [iv_row(meta_title="My title", meta_description="My text")])] + DETAIL_EXTRAS)
+    typed, _ = get("/api/iv/vancomycin", [PILL_NAMES, ("FROM public.iv_drugs", [iv_row(meta_title="My title", meta_description="My text")]), LABEL_PAGES])
     assert (typed.json()["meta_title"], typed.json()["meta_description"]) == ("My title", "My text")
 
 
 @pytest.mark.parametrize("status", ["none", "draft", "rejected"])
 def test_a_card_that_is_not_approved_never_leaves_the_api(get, status):
-    response, _ = get("/api/iv/vancomycin", [("FROM public.iv_drugs", [iv_row(card_status=status)])] + DETAIL_EXTRAS)
+    response, _ = get("/api/iv/vancomycin", [PILL_NAMES, ("FROM public.iv_drugs", [iv_row(card_status=status)]), LABEL_PAGES])
     assert response.status_code == 200
     assert response.json()["card"] is None
 
 
 def test_card_says_when_the_label_was_updated_after_approval(get):
-    response, _ = get("/api/iv/vancomycin", [("FROM public.iv_drugs", [iv_row(label_version=6)])] + DETAIL_EXTRAS)
+    response, _ = get("/api/iv/vancomycin", [PILL_NAMES, ("FROM public.iv_drugs", [iv_row(label_version=6)]), LABEL_PAGES])
     assert response.json()["card"]["label_updated_since"] is True
 
 
@@ -148,3 +150,36 @@ def test_drug_index_merges_pills_and_iv_names(get):
     assert body["letters"] == {"a": 10, "v": 3} and body["pairs"] == {"va": 3}
     assert all("published" in sql for sql in log if "iv_drugs" in sql)
     assert get("/api/drug-index?prefix=abc", [])[0].status_code == 422
+
+
+def test_pill_drug_page_finds_its_iv_drug_by_name_never_by_ingredient(get):
+    response, log = get("/api/iv/for-pill-drug?name=vancomycin-hydrochloride", [("JOIN public.iv_drugs", [("Vancomycin", "vancomycin")])])
+    # reached its own route, not /api/iv/{slug}
+    assert response.status_code == 200 and response.json() == {"results": [{"name": "Vancomycin", "slug": "vancomycin"}]}
+    sql = log[0]
+    assert "i.deleted_at IS NULL AND i.published" in sql
+    # rxcui_to_ingredient keeps one ingredient per product: Percocet would pass for plain acetaminophen
+    assert "rxcui" not in sql and "lower(i.generic_name) = ds.key" in sql and ":salt_words" in sql
+    assert get("/api/iv/for-pill-drug?name=Bad Name", [])[0].status_code == 422
+
+
+def test_salt_words_are_only_stripped_from_the_end_of_a_name():
+    import re
+
+    strip = lambda name: re.sub(iv_drugs.SALT_WORDS_RE, "", name)  # noqa: E731
+    assert strip("diltiazem hydrochloride") == "diltiazem" and strip("labetalol hcl") == "labetalol"
+    assert strip("azithromycin dihydrate") == "azithromycin" and strip("doxycycline hyclate") == "doxycycline"
+    # a combination or a different product keeps its own name, so it never equals an IV generic name
+    assert strip("acetaminophen and codeine phosphate") == "acetaminophen and codeine"
+    assert strip("morphine sulfate extended release") == "morphine sulfate extended release"
+    assert strip("sodium bicarbonate") == "sodium bicarbonate"
+
+
+def test_sitemap_feed_says_which_drugs_have_a_card(get):
+    rows = [("heparin", datetime(2026, 9, 20, tzinfo=timezone.utc), True, True, True, False)]
+    response, log = get("/api/slugs/iv", [("FROM public.iv_drugs", rows)])
+    assert response.json() == [
+        {"slug": "heparin", "updated_at": "2026-09-20T00:00:00+00:00", "has_card": True, "has_professional": True,
+         "has_dosage": True, "has_adverse_reactions": False}
+    ]  # fmt: skip
+    assert "i.deleted_at IS NULL AND i.published" in log[0]
