@@ -104,6 +104,7 @@ export default function AdminIvDrugPage() {
     setOtherSetid('')
     setJustPublished(false)
     setIndexNowQueued(false)
+    let current = true // an answer that arrives after the screen moved on to another drug is dropped
     void (async () => {
       const { data: { session } } = await createClient().auth.getSession()
       if (!session) {
@@ -111,11 +112,15 @@ export default function AdminIvDrugPage() {
         return
       }
       try {
-        show((await adminApi.getIvDrug(id)) as IvDrugDetail)
+        const loaded = (await adminApi.getIvDrug(id)) as IvDrugDetail
+        if (current) show(loaded)
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load this drug')
+        if (current) setError(e instanceof Error ? e.message : 'Failed to load this drug')
       }
     })()
+    return () => {
+      current = false
+    }
   }, [id, router, show])
 
   const run = async (name: string, action: () => Promise<unknown>, done: string) => {

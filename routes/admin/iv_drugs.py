@@ -233,6 +233,10 @@ def approve_stored_card(drug_id: uuid.UUID, admin: dict) -> tuple:
         current = _get(conn, drug_id, lock=True)._mapping
         if current["spl_set_id"] != m["spl_set_id"]:
             raise HTTPException(status_code=409, detail="The label was switched. Reload the page.")
+        # the quote check ran on the card as it was a moment ago: if someone saved an edit, rejected or re-drafted it
+        # since, approving now would publish the older text and lose their change
+        if current["card"] != m["card"] or current["card_status"] != m["card_status"]:
+            raise HTTPException(status_code=409, detail="The card changed while it was being checked. Reload the page and review it again.")
         if card["rejected_by_check"]:
             # back to draft, and nobody has reviewed this cleaned version yet
             _store_card(conn, drug_id, card, current["label_version"], "draft", ", card_reviewed_by = NULL, card_reviewed_at = NULL")

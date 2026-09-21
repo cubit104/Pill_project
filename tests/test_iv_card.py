@@ -162,6 +162,38 @@ def test_approve_stores_the_reviewer_and_makes_the_card_public():
     assert update["status"] == "approved" and update["by"] == "rph@example.com" and update["label_version"] == 5
 
 
+def test_a_card_that_changed_while_it_was_being_checked_is_not_approved():
+    """Another reviewer saved an edit during the quote check: approving would publish the older text."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import database
+    from routes.admin import auth
+    from routes.admin import iv_drugs as admin_iv
+
+    checked = drug_row()
+    edited = drug_row(card={"fields": {"infusion": field(value="At least 90 minutes")}})
+    log = []
+
+    class Conn(FakeConn):
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            self.log.append((sql, params))
+            row = edited if "FOR UPDATE" in sql else checked  # what is there once the row is locked
+            return SimpleNamespace(fetchone=lambda: SimpleNamespace(_mapping=row), fetchall=lambda: [], scalar=lambda: 0)
+
+    engine = SimpleNamespace(connect=lambda: Conn(None, log), begin=lambda: Conn(None, log))
+    app = FastAPI()
+    app.include_router(admin_iv.router)
+    app.dependency_overrides[auth.get_admin_user] = lambda: {"id": str(uuid.uuid4()), "email": "rph@example.com", "role": "reviewer"}
+    with patch.object(database, "db_engine", engine), patch.object(admin_iv, "log_audit") as audit, \
+            patch.object(iv_card, "fetch_label_sections", return_value=SECTIONS):
+        response = TestClient(app).post(f"/api/admin/iv/drugs/{uuid.uuid4()}/card/approve")
+    assert response.status_code == 409 and "changed while it was being checked" in response.json()["detail"]
+    assert not any("UPDATE public.iv_drugs" in sql for sql, _ in log)  # nothing approved, nothing overwritten
+    audit.assert_not_called()
+
+
 def test_approve_refuses_when_the_quote_check_removes_a_fact():
     tampered = drug_row(card={"fields": {"infusion": field(value="Over 30 minutes", quote="Administer over a period of at least 30 minutes.")}})
     client, engine, audit, log = admin_client(tampered)
