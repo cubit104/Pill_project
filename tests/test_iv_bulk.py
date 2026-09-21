@@ -131,3 +131,34 @@ def test_a_drug_someone_already_drafted_is_skipped_not_overwritten():
     with patch.object(database, "db_engine", engine), patch.object(iv_card, "draft_card") as draft:
         assert iv_bulk._draft_one("a1", {"id": "u", "email": "e"}, {}) == "skipped"
     draft.assert_not_called()
+
+
+def test_approve_selected_uses_the_single_buttons_routine_and_only_touches_drafts():
+    draft, approved_already, shaky = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    status = {str(draft): ("Heparin", "draft"), str(approved_already): ("Vancomycin", "approved"), str(shaky): ("Insulin", "draft")}
+
+    class Conn(FakeConn):
+        def execute(self, statement, params=None):
+            self.log.append((" ".join(str(statement).split()), params))
+            row = status.get((params or {}).get("id"))
+            return SimpleNamespace(fetchone=lambda: row)
+
+    log = []
+    engine = SimpleNamespace(connect=lambda: Conn([], log), begin=lambda: Conn([], log))
+    app = FastAPI()
+    app.include_router(iv_bulk.router)
+    app.dependency_overrides[auth.get_admin_user] = lambda: {"id": "u", "email": "rph@example.com", "role": "reviewer"}  # a reviewer may approve
+    outcomes = {draft: ({}, []), shaky: ({}, ["infusion"])}
+    with patch.object(database, "db_engine", engine), \
+            patch.object(iv_bulk, "approve_stored_card", side_effect=lambda drug_id, admin: outcomes[drug_id]) as approve:
+        response = TestClient(app).post("/api/admin/iv/cards/approve", json={"ids": [str(draft), str(approved_already), str(shaky), str(draft)]})
+    body = response.json()
+    assert response.status_code == 200
+    assert body["approved"] == [{"id": str(draft), "name": "Heparin"}]
+    reasons = {item["name"]: item["reason"] for item in body["not_approved"]}
+    assert reasons == {"Vancomycin": "not a draft (approved)", "Insulin": "the quote check removed: infusion"}
+    # only the two drafts went through the approval routine, each once, with the reviewer who pressed the button
+    assert [call.args[0] for call in approve.call_args_list] == [draft, shaky]
+    assert approve.call_args.args[1]["email"] == "rph@example.com"
+    too_many = [str(uuid.uuid4()) for _ in range(iv_bulk.MAX_BULK_APPROVE + 1)]
+    assert TestClient(app).post("/api/admin/iv/cards/approve", json={"ids": too_many}).status_code == 422

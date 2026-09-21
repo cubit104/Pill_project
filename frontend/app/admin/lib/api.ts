@@ -124,6 +124,9 @@ export const adminApi = {
     apiFetch(`/api/admin/iv/drugs/${id}/label/refetch`, { method: 'POST' }),
   clearIvLabelCache: (id: string) =>
     apiFetch(`/api/admin/iv/drugs/${id}/label/clear-cache`, { method: 'POST' }),
+  bulkApproveIvCards: (ids: string[]) =>
+    apiFetch('/api/admin/iv/cards/approve', { method: 'POST', body: JSON.stringify({ ids }) }),
+  getNextIvDraft: (id: string) => apiFetch(`/api/admin/iv/drugs/${id}/next-draft`),
   bulkPublishIv: (ids: string[], published: boolean) =>
     apiFetch('/api/admin/iv/drugs/publish', { method: 'POST', body: JSON.stringify({ ids, published }) }),
   draftMissingIvCards: (limit: number) =>

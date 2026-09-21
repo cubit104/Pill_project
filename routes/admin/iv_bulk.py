@@ -3,6 +3,7 @@
 POST /api/admin/iv/cards/draft-missing   {limit}            draft cards with AI for drugs that have none (superuser, editor)
 GET  /api/admin/iv/cards/draft-status                       progress of the running (or last) bulk draft
 POST /api/admin/iv/drugs/publish         {ids, published}   publish or hide many drugs at once (superuser, editor)
+POST /api/admin/iv/cards/approve         {ids}              approve the ticked drafts, each by the single button's rules
 
 A bulk draft is the same draft + quote check as the single button (services/iv_card.py), one drug after the other in a
 background task. Every card it makes is a DRAFT: nothing goes public until a reviewer approves it, one by one.
@@ -23,7 +24,7 @@ from sqlalchemy import text
 
 from routes.admin.auth import log_audit, require_role
 from routes.admin.indexnow import can_submit_pill_slug_to_indexnow, submit_iv_slugs_to_indexnow
-from routes.admin.iv_drugs import EDITORS, REVIEWERS, _actor, _engine, _store_card
+from routes.admin.iv_drugs import EDITORS, REVIEWERS, _actor, _engine, _store_card, approve_stored_card
 from services import iv_card, iv_seo
 
 logger = logging.getLogger(__name__)
@@ -33,11 +34,16 @@ STATE_KEY = "iv_bulk_draft"
 MAX_PER_RUN = 50  # about a minute and a few cents each: small enough to watch the bill between presses
 HEARTBEAT_STALE_SECONDS = 600  # one draft takes about a minute; silent this long means the job is gone
 MAX_BULK_PUBLISH = 200
+MAX_BULK_APPROVE = 25  # each approval downloads the label for the quote check: keep one request well under a minute
 MISSING = "deleted_at IS NULL AND card_status = 'none' AND card IS NULL"
 
 
 class DraftMissingPayload(BaseModel):
     limit: int = Field(MAX_PER_RUN, ge=1, le=MAX_PER_RUN)
+
+
+class BulkApprovePayload(BaseModel):
+    ids: List[uuid.UUID] = Field(..., min_length=1, max_length=MAX_BULK_APPROVE)
 
 
 class BulkPublishPayload(BaseModel):
@@ -196,3 +202,36 @@ def bulk_publish(payload: BulkPublishPayload, background_tasks: BackgroundTasks,
     if queued:
         background_tasks.add_task(submit_iv_slugs_to_indexnow, slugs)
     return {"published": payload.published, "changed": len(rows), "unchanged": len(ids) - len(rows), "indexnow_queued": queued}
+
+
+@router.post("/cards/approve")
+def bulk_approve(payload: BulkApprovePayload, admin: dict = Depends(require_role(*REVIEWERS))):
+    """Approve the ticked DRAFTS. Each one goes through the single Approve button's own routine: quotes re-checked
+    against the label, the reviewer recorded, one audit entry. A card the check removes an answer from is not
+    approved and stays a draft; the reply says which, so the reviewer can open them."""
+    approved, not_approved = [], []
+    for drug_id in dict.fromkeys(payload.ids):
+        name = str(drug_id)
+        try:
+            with _engine().connect() as conn:
+                row = conn.execute(
+                    text("SELECT generic_name, card_status FROM public.iv_drugs WHERE id = :id AND deleted_at IS NULL"), {"id": str(drug_id)}
+                ).fetchone()
+            if row is None:
+                not_approved.append({"id": str(drug_id), "name": name, "reason": "not found"})
+                continue
+            name = row[0]
+            if row[1] != "draft":  # an approved card needs nothing, a rejected one was rejected for a reason
+                not_approved.append({"id": str(drug_id), "name": name, "reason": f"not a draft ({row[1]})"})
+                continue
+            _drug, removed = approve_stored_card(drug_id, admin)
+            if removed:
+                not_approved.append({"id": str(drug_id), "name": name, "reason": "the quote check removed: " + ", ".join(removed)})
+            else:
+                approved.append({"id": str(drug_id), "name": name})
+        except HTTPException as exc:
+            not_approved.append({"id": str(drug_id), "name": name, "reason": str(exc.detail)})
+        except Exception as exc:  # noqa: BLE001 - one bad label must not stop the rest
+            logger.error("bulk approve failed for %s: %s", drug_id, exc, exc_info=True)
+            not_approved.append({"id": str(drug_id), "name": name, "reason": "server error"})
+    return {"approved": approved, "not_approved": not_approved}

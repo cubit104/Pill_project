@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Check, ExternalLink, Eye, RefreshCw, Save, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, ExternalLink, Eye, RefreshCw, Save, Sparkles, X } from 'lucide-react'
 import { createClient } from '../../lib/supabase'
 import { adminApi } from '../../lib/api'
 import { useUserRole } from '../../lib/useUserRole'
@@ -96,6 +96,14 @@ export default function AdminIvDrugPage() {
   }, [])
 
   useEffect(() => {
+    // "Next draft" changes the id without leaving this screen: nothing of the previous drug may stay on it
+    setDrug(null)
+    setMessage('')
+    setError('')
+    setRejectNotes('')
+    setOtherSetid('')
+    setJustPublished(false)
+    setIndexNowQueued(false)
     void (async () => {
       const { data: { session } } = await createClient().auth.getSession()
       if (!session) {
@@ -126,6 +134,21 @@ export default function AdminIvDrugPage() {
       setError(e instanceof Error ? e.message : 'Request failed')
       // an approval the quote check refused still saved a cleaned draft: show it
       if (name === 'approve') adminApi.getIvDrug(id).then((d) => show(d as IvDrugDetail)).catch(() => {})
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const goToNextDraft = async () => {
+    if (dirty && !window.confirm('You have unsaved edits on this card. Leave without saving?')) return
+    setBusy('next')
+    setError('')
+    try {
+      const { next } = (await adminApi.getNextIvDraft(id)) as { next: { id: string } | null; drafts: number }
+      if (next) router.push(`/admin/iv/${next.id}`)
+      else setMessage('No more drafts to review.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not find the next draft')
     } finally {
       setBusy('')
     }
@@ -315,6 +338,14 @@ export default function AdminIvDrugPage() {
             </button>
           </>
         )}
+        <button
+          disabled={Boolean(busy)}
+          onClick={() => void goToNextDraft()}
+          title="Open the next card that is waiting for review"
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+        >
+          Next draft <ArrowRight className="h-4 w-4" />
+        </button>
         {canEdit && (
           <button
             disabled={Boolean(busy)}

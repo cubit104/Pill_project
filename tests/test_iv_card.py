@@ -285,3 +285,12 @@ def test_indexnow_gets_only_the_iv_drug_page_and_a_failed_ping_never_raises():
     with patch.object(admin_indexnow, "load_indexnow_config", return_value=config),             patch.object(admin_indexnow, "submit_indexnow_urls", side_effect=RuntimeError("network down")) as submit:
         admin_indexnow.submit_iv_slug_to_indexnow("heparin")  # must not raise
     assert submit.call_args.args[0] == ["https://pillseek.com/iv/heparin"]
+
+
+def test_next_draft_follows_the_review_list_order_and_skips_the_open_drug():
+    client, engine, audit, log = admin_client(drug_row(maker_count=5, generic_name="Heparin"))
+    with engine, audit:
+        response = client.get(f"/api/admin/iv/drugs/{uuid.uuid4()}/next-draft")
+    assert response.status_code == 200 and set(response.json()) == {"next", "drafts"}
+    sql, params = next((s, p) for s, p in log if "card_status = 'draft' AND id <> :id" in s)
+    assert "maker_count DESC, generic_name" in sql and (params["makers"], params["name"]) == (5, "Heparin")

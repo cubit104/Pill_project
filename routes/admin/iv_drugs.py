@@ -9,6 +9,7 @@ POST /api/admin/iv/drugs/{id}/card/generate            draft a card with AI (sup
 PUT  /api/admin/iv/drugs/{id}/card                     save a reviewer's edits (quotes are re-checked)
 POST /api/admin/iv/drugs/{id}/card/approve             re-check, then approve: the card goes public
 POST /api/admin/iv/drugs/{id}/card/reject              {notes}
+GET  /api/admin/iv/drugs/{id}/next-draft               the next draft to review after this drug
 GET  /api/admin/iv/drugs/{id}/preview                  the drug page as the site would show it, hidden drug and draft card included
 PUT  /api/admin/iv/drugs/{id}/published                {published} (superuser, editor); publishing pings IndexNow
 
@@ -213,10 +214,13 @@ def save_card(drug_id: uuid.UUID, payload: CardPayload, admin: dict = Depends(re
         return _row(_get(conn, drug_id))
 
 
-@router.post("/drugs/{drug_id}/card/approve")
-def approve_card(drug_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWERS))):
-    """Approve the stored draft. The quote check runs once more; if it throws any fact out, nothing is approved
-    and the cleaned draft is saved for the reviewer to look at."""
+def approve_stored_card(drug_id: uuid.UUID, admin: dict) -> tuple:
+    """Approve the stored card of one drug. Returns (drug row, answers the quote check removed).
+
+    The quote check runs once more against the label; if it throws any fact out, NOTHING is approved: the cleaned
+    draft is saved for the reviewer to look at and the removed answers are returned. Used by the Approve button and,
+    one drug at a time, by "Approve selected", so both approve by exactly the same rules.
+    """
     with _engine().connect() as conn:
         m = _get(conn, drug_id)._mapping
     if not m["card"] or m["card_status"] == "none":
@@ -232,21 +236,48 @@ def approve_card(drug_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWE
         if card["rejected_by_check"]:
             # back to draft, and nobody has reviewed this cleaned version yet
             _store_card(conn, drug_id, card, current["label_version"], "draft", ", card_reviewed_by = NULL, card_reviewed_at = NULL")
-            raise_after = card["rejected_by_check"]
         else:
-            raise_after = None
             _store_card(
                 conn, drug_id, card, current["label_version"], "approved",
                 ", card_reviewed_by = :by, card_reviewed_at = now(), card_review_notes = NULL", {"by": admin.get("email", "")},
             )  # fmt: skip
             log_audit(conn, *_actor(admin), "iv_card_approved", "iv_drug", str(drug_id), metadata={"label_version": current["label_version"]})
-        result = _row(_get(conn, drug_id))
-    if raise_after:
+        return _row(_get(conn, drug_id)), list(card["rejected_by_check"])
+
+
+@router.post("/drugs/{drug_id}/card/approve")
+def approve_card(drug_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWERS))):
+    """Approve the stored draft. The quote check runs once more; if it throws any fact out, nothing is approved
+    and the cleaned draft is saved for the reviewer to look at."""
+    result, removed = approve_stored_card(drug_id, admin)
+    if removed:
         raise HTTPException(
             status_code=409,
-            detail="Not approved: the quote check removed " + ", ".join(raise_after) + ". The cleaned draft was saved; review it again.",
+            detail="Not approved: the quote check removed " + ", ".join(removed) + ". The cleaned draft was saved; review it again.",
         )
     return result
+
+
+@router.get("/drugs/{drug_id}/next-draft")
+def next_draft(drug_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWERS))):
+    """The draft that follows this drug in the review list (most makers first, then by name); wraps around to the top.
+    Lets a reviewer go from one card straight to the next without returning to the list."""
+    with _engine().connect() as conn:
+        m = _get(conn, drug_id)._mapping
+        row = conn.execute(
+            text(
+                """
+                SELECT id::text, generic_name FROM public.iv_drugs
+                WHERE deleted_at IS NULL AND card_status = 'draft' AND id <> :id
+                ORDER BY (maker_count < :makers OR (maker_count = :makers AND generic_name > :name)) DESC, maker_count DESC, generic_name
+                LIMIT 1
+                """
+            ),
+            {"id": str(drug_id), "makers": m["maker_count"], "name": m["generic_name"]},
+        ).fetchone()
+        drafts = conn.execute(text("SELECT COUNT(*) FROM public.iv_drugs WHERE deleted_at IS NULL AND card_status = 'draft'")).scalar() or 0
+    found = row._mapping if row else None
+    return {"next": {"id": found["id"], "generic_name": found["generic_name"]} if found else None, "drafts": int(drafts)}
 
 
 @router.post("/drugs/{drug_id}/card/reject")

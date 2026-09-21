@@ -55,6 +55,7 @@ interface DraftStatus {
 
 const PAGE_SIZE = 50
 const POLL_MS = 15000
+const APPROVE_CHUNK = 10 // each approval re-checks the quotes against the downloaded label: small requests finish in time
 const FILTERS: Array<{ id: CardStatus | 'all'; label: string }> = [
   { id: 'draft', label: 'To review' },
   { id: 'none', label: 'No card yet' },
@@ -79,6 +80,7 @@ export default function AdminIvDrugsPage() {
   const [draft, setDraft] = useState<DraftStatus | null>(null)
   const wasRunning = useRef(false)
   const canEdit = role === 'superuser' || role === 'editor'
+  const canReview = canEdit || role === 'reviewer'
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -139,6 +141,46 @@ export default function AdminIvDrugsPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not start drafting')
     } finally {
+      setBusy(false)
+    }
+  }
+
+  const approveSelected = async () => {
+    const picked = (data?.drugs ?? []).filter((d) => selected.has(d.id))
+    const drafts = picked.filter((d) => d.card_status === 'draft')
+    if (drafts.length === 0) {
+      setError('None of the selected drugs has a draft card to approve.')
+      return
+    }
+    const skipped = picked.length - drafts.length
+    if (
+      !window.confirm(
+        `Approve ${drafts.length} draft card${drafts.length === 1 ? '' : 's'}?${skipped ? ` (${skipped} selected without a draft are skipped.)` : ''}\n\n` +
+          'You are recorded as the reviewer of every card, and the site will show them as reviewed. Approve only cards you have read. ' +
+          'Each card is checked against its label again; one that fails stays a draft.',
+      )
+    )
+      return
+    setBusy(true); setError(''); setMessage('')
+    const approved: string[] = []
+    const refused: string[] = []
+    try {
+      for (let i = 0; i < drafts.length; i += APPROVE_CHUNK) {
+        const result = (await adminApi.bulkApproveIvCards(drafts.slice(i, i + APPROVE_CHUNK).map((d) => d.id))) as {
+          approved: Array<{ name: string }>
+          not_approved: Array<{ name: string; reason: string }>
+        }
+        approved.push(...result.approved.map((a) => a.name))
+        refused.push(...result.not_approved.map((n) => `${n.name} (${n.reason})`))
+        setMessage(`Approving… ${approved.length + refused.length} of ${drafts.length}`)
+      }
+      setMessage(`${approved.length} card${approved.length === 1 ? '' : 's'} approved.`)
+      if (refused.length > 0) setError(`Not approved, still drafts: ${refused.join('; ')}`)
+    } catch (e) {
+      setMessage(approved.length ? `${approved.length} approved before the error.` : '')
+      setError(e instanceof Error ? e.message : 'Request failed')
+    } finally {
+      await load()
       setBusy(false)
     }
   }
@@ -262,15 +304,22 @@ export default function AdminIvDrugsPage() {
       {error && <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
       {message && <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{message}</p>}
 
-      {canEdit && selected.size > 0 && (
+      {canReview && selected.size > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
           <span className="font-medium text-emerald-900">{selected.size} selected</span>
-          <button disabled={busy} onClick={() => void publishSelected(true)} className="rounded-lg bg-emerald-600 px-3 py-1.5 font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">
-            Publish selected
+          <button disabled={busy} onClick={() => void approveSelected()} className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-40">
+            Approve selected cards
           </button>
-          <button disabled={busy} onClick={() => void publishSelected(false)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40">
-            Hide selected
-          </button>
+          {canEdit && (
+            <>
+              <button disabled={busy} onClick={() => void publishSelected(true)} className="rounded-lg bg-emerald-600 px-3 py-1.5 font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">
+                Publish selected
+              </button>
+              <button disabled={busy} onClick={() => void publishSelected(false)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40">
+                Hide selected
+              </button>
+            </>
+          )}
           <button onClick={() => setSelected(new Set())} className="ml-auto text-slate-600 hover:underline">Clear</button>
         </div>
       )}
@@ -279,7 +328,7 @@ export default function AdminIvDrugsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-              {canEdit && (
+              {canReview && (
                 <th className="w-10 px-4 py-3">
                   <input
                     type="checkbox"
@@ -299,7 +348,7 @@ export default function AdminIvDrugsPage() {
           <tbody>
             {data?.drugs.map((drug) => (
               <tr key={drug.id} className={`border-b border-slate-100 last:border-0 hover:bg-slate-50 ${selected.has(drug.id) ? 'bg-emerald-50/50' : ''}`}>
-                {canEdit && (
+                {canReview && (
                   <td className="px-4 py-3">
                     <input type="checkbox" aria-label={`Select ${drug.generic_name}`} checked={selected.has(drug.id)} onChange={() => toggle(drug.id)} />
                   </td>
@@ -326,7 +375,7 @@ export default function AdminIvDrugsPage() {
               </tr>
             ))}
             {data && data.drugs.length === 0 && (
-              <tr><td colSpan={canEdit ? 6 : 5} className="px-4 py-10 text-center text-slate-500">Nothing here.</td></tr>
+              <tr><td colSpan={canReview ? 6 : 5} className="px-4 py-10 text-center text-slate-500">Nothing here.</td></tr>
             )}
           </tbody>
         </table>
