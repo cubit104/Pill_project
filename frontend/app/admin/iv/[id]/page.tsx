@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Check, ExternalLink, RefreshCw, Save, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, Check, ExternalLink, Eye, RefreshCw, Save, Sparkles, X } from 'lucide-react'
 import { createClient } from '../../lib/supabase'
 import { adminApi } from '../../lib/api'
 import { useUserRole } from '../../lib/useUserRole'
@@ -63,6 +63,7 @@ interface IvDrugDetail {
 
 const EMPTY: CardField = { status: 'not_stated', value: '', quotes: [] }
 const dailyMed = (setid: string) => `https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=${setid}`
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://pillseek.com').replace(/\/$/, '')
 
 function title(key: string): string {
   return key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
@@ -83,6 +84,9 @@ export default function AdminIvDrugPage() {
   const [message, setMessage] = useState('')
   const [rejectNotes, setRejectNotes] = useState('')
   const [otherSetid, setOtherSetid] = useState('')
+  // set by the publish that just happened, the way the pill screen does it
+  const [justPublished, setJustPublished] = useState(false)
+  const [indexNowQueued, setIndexNowQueued] = useState(false)
 
   const show = useCallback((next: IvDrugDetail) => {
     setDrug((previous) => ({ ...(previous ?? {}), ...next }) as IvDrugDetail)
@@ -110,9 +114,14 @@ export default function AdminIvDrugPage() {
     setBusy(name)
     setError('')
     setMessage('')
+    setJustPublished(false)
+    setIndexNowQueued(false)
     try {
-      show((await action()) as IvDrugDetail)
+      const result = (await action()) as IvDrugDetail & { indexnow_queued?: boolean }
+      show(result)
       setMessage(done)
+      setJustPublished(name === 'publish' && result.published)
+      setIndexNowQueued(name === 'publish' && result.indexnow_queued === true)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Request failed')
       // an approval the quote check refused still saved a cleaned draft: show it
@@ -148,7 +157,24 @@ export default function AdminIvDrugPage() {
             {drug.maker_count} makers
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/admin/iv/${drug.id}/preview`}
+            title="The drug page as visitors will see it, draft card included. Staff only."
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <Eye className="h-4 w-4" /> Preview page
+          </Link>
+          {drug.published && (
+            <a
+              href={`${SITE_URL}/iv/${drug.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <ExternalLink className="h-4 w-4" /> View Live Page
+            </a>
+          )}
           <span className={`rounded-full border px-3 py-1 text-xs font-medium ${STATUS_STYLE[drug.card_status]}`}>{STATUS_LABEL[drug.card_status]}</span>
           <span className={`rounded-full border px-3 py-1 text-xs font-medium ${drug.published ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
             {drug.published ? 'Published' : 'Hidden from site'}
@@ -157,7 +183,21 @@ export default function AdminIvDrugPage() {
       </div>
 
       {error && <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
-      {message && <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{message}</p>}
+      {message && (
+        <p className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          <span>{message}{justPublished ? ' The site shows it within about 5 minutes.' : ''}</span>
+          {justPublished && (
+            <a href={`${SITE_URL}/iv/${drug.slug}`} target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold underline hover:text-emerald-900">
+              View Live Page →
+            </a>
+          )}
+        </p>
+      )}
+      {indexNowQueued && (
+        <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">
+          IndexNow: page queued for submission to Bing &amp; Yandex for faster indexing.
+        </p>
+      )}
 
       {/* The label the card is built from */}
       <section className="rounded-xl border border-slate-200 bg-white p-5">

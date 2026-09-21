@@ -101,7 +101,7 @@ def test_page_gets_the_editors_meta_text_or_the_same_automatic_text_the_admin_sh
     automatic, _ = get("/api/iv/vancomycin", [PILL_NAMES, ("FROM public.iv_drugs", [iv_row()]), LABEL_PAGES])
     body = automatic.json()
     assert body["meta_title"] == iv_seo.build_meta_title({"generic_name": "Vancomycin", "brand_names": ["Tyzavan"]})
-    assert body["meta_title"] == "Vancomycin IV (Tyzavan): Infusion Rate, Mixing & FDA Label" and "24 manufacturers" in body["meta_description"]
+    assert body["meta_title"] == "Vancomycin IV (Tyzavan): Infusion Rate, Mixing & Calculator" and "24 manufacturers" in body["meta_description"]
 
     typed, _ = get("/api/iv/vancomycin", [PILL_NAMES, ("FROM public.iv_drugs", [iv_row(meta_title="My title", meta_description="My text")]), LABEL_PAGES])
     assert (typed.json()["meta_title"], typed.json()["meta_description"]) == ("My title", "My text")

@@ -217,12 +217,47 @@ def test_publishing_pings_indexnow_for_the_drug_page_and_unpublishing_does_not()
     from routes.admin import iv_drugs as admin_iv
 
     client, engine, audit, _ = admin_client(drug_row(slug="heparin"), role="editor")
+    url = f"/api/admin/iv/drugs/{uuid.uuid4()}/published"
     with engine, audit, patch.object(admin_iv, "submit_iv_slug_to_indexnow") as ping:
-        assert client.put(f"/api/admin/iv/drugs/{uuid.uuid4()}/published", json={"published": True}).status_code == 200
-        ping.assert_called_once_with("heparin")
-        ping.reset_mock()
-        assert client.put(f"/api/admin/iv/drugs/{uuid.uuid4()}/published", json={"published": False}).status_code == 200
-        ping.assert_not_called()
+        with patch.object(admin_iv, "can_submit_pill_slug_to_indexnow", return_value=True):
+            published = client.put(url, json={"published": True})
+            assert published.status_code == 200 and published.json()["indexnow_queued"] is True  # the admin shows a notice
+            ping.assert_called_once_with("heparin")
+            ping.reset_mock()
+            hidden = client.put(url, json={"published": False})
+            assert hidden.status_code == 200 and "indexnow_queued" not in hidden.json()
+            ping.assert_not_called()
+        # no IndexNow key on this server: publishing still works, nothing is queued or claimed
+        with patch.object(admin_iv, "can_submit_pill_slug_to_indexnow", return_value=False):
+            quiet = client.put(url, json={"published": True})
+            assert quiet.status_code == 200 and "indexnow_queued" not in quiet.json()
+            ping.assert_not_called()
+
+
+def test_staff_preview_shows_a_hidden_drug_with_its_draft_card():
+    from routes import iv_drugs as public_iv
+
+    row = {
+        "slug": "heparin", "generic_name": "Heparin", "brand_names": [], "drug_class": [], "routes": ["Intravenous"], "dea_schedule": None,
+        "rxcuis": [], "spl_set_id": "set-1", "label_type": "generic", "label_brand": "Heparin", "label_maker": "Maker",
+        "label_presentation": "vial", "label_version": 6, "label_date": None, "strengths": [], "product_count": 1, "maker_count": 1,
+        "card": {"fields": {"infusion": field()}}, "card_status": "draft", "card_label_version": 6, "card_reviewed_at": None,
+        "meta_title": None, "meta_description": None, "updated_at": None, "published": False,
+    }  # fmt: skip
+    client, engine, audit, log = admin_client(row)
+    with engine, audit, patch.object(public_iv, "_label_pages", return_value={}), patch.object(public_iv, "_pill_drugs", return_value=[]):
+        response = client.get(f"/api/admin/iv/drugs/{uuid.uuid4()}/preview")
+    body = response.json()
+    assert response.status_code == 200
+    assert body["card"]["fields"]["infusion"]["value"] == "At least 60 minutes"  # a draft, visible to staff only
+    assert body["card_status"] == "draft" and body["published"] is False
+    # the preview never filters on published, and it is behind the admin login like every /api/admin route
+    assert "AND published" not in log[0][0] and "deleted_at IS NULL" in log[0][0]
+    # the public builder, asked the public way, keeps the same draft back
+    from types import SimpleNamespace as NS
+
+    with patch.object(public_iv, "_label_pages", return_value={}), patch.object(public_iv, "_pill_drugs", return_value=[]):
+        assert public_iv.drug_page_payload(NS(), row)["card"] is None
 
 
 def test_indexnow_gets_only_the_iv_drug_page_and_a_failed_ping_never_raises():

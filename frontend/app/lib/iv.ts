@@ -6,7 +6,9 @@
  */
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
-const IV_REVALIDATE_SECONDS = 3600
+// short, so publishing (or approving a card) in the admin shows on the site within minutes; the label text below is
+// the heavy part and keeps its one-day cache
+const IV_REVALIDATE_SECONDS = 300
 const GUIDE_REVALIDATE_SECONDS = 86400
 
 export type CardStatus = 'stated' | 'not_stated' | 'not_applicable'

@@ -45,11 +45,14 @@ def test_label_facts_name_maker_version_date_and_routes():
 
 def test_meta_text_is_generated_like_the_pill_pages_and_fits_a_search_result():
     row = {"generic_name": "Vancomycin", "brand_names": ["Tyzavan"], "maker_count": 24}
-    assert iv_seo.build_meta_title(row) == "Vancomycin IV (Tyzavan): Infusion Rate, Mixing & FDA Label"
+    assert iv_seo.build_meta_title(row) == "Vancomycin IV (Tyzavan): Infusion Rate, Mixing & Calculator"
     assert "24 manufacturers" in iv_seo.build_meta_description(row) and len(iv_seo.build_meta_description(row)) <= 160
     long_name = {"generic_name": "Sulfamethoxazole and Trimethoprim with Extra Long Name", "brand_names": ["Bactrim"], "maker_count": 1}
     assert len(iv_seo.build_meta_title(long_name)) <= 65 and len(iv_seo.build_meta_description(long_name)) <= 160
     assert iv_seo.build_meta_title({"generic_name": ""}) == ""
+    # no brand: room for the whole tail; nothing the page does not have ("FDA label", uses, price) is promised
+    assert iv_seo.build_meta_title({"generic_name": "Heparin"}) == "Heparin IV: Infusion Rate, Mixing, Calculator & Shortage"
+    assert "FDA" not in iv_seo.build_meta_title(row) + iv_seo.build_meta_description(row)
 
 
 # ---- endpoints ------------------------------------------------------------------------------------------
