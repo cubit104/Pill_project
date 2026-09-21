@@ -64,8 +64,10 @@ async function searchDrugAll(term: string): Promise<DrugSearchResult> {
   const cards = new Map<string, PillResult>()
   const add = (pills: PillResult[]) => {
     for (const pill of pills) {
-      // a group cut in two by a page boundary comes back on both pages: keep its first card
-      const key = `${pill.drug_name}|${pill.imprint}`.toLowerCase()
+      // a group cut in two by a page boundary comes back on both pages: keep its first card. Same key the API groups
+      // by (utils.normalize_name / normalize_imprint): "75;1171" and "1171 75" are one pill
+      const imprint = (pill.imprint ?? '').trim().toUpperCase().split(/[;,\s]+/).filter(Boolean).sort().join(' ')
+      const key = `${(pill.drug_name ?? '').trim().toLowerCase()}|${imprint}`
       if (!cards.has(key)) cards.set(key, pill)
     }
   }
