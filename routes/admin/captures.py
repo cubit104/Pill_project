@@ -11,6 +11,7 @@ GET    /api/admin/captures/export[?since=]  training manifest: one row per photo
 GET    /api/admin/captures/{id}             detail with candidate pills
 POST   /api/admin/captures/{id}/review      {chosen_slug, reviewed_label, side_labels} or {unusable: true}
 POST   /api/admin/captures/{id}/reopen      back to the queue
+POST   /api/admin/captures/bulk           {ids: [...], action: "unusable"|"delete"} up to 100 at once
 DELETE /api/admin/captures/{id}             superuser: row and photos gone
 
 Photos are never public: the API hands out short-lived signed URLs, and the
@@ -21,6 +22,7 @@ import json
 import logging
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
@@ -36,6 +38,8 @@ router = APIRouter(prefix="/api/admin", tags=["admin-captures"])
 
 REVIEWERS = ("superuser", "editor", "reviewer")
 EXPORTERS = ("superuser", "editor")
+# One bulk click handles at most this many captures, so a slip cannot wipe the queue.
+BULK_MAX = 100
 MAX_LABEL = 80
 
 _HAS_PHOTOS = "(jsonb_typeof(photo_paths) = 'array' AND jsonb_array_length(photo_paths) > 0)"
@@ -47,7 +51,9 @@ _STATUS_SQL = {
 _COLUMNS = (
     "capture_id::text, created_at, imprint_read, tokens, attrs_guess, top_slugs, consent, "
     "photo_paths, verdict, chosen_slug, corrected_imprint, reviewed, reviewed_label, "
-    "side_labels, reviewed_at, reviewed_by, country, region, city"
+    "side_labels, reviewed_at, reviewed_by, country, region, city, "
+    # Side by side: what our reader read and with which model, what the second reader read, who won.
+    "reader_used, ai_read, ai_confidence, ai_cost_micros, read_source"
 )
 
 
@@ -112,6 +118,12 @@ def _row_to_capture(row, urls: dict[str, str]) -> dict:
         "country": row[16] if len(row) > 16 else None,
         "region": row[17] if len(row) > 17 else None,
         "city": row[18] if len(row) > 18 else None,
+        # None on rows written before the second reader existed.
+        "reader_used": row[19] if len(row) > 19 else None,
+        "ai_read": row[20] if len(row) > 20 else None,
+        "ai_confidence": row[21] if len(row) > 21 else None,
+        "ai_cost_usd": round(row[22] / 1_000_000, 4) if len(row) > 22 and row[22] is not None else None,
+        "read_source": row[23] if len(row) > 23 else None,
     }
 
 
@@ -158,6 +170,46 @@ def count_captures(admin: dict = Depends(require_role(*REVIEWERS))):
     with _db().connect() as conn:
         n = conn.execute(text(f"SELECT count(*) FROM identify_feedback WHERE {_STATUS_SQL['unreviewed']}")).scalar()
     return {"count": int(n or 0)}
+
+
+_STATS_SQL = """
+    SELECT w.days,
+           count(f.capture_id)                                         AS reads,
+           count(f.capture_id) FILTER (WHERE f.read_source IS NOT NULL) AS tracked,
+           count(f.capture_id) FILTER (WHERE f.read_source = 'reader')  AS reader_hits,
+           count(f.capture_id) FILTER (WHERE f.reader_used = 'base')     AS base_reads,
+           count(f.capture_id) FILTER (WHERE f.ai_cost_micros IS NOT NULL) AS ai_calls,
+           count(f.capture_id) FILTER (WHERE f.read_source = 'ai')      AS ai_hits,
+           coalesce(sum(f.ai_cost_micros), 0)                          AS cost_micros
+    FROM (VALUES (1), (7), (30)) AS w(days)
+    LEFT JOIN identify_feedback f ON f.created_at > now() - make_interval(days => w.days)
+    GROUP BY w.days
+    ORDER BY w.days
+"""
+
+
+@router.get("/captures/stats")
+def capture_stats(admin: dict = Depends(require_role(*REVIEWERS))):
+    """Who read what, over the last 1 / 7 / 30 days: our reader's exact matches, how often the
+    second reader was called, how often it supplied the match, and what it cost.
+    `tracked` = reads since read_source started being recorded; percentages belong over that."""
+    with _db().connect() as conn:
+        rows = conn.execute(text(_STATS_SQL)).fetchall()
+    return {
+        "windows": [
+            {
+                "days": int(r[0]),
+                "reads": int(r[1]),
+                "tracked": int(r[2]),
+                "reader_hits": int(r[3]),
+                "base_reads": int(r[4]),
+                "ai_calls": int(r[5]),
+                "ai_hits": int(r[6]),
+                "cost_usd": round(int(r[7]) / 1_000_000, 4),
+            }
+            for r in rows
+        ]
+    }
 
 
 @router.get("/captures/export")
@@ -371,6 +423,54 @@ def reopen_capture(capture_id: uuid.UUID, admin: dict = Depends(require_role(*RE
             raise HTTPException(status_code=404, detail="Capture not found or has no photos to review")
         log_audit(conn, admin["id"], admin.get("email", ""), "capture_reopened", "capture", str(capture_id))
     return {"capture_id": str(capture_id), "reviewed": False}
+
+
+class BulkCaptures(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=BULK_MAX)
+    action: Literal["unusable", "delete"]
+
+
+@router.post("/captures/bulk")
+def bulk_captures(payload: BulkCaptures, admin: dict = Depends(require_role(*REVIEWERS))):
+    """Clear out junk in one go: mark several captures unusable (photos wiped, row kept for the
+    stats) or delete them outright (superuser only, as for a single capture).
+
+    Each capture is its own transaction and its own audit entry, so one storage failure or a
+    capture someone else deleted meanwhile cannot undo the rest; the reply says what happened.
+    """
+    if payload.action == "delete" and admin.get("role") != "superuser":
+        raise HTTPException(status_code=403, detail="Only a superuser may delete captures")
+    done, failed = [], []
+    for capture_id in dict.fromkeys(payload.ids):  # ignore repeats in the request
+        try:
+            with _db().begin() as conn:
+                row = _fetch_capture(conn, capture_id)  # 404s on a capture that is already gone
+                paths = _paths(row[7])
+                if paths and not user_photos.delete_objects(paths):
+                    raise HTTPException(status_code=502, detail="Could not delete the photos from storage")
+                if payload.action == "delete":
+                    conn.execute(text("DELETE FROM identify_feedback WHERE capture_id = CAST(:id AS uuid)"),
+                                 {"id": str(capture_id)})
+                    action = "capture_deleted"
+                else:
+                    conn.execute(
+                        text(
+                            "UPDATE identify_feedback SET reviewed = true, photo_paths = '[]'::jsonb, "
+                            "reviewed_label = NULL, side_labels = NULL, reviewed_at = now(), reviewed_by = :by "
+                            "WHERE capture_id = CAST(:id AS uuid)"
+                        ),
+                        {"by": admin.get("email"), "id": str(capture_id)},
+                    )
+                    action = "capture_unusable"
+                log_audit(conn, admin["id"], admin.get("email", ""), action, "capture", str(capture_id),
+                          diff={"photos_deleted": len(paths), "bulk": True})
+            done.append(str(capture_id))
+        except HTTPException as e:
+            failed.append({"capture_id": str(capture_id), "detail": e.detail})
+        except Exception as e:
+            logger.error("bulk %s failed for %s: %s", payload.action, capture_id, e, exc_info=True)
+            failed.append({"capture_id": str(capture_id), "detail": "Server error"})
+    return {"action": payload.action, "done": done, "failed": failed}
 
 
 @router.delete("/captures/{capture_id}")

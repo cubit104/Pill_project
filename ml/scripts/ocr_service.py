@@ -367,7 +367,9 @@ def _read_original(photos: list[Image.Image], t0: float) -> dict:
         print("read %d photo(s), mode=original in %.2fs -> %s | %s | by %s" % (len(photos), time.time() - t0, tokens, reads, used))
     else:
         print("read %d photo(s), mode=original in %.2fs" % (len(photos), time.time() - t0))
-    return {"tokens": tokens, "reads": reads, "views": [[r] for r in reads], "views2": []}
+    # `used` lets the caller judge the read: "large" is trusted (it stays silent rather than
+    # guess), "base" is a last-resort fill-in that can invent a label it memorised in training.
+    return {"tokens": tokens, "reads": reads, "views": [[r] for r in reads], "views2": [], "used": used}
 
 
 @app.get("/health")
@@ -416,6 +418,7 @@ async def read_imprint(
     raw_reads = _read_batch(batch) if batch else []
     views = [raw_reads[a:b] for a, b in spans]
     per_side = [_vote(v) for v in views]
+    used = ["base" if side else "none" for side in per_side]
     views2: list[list[str]] = []
     if model2 is not None and batch and mode != "fast":
         # Two middle views per photo (the tight pill crops when a pill was found).
@@ -429,6 +432,7 @@ async def read_imprint(
             toks = [_tokens(r) for r in side_reads if r.strip()]
             if len(toks) >= 2 and all(set(t) == set(toks[0]) for t in toks[1:]):
                 per_side[si] = toks[0]
+                used[si] = "large"
     tokens, seen = [], set()
     for side in per_side:
         for t in side:
@@ -439,4 +443,4 @@ async def read_imprint(
         print("read %d photo(s), %d views, mode=%s in %.2fs -> %s | %s | large: %s" % (len(photos), n_views, mode, time.time() - t0, tokens, views, views2))
     else:
         print("read %d photo(s), %d views, mode=%s in %.2fs" % (len(photos), n_views, mode, time.time() - t0))
-    return {"tokens": tokens, "reads": [" ".join(s) for s in per_side], "views": views, "views2": views2}
+    return {"tokens": tokens, "reads": [" ".join(s) for s in per_side], "views": views, "views2": views2, "used": used}

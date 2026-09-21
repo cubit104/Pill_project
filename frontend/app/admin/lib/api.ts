@@ -90,10 +90,40 @@ export const adminApi = {
     return apiFetch(qs ? `/api/admin/captures?${qs}` : '/api/admin/captures')
   },
   getCapture: (id: string) => apiFetch(`/api/admin/captures/${id}`),
+  getCaptureStats: () => apiFetch('/api/admin/captures/stats'),
+  bulkCaptures: (ids: string[], action: 'unusable' | 'delete') =>
+    apiFetch('/api/admin/captures/bulk', { method: 'POST', body: JSON.stringify({ ids, action }) }),
   reviewCapture: (id: string, data: object) =>
     apiFetch(`/api/admin/captures/${id}/review`, { method: 'POST', body: JSON.stringify(data) }),
   reopenCapture: (id: string) =>
     apiFetch(`/api/admin/captures/${id}/reopen`, { method: 'POST' }),
   deleteCapture: (id: string) =>
     apiFetch(`/api/admin/captures/${id}`, { method: 'DELETE' }),
+  getIvDrugs: (params?: Record<string, string | number | boolean>) => {
+    const qs = buildQueryString(params)
+    return apiFetch(qs ? `/api/admin/iv/drugs?${qs}` : '/api/admin/iv/drugs')
+  },
+  getIvDrug: (id: string) => apiFetch(`/api/admin/iv/drugs/${id}`),
+  previewIvDrug: (id: string) => apiFetch(`/api/admin/iv/drugs/${id}/preview`),
+  generateIvCard: (id: string) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/card/generate`, { method: 'POST' }),
+  saveIvCard: (id: string, data: object) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/card`, { method: 'PUT', body: JSON.stringify(data) }),
+  approveIvCard: (id: string) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/card/approve`, { method: 'POST' }),
+  rejectIvCard: (id: string, notes: string) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/card/reject`, { method: 'POST', body: JSON.stringify({ notes }) }),
+  switchIvLabel: (id: string, splSetId: string) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/label`, { method: 'PUT', body: JSON.stringify({ spl_set_id: splSetId }) }),
+  addIvDrug: (data: { name: string; spl_set_id: string; brand_names: string[] }) =>
+    apiFetch('/api/admin/iv/drugs', { method: 'POST', body: JSON.stringify(data) }),
+  editIvDetails: (id: string, data: object) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/details`, { method: 'PUT', body: JSON.stringify(data) }),
+  getIvLabel: (id: string) => apiFetch(`/api/admin/iv/drugs/${id}/label`),
+  refetchIvLabel: (id: string) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/label/refetch`, { method: 'POST' }),
+  clearIvLabelCache: (id: string) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/label/clear-cache`, { method: 'POST' }),
+  setIvPublished: (id: string, published: boolean) =>
+    apiFetch(`/api/admin/iv/drugs/${id}/published`, { method: 'PUT', body: JSON.stringify({ published }) }),
 }

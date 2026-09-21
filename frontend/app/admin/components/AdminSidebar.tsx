@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, ClipboardList, Users, UserCheck, Settings, ImageOff, Layers, BarChart2, Camera, X } from 'lucide-react'
+import { LayoutDashboard, Pill, FileEdit, Trash2, ScrollText, ClipboardList, Users, UserCheck, Settings, ImageOff, Layers, BarChart2, Camera, Syringe, X } from 'lucide-react'
 import { createClient } from '../lib/supabase'
 
 const baseNavItems = [
@@ -13,6 +13,7 @@ const baseNavItems = [
   { href: '/admin/duplicates', label: 'Duplicates', icon: Layers },
   { href: '/admin/drafts', label: 'Drafts', icon: FileEdit },
   { href: '/admin/captures', label: 'Photo Captures', icon: Camera },
+  { href: '/admin/iv', label: 'IV Drugs & Cards', icon: Syringe },
   { href: '/admin/trash', label: 'Trash', icon: Trash2 },
   { href: '/admin/audit', label: 'Audit Log', icon: ScrollText },
   { href: '/admin/medication-guide', label: 'Medication Guide', icon: ClipboardList },

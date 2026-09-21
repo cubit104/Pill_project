@@ -38,6 +38,13 @@ interface Capture {
   side_labels: string[] | null
   reviewed_at: string | null
   reviewed_by: string | null
+  /** Which of our own models read it: large is trusted, base is the fill-in that can invent a label. */
+  reader_used: 'large' | 'base' | 'none' | null
+  ai_read: string | null
+  ai_confidence: 'high' | 'medium' | 'low' | null
+  ai_cost_usd: number | null
+  /** Whose read settled the answer the user saw. */
+  read_source: 'reader' | 'ai' | 'none' | null
   /** Where the photo was taken (Cloudflare visitor location); null before this feature. */
   country: string | null
   region: string | null
@@ -79,6 +86,19 @@ function fmtDate(value: string | null) {
   return value ? new Date(value).toLocaleString() : '—'
 }
 
+interface ReadStats {
+  days: number
+  reads: number
+  /** Reads since read_source started being recorded; percentages are over these. */
+  tracked: number
+  reader_hits: number
+  /** Reads where only the small model produced text. */
+  base_reads: number
+  ai_calls: number
+  ai_hits: number
+  cost_usd: number
+}
+
 export default function AdminCapturesPage() {
   const router = useRouter()
   const [role, setRole] = useState<string | null>(null)
@@ -90,6 +110,10 @@ export default function AdminCapturesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [stats, setStats] = useState<ReadStats[] | null>(null)
+  // Bulk clear-out: ticked captures on the page currently shown.
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<CaptureDetail | null>(null)
@@ -112,6 +136,13 @@ export default function AdminCapturesPage() {
     return session?.access_token ?? null
   }
 
+  // Who read what lately (our reader vs the second reader) and what the second reader cost.
+  useEffect(() => {
+    adminApi.getCaptureStats()
+      .then((d: { windows?: ReadStats[] }) => setStats(Array.isArray(d.windows) ? d.windows : []))
+      .catch(() => setStats([]))
+  }, [])
+
   const loadList = useCallback(async (keepSelection = true) => {
     const token = await getToken()
     if (!token) { router.push('/admin/login'); return }
@@ -121,6 +152,7 @@ export default function AdminCapturesPage() {
       const data = await adminApi.getCaptures({ status, page, per_page: PER_PAGE, ...(nonUs ? { country: 'non-US' } : {}) })
       const captures: Capture[] = data.captures
       setList(captures)
+      setPicked(new Set())  // never carry ticks across a page or tab change
       setTotal(data.total)
       setSelectedId((current) => {
         if (keepSelection && current && captures.some((c) => c.capture_id === current)) return current
@@ -342,6 +374,39 @@ export default function AdminCapturesPage() {
   }
 
   const isSuperuser = role === 'superuser' || role === 'superadmin'
+  const togglePick = (id: string) =>
+    setPicked((cur) => {
+      const next = new Set(cur)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+
+  const allPicked = list.length > 0 && picked.size === list.length
+
+  const runBulk = async (action: 'unusable' | 'delete') => {
+    const ids = list.filter((c) => picked.has(c.capture_id)).map((c) => c.capture_id)
+    if (ids.length === 0) return
+    const what = action === 'delete'
+      ? `Delete ${ids.length} capture${ids.length === 1 ? '' : 's'} for good? The photos and the rows go, and this cannot be undone.`
+      : `Mark ${ids.length} capture${ids.length === 1 ? '' : 's'} unusable? The photos are deleted; the rows stay for the statistics.`
+    if (!window.confirm(what)) return
+    setBulkBusy(true)
+    setError('')
+    try {
+      const res = await adminApi.bulkCaptures(ids, action)
+      const done: string[] = res.done ?? []
+      const failed: { capture_id: string; detail: string }[] = res.failed ?? []
+      flash(`${action === 'delete' ? 'Deleted' : 'Marked unusable'}: ${done.length}${failed.length ? ` · ${failed.length} failed` : ''}`)
+      if (failed.length) setError(failed[0].detail)
+      if (selectedId && done.includes(selectedId)) setSelectedId(null)
+      await loadList(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
   const canExport = isSuperuser || role === 'editor'
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE))
 
@@ -375,6 +440,31 @@ export default function AdminCapturesPage() {
         )}
       </div>
 
+      {stats && stats.length > 0 && (
+        <div className="grid gap-2 sm:grid-cols-3">
+          {stats.map((w) => {
+            const pct = (n: number) => (w.tracked > 0 ? `${Math.round((100 * n) / w.tracked)}%` : '—')
+            return (
+              <div key={w.days} className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm">
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  {w.days === 1 ? 'Last 24 hours' : `Last ${w.days} days`} · {w.reads} reads
+                </div>
+                <div className="mt-1 text-gray-800">
+                  Our reader matched <strong>{pct(w.reader_hits)}</strong>
+                  {w.tracked < w.reads && <span className="text-gray-400"> (of {w.tracked} tracked)</span>}
+                </div>
+                <div className="text-gray-600">
+                  Second reader: called {w.ai_calls}, matched {w.ai_hits} · <strong>${w.cost_usd.toFixed(2)}</strong>
+                </div>
+                {w.base_reads > 0 && (
+                  <div className="text-xs text-amber-700">Small model read {w.base_reads} (large was silent)</div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         {TABS.map((t) => (
           <button
@@ -400,19 +490,67 @@ export default function AdminCapturesPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4">
         {/* Queue */}
         <aside className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col max-h-[75vh]">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 text-xs">
+            <label className="flex items-center gap-1.5 text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={allPicked}
+                disabled={list.length === 0 || bulkBusy}
+                onChange={() => setPicked(allPicked ? new Set() : new Set(list.map((c) => c.capture_id)))}
+                className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500"
+              />
+              {picked.size > 0 ? `${picked.size} selected` : 'Select all'}
+            </label>
+            {picked.size > 0 && (
+              <div className="ml-auto flex gap-1.5">
+                <button
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={() => void runBulk('unusable')}
+                  className="rounded-md bg-amber-600 px-2 py-1 font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                  title="Delete the photos, keep the row for the statistics"
+                >
+                  Unusable
+                </button>
+                {isSuperuser && (
+                  <button
+                    type="button"
+                    disabled={bulkBusy}
+                    onClick={() => void runBulk('delete')}
+                    className="rounded-md bg-red-600 px-2 py-1 font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                    title="Remove the photos and the row entirely"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           <div className="overflow-y-auto divide-y divide-gray-100 flex-1">
             {loading && <div className="px-4 py-8 text-center text-gray-500 text-sm">Loading…</div>}
             {!loading && list.length === 0 && (
               <div className="px-4 py-8 text-center text-gray-500 text-sm">Nothing here</div>
             )}
             {list.map((c) => (
-              <button
+              <div
                 key={c.capture_id}
-                onClick={() => setSelectedId(c.capture_id)}
-                className={`w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-gray-50 ${
+                className={`w-full px-3 py-2 flex items-center gap-2 hover:bg-gray-50 ${
                   c.capture_id === selectedId ? 'bg-indigo-50' : ''
                 }`}
               >
+                <input
+                  type="checkbox"
+                  checked={picked.has(c.capture_id)}
+                  disabled={bulkBusy}
+                  onChange={() => togglePick(c.capture_id)}
+                  aria-label="Select this capture"
+                  className="h-4 w-4 shrink-0 rounded text-indigo-600 focus:ring-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(c.capture_id)}
+                  className="min-w-0 flex-1 text-left flex items-center gap-3"
+                >
                 {c.photo_urls[0] ? (
                   <img src={c.photo_urls[0]} alt="" className="w-12 h-12 object-cover rounded-md bg-gray-100 shrink-0" />
                 ) : (
@@ -421,6 +559,8 @@ export default function AdminCapturesPage() {
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium text-gray-900 truncate">
                     {c.reviewed_label ?? c.imprint_read ?? <span className="text-gray-400">nothing read</span>}
+                    {c.read_source === 'ai' && <span className="ml-1 text-[10px] font-sans text-indigo-600">2nd</span>}
+                    {c.reader_used === 'base' && c.read_source !== 'ai' && <span className="ml-1 text-[10px] font-sans text-amber-600">small</span>}
                   </div>
                   <div className="text-xs text-gray-500 truncate">
                     {fmtDate(c.created_at)} · {c.photo_paths.length} photo{c.photo_paths.length === 1 ? '' : 's'}
@@ -429,7 +569,8 @@ export default function AdminCapturesPage() {
                 </div>
                 {c.verdict === 'up' && <ThumbsUp className="w-4 h-4 text-emerald-600 shrink-0" />}
                 {c.verdict === 'down' && <ThumbsDown className="w-4 h-4 text-red-500 shrink-0" />}
-              </button>
+                </button>
+              </div>
             ))}
           </div>
           <div className="flex items-center justify-between px-3 py-2 border-t border-gray-100 text-xs text-gray-500">
@@ -482,8 +623,31 @@ export default function AdminCapturesPage() {
               {/* What the system and the user said */}
               <dl className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                 <div>
-                  <dt className="text-xs text-gray-500">Reader read</dt>
-                  <dd className="font-mono">{detail.imprint_read || <span className="text-gray-400">nothing</span>}</dd>
+                  <dt className="text-xs text-gray-500">
+                    Our reader
+                    {detail.reader_used && (
+                      <span className={detail.reader_used === 'base' ? 'ml-1 text-amber-700' : 'ml-1 text-gray-400'}>
+                        ({detail.reader_used === 'large' ? 'large' : detail.reader_used === 'base' ? 'small model' : 'silent'})
+                      </span>
+                    )}
+                  </dt>
+                  <dd className="font-mono">
+                    {detail.imprint_read || <span className="text-gray-400">nothing</span>}
+                    {detail.read_source === 'reader' && <span className="ml-1 text-xs font-sans text-emerald-700">✓ used</span>}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500">
+                    Second reader
+                    {detail.ai_confidence && <span className="ml-1 text-gray-400">({detail.ai_confidence})</span>}
+                  </dt>
+                  <dd className="font-mono">
+                    {detail.ai_read || <span className="text-gray-400">{detail.ai_cost_usd === null ? 'not called' : 'nothing'}</span>}
+                    {detail.read_source === 'ai' && <span className="ml-1 text-xs font-sans text-emerald-700">✓ used</span>}
+                    {detail.ai_cost_usd !== null && (
+                      <span className="block text-xs font-sans text-gray-400">${detail.ai_cost_usd.toFixed(4)}</span>
+                    )}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-xs text-gray-500">Shape / color guess</dt>

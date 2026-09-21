@@ -2,7 +2,8 @@
 
 When a reviewer opens a draft pill and leaves without publishing, they tick
 what still needs fixing. The Drafts list shows the row in amber with those
-tags; publishing the pill clears them (routes/admin/pills.update_pill).
+tags; publishing the pill clears them, and so does a save by anyone other than
+the flagger (routes/admin/pills.update_pill) so the row turns white once the fix lands.
 
 GET    /api/admin/pills/{pill_id}/review-flags
 PUT    /api/admin/pills/{pill_id}/review-flags   {"missing": ["images", "imprint"], "note": "..."}

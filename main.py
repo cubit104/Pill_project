@@ -126,6 +126,7 @@ from routes import search, details, filters, ndc, sitemap, health, similar, pric
 from routes import pill_images, conditions, medication_guide, pill_views, pronunciation  # noqa: E402
 from routes import reviewers_public, identify, identify_photo, site_settings, identify_feedback  # noqa: E402
 from routes import drug_search, providers  # noqa: E402
+from routes import iv_drugs, drug_index  # noqa: E402
 from routes.admin import pills as admin_pills, drafts as admin_drafts, images as admin_images  # noqa: E402
 from routes.admin import audit as admin_audit, users as admin_users, stats as admin_stats  # noqa: E402
 from routes.admin import duplicates as admin_duplicates  # noqa: E402
@@ -138,6 +139,8 @@ from routes.admin import reviewers as admin_reviewers  # noqa: E402
 from routes.admin import members as admin_members  # noqa: E402
 from routes.admin import captures as admin_captures  # noqa: E402
 from routes.admin import review_flags as admin_review_flags  # noqa: E402
+from routes.admin import iv_drugs as admin_iv_drugs  # noqa: E402
+from routes.admin import iv_manage as admin_iv_manage  # noqa: E402
 from routes import reviewers as public_reviewers  # noqa: E402
 
 app.include_router(search.router)
@@ -153,6 +156,8 @@ app.include_router(trending.router)
 app.include_router(interactions.router)
 app.include_router(drug_search.router)
 app.include_router(providers.router)
+app.include_router(iv_drugs.router)
+app.include_router(drug_index.router)
 app.include_router(medication_guide.router)
 app.include_router(pill_views.router)
 app.include_router(pronunciation.router)
@@ -181,6 +186,8 @@ app.include_router(admin_reviewers.router)
 app.include_router(admin_members.router)
 app.include_router(admin_captures.router)
 app.include_router(admin_review_flags.router)
+app.include_router(admin_iv_drugs.router)
+app.include_router(admin_iv_manage.router)
 app.include_router(public_reviewers.router)
 
 
