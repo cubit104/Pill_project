@@ -67,7 +67,7 @@ export default function AdminAddIvDrugPage() {
           <span className="text-sm font-medium text-slate-800">DailyMed Set ID of the injection label</span>
           <input value={setid} onChange={(e) => setSetid(e.target.value)} placeholder="Paste the Set ID or the DailyMed link" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm" />
           <span className="mt-1 block text-xs text-slate-500">
-            The label is checked before saving: it must have an intravenous product. The label of the tablets or capsules is refused, so the
+            The label is checked before saving: it must have an injection product (intravenous, intramuscular, subcutaneous…). The label of the tablets or capsules is refused, so the
             two forms of a drug cannot get mixed up.
           </span>
         </label>

@@ -162,6 +162,38 @@ def test_approve_stores_the_reviewer_and_makes_the_card_public():
     assert update["status"] == "approved" and update["by"] == "rph@example.com" and update["label_version"] == 5
 
 
+def test_a_card_that_changed_while_it_was_being_checked_is_not_approved():
+    """Another reviewer saved an edit during the quote check: approving would publish the older text."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import database
+    from routes.admin import auth
+    from routes.admin import iv_drugs as admin_iv
+
+    checked = drug_row()
+    edited = drug_row(card={"fields": {"infusion": field(value="At least 90 minutes")}})
+    log = []
+
+    class Conn(FakeConn):
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            self.log.append((sql, params))
+            row = edited if "FOR UPDATE" in sql else checked  # what is there once the row is locked
+            return SimpleNamespace(fetchone=lambda: SimpleNamespace(_mapping=row), fetchall=lambda: [], scalar=lambda: 0)
+
+    engine = SimpleNamespace(connect=lambda: Conn(None, log), begin=lambda: Conn(None, log))
+    app = FastAPI()
+    app.include_router(admin_iv.router)
+    app.dependency_overrides[auth.get_admin_user] = lambda: {"id": str(uuid.uuid4()), "email": "rph@example.com", "role": "reviewer"}
+    with patch.object(database, "db_engine", engine), patch.object(admin_iv, "log_audit") as audit, \
+            patch.object(iv_card, "fetch_label_sections", return_value=SECTIONS):
+        response = TestClient(app).post(f"/api/admin/iv/drugs/{uuid.uuid4()}/card/approve")
+    assert response.status_code == 409 and "changed while it was being checked" in response.json()["detail"]
+    assert not any("UPDATE public.iv_drugs" in sql for sql, _ in log)  # nothing approved, nothing overwritten
+    audit.assert_not_called()
+
+
 def test_approve_refuses_when_the_quote_check_removes_a_fact():
     tampered = drug_row(card={"fields": {"infusion": field(value="Over 30 minutes", quote="Administer over a period of at least 30 minutes.")}})
     client, engine, audit, log = admin_client(tampered)
@@ -207,6 +239,17 @@ def test_not_applicable_answer_survives_the_check_with_its_quote():
     # only Mixing may say so: on any other answer it is thrown out, and the reviewer is told
     elsewhere = iv_card.verify_card({"storage": ready}, SECTIONS)
     assert elsewhere["fields"]["storage"] == {"status": "not_stated", "value": "", "quotes": []} and elsewhere["rejected"] == ["storage"]
+
+
+def test_a_drug_that_is_not_given_iv_is_asked_where_and_how_to_inject_instead_of_push_and_infusion():
+    shot = iv_card.build_prompt("Tirzepatide", SECTIONS, intravenous=False)
+    assert "injection glance card" in shot and "Injection site(s) the label names" in shot and "Do not answer about IV push or infusion" in shot
+    assert "direct IV push" not in shot and "Usual infusion time" not in shot and "Adult intravenous use only" not in shot
+    # the keys are the same six, so stored cards and the quote check are unchanged
+    assert list(iv_card.card_fields(False)) == list(iv_card.CARD_FIELDS) and iv_card.card_fields(False)["iv_push"][0] == "Where to inject"
+    assert iv_card.card_fields(False)["mixing"] == iv_card.CARD_FIELDS["mixing"]
+    iv = iv_card.build_prompt("Heparin", SECTIONS)
+    assert "bedside IV glance card" in iv and "direct IV push" in iv and "Adult intravenous use only" in iv
 
 
 def test_prompt_asks_for_shorthand_and_keeps_routine_label_text_off_the_card():
@@ -274,3 +317,12 @@ def test_indexnow_gets_only_the_iv_drug_page_and_a_failed_ping_never_raises():
     with patch.object(admin_indexnow, "load_indexnow_config", return_value=config),             patch.object(admin_indexnow, "submit_indexnow_urls", side_effect=RuntimeError("network down")) as submit:
         admin_indexnow.submit_iv_slug_to_indexnow("heparin")  # must not raise
     assert submit.call_args.args[0] == ["https://pillseek.com/iv/heparin"]
+
+
+def test_next_draft_follows_the_review_list_order_and_skips_the_open_drug():
+    client, engine, audit, log = admin_client(drug_row(maker_count=5, generic_name="Heparin"))
+    with engine, audit:
+        response = client.get(f"/api/admin/iv/drugs/{uuid.uuid4()}/next-draft")
+    assert response.status_code == 200 and set(response.json()) == {"next", "drafts"}
+    sql, params = next((s, p) for s, p in log if "card_status = 'draft' AND id <> :id" in s)
+    assert "maker_count DESC, generic_name" in sql and (params["makers"], params["name"]) == (5, "Heparin")

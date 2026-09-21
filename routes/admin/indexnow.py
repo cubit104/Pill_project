@@ -61,7 +61,12 @@ def submit_pill_slug_to_indexnow(slug: str) -> None:
 
 def submit_iv_slug_to_indexnow(slug: str) -> None:
     """Tell search engines a just-published IV drug page exists. Never raises: publishing must not fail on it."""
-    normalized_slug = (slug or "").strip()
+    submit_iv_slugs_to_indexnow([slug])
+
+
+def submit_iv_slugs_to_indexnow(slugs: list) -> None:
+    """The same for several drugs published together: one IndexNow request. Never raises."""
+    normalized_slug = ", ".join(s.strip() for s in slugs if (s or "").strip())
     try:
         config = load_indexnow_config()
     except IndexNowSubmissionError as exc:
@@ -69,7 +74,8 @@ def submit_iv_slug_to_indexnow(slug: str) -> None:
         return
 
     try:
-        result = submit_indexnow_urls(build_iv_page_urls(normalized_slug, config), config=config, ignore_errors=True)
+        urls = [url for slug in slugs for url in build_iv_page_urls(slug, config)]
+        result = submit_indexnow_urls(urls, config=config, ignore_errors=True)
         logger.info(
             "IndexNow summary for IV slug=%s: submitted=%d failed_batches=%d",
             normalized_slug,

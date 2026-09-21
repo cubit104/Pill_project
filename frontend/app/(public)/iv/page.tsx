@@ -46,7 +46,7 @@ export default async function IvHubPage() {
           <p className="text-xs font-semibold text-emerald-700 uppercase tracking-widest">Intravenous medicines</p>
           <h1 className="text-4xl font-extrabold text-slate-900 leading-tight">IV drugs A to Z</h1>
           <p className="max-w-3xl text-slate-600">
-            {drugs.length} intravenous drugs. Each page shows how the drug is given, every strength and manufacturer, FDA recalls, and the
+            {drugs.length} intravenous and other injection drugs. Each page shows how the drug is given, every strength and manufacturer, FDA recalls, and the
             full FDA label. Looking for tablets and capsules too?{' '}
             <Link href="/drugs" className="font-medium text-emerald-700 hover:underline">See all drugs A to Z</Link>.
           </p>

@@ -38,6 +38,7 @@ function mobileColSpan(index: number, total: number): string {
 export default function MedicationGuideTabs({
   activeTab,
   ivCardHref = null,
+  ivCardLabels,
   medicationGuideHref,
   summaryHref = null,
   dosageHref = null,
@@ -48,6 +49,8 @@ export default function MedicationGuideTabs({
   activeTab: TabId
   /** IV drug pages only: first tab, the drug's own page with the administration card. */
   ivCardHref?: string | null
+  /** For an injection that is not given IV: other words for that first tab. */
+  ivCardLabels?: { label: string; mobileLabel: string }
   medicationGuideHref: string | null
   summaryHref?: string | null
   dosageHref?: string | null
@@ -59,7 +62,9 @@ export default function MedicationGuideTabs({
   const leftTabLabel = summaryHref ? 'Medication Summary' : 'Medication Guide'
 
   const tabs: TabItem[] = [
-    ...(ivCardHref ? [{ id: 'iv' as const, label: 'IV Administration', mobileLabel: 'IV Admin', href: ivCardHref }] : []),
+    ...(ivCardHref
+      ? [{ id: 'iv' as const, label: ivCardLabels?.label ?? 'IV Administration', mobileLabel: ivCardLabels?.mobileLabel ?? 'IV Admin', href: ivCardHref }]
+      : []),
     ...(leftTabHref ? [{ id: 'consumer' as const, label: leftTabLabel, mobileLabel: 'Med Guide', href: leftTabHref }] : []),
     ...(dosageHref ? [{ id: 'dosage' as const, label: 'Dosage', href: dosageHref }] : []),
     ...(adverseReactionsHref ? [{ id: 'adverse' as const, label: 'Side Effects', mobileLabel: 'Side Fx', href: adverseReactionsHref }] : []),

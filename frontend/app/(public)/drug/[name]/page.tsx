@@ -159,11 +159,13 @@ export default async function DrugHubPage(
               <Droplet className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="font-semibold text-slate-900">Also given by IV</p>
-              <p className="text-sm text-slate-600">How it is infused, mixing and storage, every strength, shortage and recalls.</p>
+              <p className="font-semibold text-slate-900">{iv.intravenous === false ? 'Also given by injection' : 'Also given by IV'}</p>
+              <p className="text-sm text-slate-600">
+                {iv.intravenous === false ? 'How it is given' : 'How it is infused'}, mixing and storage, every strength, shortage and recalls.
+              </p>
             </div>
             <Link href={`/iv/${iv.slug}`} className="whitespace-nowrap text-sm font-semibold text-teal-700 hover:underline">
-              {iv.name} IV <span aria-hidden="true">→</span>
+              {iv.name} {iv.intravenous === false ? 'injection' : 'IV'} <span aria-hidden="true">→</span>
             </Link>
           </div>
         ))}

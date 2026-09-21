@@ -1,5 +1,5 @@
-import { Activity, Droplet, FlaskConical, ShieldAlert, Syringe, Thermometer, type IvIcon } from '../../../components/IvIcons'
-import type { IvCard, IvDrug } from '../../../lib/iv'
+import { Activity, Droplet, FlaskConical, ShieldAlert, Syringe, Target, Thermometer, type IvIcon } from '../../../components/IvIcons'
+import { isIntravenous, type IvCard, type IvDrug } from '../../../lib/iv'
 
 /** The six answers, in the order they are needed at the bedside. Same on every drug. */
 const FIELDS: Array<{ key: string; label: string; icon: IvIcon; tint: string }> = [
@@ -11,6 +11,12 @@ const FIELDS: Array<{ key: string; label: string; icon: IvIcon; tint: string }> 
   { key: 'monitoring', label: 'Watch', icon: Activity, tint: 'bg-sky-100 text-sky-700' },
 ]
 
+/** A drug that is not given IV has no push or infusion: the same two answers say where and how it is injected. */
+const NON_IV: Record<string, { label: string; icon: IvIcon }> = {
+  iv_push: { label: 'Where to inject', icon: Target },
+  infusion: { label: 'How to give it', icon: Syringe },
+}
+
 /**
  * IV glance card: up to six short answers a nurse or doctor reads in seconds; the label tabs are for everything
  * else. Only what the label states is shown, and the card appears only after a reviewer approved it (the API
@@ -18,14 +24,15 @@ const FIELDS: Array<{ key: string; label: string; icon: IvIcon; tint: string }> 
  */
 export default function IvAdministrationCard({ drug, card }: { drug: IvDrug; card: IvCard }) {
   // "not applicable" is an answer too ("Mixing: ready to use"); only "not stated" is left off the card
-  const shown = FIELDS.filter((f) => ['stated', 'not_applicable'].includes(card.fields[f.key]?.status ?? ''))
-  const silent = FIELDS.filter((f) => (card.fields[f.key]?.status ?? 'not_stated') === 'not_stated')
+  const fields = isIntravenous(drug) ? FIELDS : FIELDS.map((f) => ({ ...f, ...NON_IV[f.key] }))
+  const shown = fields.filter((f) => ['stated', 'not_applicable'].includes(card.fields[f.key]?.status ?? ''))
+  const silent = fields.filter((f) => (card.fields[f.key]?.status ?? 'not_stated') === 'not_stated')
   if (shown.length === 0) return null
 
   return (
     <section className="rounded-xl border border-emerald-200 bg-white p-6 shadow-sm" aria-labelledby="iv-card-heading">
       <h2 id="iv-card-heading" className="mb-4 border-l-4 border-emerald-500 pl-3 text-base font-semibold text-slate-800">
-        IV at a glance
+        {isIntravenous(drug) ? 'IV at a glance' : 'Injection at a glance'}
       </h2>
 
       {card.label_updated_since && (
