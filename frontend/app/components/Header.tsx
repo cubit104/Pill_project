@@ -3,7 +3,14 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 
-export default function Header({ photoIdEnabled: initialPhotoId = false }: { photoIdEnabled?: boolean }) {
+export default function Header({
+  photoIdEnabled: initialPhotoId = false,
+  ivDrugsEnabled = false,
+}: {
+  photoIdEnabled?: boolean
+  /** true once an IV drug is published; the layout checks, so the link never leads to an empty list */
+  ivDrugsEnabled?: boolean
+}) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [photoIdEnabled, setPhotoIdEnabled] = useState(initialPhotoId)
 
@@ -35,9 +42,11 @@ export default function Header({ photoIdEnabled: initialPhotoId = false }: { pho
           </span>
         </Link>
 
-        <nav className="hidden sm:flex items-center gap-8" aria-label="Main navigation">
+        <nav className="hidden lg:flex items-center gap-4 xl:gap-7 whitespace-nowrap" aria-label="Main navigation">
           <Link href="/" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">Home</Link>
           <Link href="/search" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">Search</Link>
+          <Link href="/drugs" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">Drugs A–Z</Link>
+          {ivDrugsEnabled && <Link href="/iv" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">IV drugs{newBadge}</Link>}
           <Link href="/find-a-doctor" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">Find a doctor</Link>
           <Link href="/recalls" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">FDA alerts</Link>
           <Link href="/cabinet" className="text-slate-600 hover:text-emerald-700 font-medium transition-colors text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded px-1">My cabinet</Link>
@@ -51,14 +60,14 @@ export default function Header({ photoIdEnabled: initialPhotoId = false }: { pho
         {photoIdEnabled && (
           <Link
             href="/identify"
-            className="sm:hidden ml-auto mr-1 inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800 hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="lg:hidden ml-auto mr-1 inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800 hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             aria-label="Identify a pill by photo (new)"
           >
             📷 Photo ID
           </Link>
         )}
         <button
-          className="sm:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          className="lg:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           onClick={() => setMenuOpen((prev) => !prev)}
           aria-expanded={menuOpen}
           aria-controls="mobile-menu"
@@ -73,9 +82,11 @@ export default function Header({ photoIdEnabled: initialPhotoId = false }: { pho
       </div>
 
       {menuOpen && (
-        <nav id="mobile-menu" className="sm:hidden bg-white border-t border-slate-100 px-4 py-3 flex flex-col gap-3" aria-label="Mobile navigation">
+        <nav id="mobile-menu" className="lg:hidden bg-white border-t border-slate-100 px-4 py-3 flex flex-col gap-3" aria-label="Mobile navigation">
           <Link href="/" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2 border-b border-slate-100" onClick={() => setMenuOpen(false)}>Home</Link>
           <Link href="/search" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2 border-b border-slate-100" onClick={() => setMenuOpen(false)}>Search</Link>
+          <Link href="/drugs" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2 border-b border-slate-100" onClick={() => setMenuOpen(false)}>Drugs A–Z</Link>
+          {ivDrugsEnabled && <Link href="/iv" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2 border-b border-slate-100" onClick={() => setMenuOpen(false)}>IV drugs{newBadge}</Link>}
           <Link href="/find-a-doctor" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2 border-b border-slate-100" onClick={() => setMenuOpen(false)}>Find a doctor</Link>
           <Link href="/recalls" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2 border-b border-slate-100" onClick={() => setMenuOpen(false)}>FDA alerts</Link>
           <Link href="/cabinet" className="text-slate-700 hover:text-emerald-700 font-medium text-sm py-2 border-b border-slate-100" onClick={() => setMenuOpen(false)}>My cabinet</Link>

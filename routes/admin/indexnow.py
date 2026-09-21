@@ -1,4 +1,4 @@
-"""Best-effort IndexNow helpers for admin pill publish/update flows."""
+"""Best-effort IndexNow helpers for admin pill and IV drug publish/update flows."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import logging
 
 from services.indexnow import (
     IndexNowSubmissionError,
+    build_iv_page_urls,
     build_pill_page_urls,
     load_indexnow_config,
     submit_indexnow_urls,
@@ -56,3 +57,24 @@ def submit_pill_slug_to_indexnow(slug: str) -> None:
         logger.warning("IndexNow submission failed for slug=%s: %s", normalized_slug, exc)
     except Exception as exc:  # noqa: BLE001
         logger.warning("IndexNow submission failed for slug=%s: %s", normalized_slug, exc, exc_info=True)
+
+
+def submit_iv_slug_to_indexnow(slug: str) -> None:
+    """Tell search engines a just-published IV drug page exists. Never raises: publishing must not fail on it."""
+    normalized_slug = (slug or "").strip()
+    try:
+        config = load_indexnow_config()
+    except IndexNowSubmissionError as exc:
+        logger.info("Skipping IndexNow submission for IV slug=%s: %s", normalized_slug, exc)
+        return
+
+    try:
+        result = submit_indexnow_urls(build_iv_page_urls(normalized_slug, config), config=config, ignore_errors=True)
+        logger.info(
+            "IndexNow summary for IV slug=%s: submitted=%d failed_batches=%d",
+            normalized_slug,
+            result.submitted_urls,
+            result.failed_batches,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("IndexNow submission failed for IV slug=%s: %s", normalized_slug, exc, exc_info=True)

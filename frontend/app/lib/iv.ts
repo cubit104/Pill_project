@@ -106,6 +106,35 @@ export async function fetchIvList(): Promise<IvListItem[]> {
   return data?.results ?? []
 }
 
+/** True once at least one IV drug is published: until then no menu link, home card or sitemap entry points at /iv. */
+export async function hasPublishedIvDrugs(): Promise<boolean> {
+  const data = await getJson<{ total: number }>('/api/iv?per_page=1', IV_REVALIDATE_SECONDS)
+  return (data?.total ?? 0) > 0
+}
+
+/** The published IV drug with the same name as a pill drug page (`/drug/<slug>`), for its "Also given by IV" box. */
+export async function fetchIvForPillDrug(pillDrugSlug: string): Promise<Array<{ name: string; slug: string }>> {
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(pillDrugSlug)) return []
+  const data = await getJson<{ results: Array<{ name: string; slug: string }> }>(
+    `/api/iv/for-pill-drug?name=${encodeURIComponent(pillDrugSlug)}`,
+    IV_REVALIDATE_SECONDS,
+  )
+  return data?.results ?? []
+}
+
+/**
+ * An IV drug page is worth indexing once it has something of its own: an approved card, or a label behind its tabs.
+ * The label pages themselves are always noindex (they reprint the label), the same rule the pill label pages follow.
+ */
+export function isIvPageIndexable(page: {
+  hasCard: boolean
+  hasProfessional: boolean
+  hasDosage: boolean
+  hasAdverseReactions: boolean
+}): boolean {
+  return page.hasCard || page.hasProfessional || page.hasDosage || page.hasAdverseReactions
+}
+
 export function fetchDrugIndex(prefix: string): Promise<DrugIndex | null> {
   return getJson<DrugIndex>(`/api/drug-index?prefix=${encodeURIComponent(prefix)}`, IV_REVALIDATE_SECONDS)
 }

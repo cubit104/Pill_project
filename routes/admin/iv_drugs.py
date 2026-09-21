@@ -9,7 +9,7 @@ POST /api/admin/iv/drugs/{id}/card/generate            draft a card with AI (sup
 PUT  /api/admin/iv/drugs/{id}/card                     save a reviewer's edits (quotes are re-checked)
 POST /api/admin/iv/drugs/{id}/card/approve             re-check, then approve: the card goes public
 POST /api/admin/iv/drugs/{id}/card/reject              {notes}
-PUT  /api/admin/iv/drugs/{id}/published                {published} (superuser, editor)
+PUT  /api/admin/iv/drugs/{id}/published                {published} (superuser, editor); publishing pings IndexNow
 
 Adding a drug, editing its details and SEO text, and the FDA label tools are in routes/admin/iv_manage.py.
 """
@@ -19,12 +19,13 @@ import logging
 import uuid
 from typing import Any, Dict, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 import database
 from routes.admin.auth import log_audit, require_role
+from routes.admin.indexnow import submit_iv_slug_to_indexnow
 from services import iv_card, iv_seo
 
 logger = logging.getLogger(__name__)
@@ -265,9 +266,18 @@ def reject_card(drug_id: uuid.UUID, payload: RejectPayload, admin: dict = Depend
 
 
 @router.put("/drugs/{drug_id}/published")
-def set_published(drug_id: uuid.UUID, payload: PublishedPayload, admin: dict = Depends(require_role(*EDITORS))):
+def set_published(
+    drug_id: uuid.UUID,
+    payload: PublishedPayload,
+    background_tasks: BackgroundTasks,
+    admin: dict = Depends(require_role(*EDITORS)),
+):
     with _engine().begin() as conn:
         _get(conn, drug_id, lock=True)
         conn.execute(text("UPDATE public.iv_drugs SET published = :p WHERE id = :id"), {"p": payload.published, "id": str(drug_id)})
         log_audit(conn, *_actor(admin), "iv_drug_published" if payload.published else "iv_drug_unpublished", "iv_drug", str(drug_id))
-        return _row(_get(conn, drug_id))
+        drug = _row(_get(conn, drug_id))
+    if payload.published:
+        # after the response, so after the commit; best effort, a failed ping never undoes the publish
+        background_tasks.add_task(submit_iv_slug_to_indexnow, drug["slug"])
+    return drug

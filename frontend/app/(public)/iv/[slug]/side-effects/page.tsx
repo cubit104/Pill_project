@@ -16,6 +16,8 @@ export async function generateMetadata({ params }: { params: PageParams }): Prom
     title: `${drug.name} IV Side Effects and Adverse Reactions`,
     description: `Side effects of ${drug.name} injection reported in the FDA label, including infusion reactions, common adverse reactions and serious warnings.`,
     alternates: { canonical: `/iv/${drug.slug}/side-effects` },
+    // a reprint of the label, so it stays out of the index like the pill label pages; the drug's own page is indexed
+    robots: { index: false, follow: true },
   }
 }
 

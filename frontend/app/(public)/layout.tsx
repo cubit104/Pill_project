@@ -4,6 +4,7 @@ import Footer from '../components/Footer'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import { PostHogProvider } from '../lib/posthog'
+import { hasPublishedIvDrugs } from '../lib/iv'
 import GoogleAnalytics from '../components/GoogleAnalytics'
 import GoogleAnalyticsRouteTracker from '../components/GoogleAnalyticsRouteTracker'
 
@@ -22,13 +23,13 @@ async function photoIdEnabled(): Promise<boolean> {
 }
 
 export default async function PublicLayout({ children }: { children: React.ReactNode }) {
-  const photoId = await photoIdEnabled()
+  const [photoId, ivDrugs] = await Promise.all([photoIdEnabled(), hasPublishedIvDrugs()])
   return (
     <PostHogProvider>
       <GoogleAnalytics />
-      <Header photoIdEnabled={photoId} />
+      <Header photoIdEnabled={photoId} ivDrugsEnabled={ivDrugs} />
       <main className="flex-1">{children}</main>
-      <Footer />
+      <Footer ivDrugsEnabled={ivDrugs} />
       <Analytics />
       <SpeedInsights />
       <Suspense fallback={null}>

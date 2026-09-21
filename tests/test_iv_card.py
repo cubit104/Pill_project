@@ -211,3 +211,28 @@ def test_prompt_asks_for_shorthand_and_keeps_routine_label_text_off_the_card():
     assert "q4h" in prompt and "Telegraphic" in prompt
     assert "inspect visually" in prompt and "discard unused portion" in prompt  # named so the AI leaves them out
     assert 'ONLY for "mixing"' in prompt and "Anything else is not_stated" in prompt
+
+
+def test_publishing_pings_indexnow_for_the_drug_page_and_unpublishing_does_not():
+    from routes.admin import iv_drugs as admin_iv
+
+    client, engine, audit, _ = admin_client(drug_row(slug="heparin"), role="editor")
+    with engine, audit, patch.object(admin_iv, "submit_iv_slug_to_indexnow") as ping:
+        assert client.put(f"/api/admin/iv/drugs/{uuid.uuid4()}/published", json={"published": True}).status_code == 200
+        ping.assert_called_once_with("heparin")
+        ping.reset_mock()
+        assert client.put(f"/api/admin/iv/drugs/{uuid.uuid4()}/published", json={"published": False}).status_code == 200
+        ping.assert_not_called()
+
+
+def test_indexnow_gets_only_the_iv_drug_page_and_a_failed_ping_never_raises():
+    from routes.admin import indexnow as admin_indexnow
+    from services.indexnow import build_iv_page_urls, load_indexnow_config
+
+    config = load_indexnow_config({"INDEXNOW_KEY": "k", "SITE_URL": "https://pillseek.com"})
+    # the label pages are noindex, so they are not announced
+    assert build_iv_page_urls("heparin", config) == ["https://pillseek.com/iv/heparin"]
+    assert build_iv_page_urls("  ", config) == []
+    with patch.object(admin_indexnow, "load_indexnow_config", return_value=config),             patch.object(admin_indexnow, "submit_indexnow_urls", side_effect=RuntimeError("network down")) as submit:
+        admin_indexnow.submit_iv_slug_to_indexnow("heparin")  # must not raise
+    assert submit.call_args.args[0] == ["https://pillseek.com/iv/heparin"]

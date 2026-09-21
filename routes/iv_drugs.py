@@ -5,7 +5,10 @@ GET /api/iv
 
 GET /api/iv/{slug}
     One IV drug: names, chosen FDA label, every strength, which label pages exist, the pill
-    drugs with the same ingredient, and the administration card.
+    drugs with the same name, and the administration card.
+
+GET /api/iv/for-pill-drug?name=<pill drug slug>
+    The published IV drug with the same name as a pill drug (the box on /drug/<name>).
 
 GET /api/slugs/iv
     Slugs for the sitemap.
@@ -39,6 +42,21 @@ if os.getenv("IV_DRUGS_PREVIEW", "").lower() in {"1", "true", "yes"}:
     logger.warning("IV_DRUGS_PREVIEW is on: unpublished IV drugs are visible through the API")
 SLUG_PATTERN = r"^[a-z0-9]+(-[a-z0-9]+)*$"
 DAILYMED_LABEL_URL = "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={setid}"
+
+# A pill drug page (drug_summary row `ds`) and an IV drug (`i`) are tied by NAME, the way the A to Z index does it:
+# the same generic name, the generic name plus salt words ("diltiazem hydrochloride"), or one of the IV drug's brand
+# names. Not by rxcui: rxcui_to_ingredient keeps one ingredient per product, so a combination pill (Percocet) looks
+# like plain acetaminophen there, and some pill rows carry a wrong rxcui altogether.
+SALT_WORDS_RE = (
+    "( (hydrochloride|hcl|sodium|potassium|calcium|magnesium|sulfate|phosphate|acetate|tartrate|succinate|mesylate|maleate"
+    "|fumarate|citrate|bromide|hydrobromide|chloride|nitrate|besylate|tromethamine|hyclate|monohydrate|dihydrate|trihydrate"
+    "|anhydrous|axetil|stearate|ethylsuccinate|lactate|gluconate|disodium))+$"
+)
+SAME_DRUG_NAME = """(
+    lower(i.generic_name) = ds.key
+    OR lower(i.generic_name) = regexp_replace(ds.key, :salt_words, '')
+    OR ds.key = ANY(SELECT lower(b) FROM unnest(i.brand_names) b)
+)"""
 
 
 def _engine():
@@ -97,6 +115,35 @@ def list_iv_drugs(
     }
 
 
+@router.get("/api/iv/for-pill-drug")
+def iv_for_pill_drug(response: Response, name: str = Query(..., pattern=SLUG_PATTERN, max_length=200)):
+    """The published IV drug with the same name as a pill drug, for the box on /drug/<name>.
+
+    `name` is the pill drug page's slug. Declared before /api/iv/{slug} so that route does not swallow it.
+    """
+    try:
+        with _engine().connect() as conn:
+            rows = conn.execute(
+                text(
+                    f"""
+                    SELECT DISTINCT i.generic_name, i.slug
+                    FROM public.drug_summary ds
+                    JOIN public.iv_drugs i ON {SAME_DRUG_NAME}
+                    WHERE btrim(regexp_replace(ds.key, '[^a-z0-9]+', '-', 'g'), '-') = :name AND {LIVE_I}
+                    ORDER BY i.generic_name
+                    LIMIT 3
+                    """
+                ),
+                {"name": name, "salt_words": SALT_WORDS_RE},
+            ).fetchall()
+    except SQLAlchemyError as exc:
+        logger.error("Failed to match IV drugs for pill drug %s: %s", name, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to match IV drugs") from exc
+
+    response.headers["Cache-Control"] = CACHE_CONTROL
+    return {"results": [{"name": r[0], "slug": r[1]} for r in rows]}
+
+
 def _label_pages(conn, spl_set_id: str) -> dict:
     """Which label pages have content, read from the same cache the pill pages use."""
     flags = {
@@ -128,23 +175,20 @@ def _label_pages(conn, spl_set_id: str) -> dict:
     return flags
 
 
-def _pill_drugs(conn, rxcuis: list) -> list:
-    """Pill drug names on the site with the same ingredient (brand and generic), most pills first."""
-    if not rxcuis:
-        return []
+def _pill_drugs(conn, slug: str) -> list:
+    """Pill drug names on the site that are this IV drug (generic, salt forms, brands), most pills first."""
     rows = conn.execute(
         text(
-            """
-            SELECT DISTINCT ds.name, ds.pill_count
-            FROM public.rxcui_to_ingredient r
-            JOIN public.pillfinder p ON p.rxcui = r.product_rxcui AND p.deleted_at IS NULL AND p.published = true
-            JOIN public.drug_summary ds ON ds.key = lower(btrim(p.medicine_name))
-            WHERE r.ingredient_rxcui = ANY(:rxcuis)
+            f"""
+            SELECT ds.name, ds.pill_count
+            FROM public.iv_drugs i
+            JOIN public.drug_summary ds ON {SAME_DRUG_NAME}
+            WHERE i.slug = :slug
             ORDER BY ds.pill_count DESC, ds.name
             LIMIT 12
             """
         ),
-        {"rxcuis": rxcuis},
+        {"slug": slug, "salt_words": SALT_WORDS_RE},
     ).fetchall()
     return [{"name": r[0], "pill_count": int(r[1])} for r in rows]
 
@@ -173,7 +217,7 @@ def get_iv_drug(response: Response, slug: str = Path(..., pattern=SLUG_PATTERN, 
                 raise HTTPException(status_code=404, detail="IV drug not found")
             m = row._mapping
             label_pages = _label_pages(conn, m["spl_set_id"])
-            pill_drugs = _pill_drugs(conn, list(m["rxcuis"] or []))
+            pill_drugs = _pill_drugs(conn, m["slug"])
     except SQLAlchemyError as exc:
         logger.error("Failed to fetch IV drug %s: %s", slug, exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch IV drug") from exc
@@ -281,7 +325,7 @@ def get_iv_slugs(response: Response):
             rows = conn.execute(
                 text(
                     f"""
-                    SELECT i.slug, i.updated_at,
+                    SELECT i.slug, i.updated_at, (i.card_status = 'approved') AS has_card,
                            (NULLIF(mg.professional_html, '') IS NOT NULL) AS has_professional,
                            (NULLIF(mg.dosage_administration, '') IS NOT NULL OR NULLIF(mg.dosage, '') IS NOT NULL) AS has_dosage,
                            (NULLIF(mg.adverse_reactions, '') IS NOT NULL OR NULLIF(mg.side_effects, '') IS NOT NULL) AS has_adverse
@@ -306,9 +350,10 @@ def get_iv_slugs(response: Response):
         {
             "slug": r[0],
             "updated_at": _iso(r[1]),
-            "has_professional": bool(r[2]),
-            "has_dosage": bool(r[3]),
-            "has_adverse_reactions": bool(r[4]),
+            "has_card": bool(r[2]),
+            "has_professional": bool(r[3]),
+            "has_dosage": bool(r[4]),
+            "has_adverse_reactions": bool(r[5]),
         }
         for r in rows
     ]

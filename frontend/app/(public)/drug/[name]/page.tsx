@@ -1,9 +1,11 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
+import { Droplet } from '../../../components/IvIcons'
 import PillCard from '../../../components/PillCard'
 import type { PillResult, SearchResponse } from '../../../types'
 import { breadcrumbSchema, hubPageSchema, safeJsonLd } from '../../../lib/structured-data'
+import { fetchIvForPillDrug } from '../../../lib/iv'
 import { slugifyDrugName } from '../../../lib/slug'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
@@ -92,7 +94,7 @@ export default async function DrugHubPage(
     redirect(`/drug/${canonicalSlug}`)
   }
   const displayName = toTitleCase(canonicalSlug.replace(/-/g, ' '))
-  const searchResult = await fetchPillsByDrug(decoded)
+  const [searchResult, ivDrugs] = await Promise.all([fetchPillsByDrug(decoded), fetchIvForPillDrug(canonicalSlug)])
   const pills = searchResult.results
 
   if (!displayName) notFound()
@@ -149,6 +151,22 @@ export default async function DrugHubPage(
             <span aria-hidden="true">→</span>
           </Link>
         </div>
+
+        {/* only when a published IV drug has this same name (the API matches by name, never a combination pill) */}
+        {ivDrugs.map((iv) => (
+          <div key={iv.slug} className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-teal-200 bg-teal-50/60 p-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-teal-700">
+              <Droplet className="h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-slate-900">Also given by IV</p>
+              <p className="text-sm text-slate-600">How it is infused, mixing and storage, every strength, shortage and recalls.</p>
+            </div>
+            <Link href={`/iv/${iv.slug}`} className="whitespace-nowrap text-sm font-semibold text-teal-700 hover:underline">
+              {iv.name} IV <span aria-hidden="true">→</span>
+            </Link>
+          </div>
+        ))}
 
         {/* Results */}
         {pills.length === 0 ? (
