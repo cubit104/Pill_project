@@ -24,7 +24,7 @@ from sqlalchemy import text
 
 from routes.admin.auth import log_audit, require_role
 from routes.admin.indexnow import can_submit_pill_slug_to_indexnow, submit_iv_slugs_to_indexnow
-from routes.admin.iv_drugs import EDITORS, REVIEWERS, _actor, _engine, _store_card, approve_stored_card
+from routes.admin.iv_drugs import EDITORS, REVIEWERS, _actor, _card_model, _engine, _store_card, approve_stored_card
 from services import iv_card, iv_seo
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ def _write_state(conn, state: dict, by: str) -> None:
     )
 
 
-def _draft_one(drug_id: str, admin: dict, state: dict) -> str:
+def _draft_one(drug_id: str, admin: dict, state: dict, model: str = iv_card.DEFAULT_MODEL) -> str:
     """Draft and store one card. Returns 'done', 'skipped' (someone got there first) or raises CardError.
     Puts the drug's name in ``state['last']`` as soon as it is known, so a failure says which drug it was."""
     with _engine().connect() as conn:
@@ -92,7 +92,7 @@ def _draft_one(drug_id: str, admin: dict, state: dict) -> str:
         return "skipped"
     name, setid, routes, _version = row
     state["last"] = name
-    card = iv_card.draft_card(name, setid, intravenous=iv_seo.routes_are_intravenous(routes))  # slow: no transaction open
+    card = iv_card.draft_card(name, setid, model=model, intravenous=iv_seo.routes_are_intravenous(routes))  # slow: no transaction open
     with _engine().begin() as conn:
         current = conn.execute(
             text(f"SELECT spl_set_id, label_version FROM public.iv_drugs WHERE id = :id AND {MISSING} FOR UPDATE"), {"id": drug_id}
@@ -113,9 +113,10 @@ def run_bulk_draft(ids: List[str], admin: dict) -> None:
     by = admin.get("email", "")
     state = {"status": "running", "total": len(ids), "done": 0, "failed": 0, "skipped": 0, "last": "", "last_error": "",
              "started_at": _now(), "heartbeat_at": _now(), "started_by": by}  # fmt: skip
+    model = _card_model()  # read once: the whole run uses the model that was chosen when it started
     for drug_id in ids:
         try:
-            outcome = _draft_one(drug_id, admin, state)
+            outcome = _draft_one(drug_id, admin, state, model)
             state["done" if outcome == "done" else "skipped"] += 1
         except iv_card.CardError as exc:
             state["failed"] += 1

@@ -25,7 +25,11 @@ from services.ai_reader import API, MODELS, api_key
 logger = logging.getLogger(__name__)
 
 DAILYMED_XML_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{setid}.xml"
-DEFAULT_MODEL = "gemini-3.1-pro-preview"  # the careful one: a wrong push rate is not worth the saved cent
+DEFAULT_MODEL = "gemini-3.1-pro-preview"  # the careful one; Admin -> Settings can pick another of ai_reader.MODELS
+# How much the model may "think" before it answers. Thinking is billed as output, the dearest rate, and it was most
+# of the cost of a card (more output tokens than the whole label going in). Quoting six facts from one label does
+# not need pages of it; every answer is checked against the label word for word afterwards anyway.
+THINKING_LEVEL = "low"
 AI_TIMEOUT_S = 120
 LABEL_TIMEOUT_S = 60
 MAX_LABEL_CHARS = 60_000
@@ -314,7 +318,11 @@ def ask_ai(prompt: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
         model = DEFAULT_MODEL
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0,
+            "thinkingConfig": {"thinkingLevel": THINKING_LEVEL},
+        },
     }
     try:
         # The key travels in a header, never in the URL, so it cannot end up in logs.

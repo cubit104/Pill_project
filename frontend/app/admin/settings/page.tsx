@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Users, Shield, Camera, Sparkles } from 'lucide-react'
+import { Users, Shield, Camera, Sparkles, Syringe } from 'lucide-react'
 import { createClient } from '../lib/supabase'
 
 export default function AdminSettingsPage() {
@@ -21,6 +21,8 @@ export default function AdminSettingsPage() {
     ai_reader_daily_cap?: unknown
     ai_reader_key_present?: unknown
     ai_reader_models?: unknown
+    iv_card_model?: unknown
+    iv_card_models?: unknown
   }
   const [photoId, setPhotoId] = useState<boolean | null>(null)
   const [readerMode, setReaderMode] = useState<ReaderMode | null>(null)
@@ -31,6 +33,9 @@ export default function AdminSettingsPage() {
   const [aiModels, setAiModels] = useState<string[]>([])
   const [aiCap, setAiCap] = useState('')
   const [aiKeyPresent, setAiKeyPresent] = useState<boolean | null>(null)
+  // IV/injection card drafting (services/iv_card.py): same key, its own model choice.
+  const [cardModel, setCardModel] = useState('')
+  const [cardModels, setCardModels] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [flagError, setFlagError] = useState<string | null>(null)
 
@@ -44,6 +49,10 @@ export default function AdminSettingsPage() {
       setAiModels(Array.isArray(f.ai_reader_models) ? f.ai_reader_models.filter((m): m is string => typeof m === 'string') : [])
       setAiCap(typeof f.ai_reader_daily_cap === 'number' ? String(f.ai_reader_daily_cap) : '')
       setAiKeyPresent(Boolean(f.ai_reader_key_present))
+    }
+    if (typeof f.iv_card_model === 'string') {
+      setCardModel(f.iv_card_model)
+      setCardModels(Array.isArray(f.iv_card_models) ? f.iv_card_models.filter((m): m is string => typeof m === 'string') : [])
     }
   }
 
@@ -69,6 +78,7 @@ export default function AdminSettingsPage() {
     ai_reader_mode?: AiMode
     ai_reader_model?: string
     ai_reader_daily_cap?: number
+    iv_card_model?: string
   }) => {
     setSaving(true)
     setFlagError(null)
@@ -302,6 +312,42 @@ export default function AdminSettingsPage() {
               <p className="mt-2 text-xs text-gray-500">When the cap is reached the second reader stops until calls age out; our reader keeps working.</p>
             </>
           )}
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="bg-sky-100 p-2 rounded-lg">
+              <Syringe className="w-5 h-5 text-sky-700" />
+            </div>
+            <h2 className="font-semibold text-gray-900">IV and injection cards (Google Gemini)</h2>
+          </div>
+          <p className="text-sm text-gray-500 mb-3">
+            Which model drafts the &ldquo;at a glance&rdquo; cards on the IV drugs page, one by one and in bulk. Whatever is
+            chosen, an answer that is not quoted word for word from the FDA label is thrown out, and a card goes live only
+            after a reviewer approves it. Uses the same key as the second reader.
+          </p>
+          {aiMode === null ? (
+            <p className="text-sm text-gray-400">Loading…</p>
+          ) : (
+            <label className="text-sm text-gray-700">
+              <span className="block text-xs font-medium text-gray-500 mb-1">Model</span>
+              <select
+                value={cardModel}
+                disabled={saving}
+                onChange={(e) => void saveFlags({ iv_card_model: e.target.value })}
+                className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+              >
+                {cardModels.map((m) => (
+                  <option key={m} value={m}>
+                    {m.includes('flash')
+                      ? `${m} (cheaper, high daily limit)`
+                      : `${m} (careful reader, about three times the cost, a few hundred drafts a day)`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {flagError && <p className="mt-2 text-sm text-red-600">{flagError}</p>}
         </div>
 
         <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm opacity-60 cursor-not-allowed">

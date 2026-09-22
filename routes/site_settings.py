@@ -4,7 +4,7 @@ GET  /api/features               -> {"photo_id_enabled": bool, "photo_id_reader_
 GET  /api/admin/features         -> the public flags plus the second-reader settings (superuser)
 PUT  /api/admin/features         -> any subset of: photo_id_enabled, photo_id_reader_mode,
                                     reader_trust_base, ai_reader_mode ("off"|"fallback"|"always"),
-                                    ai_reader_model, ai_reader_daily_cap
+                                    ai_reader_model, ai_reader_daily_cap, iv_card_model
 
 Backed by public.site_settings (supabase/migrations/20260903000000_create_site_settings.sql).
 If the table is missing, reads fall back to defaults (feature off) so the
@@ -22,7 +22,7 @@ from sqlalchemy import text
 
 import database
 from routes.admin.auth import require_role
-from services import ai_reader
+from services import ai_reader, iv_card
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -46,6 +46,9 @@ DEFAULTS = {
     "ai_reader_mode": "off",
     "ai_reader_model": ai_reader.DEFAULT_MODEL,
     "ai_reader_daily_cap": ai_reader.DEFAULT_DAILY_CAP,
+    # iv_card_model: which Gemini model drafts the IV/injection "at a glance" cards (services/iv_card.py).
+    # Whatever is chosen, every answer is checked against the label word for word and a reviewer approves the card.
+    "iv_card_model": iv_card.DEFAULT_MODEL,
 }
 FLAG_KEYS = tuple(DEFAULTS)
 # What the public site and the app may see; the rest is for the admin only.
@@ -59,6 +62,7 @@ class FeatureUpdate(BaseModel):
     ai_reader_mode: Literal["off", "fallback", "always"] | None = None
     ai_reader_model: str | None = Field(default=None, max_length=60)
     ai_reader_daily_cap: int | None = Field(default=None, ge=0, le=ai_reader.MAX_DAILY_CAP)
+    iv_card_model: str | None = Field(default=None, max_length=60)
 
 
 def _coerce(key: str, value):
@@ -76,6 +80,8 @@ def _coerce(key: str, value):
         return value if value in ai_reader.MODES else default
     if key == "ai_reader_model":
         return value if value in ai_reader.MODELS else default
+    if key == "iv_card_model":
+        return value if value in iv_card.MODELS else default
     if key == "ai_reader_daily_cap":
         ok = isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= ai_reader.MAX_DAILY_CAP
         return value if ok else default
@@ -147,6 +153,7 @@ def _admin_view(flags: dict) -> dict:
         **flags,
         "ai_reader_key_present": bool(ai_reader.api_key()),
         "ai_reader_models": list(ai_reader.MODELS),
+        "iv_card_models": list(iv_card.MODELS),
     }
 
 
@@ -164,6 +171,8 @@ def update_features(payload: FeatureUpdate, admin: dict = Depends(require_role("
         raise HTTPException(status_code=422, detail="No settings provided")
     if "ai_reader_model" in updates and updates["ai_reader_model"] not in ai_reader.MODELS:
         raise HTTPException(status_code=422, detail=f"Unknown model. Allowed: {', '.join(ai_reader.MODELS)}")
+    if "iv_card_model" in updates and updates["iv_card_model"] not in iv_card.MODELS:
+        raise HTTPException(status_code=422, detail=f"Unknown model. Allowed: {', '.join(iv_card.MODELS)}")
     try:
         with database.db_engine.begin() as conn:
             for key, value in updates.items():
