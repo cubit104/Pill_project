@@ -337,8 +337,8 @@ def ask_ai(prompt: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
         # The API did not take the thinking cap (a level this model lacks, a renamed field). A drafted card matters
         # more than the saved cents: the same question goes once more without the cap, and the log says so.
         logger.warning("iv card: %s refused the thinking cap, drafting without it: %s", model, response.text[:200])
-        body["generationConfig"].pop("thinkingConfig", None)
-        response = _post(model, key, body)
+        without_cap = {k: v for k, v in body["generationConfig"].items() if k != "thinkingConfig"}
+        response = _post(model, key, {**body, "generationConfig": without_cap})
     if response.status_code != 200:
         logger.warning("iv card: AI HTTP %s %s", response.status_code, response.text[:200])
         raise CardError(f"The AI service returned {response.status_code}.")
