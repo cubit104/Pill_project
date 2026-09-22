@@ -115,9 +115,11 @@ def test_the_job_keeps_going_after_a_failure_and_every_card_it_stores_is_a_draft
     card = {"fields": {}, "source": "gemini", "rejected_by_check": []}
     drafts = [card, iv_card.CardError("The label could not be read"), card]
     with patch.object(database, "db_engine", engine), patch.object(iv_bulk, "log_audit"), \
-            patch.object(iv_card, "draft_card", side_effect=drafts) as draft:
+            patch.object(iv_card, "draft_card", side_effect=drafts) as draft, \
+            patch.object(iv_bulk, "_card_model", return_value="gemini-3.8-flash") as chosen:
         iv_bulk.run_bulk_draft([str(uuid.uuid4()) for _ in range(3)], {"id": "u", "email": "editor@example.com"})
-    assert draft.call_count == 3 and draft.call_args.kwargs == {"intravenous": True}
+    assert draft.call_count == 3 and draft.call_args.kwargs == {"model": "gemini-3.8-flash", "intravenous": True}
+    assert chosen.call_count == 1  # the model chosen in Settings, read once for the whole run
     stored = [params for sql, params in log if sql.startswith("UPDATE public.iv_drugs")]
     assert len(stored) == 2 and all(p["status"] == "draft" for p in stored)  # never approved, never published
     final = json.loads([params for sql, params in log if sql.startswith("INSERT INTO public.site_settings")][-1]["v"])

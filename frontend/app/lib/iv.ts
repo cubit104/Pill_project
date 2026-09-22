@@ -183,8 +183,8 @@ export function ivTabHrefs(drug: IvDrug) {
   return {
     ivCardHref: base,
     ivCardLabels: isIntravenous(drug) ? undefined : { label: 'Administration', mobileLabel: 'Admin' },
-    // few IV drugs have an FDA medication guide; that page is not built yet, so no tab for now
-    medicationGuideHref: null as string | null,
+    // few injection labels carry an FDA Medication Guide; the tab shows only when this one does
+    medicationGuideHref: drug.label_pages.has_medguide ? `${base}/medication-guide` : null,
     dosageHref: drug.label_pages.has_dosage ? `${base}/dosage` : null,
     adverseReactionsHref: drug.label_pages.has_adverse_reactions ? `${base}/side-effects` : null,
     professionalHref: `${base}/professional-information`,

@@ -25,7 +25,11 @@ from services.ai_reader import API, MODELS, api_key
 logger = logging.getLogger(__name__)
 
 DAILYMED_XML_URL = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{setid}.xml"
-DEFAULT_MODEL = "gemini-3.1-pro-preview"  # the careful one: a wrong push rate is not worth the saved cent
+DEFAULT_MODEL = "gemini-3.1-pro-preview"  # the careful one; Admin -> Settings can pick another of ai_reader.MODELS
+# How much the model may "think" before it answers. Thinking is billed as output, the dearest rate, and it was most
+# of the cost of a card (more output tokens than the whole label going in). Quoting six facts from one label does
+# not need pages of it; every answer is checked against the label word for word afterwards anyway.
+THINKING_LEVEL = "low"
 AI_TIMEOUT_S = 120
 LABEL_TIMEOUT_S = 60
 MAX_LABEL_CHARS = 60_000
@@ -306,6 +310,14 @@ def build_prompt(drug_name: str, sections: List[Dict[str, str]], intravenous: bo
     )
 
 
+def _post(model: str, key: str, body: Dict[str, Any]):
+    try:
+        # The key travels in a header, never in the URL, so it cannot end up in logs.
+        return requests.post(API.format(model=model), headers={"x-goog-api-key": key}, json=body, timeout=AI_TIMEOUT_S)
+    except requests.RequestException as exc:
+        raise CardError("The AI service did not answer. Try again.") from exc
+
+
 def ask_ai(prompt: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
     key = api_key()
     if not key:
@@ -314,13 +326,19 @@ def ask_ai(prompt: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
         model = DEFAULT_MODEL
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0,
+            "thinkingConfig": {"thinkingLevel": THINKING_LEVEL},
+        },
     }
-    try:
-        # The key travels in a header, never in the URL, so it cannot end up in logs.
-        response = requests.post(API.format(model=model), headers={"x-goog-api-key": key}, json=body, timeout=AI_TIMEOUT_S)
-    except requests.RequestException as exc:
-        raise CardError("The AI service did not answer. Try again.") from exc
+    response = _post(model, key, body)
+    if response.status_code == 400 and "thinking" in (response.text or "").lower():
+        # The API did not take the thinking cap (a level this model lacks, a renamed field). A drafted card matters
+        # more than the saved cents: the same question goes once more without the cap, and the log says so.
+        logger.warning("iv card: %s refused the thinking cap, drafting without it: %s", model, response.text[:200])
+        without_cap = {k: v for k, v in body["generationConfig"].items() if k != "thinkingConfig"}
+        response = _post(model, key, {**body, "generationConfig": without_cap})
     if response.status_code != 200:
         logger.warning("iv card: AI HTTP %s %s", response.status_code, response.text[:200])
         raise CardError(f"The AI service returned {response.status_code}.")
