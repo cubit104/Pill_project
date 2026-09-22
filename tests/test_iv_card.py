@@ -77,11 +77,11 @@ def test_prompt_carries_the_label_text_and_every_question():
     assert all(f'"{key}"' in prompt for key in iv_card.CARD_FIELDS) and "all 6 keys" in prompt
 
 
-def ai_response(payload, status=200):
+def ai_response(payload, status=200, text=""):
     import json
 
     body = {"candidates": [{"content": {"parts": [{"text": json.dumps(payload)}]}}]}
-    return SimpleNamespace(status_code=status, json=lambda: body, text="")
+    return SimpleNamespace(status_code=status, json=lambda: body, text=text)
 
 
 def test_draft_card_runs_the_ai_reply_through_the_quote_check():
@@ -97,6 +97,47 @@ def test_draft_card_runs_the_ai_reply_through_the_quote_check():
     assert card["fields"]["iv_push"]["status"] == "not_stated" and card["rejected_by_check"] == ["iv_push"]
     assert card["label_setid"] == "set-1" and card["source"] == iv_card.DEFAULT_MODEL
     assert post.call_args.kwargs["headers"] == {"x-goog-api-key": "k"} and "key=" not in post.call_args.args[0]
+    assert post.call_args.kwargs["json"]["generationConfig"]["thinkingConfig"] == {"thinkingLevel": iv_card.THINKING_LEVEL}
+
+
+def test_the_chosen_model_drafts_the_card_and_is_named_on_it():
+    reply = {"fields": {"infusion": field()}}
+    with patch.object(iv_card, "fetch_label_sections", return_value=SECTIONS), patch.object(iv_card, "api_key", return_value="k"), patch.object(
+        iv_card.requests, "post", return_value=ai_response(reply)
+    ) as post:
+        card = iv_card.draft_card("Vancomycin", "set-1", model="gemini-3.8-flash")
+        assert "/models/gemini-3.8-flash:" in post.call_args.args[0] and card["source"] == "gemini-3.8-flash"
+        card = iv_card.draft_card("Vancomycin", "set-1", model="gpt-9")  # not one of ours: the default, never a 404
+        assert f"/models/{iv_card.DEFAULT_MODEL}:" in post.call_args.args[0] and card["source"] == iv_card.DEFAULT_MODEL
+
+
+def test_generate_drafts_with_the_model_chosen_in_settings():
+    from routes.admin import iv_drugs as admin_iv
+
+    client, engine, audit, _ = admin_client(drug_row(card_status="none", card=None, routes=["Intravenous"]), role="editor")
+    card = {"fields": {"infusion": field()}, "notes_for_reviewer": "", "rejected_by_check": [], "quotes_checked": 1,
+            "source": "gemini-3.8-flash", "label_setid": "set-1"}  # fmt: skip
+    with engine, audit, patch.object(admin_iv, "read_flags", return_value={"iv_card_model": "gemini-3.8-flash"}), \
+            patch.object(iv_card, "draft_card", return_value=card) as draft:
+        assert client.post(f"/api/admin/iv/drugs/{uuid.uuid4()}/card/generate").status_code == 200
+    assert draft.call_args.kwargs["model"] == "gemini-3.8-flash"
+    with patch.object(admin_iv, "read_flags", return_value={}):
+        assert admin_iv._card_model() == iv_card.DEFAULT_MODEL  # settings table missing or empty: the default
+
+
+def test_a_refused_thinking_cap_is_dropped_and_the_card_still_drafts():
+    """Google may spell the thinking level differently or drop it for a model: that must never stop drafting."""
+    reply = {"fields": {"infusion": field()}}
+    refused = ai_response({}, status=400, text='{"error": {"message": "Invalid value at generation_config.thinking_config"}}')
+    with patch.object(iv_card, "api_key", return_value="k"), patch.object(iv_card.requests, "post", side_effect=[refused, ai_response(reply)]) as post:
+        assert iv_card.ask_ai("p")["fields"] == reply["fields"]
+    first, second = (call.kwargs["json"]["generationConfig"] for call in post.call_args_list)
+    assert "thinkingConfig" in first and "thinkingConfig" not in second and second["responseMimeType"] == "application/json"
+    # any other 400 is reported, not retried
+    with patch.object(iv_card, "api_key", return_value="k"), patch.object(iv_card.requests, "post", return_value=ai_response({}, status=400, text="bad request")) as post:
+        with pytest.raises(iv_card.CardError, match="400"):
+            iv_card.ask_ai("p")
+    assert post.call_count == 1
 
 
 def test_no_key_or_a_bad_reply_is_a_clear_error():

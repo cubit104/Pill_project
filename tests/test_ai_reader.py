@@ -167,6 +167,8 @@ def test_settings_coerce_and_public_view():
     assert ss._coerce("ai_reader_mode", "always") == "always"
     assert ss._coerce("ai_reader_mode", "yes please") == "off"
     assert ss._coerce("ai_reader_model", "gpt-9") == ai_reader.DEFAULT_MODEL
+    assert ss._coerce("iv_card_model", "gpt-9") == "gemini-3.1-pro-preview"  # the card default is the careful model
+    assert ss._coerce("iv_card_model", "gemini-3.8-flash") == "gemini-3.8-flash"
     assert ss._coerce("ai_reader_daily_cap", 250) == 250
     assert ss._coerce("ai_reader_daily_cap", True) == ai_reader.DEFAULT_DAILY_CAP
     assert ss._coerce("ai_reader_daily_cap", -5) == ai_reader.DEFAULT_DAILY_CAP
@@ -179,6 +181,7 @@ def test_feature_update_validates():
         ss.FeatureUpdate(ai_reader_mode="sometimes")
     with pytest.raises(Exception):
         ss.FeatureUpdate(ai_reader_daily_cap=10**9)
+    assert ss.FeatureUpdate(iv_card_model="gemini-3.8-flash").iv_card_model == "gemini-3.8-flash"
     assert ss.FeatureUpdate(ai_reader_mode="fallback", ai_reader_daily_cap=0).ai_reader_daily_cap == 0
 
 

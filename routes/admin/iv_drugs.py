@@ -29,6 +29,7 @@ import database
 from routes.admin.auth import log_audit, require_role
 from routes import iv_drugs as public_iv
 from routes.admin.indexnow import can_submit_pill_slug_to_indexnow, submit_iv_slug_to_indexnow
+from routes.site_settings import read_flags
 from services import iv_card, iv_seo
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,11 @@ def _engine():
     if not database.db_engine and not database.connect_to_database():
         raise HTTPException(status_code=503, detail="Database unavailable")
     return database.db_engine
+
+
+def _card_model() -> str:
+    """The model chosen for card drafting on Admin -> Settings (the default when the settings cannot be read)."""
+    return read_flags().get("iv_card_model") or iv_card.DEFAULT_MODEL
 
 
 def _iso(value):
@@ -177,7 +183,9 @@ def generate_card(drug_id: uuid.UUID, admin: dict = Depends(require_role(*EDITOR
         raise HTTPException(status_code=409, detail="This card is approved and live. Reject it first to draft a new one.")
     try:
         # slow (label download + AI): no transaction held open
-        card = iv_card.draft_card(m["generic_name"], m["spl_set_id"], intravenous=iv_seo.routes_are_intravenous(m["routes"]))
+        card = iv_card.draft_card(
+            m["generic_name"], m["spl_set_id"], model=_card_model(), intravenous=iv_seo.routes_are_intravenous(m["routes"])
+        )
     except iv_card.CardError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
