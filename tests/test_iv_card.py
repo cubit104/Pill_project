@@ -77,11 +77,11 @@ def test_prompt_carries_the_label_text_and_every_question():
     assert all(f'"{key}"' in prompt for key in iv_card.CARD_FIELDS) and "all 6 keys" in prompt
 
 
-def ai_response(payload, status=200):
+def ai_response(payload, status=200, text=""):
     import json
 
     body = {"candidates": [{"content": {"parts": [{"text": json.dumps(payload)}]}}]}
-    return SimpleNamespace(status_code=status, json=lambda: body, text="")
+    return SimpleNamespace(status_code=status, json=lambda: body, text=text)
 
 
 def test_draft_card_runs_the_ai_reply_through_the_quote_check():
@@ -123,6 +123,21 @@ def test_generate_drafts_with_the_model_chosen_in_settings():
     assert draft.call_args.kwargs["model"] == "gemini-3.8-flash"
     with patch.object(admin_iv, "read_flags", return_value={}):
         assert admin_iv._card_model() == iv_card.DEFAULT_MODEL  # settings table missing or empty: the default
+
+
+def test_a_refused_thinking_cap_is_dropped_and_the_card_still_drafts():
+    """Google may spell the thinking level differently or drop it for a model: that must never stop drafting."""
+    reply = {"fields": {"infusion": field()}}
+    refused = ai_response({}, status=400, text='{"error": {"message": "Invalid value at generation_config.thinking_config"}}')
+    with patch.object(iv_card, "api_key", return_value="k"), patch.object(iv_card.requests, "post", side_effect=[refused, ai_response(reply)]) as post:
+        assert iv_card.ask_ai("p")["fields"] == reply["fields"]
+    first, second = (call.kwargs["json"]["generationConfig"] for call in post.call_args_list)
+    assert "thinkingConfig" in first and "thinkingConfig" not in second and second["responseMimeType"] == "application/json"
+    # any other 400 is reported, not retried
+    with patch.object(iv_card, "api_key", return_value="k"), patch.object(iv_card.requests, "post", return_value=ai_response({}, status=400, text="bad request")) as post:
+        with pytest.raises(iv_card.CardError, match="400"):
+            iv_card.ask_ai("p")
+    assert post.call_count == 1
 
 
 def test_no_key_or_a_bad_reply_is_a_clear_error():

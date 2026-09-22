@@ -310,6 +310,14 @@ def build_prompt(drug_name: str, sections: List[Dict[str, str]], intravenous: bo
     )
 
 
+def _post(model: str, key: str, body: Dict[str, Any]):
+    try:
+        # The key travels in a header, never in the URL, so it cannot end up in logs.
+        return requests.post(API.format(model=model), headers={"x-goog-api-key": key}, json=body, timeout=AI_TIMEOUT_S)
+    except requests.RequestException as exc:
+        raise CardError("The AI service did not answer. Try again.") from exc
+
+
 def ask_ai(prompt: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
     key = api_key()
     if not key:
@@ -324,11 +332,13 @@ def ask_ai(prompt: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
             "thinkingConfig": {"thinkingLevel": THINKING_LEVEL},
         },
     }
-    try:
-        # The key travels in a header, never in the URL, so it cannot end up in logs.
-        response = requests.post(API.format(model=model), headers={"x-goog-api-key": key}, json=body, timeout=AI_TIMEOUT_S)
-    except requests.RequestException as exc:
-        raise CardError("The AI service did not answer. Try again.") from exc
+    response = _post(model, key, body)
+    if response.status_code == 400 and "thinking" in (response.text or "").lower():
+        # The API did not take the thinking cap (a level this model lacks, a renamed field). A drafted card matters
+        # more than the saved cents: the same question goes once more without the cap, and the log says so.
+        logger.warning("iv card: %s refused the thinking cap, drafting without it: %s", model, response.text[:200])
+        body["generationConfig"].pop("thinkingConfig", None)
+        response = _post(model, key, body)
     if response.status_code != 200:
         logger.warning("iv card: AI HTTP %s %s", response.status_code, response.text[:200])
         raise CardError(f"The AI service returned {response.status_code}.")
