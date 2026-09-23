@@ -9,9 +9,10 @@ import { TextBadge } from '../components/PillRow'
 import ScreenHeader from '../components/ScreenHeader'
 import Sheet from '../components/Sheet'
 import { ListSkeleton } from '../components/Skeleton'
-import { ApiError, getDrugIndex, type DrugIndexEntry } from '../lib/api'
+import { ApiError, getDrugIndex, suggestDrugs, suggestIvDrugs, type DrugIndexEntry, type DrugRow, type IvSuggestion } from '../lib/api'
 import { useBackHandler } from '../lib/backstack'
 import { ivPath } from '../lib/goals'
+import { useDebouncedValue } from '../lib/hooks'
 import { useLocale, useT } from '../lib/i18n'
 import { hapticTick, hideKeyboard } from '../lib/native'
 
@@ -49,24 +50,115 @@ function SearchBox({ value, onChange, onSubmit, placeholder }: { value: string; 
   )
 }
 
-/** Six letters a row, each a small tinted tile with the letter in the brand colour; the numbers tile takes two. */
+/** Six letters a row on the brand green, white letters, the same look as the website's tiles; the numbers tile takes two. */
 function LetterGrid({ onPick }: { onPick: (letter: string) => void }) {
   const t = useT()
   return (
-    <ul className="grid grid-cols-6 gap-2" aria-label={t('First letter')}>
+    <ul className="grid grid-cols-6 gap-2.5" aria-label={t('First letter')}>
       {LETTERS.map((letter) => (
         <li key={letter} className={letter === '0-9' ? 'col-span-2' : ''}>
           <button
             type="button"
             onClick={() => onPick(letter)}
             aria-label={letter === '0-9' ? t('Numbers') : letter.toUpperCase()}
-            className={`pressable flex w-full items-center justify-center rounded-2xl border border-line bg-gradient-to-br from-brand-tint to-surface shadow-sm active:from-brand active:to-brand active:text-brand-fg ${letter === '0-9' ? 'aspect-[2/1]' : 'aspect-square'}`}
+            className={`pressable relative flex w-full items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-brand to-brand-pressed text-brand-fg shadow-[0_6px_16px_-6px_rgba(5,150,105,0.55)] active:from-brand-pressed active:to-brand-pressed ${letter === '0-9' ? 'aspect-[2/1]' : 'aspect-square'}`}
           >
-            <span className={`font-extrabold uppercase leading-none tracking-tight text-brand active:text-brand-fg ${letter === '0-9' ? 'text-[18px]' : 'text-[24px]'}`}>{letter}</span>
+            <span aria-hidden className="absolute inset-x-0 top-0 h-1/2 bg-white/10" />
+            <span className={`relative font-extrabold uppercase leading-none tracking-tight ${letter === '0-9' ? 'text-[19px]' : 'text-[26px]'}`}>{letter}</span>
           </button>
         </li>
       ))}
     </ul>
+  )
+}
+
+/** The grid's search box: pills and injections matching what is typed, as you type; Enter runs the full name search. */
+function LiveSearch() {
+  const navigate = useNavigate()
+  const t = useT()
+  const [query, setQuery] = useState('')
+  const [focused, setFocused] = useState(false)
+  const term = useDebouncedValue(query.trim(), 150)
+  const [pills, setPills] = useState<DrugRow[]>([])
+  const [injections, setInjections] = useState<IvSuggestion[]>([])
+  const [answered, setAnswered] = useState('')
+
+  useEffect(() => {
+    if (term.length < 2) {
+      setPills([])
+      setInjections([])
+      setAnswered('')
+      return
+    }
+    const ctrl = new AbortController()
+    void Promise.all([
+      suggestDrugs(term, ctrl.signal).catch(() => [] as DrugRow[]),
+      suggestIvDrugs(term, ctrl.signal).catch(() => [] as IvSuggestion[]),
+    ]).then(([p, i]) => {
+      if (ctrl.signal.aborted) return
+      setPills(p)
+      setInjections(i)
+      setAnswered(term)
+    })
+    return () => ctrl.abort()
+  }, [term])
+
+  const go = (path: string) => {
+    void hapticTick()
+    hideKeyboard()
+    navigate(path)
+  }
+  const open = focused && query.trim().length >= 2 && answered === query.trim()
+  const rowClass = 'pressable flex min-h-[48px] w-full items-center gap-3 px-4 py-2 text-left active:bg-brand-tint'
+
+  return (
+    <form
+      className="relative"
+      onSubmit={(e) => {
+        e.preventDefault()
+        const q = query.trim()
+        if (q) go(pillSearchPath(q))
+      }}
+    >
+      <SearchIcon size={16} className="absolute left-3 top-3 text-muted" />
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        placeholder={t('Search all drugs')}
+        enterKeyHint="search"
+        autoComplete="off"
+        className="hairline w-full rounded-xl bg-surface py-2.5 pl-9 pr-3 text-[16px] text-ink"
+      />
+      {open && (
+        <ul className="card absolute inset-x-0 top-full z-30 mt-1 max-h-80 divide-y divide-line overflow-y-auto" role="listbox" aria-label={t('Suggestions')}>
+          {injections.map((s) => (
+            <li key={`iv:${s.slug}`} role="option" aria-selected={false}>
+              <button type="button" onClick={() => go(ivPath(s.slug))} className={rowClass}>
+                <span className="min-w-0 flex-1 truncate text-[16px] font-medium text-ink">{s.label}</span>
+                <TextBadge tone="brand">{t('Injection')}</TextBadge>
+                <ChevronRightIcon size={18} className="flex-none text-muted" />
+              </button>
+            </li>
+          ))}
+          {pills.map((d) => (
+            <li key={d.key} role="option" aria-selected={false}>
+              <button type="button" onClick={() => go(pillSearchPath(d.name))} className={rowClass}>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[16px] font-medium text-ink">{d.name}</span>
+                  {d.brand_names && d.brand_names.toLowerCase() !== d.name.toLowerCase() && <span className="block truncate text-[13px] text-muted">{d.brand_names}</span>}
+                </span>
+                <TextBadge tone="neutral">{t('Pill')}</TextBadge>
+                <ChevronRightIcon size={18} className="flex-none text-muted" />
+              </button>
+            </li>
+          ))}
+          {pills.length === 0 && injections.length === 0 && <li className="px-4 py-3 text-[14px] text-muted">{t('No matches')}</li>}
+        </ul>
+      )}
+    </form>
   )
 }
 
@@ -87,7 +179,6 @@ export default function DrugIndexScreen() {
   const [error, setError] = useState<ApiError | null>(null)
   const [filter, setFilter] = useState('')
   const [shown, setShown] = useState(PAGE)
-  const [query, setQuery] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
   const [both, setBoth] = useState<DrugIndexEntry | null>(null)
 
@@ -163,17 +254,7 @@ export default function DrugIndexScreen() {
         {letter ? (
           <SearchBox value={filter} onChange={(v) => { setFilter(v); setShown(PAGE) }} onSubmit={hideKeyboard} placeholder={t('Filter the {letter} list', { letter: title })} />
         ) : (
-          <SearchBox
-            value={query}
-            onChange={setQuery}
-            onSubmit={() => {
-              const q = query.trim()
-              if (!q) return
-              void hapticTick()
-              navigate(pillSearchPath(q))
-            }}
-            placeholder={t('Search all drugs')}
-          />
+          <LiveSearch />
         )}
       </ScreenHeader>
 
