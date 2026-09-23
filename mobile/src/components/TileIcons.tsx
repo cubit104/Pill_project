@@ -217,3 +217,13 @@ export function CabinetTile(p: TileIconProps) {
     </Duo>
   )
 }
+
+export function AtoZTile(p: TileIconProps) {
+  return (
+    <Duo {...p}>
+      <rect x="6" y="9" width="36" height="30" rx="6" fill={FILL} />
+      <path d="M12.5 31l5-14 5 14M14.6 26h5.8" />
+      <path d="M27 17h9l-9 14h9" stroke={ACCENT} />
+    </Duo>
+  )
+}

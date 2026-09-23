@@ -6,6 +6,7 @@ import { PillThumb } from '../components/PillRow'
 import {
   AboutTile,
   AlertTile,
+  AtoZTile,
   CameraTile,
   DosageTile,
   DrugNameTile,
@@ -42,6 +43,7 @@ const TILES: Tile[] = [
   { label: 'Imprint search', Icon: ImprintTile, go: '/search?type=imprint' },
   { label: 'Drug name', Icon: DrugNameTile, go: '/search?type=drug' },
   { label: 'NDC lookup', Icon: NdcTile, go: '/search?type=ndc' },
+  { label: 'Drugs A–Z', Icon: AtoZTile, go: '/drugs' },
   { label: 'Side effects', Icon: SideEffectsTile, go: goalSearchPath('adverse-reactions') },
   { label: 'Dosage', Icon: DosageTile, go: goalSearchPath('dosage') },
   { label: 'Medication guide', Icon: MedGuideTile, go: goalSearchPath('medication-guide') },

@@ -22,7 +22,7 @@ import { AccountProvider } from "./lib/account";
 import { LangProvider } from "./lib/i18n";
 import { SettingsProvider } from "./lib/settings";
 import { isLegalKind } from "./content/legal";
-import { parsePillPath } from "./lib/goals";
+import { DRUGS_INDEX_PATH, parseIvPath, parsePillPath } from "./lib/goals";
 import { loadWelcomeSeen, saveLastTab, saveWelcomeSeen } from "./lib/storage";
 import AboutScreen from "./screens/AboutScreen";
 import AccountScreen from "./screens/AccountScreen";
@@ -38,6 +38,8 @@ import HomeScreen from "./screens/HomeScreen";
 import IdentifyScreen from "./screens/IdentifyScreen";
 import InteractionsScreen from "./screens/InteractionsScreen";
 import LegalScreen from "./screens/LegalScreen";
+import DrugIndexScreen from "./screens/DrugIndexScreen";
+import IvDrugScreen from "./screens/IvDrugScreen";
 import PillScreen from "./screens/PillScreen";
 import RecentScreen from "./screens/RecentScreen";
 import SearchScreen from "./screens/SearchScreen";
@@ -124,6 +126,8 @@ function NativeBridges() {
         if (u.pathname.startsWith("/search")) navigate(`/search${u.search}`);
         else if (u.pathname.startsWith("/identify")) navigate("/identify");
         else if (parsePillPath(u.pathname)) navigate(u.pathname);
+        else if (parseIvPath(u.pathname)) navigate(u.pathname);
+        else if (u.pathname === DRUGS_INDEX_PATH) navigate(`${DRUGS_INDEX_PATH}${u.search}`);
         else if (u.pathname.startsWith("/interactions"))
           navigate(`/interactions${u.search}`);
         else if (u.pathname.startsWith("/editorial-team")) navigate(u.pathname);
@@ -180,6 +184,8 @@ function Shell() {
   const lastTab = useRef<Tab>("/home");
   if (isTab(pathname)) lastTab.current = pathname;
   const pillRoute = parsePillPath(pathname);
+  const ivRoute = parseIvPath(pathname);
+  const drugIndex = pathname === DRUGS_INDEX_PATH;
   const interactions = pathname === "/interactions";
   const editorial =
     pathname === "/editorial-team" || pathname.startsWith("/editorial-team/");
@@ -202,6 +208,8 @@ function Shell() {
   // Anything pushed over the tabs: the tab panes hide and go inert underneath.
   const overlay =
     pillRoute !== null ||
+    ivRoute !== null ||
+    drugIndex ||
     interactions ||
     editorial ||
     legal !== null ||
@@ -322,6 +330,16 @@ function Shell() {
         {scanBottle && (
           <div className="absolute inset-0 z-30">
             <BottleScanScreen />
+          </div>
+        )}
+        {drugIndex && (
+          <div className="absolute inset-0 z-30">
+            <DrugIndexScreen />
+          </div>
+        )}
+        {ivRoute && (
+          <div className="absolute inset-0 z-30">
+            <IvDrugScreen key={ivRoute.slug} slug={ivRoute.slug} tab={ivRoute.tab} />
           </div>
         )}
         {pillRoute && (

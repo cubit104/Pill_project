@@ -7,11 +7,13 @@ interface Props {
   open: boolean
   onClose: () => void
   title?: string
+  /** Tallest the sheet may grow; the default leaves a sliver of the page above it. */
+  maxHeight?: string
   children: ReactNode
 }
 
 /** Bottom sheet with backdrop, Escape/back-button close and focus containment. */
-export default function Sheet({ open, onClose, title, children }: Props) {
+export default function Sheet({ open, onClose, title, maxHeight = 'calc(100dvh - 24px)', children }: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
   useBackHandler(open, onClose)
 
@@ -48,7 +50,7 @@ export default function Sheet({ open, onClose, title, children }: Props) {
         aria-modal="true"
         aria-label={title}
         className="animate-sheet-up relative w-full max-w-lg overflow-y-auto rounded-t-[28px] bg-elevated shadow-sheet"
-        style={{ paddingBottom: 'calc(var(--safe-bottom) + 16px + var(--kb, 0px))', maxHeight: 'calc(100dvh - 24px)' }}
+        style={{ paddingBottom: 'calc(var(--safe-bottom) + 16px + var(--kb, 0px))', maxHeight }}
       >
         <div className="mx-auto mt-2.5 h-1.5 w-10 rounded-full bg-line" aria-hidden />
         <div className="flex items-start justify-between gap-3 px-5 pt-3">

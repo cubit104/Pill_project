@@ -1,87 +1,66 @@
 /**
- * Find a doctor / Pharmacies / Urgent care: the free NPPES NPI Registry (CMS),
- * the official list of every US clinician and health organisation. No key, no cost.
+ * Find a doctor / Pharmacies / Urgent care, served by PillSeek's own finder
+ * (`/api/providers/*`, see Pill_backend/services/providers.py): the official
+ * NPPES NPI Registry ranked by distance, plus the extra details the backend
+ * caches — CMS "Doctors & Clinicians" (school, years in practice, hospitals,
+ * Medicare, telehealth) and Google (rating, hours, website). The website's
+ * Find a doctor page uses the same endpoints, so both show the same answers.
  *
  * Three ways in: a ZIP, a city (live-filled from the bundled ZIP table), or the
- * phone's location (nearest ZIP). Results are ranked by distance from that
- * point using the same table. Natively the call goes through CapacitorHttp (no
- * CORS in the WebView); in a browser it goes through the dev-server proxy.
+ * phone's location, and a by-name search for doctors.
  */
-import { Capacitor, CapacitorHttp } from '@capacitor/core'
+import { Capacitor } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
-import { ApiError } from './api'
-import { distanceMiles, findCity, nearbyZips, nearestZip, type ZipTable } from './geo'
+import { ApiError, request } from './api'
 
-export const NPI_API = Capacitor.isNativePlatform() ? 'https://npiregistry.cms.hhs.gov/api/' : '/npi-api/'
-const TIMEOUT_MS = 15_000
 const prefsKey = (kind: FinderKind) => (kind === 'doctors' ? 'doctors.prefs' : `doctors.prefs.${kind}`)
-/** The registry caps one query at 200; we ask for that and rank ourselves. */
-const PAGE = '200'
 /** What we show after ranking: enough to scroll, not the whole county. */
 export const MAX_RESULTS = 100
-/**
- * A ZIP search asks the registry for each of the nearest ZIPs separately: one
- * wide "750*" query is capped at 200 rows in no particular order and misses the
- * clinic next door in a big metro.
- */
-const NEARBY_ZIPS = 10
-const NEARBY_MILES = 12
+const SEARCH_TIMEOUT_MS = 25_000
+/** CMS takes 5–15 s the first time a provider is opened; after that the backend has it cached. */
+const EXTRAS_TIMEOUT_MS = 30_000
 
 export interface Specialty {
   key: string
   /** English label; rendered through t() so Spanish picks it up. */
   label: string
-  /**
-   * NPPES taxonomy search term. The registry matches on words, so "Psychiatry"
-   * also returns neurologists; `match` then keeps only the specialties we mean.
-   */
-  taxonomy: string
-  match: RegExp
-  /** NPI-1 = individual clinician, NPI-2 = organisation (pharmacy, urgent care). */
-  kind: 'NPI-1' | 'NPI-2'
-  /**
-   * Organisation-name wildcard for a second query, for places registered under
-   * a generic taxonomy ("Urgent Care 360" is filed as General Practice).
-   */
-  nameHint?: string
 }
 
+/** Keys match the backend's list (services/providers.py SPECIALTIES). */
 export const SPECIALTIES: Specialty[] = [
-  // Everyone with an NPI near the point: physicians, NPs, PAs, therapists... the card says which.
-  { key: 'all', label: 'All providers', taxonomy: '', match: /./, kind: 'NPI-1' },
-  { key: 'family', label: 'Family doctor', taxonomy: 'Family Medicine', match: /Family/, kind: 'NPI-1' },
-  { key: 'internal', label: 'Internal medicine', taxonomy: 'Internal Medicine', match: /^Internal Medicine/, kind: 'NPI-1' },
-  { key: 'allergy', label: 'Allergist', taxonomy: 'Allergy & Immunology', match: /Allergy/, kind: 'NPI-1' },
-  { key: 'cardiology', label: 'Cardiologist', taxonomy: 'Cardiovascular Disease', match: /Cardiovascular|Cardiolog/, kind: 'NPI-1' },
-  { key: 'chiro', label: 'Chiropractor', taxonomy: 'Chiropractor', match: /Chiropract/, kind: 'NPI-1' },
-  { key: 'dentist', label: 'Dentist', taxonomy: 'Dentist*', match: /Dentist/, kind: 'NPI-1' },
-  { key: 'dermatology', label: 'Dermatologist', taxonomy: 'Dermatology', match: /Dermatolog/, kind: 'NPI-1' },
-  { key: 'endo', label: 'Endocrinologist', taxonomy: 'Endocrinology', match: /Endocrinolog/, kind: 'NPI-1' },
-  { key: 'ent', label: 'ENT (ear, nose, throat)', taxonomy: 'Otolaryngology', match: /Otolaryngolog/, kind: 'NPI-1' },
-  { key: 'eye', label: 'Eye doctor (ophthalmologist)', taxonomy: 'Ophthalmology', match: /Ophthalmolog/, kind: 'NPI-1' },
-  { key: 'gastro', label: 'Gastroenterologist', taxonomy: 'Gastroenterology', match: /Gastroenterolog/, kind: 'NPI-1' },
-  { key: 'neurology', label: 'Neurologist', taxonomy: 'Neurology', match: /,\s*[^,]*Neurology[^,]*$/, kind: 'NPI-1' },
-  { key: 'np', label: 'Nurse practitioner', taxonomy: 'Nurse Practitioner', match: /Nurse Practitioner/, kind: 'NPI-1' },
-  { key: 'obgyn', label: 'OB/GYN', taxonomy: 'Obstetrics & Gynecology', match: /Obstetric|Gynecolog/, kind: 'NPI-1' },
-  // "Oncology" alone mostly returns oncology pharmacists and nurses; keep physicians.
-  { key: 'oncology', label: 'Oncologist', taxonomy: 'Oncology', match: /^(?!Pharmac|Nurse|Registered Nurse|Physician Assistant|Clinical Nurse).*Oncolog/, kind: 'NPI-1' },
-  { key: 'optometrist', label: 'Optometrist (glasses & contacts)', taxonomy: 'Optometrist', match: /Optometr/, kind: 'NPI-1' },
-  { key: 'ortho', label: 'Orthopedic surgeon', taxonomy: 'Orthopaedic Surgery', match: /Orthop/, kind: 'NPI-1' },
-  { key: 'pediatrics', label: 'Pediatrician', taxonomy: 'Pediatrics', match: /Pediatric/, kind: 'NPI-1' },
-  { key: 'pt', label: 'Physical therapist', taxonomy: 'Physical Therapist', match: /Physical Therap/, kind: 'NPI-1' },
-  { key: 'pa', label: 'Physician assistant', taxonomy: 'Physician Assistant', match: /Physician Assistant/, kind: 'NPI-1' },
-  { key: 'podiatry', label: 'Podiatrist (feet)', taxonomy: 'Podiatrist', match: /Podiatr/, kind: 'NPI-1' },
-  { key: 'psychiatry', label: 'Psychiatrist', taxonomy: 'Psychiatry', match: /^Psychiatry$|,\s*[^,]*Psychiatry[^,]*$/, kind: 'NPI-1' },
-  { key: 'psychologist', label: 'Psychologist', taxonomy: 'Psychologist', match: /Psycholog/, kind: 'NPI-1' },
-  { key: 'pulmo', label: 'Pulmonologist (lungs)', taxonomy: 'Pulmonary Disease', match: /Pulmonary/, kind: 'NPI-1' },
-  { key: 'rheum', label: 'Rheumatologist', taxonomy: 'Rheumatology', match: /Rheumatolog/, kind: 'NPI-1' },
-  { key: 'counselor', label: 'Therapist / counselor', taxonomy: 'Counselor', match: /Counselor/, kind: 'NPI-1' },
-  { key: 'urology', label: 'Urologist', taxonomy: 'Urology', match: /\bUrolog/, kind: 'NPI-1' },
+  { key: 'all', label: 'All providers' },
+  { key: 'family', label: 'Family doctor' },
+  { key: 'internal', label: 'Internal medicine' },
+  { key: 'allergy', label: 'Allergist' },
+  { key: 'cardiology', label: 'Cardiologist' },
+  { key: 'chiro', label: 'Chiropractor' },
+  { key: 'dentist', label: 'Dentist' },
+  { key: 'dermatology', label: 'Dermatologist' },
+  { key: 'endo', label: 'Endocrinologist' },
+  { key: 'ent', label: 'ENT (ear, nose, throat)' },
+  { key: 'eye', label: 'Eye doctor (ophthalmologist)' },
+  { key: 'gastro', label: 'Gastroenterologist' },
+  { key: 'neurology', label: 'Neurologist' },
+  { key: 'np', label: 'Nurse practitioner' },
+  { key: 'obgyn', label: 'OB/GYN' },
+  { key: 'oncology', label: 'Oncologist' },
+  { key: 'optometrist', label: 'Optometrist (glasses & contacts)' },
+  { key: 'ortho', label: 'Orthopedic surgeon' },
+  { key: 'pediatrics', label: 'Pediatrician' },
+  { key: 'pt', label: 'Physical therapist' },
+  { key: 'pa', label: 'Physician assistant' },
+  { key: 'podiatry', label: 'Podiatrist (feet)' },
+  { key: 'psychiatry', label: 'Psychiatrist' },
+  { key: 'psychologist', label: 'Psychologist' },
+  { key: 'pulmo', label: 'Pulmonologist (lungs)' },
+  { key: 'rheum', label: 'Rheumatologist' },
+  { key: 'counselor', label: 'Therapist / counselor' },
+  { key: 'urology', label: 'Urologist' },
 ]
 
 /** Organisations with their own Home tiles, not in the doctor pulldown. */
-export const PHARMACY: Specialty = { key: 'pharmacy', label: 'Pharmacy', taxonomy: 'Pharmacy*', match: /Pharmac/, kind: 'NPI-2', nameHint: '*pharmacy*' }
-export const URGENT_CARE: Specialty = { key: 'urgent', label: 'Urgent care', taxonomy: 'Urgent Care', match: /Urgent Care/, kind: 'NPI-2', nameHint: '*urgent*' }
+export const PHARMACY: Specialty = { key: 'pharmacy', label: 'Pharmacy' }
+export const URGENT_CARE: Specialty = { key: 'urgent', label: 'Urgent care' }
 
 export type FinderKind = 'doctors' | 'pharmacy' | 'urgent'
 
@@ -113,13 +92,14 @@ export interface Taxonomy {
   primary: boolean
 }
 
-export interface Address {
-  address: string
-  city: string
-  state: string
-  zip: string
-  phone: string
-  fax: string
+/** What Google already told the backend about a listing (only once someone opened it). */
+export interface GoogleSummary {
+  rating: number | null
+  ratings_count: number | null
+  open_now: boolean | null
+  /** Monday first, "Monday: 8:00 AM – 5:00 PM"; empty when unknown. */
+  hours: string[]
+  website: string
 }
 
 export interface Doctor {
@@ -138,12 +118,45 @@ export interface Doctor {
   phone: string
   organisation: boolean
   taxonomies: Taxonomy[]
-  mailing: Address | null
   gender: 'M' | 'F' | ''
   /** Year first registered, "" when unknown. */
   since: string
-  /** Set by ranking; null when the ZIP is unknown to the table. */
+  /** Miles from the search point; null for name searches. */
   distanceMiles: number | null
+  google: GoogleSummary | null
+}
+
+/** CMS "Doctors & Clinicians" facts; clinicians only. */
+export interface CmsDetails {
+  primary_specialty: string
+  secondary_specialties: string[]
+  medical_school: string
+  graduation_year: number | null
+  years_in_practice: number | null
+  medicare: boolean
+  telehealth: boolean
+  group_name: string
+  group_size: number | null
+  hospitals: string[]
+}
+
+export interface GoogleDetails extends GoogleSummary {
+  name: string
+  phone: string
+  maps_url: string
+}
+
+export interface ProviderDetails {
+  provider: Doctor
+  cms: CmsDetails | null
+  google: GoogleDetails | null
+  /** True when the slow details are still to come: fetch `providerExtras`. */
+  extras_pending: boolean
+}
+
+export interface ProviderExtras {
+  cms: CmsDetails | null
+  google: GoogleDetails | null
 }
 
 export function isValidZip(zip: string): boolean {
@@ -162,12 +175,7 @@ export function mapsUrl(a: { address: string; city: string; state: string; zip: 
   return `https://www.google.com/maps/search/?api=1&query=${q}`
 }
 
-/** The registry's own public page for a provider. */
-export function nppesUrl(npi: string): string {
-  return `https://npiregistry.cms.hhs.gov/provider-view/${npi}`
-}
-
-/** Plain text for the share sheet: who, what, where, phone, registry link. */
+/** Plain text for the share sheet: who, what, where, phone, website. */
 export function shareText(d: Doctor): string {
   const lines = [
     [d.name, d.credential].filter(Boolean).join(', '),
@@ -175,180 +183,25 @@ export function shareText(d: Doctor): string {
     d.address,
     `${d.city}, ${d.state} ${d.zip}`,
     d.phone,
+    d.google?.website ?? '',
   ]
   return lines.filter(Boolean).join('\n')
 }
 
-function titleCase(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/\b([a-z])/g, (m) => m.toUpperCase())
-    .replace(/\bMd\b/g, 'MD')
-    .replace(/\bDo\b/g, 'DO')
-    .replace(/\bLlc\b/g, 'LLC')
-    .replace(/\bPc\b/g, 'PC')
+/** "8:00 AM – 5:00 PM" for today from Google's Monday-first week; null when unknown. */
+export function todaysHours(hours: string[], now: Date = new Date()): string | null {
+  if (!hours.length) return null
+  const idx = (now.getDay() + 6) % 7 // Monday = 0
+  const line = hours[idx] ?? hours[0]!
+  return line.replace(/^[A-Za-z]+:\s*/, '')
 }
 
-/** NPPES returns 9-digit ZIPs without a dash; show the 5-digit part. */
-function shortZip(zip: string): string {
-  return (zip || '').replace(/\D/g, '').slice(0, 5)
+/** "https://www.example.com/" → "example.com" for a button label. */
+export function websiteLabel(url: string): string {
+  return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '')
 }
 
-function toAddress(a: Record<string, unknown>): Address {
-  return {
-    address: titleCase([a.address_1, a.address_2].filter(Boolean).map(String).join(', ')),
-    city: titleCase(String(a.city ?? '')),
-    state: String(a.state ?? ''),
-    zip: shortZip(String(a.postal_code ?? '')),
-    phone: String(a.telephone_number ?? ''),
-    fax: String(a.fax_number ?? ''),
-  }
-}
-
-/**
- * Turn one NPPES search response into display rows. Pure, so it is unit-tested:
- * prefers the practice (LOCATION) address, drops entries without one, title-cases
- * the shouted names, keeps every specialty for the detail sheet, dedupes by NPI.
- */
-export function parseNpiResponse(json: unknown): Doctor[] {
-  const results = (json as { results?: unknown[] } | null)?.results
-  if (!Array.isArray(results)) return []
-  const out: Doctor[] = []
-  const seen = new Set<string>()
-  for (const raw of results) {
-    const r = raw as {
-      number?: number | string
-      enumeration_type?: string
-      basic?: Record<string, unknown>
-      addresses?: Array<Record<string, unknown>>
-      taxonomies?: Array<Record<string, unknown>>
-    }
-    const npi = String(r.number ?? '')
-    if (!npi || seen.has(npi)) continue
-    const addresses = r.addresses ?? []
-    const locRaw = addresses.find((a) => a.address_purpose === 'LOCATION') ?? addresses[0]
-    if (!locRaw || !locRaw.address_1) continue
-    const basic = r.basic ?? {}
-    const organisation = r.enumeration_type === 'NPI-2'
-    const orgName = String(basic.organization_name ?? basic.name ?? '')
-    const person = [basic.first_name, basic.last_name].filter(Boolean).map(String).join(' ')
-    const name = titleCase(organisation ? orgName || person : person || orgName)
-    if (!name.trim()) continue
-    const taxonomies: Taxonomy[] = (r.taxonomies ?? [])
-      .filter((t) => t.desc)
-      .map((t) => ({ desc: String(t.desc), state: String(t.state ?? ''), license: String(t.license ?? ''), primary: t.primary === true }))
-    const primary = taxonomies.find((t) => t.primary) ?? taxonomies[0]
-    const loc = toAddress(locRaw)
-    const mailRaw = addresses.find((a) => a.address_purpose === 'MAILING' && a !== locRaw)
-    const mailing = mailRaw?.address_1 ? toAddress(mailRaw) : null
-    const gender = basic.gender === 'M' || basic.gender === 'F' ? basic.gender : ''
-    const since = /^\d{4}/.exec(String(basic.enumeration_date ?? ''))?.[0] ?? ''
-    seen.add(npi)
-    out.push({
-      npi,
-      name,
-      last: organisation ? '' : titleCase(String(basic.last_name ?? '')),
-      credential: String(basic.credential ?? '').replace(/\./g, '').toUpperCase(),
-      specialty: primary?.desc ?? '',
-      address: loc.address,
-      city: loc.city,
-      state: loc.state,
-      zip: loc.zip,
-      phone: loc.phone,
-      organisation,
-      taxonomies,
-      mailing: mailing && (mailing.address !== loc.address || mailing.zip !== loc.zip) ? mailing : null,
-      gender,
-      since,
-      distanceMiles: null,
-    })
-  }
-  return out
-}
-
-/**
- * Keep rows that carry the specialty asked for in any of their taxonomies (not
- * only the primary one), and show that matching specialty on the card rather
- * than an unrelated primary ("Emergency Medicine" on a family-doctor search).
- */
-export function filterBySpecialty(rows: Doctor[], sp: Specialty): Doctor[] {
-  const out: Doctor[] = []
-  for (const d of rows) {
-    if ((d.taxonomies.length === 0 && !d.specialty) || sp.match.test(d.specialty)) {
-      out.push(d)
-      continue
-    }
-    const hit = d.taxonomies.find((t) => sp.match.test(t.desc))
-    if (hit) out.push({ ...d, specialty: hit.desc })
-  }
-  return out
-}
-
-/** Union of several result lists, first occurrence of each NPI wins. */
-export function mergeResults(lists: Doctor[][]): Doctor[] {
-  const seen = new Set<string>()
-  const out: Doctor[] = []
-  for (const list of lists) {
-    for (const d of list) {
-      if (seen.has(d.npi)) continue
-      seen.add(d.npi)
-      out.push(d)
-    }
-  }
-  return out
-}
-
-export interface Origin {
-  lat: number
-  lon: number
-  /** "San Francisco, CA 94107" or "your location" */
-  label: string
-}
-
-/** Nearest first; rows whose ZIP the table does not know go last, in their original order. */
-export function rankByDistance(rows: Doctor[], origin: Origin | null, table: ZipTable | null): Doctor[] {
-  if (!origin || !table) return rows.map((d) => ({ ...d, distanceMiles: null }))
-  const ranked = rows.map((d) => {
-    const z = table.byZip.get(d.zip)
-    return { ...d, distanceMiles: z ? distanceMiles(origin.lat, origin.lon, z.lat, z.lon) : null }
-  })
-  const known = ranked.filter((d) => d.distanceMiles !== null).sort((a, b) => a.distanceMiles! - b.distanceMiles!)
-  return [...known, ...ranked.filter((d) => d.distanceMiles === null)]
-}
-
-// ---- Fetching ---------------------------------------------------------------
-
-async function fetchJson(url: string, params: Record<string, string>, signal?: AbortSignal): Promise<unknown> {
-  if (Capacitor.isNativePlatform()) {
-    const res = await CapacitorHttp.get({
-      url,
-      params,
-      headers: { Accept: 'application/json' },
-      connectTimeout: TIMEOUT_MS,
-      readTimeout: TIMEOUT_MS,
-      responseType: 'json',
-    })
-    if (res.status < 200 || res.status >= 300) throw new ApiError('server', 'The doctor directory is not responding. Try again later.')
-    return typeof res.data === 'string' ? JSON.parse(res.data) : res.data
-  }
-  const qs = new URLSearchParams(params).toString()
-  const res = await fetch(`${url}?${qs}`, { headers: { Accept: 'application/json' }, signal })
-  if (!res.ok) throw new ApiError('server', 'The doctor directory is not responding. Try again later.')
-  return res.json()
-}
-
-/** One registry call. `byName` searches organisation names instead of the taxonomy and skips the taxonomy filter. */
-async function query(sp: Specialty, extra: Record<string, string>, signal?: AbortSignal, byName = false): Promise<Doctor[]> {
-  const base: Record<string, string> = { version: '2.1', enumeration_type: sp.kind, limit: PAGE }
-  if (!byName && sp.taxonomy) base.taxonomy_description = sp.taxonomy
-  const json = await fetchJson(NPI_API, { ...base, ...extra }, signal)
-  const errors = (json as { Errors?: Array<{ description?: string }> } | null)?.Errors
-  if (Array.isArray(errors) && errors.length > 0) {
-    throw new ApiError('server', errors[0]?.description ?? 'The doctor directory rejected the search.')
-  }
-  const rows = parseNpiResponse(json)
-  return byName ? rows : filterBySpecialty(rows, sp)
-}
+// ---- Searching ----------------------------------------------------------------
 
 export type SearchMode = 'zip' | 'city' | 'near' | 'name'
 
@@ -359,30 +212,69 @@ export interface NameQuery {
   state?: string
 }
 
+export interface Position {
+  lat: number
+  lon: number
+}
+
 export interface DoctorSearch {
   specialty: Specialty
   mode: SearchMode
-  /** zip and near modes */
+  /** zip mode */
   zip?: string
   /** city mode */
   city?: { city: string; state: string }
+  /** near mode: the phone's fix */
+  position?: Position
   /** name mode (any specialty) */
   name?: NameQuery
 }
 
 /**
- * Registry parameters for a name search. A trailing `*` makes it a prefix match,
- * so "Ander" finds Anderson; the registry needs at least two letters before it.
+ * Query parameters for a name search: the backend does a prefix match, so
+ * "Ander" finds Anderson; it needs at least two letters of the last name.
  */
 export function nameParams(n: NameQuery): Record<string, string> | null {
   const last = n.last.trim().replace(/[^A-Za-z' -]/g, '')
   if (last.length < 2) return null
-  const out: Record<string, string> = { last_name: `${last}*` }
+  const out: Record<string, string> = { last }
   const first = (n.first ?? '').trim().replace(/[^A-Za-z' -]/g, '')
-  if (first.length >= 2) out.first_name = `${first}*`
+  if (first.length >= 2) out.first = first
   const state = (n.state ?? '').trim().toUpperCase()
   if (/^[A-Z]{2}$/.test(state)) out.state = state
   return out
+}
+
+/** The `/api/providers/search` query string for one search. Throws the same friendly errors the screen shows. */
+export function searchParamsFor(kind: FinderKind, q: DoctorSearch): URLSearchParams {
+  const p = new URLSearchParams({ kind, specialty: q.specialty.key })
+  if (q.mode === 'name') {
+    const params = q.name ? nameParams(q.name) : null
+    if (!params) throw new ApiError('bad_request', 'Enter at least two letters of the last name.', { retryable: false })
+    for (const [k, v] of Object.entries(params)) p.set(k, v)
+  } else if (q.mode === 'city') {
+    if (!q.city?.city || !q.city.state) throw new ApiError('bad_request', 'Pick a city from the list.', { retryable: false })
+    p.set('city', q.city.city)
+    p.set('state', q.city.state)
+  } else if (q.mode === 'near') {
+    if (!q.position) throw new ApiError('bad_request', 'Could not get your location. Try again, or search by ZIP or city.', { retryable: true })
+    p.set('lat', q.position.lat.toFixed(5))
+    p.set('lon', q.position.lon.toFixed(5))
+  } else {
+    const zip = (q.zip ?? '').trim()
+    if (!isValidZip(zip)) throw new ApiError('bad_request', 'Enter a 5-digit ZIP code.', { retryable: false })
+    p.set('zip', zip)
+  }
+  return p
+}
+
+export interface Origin {
+  lat: number
+  lon: number
+  /** "San Francisco, CA 94107" or "your location" */
+  label: string
+  /** The ZIP the search was anchored to (nearest one for "near me"). */
+  zip: string
 }
 
 export interface DoctorResults {
@@ -390,62 +282,41 @@ export interface DoctorResults {
   origin: Origin | null
 }
 
-/**
- * ZIP / near: the nearest ZIPs around the point, one registry call each (in
- * parallel), plus a name search in the town for organisations filed under a
- * generic taxonomy; merged and ranked from the ZIP's centroid. City: the
- * registry's own city+state filter, ranked from the city's centroid.
- */
-export async function searchDoctors(q: DoctorSearch, table: ZipTable | null, signal?: AbortSignal): Promise<DoctorResults> {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    throw new ApiError('offline', 'No internet connection. Reconnect and try again.')
+interface SearchResponse {
+  origin: Origin | null
+  results: Doctor[]
+  count: number
+}
+
+function normalise(d: Doctor): Doctor {
+  const g = d.google
+  return {
+    ...d,
+    taxonomies: Array.isArray(d.taxonomies) ? d.taxonomies : [],
+    distanceMiles: typeof d.distanceMiles === 'number' ? d.distanceMiles : null,
+    google: g ? { rating: g.rating ?? null, ratings_count: g.ratings_count ?? null, open_now: g.open_now ?? null, hours: g.hours ?? [], website: g.website ?? '' } : null,
   }
-  try {
-    let lists: Doctor[][]
-    let origin: Origin | null = null
-    if (q.mode === 'name') {
-      const params = q.name ? nameParams(q.name) : null
-      if (!params) throw new ApiError('bad_request', 'Enter at least two letters of the last name.', { retryable: false })
-      // The registry also matches former names, which shows people under a different surname; keep
-      // the ones whose current surname is what was typed, in alphabetical order.
-      const typed = q.name!.last.trim().toLowerCase()
-      const rows = (await query(ALL_PROVIDERS, params, signal, true))
-        .filter((d) => d.last.toLowerCase().startsWith(typed))
-        .sort((a, b) => a.last.localeCompare(b.last) || a.name.localeCompare(b.name))
-      lists = [rows]
-    } else if (q.mode === 'city') {
-      const c = q.city
-      if (!c?.city || !c.state) throw new ApiError('bad_request', 'Pick a city from the list.', { retryable: false })
-      const hit = table ? findCity(table, c.city, c.state) : null
-      origin = hit ? { lat: hit.lat, lon: hit.lon, label: `${hit.city}, ${hit.state}` } : null
-      const jobs = [query(q.specialty, { city: c.city, state: c.state }, signal)]
-      if (q.specialty.nameHint) jobs.push(query(q.specialty, { organization_name: q.specialty.nameHint, city: c.city, state: c.state }, signal, true))
-      lists = await Promise.all(jobs)
-    } else {
-      const zip = (q.zip ?? '').trim()
-      if (!isValidZip(zip)) throw new ApiError('bad_request', 'Enter a 5-digit ZIP code.', { retryable: false })
-      const z = table?.byZip.get(zip) ?? null
-      origin = z ? { lat: z.lat, lon: z.lon, label: q.mode === 'near' ? `${z.city}, ${z.state}` : `${z.city}, ${z.state} ${z.zip}` } : null
-      const codes = table && z ? nearbyZips(table, z.lat, z.lon, NEARBY_ZIPS, NEARBY_MILES).map((r) => r.zip) : []
-      if (!codes.includes(zip)) codes.unshift(zip)
-      const jobs = codes.map((code) => query(q.specialty, { postal_code: `${code}*` }, signal))
-      if (!table) jobs.push(query(q.specialty, { postal_code: `${zip.slice(0, 3)}*` }, signal)) // no table: fall back to the wider area
-      if (q.specialty.nameHint && z) jobs.push(query(q.specialty, { organization_name: q.specialty.nameHint, city: z.city, state: z.state }, signal, true))
-      lists = await Promise.all(jobs)
-    }
-    return { doctors: rankByDistance(mergeResults(lists), origin, table).slice(0, MAX_RESULTS), origin }
-  } catch (err) {
-    if (err instanceof ApiError) throw err
-    throw new ApiError('unknown', 'Could not reach the doctor directory. Check your connection and try again.', { retryable: true })
-  }
+}
+
+/** One finder search, ranked nearest first by the backend (60-mile radius for ZIP / city / near me). */
+export async function searchDoctors(kind: FinderKind, q: DoctorSearch, signal?: AbortSignal): Promise<DoctorResults> {
+  const params = searchParamsFor(kind, q) // validation errors before any network
+  const res = await request<SearchResponse>(`/api/providers/search?${params.toString()}`, { signal, timeoutMs: SEARCH_TIMEOUT_MS })
+  const rows = Array.isArray(res.results) ? res.results.map(normalise) : []
+  return { doctors: rows.slice(0, MAX_RESULTS), origin: res.origin ?? null }
+}
+
+/** The registry record plus whatever details the backend already holds (fast). */
+export function providerDetails(npi: string, signal?: AbortSignal): Promise<ProviderDetails> {
+  return request<ProviderDetails>(`/api/providers/${encodeURIComponent(npi)}`, { signal, timeoutMs: SEARCH_TIMEOUT_MS })
+}
+
+/** CMS + Google details; slow the first time anyone opens this provider, cached after. */
+export function providerExtras(npi: string, signal?: AbortSignal): Promise<ProviderExtras> {
+  return request<ProviderExtras>(`/api/providers/${encodeURIComponent(npi)}/extras`, { signal, timeoutMs: EXTRAS_TIMEOUT_MS })
 }
 
 // ---- Location -----------------------------------------------------------------
-
-export interface Position {
-  lat: number
-  lon: number
-}
 
 /** One fix from the phone (or the browser). Asks permission the first time. */
 export async function getPosition(): Promise<Position> {
@@ -470,10 +341,6 @@ export async function getPosition(): Promise<Position> {
     }
     throw new ApiError('unknown', 'Could not get your location. Try again, or search by ZIP or city.', { retryable: true })
   }
-}
-
-export function nearestZipTo(table: ZipTable, pos: Position): string | null {
-  return nearestZip(table, pos.lat, pos.lon)?.zip ?? null
 }
 
 // ---- Remembered search --------------------------------------------------------
