@@ -68,7 +68,7 @@ function subtitle(pill: PillDetail): string {
 }
 
 /** A cross-reference inside label text was tapped: id is the target heading id. */
-type RefHandler = (id: string) => void
+export type RefHandler = (id: string) => void
 
 /** Sanitised label HTML inside a card; in-label links become jumps via `onRef`. */
 function LabelHtml({ html, warning = false, dropLeadingHeading = false, onRef }: { html: string | null; warning?: boolean; dropLeadingHeading?: boolean; onRef?: RefHandler }) {
@@ -133,7 +133,7 @@ function Collapsible({
   )
 }
 
-function BoxedWarning({ html, onRef }: { html: string | null; onRef?: RefHandler }) {
+export function BoxedWarning({ html, onRef }: { html: string | null; onRef?: RefHandler }) {
   const t = useT()
   if (!html) return null
   return (
@@ -178,7 +178,7 @@ function NothingHere({ label, onOpenSite }: { label: string; onOpenSite: () => v
   )
 }
 
-function DosageBody({ data, onRef }: { data: DosageContent; onRef: RefHandler }) {
+export function DosageBody({ data, onRef }: { data: DosageContent; onRef: RefHandler }) {
   const t = useT()
   return (
     <>
@@ -203,7 +203,7 @@ function DosageBody({ data, onRef }: { data: DosageContent; onRef: RefHandler })
   )
 }
 
-function SideEffectsBody({ data, onRef }: { data: AdverseReactionsContent; onRef: RefHandler }) {
+export function SideEffectsBody({ data, onRef }: { data: AdverseReactionsContent; onRef: RefHandler }) {
   const t = useT()
   return (
     <>

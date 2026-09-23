@@ -57,3 +57,27 @@ export function parsePillPath(pathname: string): { slug: string; section: Sectio
   const tail = i === -1 ? '' : rest.slice(i + 1)
   return { slug, section: isSection(tail) ? tail : null }
 }
+
+/** The injection drug screen: "/iv/<slug>", "/iv/<slug>/dosage" or "/iv/<slug>/side-effects". */
+export const IV_TABS = { overview: 'Administration', dosage: 'Dosage', 'side-effects': 'Side effects' } as const
+
+export type IvTab = keyof typeof IV_TABS
+
+export function ivPath(slug: string, tab: IvTab = 'overview'): string {
+  const base = `/iv/${encodeURIComponent(slug)}`
+  return tab === 'overview' ? base : `${base}/${tab}`
+}
+
+/** Parse "/iv/<slug>" or "/iv/<slug>/<tab>"; an unknown tail (the website's other label pages) lands on the overview. */
+export function parseIvPath(pathname: string): { slug: string; tab: IvTab } | null {
+  if (!pathname.startsWith('/iv/')) return null
+  const rest = pathname.slice('/iv/'.length)
+  const i = rest.indexOf('/')
+  const slug = decodeURIComponent(i === -1 ? rest : rest.slice(0, i))
+  if (!slug) return null
+  const tail = i === -1 ? '' : rest.slice(i + 1)
+  return { slug, tab: tail === 'dosage' || tail === 'side-effects' ? tail : 'overview' }
+}
+
+/** The all-drugs A to Z screen (pills and injections in one list). */
+export const DRUGS_INDEX_PATH = '/drugs'

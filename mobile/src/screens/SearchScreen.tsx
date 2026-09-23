@@ -7,7 +7,8 @@ import Disclaimer from '../components/Disclaimer'
 import EmptyState from '../components/EmptyState'
 import ErrorCard from '../components/ErrorCard'
 import { ChevronRightIcon, CloseIcon, SearchIcon } from '../components/Icons'
-import PillRow, { PillThumb, titleCase } from '../components/PillRow'
+import { SyringeIcon } from '../components/IvIcons'
+import PillRow, { PillThumb, TextBadge, titleCase } from '../components/PillRow'
 import ScreenHeader from '../components/ScreenHeader'
 import SegmentedControl from '../components/SegmentedControl'
 import Sheet from '../components/Sheet'
@@ -21,13 +22,15 @@ import {
   search,
   suggestDrugs,
   suggestImprints,
+  suggestIvDrugs,
   suggestNdc,
   type DrugRow,
+  type IvSuggestion,
   type FiltersResponse,
   type NdcSuggestion,
   type SearchResult,
 } from '../lib/api'
-import { GOALS, goalPillPath, isGoal, type Goal } from '../lib/goals'
+import { GOALS, goalPillPath, isGoal, ivPath, type Goal } from '../lib/goals'
 import { useDebouncedValue } from '../lib/hooks'
 import { useLocale, useT } from '../lib/i18n'
 import { hapticTick, hideKeyboard } from '../lib/native'
@@ -57,6 +60,28 @@ function isMode(v: string | null): v is Mode {
 type Picker =
   | { kind: 'strengths'; drug: DrugRow }
   | { kind: 'pills'; drug: DrugRow; strength: string | null; pills: SearchResult[]; loading: boolean; error: ApiError | null }
+
+/** An injection drug among the drug-name results: the same row, with the tag the website shows. */
+function InjectionRowButton({ item, onPress, compact = false }: { item: IvSuggestion; onPress: () => void; compact?: boolean }) {
+  const t = useT()
+  return (
+    <button
+      type="button"
+      onClick={onPress}
+      className={`pressable flex w-full items-center gap-3 px-4 text-left active:bg-brand-tint ${compact ? 'min-h-[48px] py-2' : 'min-h-[60px] py-3'}`}
+    >
+      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-brand-tint text-brand">
+        <SyringeIcon size={18} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[16px] font-semibold text-ink">{item.label}</span>
+        <span className="block text-[13px] text-muted">{item.intravenous ? t('IV infusion') : t('Injection')}</span>
+      </span>
+      <TextBadge tone="neutral">{t('Injection')}</TextBadge>
+      <ChevronRightIcon size={18} className="flex-none text-muted" />
+    </button>
+  )
+}
 
 function DrugRowButton({ drug, onPress, compact = false }: { drug: DrugRow; onPress: () => void; compact?: boolean }) {
   const t = useT()
@@ -115,6 +140,10 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [focused, setFocused] = useState(false)
   const [drugSuggestions, setDrugSuggestions] = useState<DrugRow[]>([])
+  // injection drugs (the website's /api/iv) among the drug-name suggestions and results; not for a goal,
+  // since the goals (price, medication guide...) are pill sections
+  const [ivSuggestions, setIvSuggestions] = useState<IvSuggestion[]>([])
+  const [ivResults, setIvResults] = useState<IvSuggestion[]>([])
   const [ndcSuggestions, setNdcSuggestions] = useState<NdcSuggestion[]>([])
   const [imprintSuggestions, setImprintSuggestions] = useState<string[]>([])
   const [picker, setPicker] = useState<Picker | null>(null)
@@ -185,6 +214,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
     const term = suggestQ.trim()
     if (term.length < 2) {
       setDrugSuggestions([])
+      setIvSuggestions([])
       setNdcSuggestions([])
       setImprintSuggestions([])
       return
@@ -198,13 +228,18 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
       suggestDrugs(term, ctrl.signal)
         .then((s) => !ctrl.signal.aborted && setDrugSuggestions(s))
         .catch(() => {})
+      if (goal) setIvSuggestions([])
+      else
+        suggestIvDrugs(term, ctrl.signal)
+          .then((s) => !ctrl.signal.aborted && setIvSuggestions(s))
+          .catch(() => {})
     } else {
       suggestNdc(term, ctrl.signal)
         .then((s) => !ctrl.signal.aborted && setNdcSuggestions(s))
         .catch(() => {})
     }
     return () => ctrl.abort()
-  }, [mode, suggestQ])
+  }, [mode, suggestQ, goal])
 
   const runSearch = useCallback(
     async (targetPage: number, append: boolean) => {
@@ -218,8 +253,12 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
       }
       try {
         if (mode === 'drug') {
-          const data = await lookupDrugs(activeQuery, targetPage, ctrl.signal)
+          const [data, injections] = await Promise.all([
+            lookupDrugs(activeQuery, targetPage, ctrl.signal),
+            append || goal ? Promise.resolve<IvSuggestion[]>([]) : suggestIvDrugs(activeQuery, ctrl.signal).catch(() => [] as IvSuggestion[]),
+          ])
           if (ctrl.signal.aborted) return
+          if (!append) setIvResults(injections)
           setDrugs((prev) => (append ? [...prev, ...data.results] : data.results))
           setResults([])
           setTotal(data.total)
@@ -364,6 +403,12 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
       })
   }
 
+  const openInjection = (item: IvSuggestion) => {
+    void hapticTick()
+    dismissKeyboard()
+    navigate(ivPath(item.slug))
+  }
+
   const openDrug = (drug: DrugRow) => {
     void hapticTick()
     dismissKeyboard()
@@ -379,10 +424,12 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
     setMode(m)
     setResults([])
     setDrugs([])
+    setIvResults([])
     setError(null)
   }
 
   const showDrugSuggestions = mode === 'drug' && focused && q.trim().length >= 2 && drugSuggestions.length > 0
+  const showIvSuggestions = mode === 'drug' && !goal && focused && q.trim().length >= 2 && ivSuggestions.length > 0
   const showNdcSuggestions = mode === 'ndc' && focused && q.replace(/\D/g, '').length >= 3 && ndcSuggestions.length > 0
   const showImprintSuggestions = mode === 'imprint' && focused && q.trim().length >= 2 && imprintSuggestions.length > 0
 
@@ -407,7 +454,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
         />
       </Card>
     )
-  } else if ((mode === 'drug' ? drugs : results).length === 0) {
+  } else if ((mode === 'drug' ? drugs.length + ivResults.length : results.length) === 0) {
     content = (
       <Card padded={false}>
         <EmptyState
@@ -433,8 +480,9 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
     )
   } else {
     const shown = mode === 'drug' ? drugs.length : results.length
-    const n = total.toLocaleString(locale)
-    const count = mode === 'drug' ? (total === 1 ? t('1 drug') : t('{n} drugs', { n })) : total === 1 ? t('1 result') : t('{n} results', { n })
+    const all = mode === 'drug' ? total + ivResults.length : total // an injection match is a drug found too
+    const n = all.toLocaleString(locale)
+    const count = mode === 'drug' ? (all === 1 ? t('1 drug') : t('{n} drugs', { n })) : total === 1 ? t('1 result') : t('{n} results', { n })
     // Split translated sentences around the placeholder so the term keeps its bold span.
     const [forBefore, forAfter] = t('for “{q}”').split('{q}')
     const [fbBefore, fbAfter] = t('No exact name match — showing results for {term} (generic equivalent).').split('{term}')
@@ -460,7 +508,10 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
         )}
         <div className="card divide-y divide-line overflow-hidden">
           {mode === 'drug'
-            ? drugs.map((d) => <DrugRowButton key={d.key} drug={d} onPress={() => openDrug(d)} />)
+            ? [
+                ...ivResults.map((s) => <InjectionRowButton key={`iv:${s.slug}`} item={s} onPress={() => openInjection(s)} />),
+                ...drugs.map((d) => <DrugRowButton key={d.key} drug={d} onPress={() => openDrug(d)} />),
+              ]
             : results.map((r, i) => (
                 <PillRow
                   key={`${r.slug ?? r.ndc ?? i}-${i}`}
@@ -519,7 +570,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
                 }
               }}
             />
-            {(showDrugSuggestions || showNdcSuggestions || showImprintSuggestions) && (
+            {(showDrugSuggestions || showIvSuggestions || showNdcSuggestions || showImprintSuggestions) && (
               <ul className="card absolute inset-x-0 top-full z-30 mt-1 max-h-72 divide-y divide-line overflow-y-auto" role="listbox" aria-label={t('Suggestions')}>
                 {showImprintSuggestions &&
                   imprintSuggestions.map((imp) => (
@@ -543,6 +594,12 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
                   drugSuggestions.map((d) => (
                     <li key={d.key} role="option" aria-selected={false}>
                       <DrugRowButton drug={d} compact onPress={() => openDrug(d)} />
+                    </li>
+                  ))}
+                {showIvSuggestions &&
+                  ivSuggestions.map((s) => (
+                    <li key={`iv:${s.slug}`} role="option" aria-selected={false}>
+                      <InjectionRowButton item={s} compact onPress={() => openInjection(s)} />
                     </li>
                   ))}
                 {showNdcSuggestions &&

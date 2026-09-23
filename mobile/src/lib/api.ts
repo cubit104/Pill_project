@@ -995,3 +995,149 @@ export async function suggestImprints(q: string, signal?: AbortSignal): Promise<
   const raw = await request<unknown>(`/suggestions?q=${encodeURIComponent(q)}&type=imprint`, { signal, timeoutMs: 8_000 })
   return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : []
 }
+
+// ---- Injection drugs (routes/iv_drugs.py) and the all-drugs index (routes/drug_index.py) --------------------
+
+export interface IvSuggestion {
+  /** "Levophed (Norepinephrine)" for a brand match, the generic name otherwise. */
+  label: string
+  slug: string
+  intravenous: boolean
+}
+
+/** GET /api/iv/suggest — published injection drugs whose name or a brand starts with what was typed. */
+export async function suggestIvDrugs(q: string, signal?: AbortSignal): Promise<IvSuggestion[]> {
+  const raw = await request<unknown>(`/api/iv/suggest?q=${encodeURIComponent(q)}`, { signal, timeoutMs: 8_000 })
+  return rowsOf(raw, (o) => (typeof o.label === 'string' && typeof o.slug === 'string' ? { label: o.label, slug: o.slug, intravenous: o.intravenous !== false } : null))
+}
+
+export interface DrugIndexEntry {
+  name: string
+  /** Pills with this name (0 when the name is an injection only). */
+  pill_count: number
+  /** The injection screen for this name, when there is one. */
+  iv_slug: string | null
+}
+
+export interface DrugIndex {
+  prefix: string
+  entries: DrugIndexEntry[]
+  /** How many names each letter has. */
+  letters: Record<string, number>
+}
+
+/** GET /api/drug-index?prefix= — every published drug name (pills and injections) starting with the prefix. */
+export async function getDrugIndex(prefix: string, signal?: AbortSignal): Promise<DrugIndex> {
+  const raw = await request<Record<string, unknown>>(`/api/drug-index?prefix=${encodeURIComponent(prefix)}`, { signal, timeoutMs: 15_000 })
+  const letters: Record<string, number> = {}
+  if (raw.letters && typeof raw.letters === 'object') {
+    for (const [k, v] of Object.entries(raw.letters as Record<string, unknown>)) if (typeof v === 'number') letters[k] = v
+  }
+  return {
+    prefix: str(raw.prefix) ?? prefix,
+    entries: rowsOf(raw.entries, (o) =>
+      typeof o.name === 'string' ? { name: o.name, pill_count: typeof o.pill_count === 'number' ? o.pill_count : 0, iv_slug: str(o.iv_slug) } : null,
+    ),
+    letters,
+  }
+}
+
+export type IvCardStatus = 'stated' | 'not_stated' | 'not_applicable'
+
+export interface IvCardField {
+  status: IvCardStatus
+  value: string
+}
+
+/** The reviewed "at a glance" card; the API sends it only once a reviewer approved it. */
+export interface IvCard {
+  fields: Record<string, IvCardField>
+  reviewed_at: string | null
+  label_updated_since: boolean
+}
+
+export interface IvStrength {
+  strength: string
+  form: string
+  makers: number
+}
+
+export interface IvDrug {
+  slug: string
+  name: string
+  brand_names: string[]
+  drug_class: string[]
+  routes: string[]
+  dea_schedule: string | null
+  spl_set_id: string | null
+  label: { presentation: string | null; maker: string | null; date: string | null; source_url: string | null }
+  label_pages: { has_dosage: boolean; has_adverse_reactions: boolean; has_boxed_warning: boolean }
+  strengths: IvStrength[]
+  product_count: number
+  maker_count: number
+  card: IvCard | null
+  /** Pill drugs with the same name: the drug also comes as a tablet or capsule. */
+  pill_drugs: Array<{ name: string; pill_count: number }>
+  updated_at: string | null
+}
+
+function strings(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+}
+
+/** No routes on file counts as intravenous (the section began as IV only). The same rule as the website. */
+export function isIntravenous(routes: string[]): boolean {
+  return routes.length === 0 || routes.some((r) => /intravenous/i.test(r))
+}
+
+/** GET /api/iv/{slug} — one published injection drug, its approved card and what its label has. */
+export async function getIvDrug(slug: string, signal?: AbortSignal): Promise<IvDrug> {
+  const raw = await request<Record<string, unknown>>(`/api/iv/${encodeURIComponent(slug)}`, { signal })
+  const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {})
+  const label = obj(raw.label)
+  const pages = obj(raw.label_pages)
+  const rawCard = raw.card && typeof raw.card === 'object' ? (raw.card as Record<string, unknown>) : null
+  const fields: Record<string, IvCardField> = {}
+  for (const [key, f] of Object.entries(obj(rawCard?.fields))) {
+    const o = obj(f)
+    const status: IvCardStatus = o.status === 'stated' || o.status === 'not_applicable' ? o.status : 'not_stated'
+    fields[key] = { status, value: str(o.value) ?? '' }
+  }
+  return {
+    slug: str(raw.slug) ?? slug,
+    name: str(raw.name) ?? 'Injection drug',
+    brand_names: strings(raw.brand_names),
+    drug_class: strings(raw.drug_class),
+    routes: strings(raw.routes),
+    dea_schedule: str(raw.dea_schedule),
+    spl_set_id: str(raw.spl_set_id),
+    label: { presentation: str(label.presentation), maker: str(label.maker), date: str(label.date), source_url: str(label.source_url) },
+    label_pages: { has_dosage: pages.has_dosage === true, has_adverse_reactions: pages.has_adverse_reactions === true, has_boxed_warning: pages.has_boxed_warning === true },
+    strengths: rowsOf(raw.strengths, (o) =>
+      typeof o.strength === 'string' ? { strength: o.strength, form: str(o.form) ?? '', makers: typeof o.makers === 'number' ? o.makers : 0 } : null,
+    ),
+    product_count: typeof raw.product_count === 'number' ? raw.product_count : 0,
+    maker_count: typeof raw.maker_count === 'number' ? raw.maker_count : 0,
+    card: rawCard ? { fields, reviewed_at: str(rawCard.reviewed_at), label_updated_since: rawCard.label_updated_since === true } : null,
+    pill_drugs: rowsOf(raw.pill_drugs, (o) => (typeof o.name === 'string' ? { name: o.name, pill_count: typeof o.pill_count === 'number' ? o.pill_count : 0 } : null)),
+    updated_at: str(raw.updated_at),
+  }
+}
+
+/** GET /api/iv/{slug}/label-sections — the same shape the pill Dosage and Side effects screens render. */
+export async function getIvLabelSections(slug: string, signal?: AbortSignal): Promise<DosageContent & AdverseReactionsContent> {
+  const raw = await request<Record<string, unknown>>(`/api/iv/${encodeURIComponent(slug)}/label-sections`, { signal, timeoutMs: 30_000 })
+  return {
+    dosage_administration: str(raw.dosage_administration),
+    dosage_forms_and_strengths: str(raw.dosage_forms_and_strengths),
+    adverse_reactions: str(raw.adverse_reactions),
+    boxed_warning_html: str(raw.boxed_warning_html),
+    source_url: str(raw.source_url),
+    fetched_at: str(raw.fetched_at),
+  }
+}
+
+/** The injection drug's page on the website (the "open on pillseek.com" action when something fails). */
+export function ivPageUrl(slug: string): string {
+  return `${SITE_URL}/iv/${encodeURIComponent(slug)}`
+}
