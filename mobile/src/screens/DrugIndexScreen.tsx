@@ -54,17 +54,16 @@ function SearchBox({ value, onChange, onSubmit, placeholder }: { value: string; 
 function LetterGrid({ onPick }: { onPick: (letter: string) => void }) {
   const t = useT()
   return (
-    <ul className="grid grid-cols-6 gap-2.5" aria-label={t('First letter')}>
+    <ul className="grid grid-cols-7 gap-2" aria-label={t('First letter')}>
       {LETTERS.map((letter) => (
         <li key={letter} className={letter === '0-9' ? 'col-span-2' : ''}>
           <button
             type="button"
             onClick={() => onPick(letter)}
             aria-label={letter === '0-9' ? t('Numbers') : letter.toUpperCase()}
-            className={`pressable relative flex w-full items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-brand to-brand-pressed text-brand-fg shadow-[0_6px_16px_-6px_rgba(5,150,105,0.55)] active:from-brand-pressed active:to-brand-pressed ${letter === '0-9' ? 'aspect-[2/1]' : 'aspect-square'}`}
+            className={`pressable flex w-full items-center justify-center rounded-xl bg-brand text-brand-fg shadow-sm transition-transform duration-fast active:scale-95 active:bg-brand-pressed ${letter === '0-9' ? 'aspect-[2/1]' : 'aspect-square'}`}
           >
-            <span aria-hidden className="absolute inset-x-0 top-0 h-1/2 bg-white/10" />
-            <span className={`relative font-extrabold uppercase leading-none tracking-tight ${letter === '0-9' ? 'text-[19px]' : 'text-[26px]'}`}>{letter}</span>
+            <span className={`font-semibold uppercase leading-none ${letter === '0-9' ? 'text-[14px] tracking-wide' : 'text-[18px]'}`}>{letter}</span>
           </button>
         </li>
       ))}
@@ -259,7 +258,11 @@ export default function DrugIndexScreen() {
       </ScreenHeader>
 
       <main className="screen mx-auto max-w-lg space-y-3 px-4 pb-8 pt-2" style={{ paddingLeft: 'max(16px, var(--safe-left))', paddingRight: 'max(16px, var(--safe-right))' }}>
-        {!letter && <LetterGrid onPick={pick} />}
+        {!letter && (
+          <div className="px-3 pt-2">
+            <LetterGrid onPick={pick} />
+          </div>
+        )}
 
         {letter && !entries && !error && <ListSkeleton rows={8} />}
         {letter && error && <ErrorCard error={error} onRetry={() => setReloadKey((k) => k + 1)} />}
