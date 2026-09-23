@@ -325,7 +325,7 @@ export default function SearchScreen({ active = true }: { active?: boolean }) {
         }
       }
     },
-    [activeQuery, mode, color, shape, t],
+    [activeQuery, mode, color, shape, goal, t],
   )
 
   useEffect(() => {

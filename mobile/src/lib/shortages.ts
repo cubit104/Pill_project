@@ -9,6 +9,9 @@ export const OPENFDA_SHORTAGES = 'https://api.fda.gov/drug/shortages.json'
 export const FDA_SHORTAGE_PAGE = 'https://www.accessdata.fda.gov/scripts/drugshortages/default.cfm'
 const TIMEOUT_MS = 4000 // the screen never waits longer than this for the FDA
 const CACHE_MS = 24 * 60 * 60 * 1000
+// a record whose form does not say "injection" still counts when its route is one a needle takes (the screen
+// covers subcutaneous and intramuscular drugs too, not only IV)
+const INJECTION_ROUTE = /intravenous|subcutaneous|intramuscular|intradermal|intrathecal|intravitreal|intraocular|epidural|intra-?articular|infiltration|perineural|intralesional|intracavern|intravesical|intraperitoneal|parenteral/i
 
 export type Availability = 'available' | 'limited' | 'unavailable' | 'unknown'
 
@@ -62,7 +65,7 @@ export function parseShortage(json: unknown): Shortage | null {
   for (const row of results as Array<Record<string, unknown>>) {
     if (row.status !== 'Current') continue
     const routes = ((row.openfda as { route?: unknown })?.route ?? []) as unknown[]
-    const injectable = /inject|infus/i.test(String(row.dosage_form ?? '')) || routes.some((r) => /intravenous/i.test(String(r)))
+    const injectable = /inject|infus/i.test(String(row.dosage_form ?? '')) || routes.some((r) => INJECTION_ROUTE.test(String(r)))
     if (!injectable) continue // the tablets of the same drug running short is not this screen's business
     items.push({
       presentation: String(row.presentation ?? '').replace(/\s*\(NDC [^)]*\)\s*$/i, '').trim(),

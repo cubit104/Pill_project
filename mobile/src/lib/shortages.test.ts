@@ -28,15 +28,17 @@ describe('FDA shortage feed', () => {
         row({}),
         row({ availability: 'Product Unavailable', presentation: 'Heparin 25,000 units/250 mL bag', company_name: 'Baxter', update_date: '05/20/2026' }),
         row({ status: 'Resolved', availability: 'Product Unavailable' }),
+        row({ dosage_form: 'SOLUTION', openfda: { route: ['SUBCUTANEOUS'] }, presentation: 'Heparin 5,000 units/0.5 mL prefilled syringe', availability: 'Limited Supply Available' }),
         row({ dosage_form: 'TABLET', openfda: { route: ['ORAL'] }, availability: 'Product Unavailable' }),
       ],
     })
     expect(shortage).not.toBeNull()
     expect(shortage?.items.map((i) => [i.presentation, i.availability])).toEqual([
       ['Heparin 25,000 units/250 mL bag', 'unavailable'],
+      ['Heparin 5,000 units/0.5 mL prefilled syringe', 'limited'], // a needle route with a plain "solution" form counts
       ['Heparin Sodium Injection, 5,000 units/mL, 1 mL vial', 'available'],
     ])
-    expect(shortage).toMatchObject({ since: '2017-11-14', updated: '2026-05-20', constrained: 1, available: 1 })
+    expect(shortage).toMatchObject({ since: '2017-11-14', updated: '2026-05-20', constrained: 2, available: 1 })
   })
 
   it('is null when nothing injectable is current, and the query quotes the name', () => {

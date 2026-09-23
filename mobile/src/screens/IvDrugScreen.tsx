@@ -227,6 +227,9 @@ export default function IvDrugScreen({ slug, tab }: { slug: string; tab: IvTab }
             {tab === 'overview' && (
               <>
                 {shortage && <ShortageCard shortage={shortage} />}
+                {sectionsFailed && (
+                  <ErrorCard error={sectionsFailed} onRetry={() => setReloadKey((k) => k + 1)} secondary={{ label: t('Open on pillseek.com'), onClick: () => void openUrl(ivPageUrl(slug)) }} />
+                )}
                 {sections?.boxed_warning_html && <BoxedWarning html={sections.boxed_warning_html} onRef={handleRef} />}
                 <IvGlanceCard drug={drug} />
                 {!drug.card && (

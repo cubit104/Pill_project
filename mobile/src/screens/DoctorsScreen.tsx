@@ -532,7 +532,7 @@ export default function DoctorsScreen({ kind = 'doctors' }: { kind?: FinderKind 
                 {google && google.rating !== null && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[14px] font-semibold text-amber-800">
                     <span aria-hidden>★</span> {google.rating.toFixed(1)}
-                    <span className="font-normal text-amber-700/80">({google.ratings_count ?? 0})</span>
+                    {google.ratings_count !== null && <span className="font-normal text-amber-700/80">({google.ratings_count})</span>}
                   </span>
                 )}
                 {google?.open_now === true && <span className="rounded-full bg-brand-tint px-2.5 py-1 text-[13px] font-semibold text-brand">{t('Open now')}</span>}
