@@ -12,43 +12,109 @@ import { ListSkeleton } from '../components/Skeleton'
 import { ApiError, getDrugIndex, type DrugIndexEntry } from '../lib/api'
 import { useBackHandler } from '../lib/backstack'
 import { ivPath } from '../lib/goals'
-import { useT } from '../lib/i18n'
-import { hapticTick } from '../lib/native'
+import { useLocale, useT } from '../lib/i18n'
+import { hapticTick, hideKeyboard } from '../lib/native'
 
 const LETTERS = [...'abcdefghijklmnopqrstuvwxyz', '0-9']
+const PAGE = 20
 
 function pillSearchPath(name: string): string {
   return `/search?type=drug&q=${encodeURIComponent(name)}`
 }
 
+// Remembered across visits in this session: how far down each letter the reader was, so coming back from a drug
+// lands where they left off.
+const remembered = new Map<string, { shown: number; filter: string }>()
+
+/** A search box that sends the words to the normal drug-name search (grid) or filters the letter (list). */
+function SearchBox({ value, onChange, onSubmit, placeholder }: { value: string; onChange: (v: string) => void; onSubmit?: () => void; placeholder: string }) {
+  return (
+    <form
+      className="relative block"
+      onSubmit={(e) => {
+        e.preventDefault()
+        onSubmit?.()
+      }}
+    >
+      <SearchIcon size={16} className="absolute left-3 top-3 text-muted" />
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        enterKeyHint="search"
+        className="hairline w-full rounded-xl bg-surface py-2.5 pl-9 pr-3 text-[16px] text-ink"
+      />
+    </form>
+  )
+}
+
+/** Six letters a row, each a small tinted tile with the letter in the brand colour; the numbers tile takes two. */
+function LetterGrid({ onPick }: { onPick: (letter: string) => void }) {
+  const t = useT()
+  return (
+    <ul className="grid grid-cols-6 gap-2" aria-label={t('First letter')}>
+      {LETTERS.map((letter) => (
+        <li key={letter} className={letter === '0-9' ? 'col-span-2' : ''}>
+          <button
+            type="button"
+            onClick={() => onPick(letter)}
+            aria-label={letter === '0-9' ? t('Numbers') : letter.toUpperCase()}
+            className={`pressable flex w-full items-center justify-center rounded-2xl border border-line bg-gradient-to-br from-brand-tint to-surface shadow-sm active:from-brand active:to-brand active:text-brand-fg ${letter === '0-9' ? 'aspect-[2/1]' : 'aspect-square'}`}
+          >
+            <span className={`font-extrabold uppercase leading-none tracking-tight text-brand active:text-brand-fg ${letter === '0-9' ? 'text-[18px]' : 'text-[24px]'}`}>{letter}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 /**
- * Every drug on PillSeek, A to Z, pills and injections in one list (the website's /api/drug-index). A name that
- * exists as both opens a small choice; the others go straight to the pills or the injection screen.
+ * Every drug on PillSeek, A to Z, pills and injections together (the website's /api/drug-index). The first page is a
+ * grid of letters with their counts; a letter opens its list twenty names at a time. A name that exists as both a
+ * pill and an injection opens a small choice; the others go straight to the pills or the injection screen.
  */
 export default function DrugIndexScreen() {
   const navigate = useNavigate()
   const t = useT()
+  const locale = useLocale()
   const [params, setParams] = useSearchParams()
   const scrollRef = useRef<HTMLDivElement>(null)
-  const letterParam = (params.get('letter') ?? 'a').toLowerCase()
-  const letter = LETTERS.includes(letterParam) ? letterParam : 'a'
+  const letterParam = (params.get('letter') ?? '').toLowerCase()
+  const letter = LETTERS.includes(letterParam) ? letterParam : null
   const [entries, setEntries] = useState<DrugIndexEntry[] | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [filter, setFilter] = useState('')
+  const [shown, setShown] = useState(PAGE)
+  const [query, setQuery] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
   const [both, setBoth] = useState<DrugIndexEntry | null>(null)
 
-  const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/home', { replace: true }))
+  const goBack = () => {
+    if (letter) {
+      setParams({}, { replace: true })
+      return
+    }
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/home', { replace: true })
+  }
   useBackHandler(!both, goBack)
 
   useEffect(() => {
+    if (!letter) return
     const ctrl = new AbortController()
+    const memory = remembered.get(letter)
     setEntries(null)
     setError(null)
-    setFilter('')
+    setFilter(memory?.filter ?? '')
+    setShown(memory?.shown ?? PAGE)
     scrollRef.current?.scrollTo({ top: 0 })
     getDrugIndex(letter, ctrl.signal)
-      .then((index) => !ctrl.signal.aborted && setEntries(index.entries))
+      .then((index) => {
+        if (ctrl.signal.aborted) return
+        setEntries(index.entries)
+      })
       .catch((err: unknown) => {
         if (ctrl.signal.aborted) return
         setError(err instanceof ApiError ? err : new ApiError('unknown', t('Could not load the drug list.')))
@@ -57,16 +123,18 @@ export default function DrugIndexScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [letter, reloadKey])
 
+  useEffect(() => {
+    if (letter) remembered.set(letter, { shown, filter })
+  }, [letter, shown, filter])
+
   const pick = (l: string) => {
-    if (l === letter) return
     void hapticTick()
-    setParams({ letter: l }, { replace: true })
+    setParams({ letter: l }, { replace: false })
   }
 
   const open = (entry: DrugIndexEntry) => {
     void hapticTick()
-    const pills = entry.pill_count > 0
-    if (entry.iv_slug && pills) {
+    if (entry.iv_slug && entry.pill_count > 0) {
       setBoth(entry)
       return
     }
@@ -74,67 +142,84 @@ export default function DrugIndexScreen() {
     else navigate(pillSearchPath(entry.name))
   }
 
-  const shown = useMemo(() => {
+  const matching = useMemo(() => {
     const term = filter.trim().toLowerCase()
     return term ? (entries ?? []).filter((e) => e.name.toLowerCase().includes(term)) : (entries ?? [])
   }, [entries, filter])
+  const visible = matching.slice(0, shown)
+
+  const title = letter ? (letter === '0-9' ? t('Numbers') : letter.toUpperCase()) : t('Drugs A–Z')
+  const subtitle = letter
+    ? entries
+      ? entries.length === 1
+        ? t('1 drug')
+        : t('{n} drugs', { n: entries.length.toLocaleString(locale) })
+      : ' '
+    : t('Pills and injections')
 
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto bg-canvas animate-fade-up">
-      <ScreenHeader title={t('Drugs A–Z')} subtitle={t('Pills and injections')} scrollRef={scrollRef} onBack={goBack}>
-        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none]" role="tablist" aria-label={t('First letter')}>
-          {LETTERS.map((l) => (
-            <button
-              key={l}
-              type="button"
-              role="tab"
-              aria-selected={l === letter}
-              onClick={() => pick(l)}
-              className={`pressable flex h-9 min-w-[36px] flex-none items-center justify-center rounded-full px-2 text-[14px] font-semibold uppercase ${l === letter ? 'bg-brand text-brand-fg' : 'hairline bg-surface text-body'}`}
-            >
-              {l}
-            </button>
-          ))}
-        </div>
+      <ScreenHeader title={title} subtitle={subtitle} scrollRef={scrollRef} onBack={goBack}>
+        {letter ? (
+          <SearchBox value={filter} onChange={(v) => { setFilter(v); setShown(PAGE) }} onSubmit={hideKeyboard} placeholder={t('Filter the {letter} list', { letter: title })} />
+        ) : (
+          <SearchBox
+            value={query}
+            onChange={setQuery}
+            onSubmit={() => {
+              const q = query.trim()
+              if (!q) return
+              void hapticTick()
+              navigate(pillSearchPath(q))
+            }}
+            placeholder={t('Search all drugs')}
+          />
+        )}
       </ScreenHeader>
 
       <main className="screen mx-auto max-w-lg space-y-3 px-4 pb-8 pt-2" style={{ paddingLeft: 'max(16px, var(--safe-left))', paddingRight: 'max(16px, var(--safe-right))' }}>
-        {entries && entries.length > 12 && (
-          <label className="relative block">
-            <SearchIcon size={16} className="absolute left-3 top-3 text-muted" />
-            <input
-              type="search"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder={t('Filter the {letter} list', { letter: letter.toUpperCase() })}
-              className="hairline w-full rounded-xl bg-surface py-2.5 pl-9 pr-3 text-[16px] text-ink"
-            />
-          </label>
-        )}
+        {!letter && <LetterGrid onPick={pick} />}
 
-        {!entries && !error && <ListSkeleton rows={8} />}
-        {error && <ErrorCard error={error} onRetry={() => setReloadKey((k) => k + 1)} />}
-        {entries && shown.length === 0 && (
+        {letter && !entries && !error && <ListSkeleton rows={8} />}
+        {letter && error && <ErrorCard error={error} onRetry={() => setReloadKey((k) => k + 1)} />}
+        {letter && entries && matching.length === 0 && (
           <Card padded={false}>
-            <EmptyState art="search" title={t('Nothing here')} body={filter ? t('No drug under {letter} matches that.', { letter: letter.toUpperCase() }) : t('No drugs start with {letter} yet.', { letter: letter.toUpperCase() })} />
+            <EmptyState art="search" title={t('Nothing here')} body={filter ? t('No drug under {letter} matches that.', { letter: title }) : t('No drugs start with {letter} yet.', { letter: title })} />
           </Card>
         )}
-        {entries && shown.length > 0 && (
-          <div className="card divide-y divide-line overflow-hidden">
-            {shown.map((entry) => (
+        {letter && entries && visible.length > 0 && (
+          <>
+            <div className="card divide-y divide-line overflow-hidden">
+              {visible.map((entry) => (
+                <button
+                  key={`${entry.name}|${entry.iv_slug ?? ''}`}
+                  type="button"
+                  onClick={() => open(entry)}
+                  className="pressable flex min-h-[52px] w-full items-center gap-3 px-4 py-2 text-left active:bg-brand-tint"
+                >
+                  <span className="min-w-0 flex-1 truncate text-[16px] font-medium text-ink">{entry.name}</span>
+                  {entry.pill_count > 0 && <TextBadge tone="neutral">{t('Pill')}</TextBadge>}
+                  {entry.iv_slug && <TextBadge tone="brand">{t('Injection')}</TextBadge>}
+                  <ChevronRightIcon size={18} className="flex-none text-muted" />
+                </button>
+              ))}
+            </div>
+            <p className="tabular px-1 text-center text-[13px] text-muted">
+              {t('Showing {shown} of {total}', { shown: visible.length.toLocaleString(locale), total: matching.length.toLocaleString(locale) })}
+            </p>
+            {matching.length > visible.length && (
               <button
-                key={`${entry.name}|${entry.iv_slug ?? ''}`}
                 type="button"
-                onClick={() => open(entry)}
-                className="pressable flex min-h-[52px] w-full items-center gap-3 px-4 py-2 text-left active:bg-brand-tint"
+                onClick={() => {
+                  void hapticTick()
+                  setShown((n) => n + PAGE)
+                }}
+                className="pressable card flex min-h-[48px] w-full items-center justify-center text-[15px] font-semibold text-brand active:bg-brand-tint"
               >
-                <span className="min-w-0 flex-1 truncate text-[16px] font-medium text-ink">{entry.name}</span>
-                {entry.pill_count > 0 && <TextBadge tone="neutral">{t('Pill')}</TextBadge>}
-                {entry.iv_slug && <TextBadge tone="brand">{t('Injection')}</TextBadge>}
-                <ChevronRightIcon size={18} className="flex-none text-muted" />
+                {t('Load more')}
               </button>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </main>
 
