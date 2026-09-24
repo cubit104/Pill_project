@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Users, Shield, Camera, Sparkles, Syringe } from 'lucide-react'
+import { Users, Shield, Camera, Sparkles, Syringe, Newspaper } from 'lucide-react'
 import { createClient } from '../lib/supabase'
 
 export default function AdminSettingsPage() {
@@ -23,7 +23,17 @@ export default function AdminSettingsPage() {
     ai_reader_models?: unknown
     iv_card_model?: unknown
     iv_card_models?: unknown
+    fda_news_recalls_enabled?: unknown
+    fda_news_approvals_enabled?: unknown
+    fda_news_shortages_enabled?: unknown
   }
+  // The three "Latest from the FDA" cards on the website, each with its own off switch.
+  const FDA_NEWS_TOGGLES = [
+    { key: 'fda_news_recalls_enabled', label: 'FDA recalls' },
+    { key: 'fda_news_approvals_enabled', label: 'New drug approvals' },
+    { key: 'fda_news_shortages_enabled', label: 'Drug shortages' },
+  ] as const
+  type FdaNewsKey = (typeof FDA_NEWS_TOGGLES)[number]['key']
   const [photoId, setPhotoId] = useState<boolean | null>(null)
   const [readerMode, setReaderMode] = useState<ReaderMode | null>(null)
   const [trustBase, setTrustBase] = useState<boolean | null>(null)
@@ -36,6 +46,9 @@ export default function AdminSettingsPage() {
   // IV/injection card drafting (services/iv_card.py): same key, its own model choice.
   const [cardModel, setCardModel] = useState('')
   const [cardModels, setCardModels] = useState<string[]>([])
+  // null until loaded, or when the backend does not have the switches yet
+  const [fdaNews, setFdaNews] = useState<Record<FdaNewsKey, boolean> | null>(null)
+  const [flagsLoaded, setFlagsLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [flagError, setFlagError] = useState<string | null>(null)
 
@@ -54,6 +67,14 @@ export default function AdminSettingsPage() {
       setCardModel(f.iv_card_model)
       setCardModels(Array.isArray(f.iv_card_models) ? f.iv_card_models.filter((m): m is string => typeof m === 'string') : [])
     }
+    if (FDA_NEWS_TOGGLES.every(({ key }) => typeof f[key] === 'boolean')) {
+      setFdaNews({
+        fda_news_recalls_enabled: f.fda_news_recalls_enabled === true,
+        fda_news_approvals_enabled: f.fda_news_approvals_enabled === true,
+        fda_news_shortages_enabled: f.fda_news_shortages_enabled === true,
+      })
+    }
+    setFlagsLoaded(true)
   }
 
   const loadFlags = async () => {
@@ -79,7 +100,7 @@ export default function AdminSettingsPage() {
     ai_reader_model?: string
     ai_reader_daily_cap?: number
     iv_card_model?: string
-  }) => {
+  } & Partial<Record<FdaNewsKey, boolean>>) => {
     setSaving(true)
     setFlagError(null)
     try {
@@ -346,6 +367,40 @@ export default function AdminSettingsPage() {
                 ))}
               </select>
             </label>
+          )}
+          {flagError && <p className="mt-2 text-sm text-red-600">{flagError}</p>}
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="bg-red-100 p-2 rounded-lg">
+              <Newspaper className="w-5 h-5 text-red-700" />
+            </div>
+            <h2 className="font-semibold text-gray-900">FDA news on the website</h2>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            The &ldquo;Latest from the FDA&rdquo; cards on the home page, the /fda-news page and their item pages, read live
+            from the FDA. If one ever shows something wrong, switch it off: it leaves the site within about a minute.
+          </p>
+          {fdaNews === null ? (
+            <p className="text-sm text-gray-400">{flagsLoaded ? 'Available once the backend update is live.' : 'Loading…'}</p>
+          ) : (
+            <div className="space-y-3">
+              {FDA_NEWS_TOGGLES.map(({ key, label }) => (
+                <div key={key} className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-medium text-gray-800">{label}</span>
+                  <button
+                    onClick={() => void saveFlags({ [key]: !fdaNews[key] })}
+                    disabled={saving}
+                    className={`inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${
+                      fdaNews[key] ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-500 hover:bg-gray-600'
+                    }`}
+                  >
+                    {fdaNews[key] ? 'ON — click to turn off' : 'OFF — click to turn on'}
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
           {flagError && <p className="mt-2 text-sm text-red-600">{flagError}</p>}
         </div>

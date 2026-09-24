@@ -173,7 +173,13 @@ def test_settings_coerce_and_public_view():
     assert ss._coerce("ai_reader_daily_cap", True) == ai_reader.DEFAULT_DAILY_CAP
     assert ss._coerce("ai_reader_daily_cap", -5) == ai_reader.DEFAULT_DAILY_CAP
     with patch.object(ss, "read_flags", return_value=dict(ss.DEFAULTS)):
-        assert set(ss.get_features()) == {"photo_id_enabled", "photo_id_reader_mode"}  # nothing about the AI leaks
+        assert set(ss.get_features()) == {  # nothing about the AI leaks
+            "photo_id_enabled",
+            "photo_id_reader_mode",
+            "fda_news_recalls_enabled",
+            "fda_news_approvals_enabled",
+            "fda_news_shortages_enabled",
+        }
 
 
 def test_feature_update_validates():

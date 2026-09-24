@@ -63,12 +63,18 @@ const FILTERS: Array<{ id: CardStatus | 'all'; label: string }> = [
   { id: 'rejected', label: 'Rejected' },
   { id: 'all', label: 'All' },
 ]
+// on the site or not; combines with the card filters and the search. Pressing the lit chip again clears it.
+const VISIBILITY: Array<{ id: 'published' | 'hidden'; label: string; hint: string }> = [
+  { id: 'published', label: 'Published', hint: 'Only drugs that are live on the site' },
+  { id: 'hidden', label: 'Hidden', hint: 'Only drugs that are not on the site yet' },
+]
 
 export default function AdminIvDrugsPage() {
   const router = useRouter()
   const { role } = useUserRole()
   const [data, setData] = useState<ListResponse | null>(null)
   const [filter, setFilter] = useState<CardStatus | 'all'>('draft')
+  const [visibility, setVisibility] = useState<'all' | 'published' | 'hidden'>('all')
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
@@ -93,6 +99,7 @@ export default function AdminIvDrugsPage() {
     try {
       const params: Record<string, string | number> = { page, per_page: PAGE_SIZE }
       if (filter !== 'all') params.status = filter
+      if (visibility !== 'all') params.published = visibility === 'published' ? 'true' : 'false'
       if (search) params.q = search
       setData((await adminApi.getIvDrugs(params)) as ListResponse)
       setSelected(new Set()) // ticks belong to the rows on screen
@@ -101,7 +108,7 @@ export default function AdminIvDrugsPage() {
     } finally {
       setLoading(false)
     }
-  }, [filter, page, router, search])
+  }, [filter, page, router, search, visibility])
 
   useEffect(() => {
     void load()
@@ -271,6 +278,20 @@ export default function AdminIvDrugsPage() {
             className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${filter === f.id ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
           >
             {f.label} <span className={filter === f.id ? 'text-emerald-100' : 'text-slate-400'}>{count(f.id)}</span>
+          </button>
+        ))}
+        <span className="mx-1 h-6 w-px bg-slate-200" aria-hidden="true" />
+        {VISIBILITY.map((v) => (
+          <button
+            key={v.id}
+            title={v.hint}
+            onClick={() => { setVisibility(visibility === v.id ? 'all' : v.id); setPage(1) }}
+            className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${visibility === v.id ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+          >
+            {v.label}{' '}
+            <span className={visibility === v.id ? 'text-sky-100' : 'text-slate-400'}>
+              {v.id === 'published' ? data?.published ?? 0 : count('all') - (data?.published ?? 0)}
+            </span>
           </button>
         ))}
         <form
