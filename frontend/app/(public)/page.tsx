@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import FdaNewsStrip from '../components/FdaNewsStrip'
 import HomeFaq from '../components/HomeFaq'
 import HomeSearch from '../components/HomeSearch'
 import PopularMedications from '../components/PopularMedications'
@@ -173,6 +174,8 @@ export default async function HomePage() {
               </svg>
             </div>
           </div>
+
+          <FdaNewsStrip />
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-left">
             {pillarCards.map((card) => (

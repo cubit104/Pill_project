@@ -42,6 +42,7 @@ export default function Footer({ ivDrugsEnabled = false }: { ivDrugsEnabled?: bo
               <li><Link href="/medicine-cabinet" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">Medicine Cabinet</Link></li>
               <li><Link href="/find-a-doctor" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">Find a Doctor</Link></li>
               <li><Link href="/recalls" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">FDA Alerts</Link></li>
+              <li><Link href="/fda-news" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">FDA News</Link></li>
               <li><Link href="/color/white" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">White Pills</Link></li>
               <li><Link href="/shape/round" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">Round Pills</Link></li>
               <li><Link href="/shape/oval" className="text-emerald-800 hover:text-emerald-600 text-sm transition-colors">Oval Pills</Link></li>
