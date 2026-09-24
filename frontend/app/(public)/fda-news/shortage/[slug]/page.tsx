@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { shortageDetail, shortageHeadline, shortageMakers, shortageTag } from '../../../../lib/fda-news'
+import { fdaNewsSwitches } from '../../../../lib/fda-news-switches'
 import { prettyDate } from '../../../../lib/recalls'
 import { FDA_SHORTAGE_PAGE, type Availability } from '../../../../lib/shortages'
 import { DetailHeader, ExternalLink, Facts, Section, SourceNote, WhatToDo } from '../../NewsDetail'
@@ -17,6 +18,7 @@ const BADGE: Record<Availability, { text: string; className: string }> = {
 
 /** `undefined` from the feed means the FDA did not answer: throw, so the error page shows and nothing is cached. */
 async function load(slug: string) {
+  if (!(await fdaNewsSwitches()).shortage) notFound() // switched off in Admin → Settings
   const data = await shortageDetail(decodeURIComponent(slug))
   if (data === undefined) throw new Error('The FDA shortage feed did not answer')
   if (data === null) notFound()

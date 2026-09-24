@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { FDA_NEWS_LOOK, FdaNewsIcon, FdaNewsRow } from '../../components/FdaNews'
 import { FDA_NOVEL_APPROVALS_PAGE, approvalNews, recallNews, shortageNews, type FdaNewsItem, type FdaNewsKind } from '../../lib/fda-news'
+import { fdaNewsSwitches } from '../../lib/fda-news-switches'
 import { FDA_SHORTAGE_PAGE } from '../../lib/shortages'
 import { breadcrumbSchema, safeJsonLd } from '../../lib/structured-data'
 import { ExternalLink, SourceNote } from './NewsDetail'
@@ -33,8 +34,14 @@ interface Group {
 }
 
 export default async function FdaNewsPage() {
-  const [recalls, approvals, shortages] = await Promise.all([recallNews(10), approvalNews(10), shortageNews(8)])
-  const groups: Group[] = [
+  const on = await fdaNewsSwitches()
+  // a kind switched off in Admin → Settings is neither fetched nor shown
+  const [recalls, approvals, shortages] = await Promise.all([
+    on.recall ? recallNews(10) : undefined,
+    on.approval ? approvalNews(10) : undefined,
+    on.shortage ? shortageNews(8) : undefined,
+  ])
+  const groups: Group[] = ([
     {
       kind: 'recall',
       title: 'Latest drug recalls',
@@ -56,7 +63,7 @@ export default async function FdaNewsPage() {
       items: shortages,
       more: { href: FDA_SHORTAGE_PAGE, label: 'Full FDA drug shortage list', external: true },
     },
-  ]
+  ] satisfies Group[]).filter((g) => on[g.kind])
   const breadcrumbs = breadcrumbSchema([
     { name: 'Home', url: SITE_URL },
     { name: 'FDA news', url: `${SITE_URL}/fda-news` },
@@ -76,6 +83,7 @@ export default async function FdaNewsPage() {
       </div>
 
       <div className="mx-auto max-w-4xl px-4">
+        {groups.length === 0 && <p className="mt-10 text-base text-slate-600">FDA news is paused right now. Please check back later.</p>}
         {groups.map((g) => {
           const look = FDA_NEWS_LOOK[g.kind]
           return (

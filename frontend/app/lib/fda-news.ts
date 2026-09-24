@@ -10,6 +10,7 @@
  * the FDA's full wording next to them.
  */
 import { approvalAnnouncements, recallNotices, type FdaAnnouncement, type FdaNotice } from './fda-announcements'
+import type { FdaNewsSwitches } from './fda-news-switches'
 import { OPENFDA, classOf, dateRange, isoDate, type RecallClass } from './recalls'
 import { OPENFDA_SHORTAGES, availabilityOf, isoFromUsDate, shortageQuery, type Availability } from './shortages'
 
@@ -634,8 +635,15 @@ export async function shortageDetail(slug: string): Promise<ShortageNews | null 
 
 // ---------------------------------------------------------------- home page
 
-/** The newest recall, new drug and shortage, in that order; a feed that did not answer is left out. */
-export async function fdaHighlights(now = new Date()): Promise<FdaNewsItem[]> {
-  const [recalls, approvals, shortages] = await Promise.all([recallNews(1, now), approvalNews(1, now), shortageNews(1)])
+/**
+ * The newest recall, new drug and shortage, in that order. A kind switched off in Admin → Settings is not
+ * even fetched; a feed that did not answer is left out.
+ */
+export async function fdaHighlights(now = new Date(), on: FdaNewsSwitches = { recall: true, approval: true, shortage: true }): Promise<FdaNewsItem[]> {
+  const [recalls, approvals, shortages] = await Promise.all([
+    on.recall ? recallNews(1, now) : undefined,
+    on.approval ? approvalNews(1, now) : undefined,
+    on.shortage ? shortageNews(1) : undefined,
+  ])
   return [recalls?.[0], approvals?.[0], shortages?.[0]].filter((item): item is FdaNewsItem => item !== undefined)
 }

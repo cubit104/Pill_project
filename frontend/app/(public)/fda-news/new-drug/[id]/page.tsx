@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { approvalAnnouncement, approvalNames, type FdaPage } from '../../../../lib/fda-announcements'
+import { fdaNewsSwitches } from '../../../../lib/fda-news-switches'
 import { approvalDetail, dailyMedUrl, drugsAtFdaUrl, type Approval, type LabelSummary } from '../../../../lib/fda-news'
 import { prettyDate } from '../../../../lib/recalls'
 import { DetailHeader, ExternalLink, Facts, Section, SourceNote, WhatToDo } from '../../NewsDetail'
@@ -12,6 +13,7 @@ const APPLICATION = /^(NDA|BLA|ANDA)\d+$/i
 
 /** `undefined` from a feed means the FDA did not answer: throw, so the error page shows and nothing is cached. */
 async function load(id: string) {
+  if (!(await fdaNewsSwitches()).approval) notFound() // switched off in Admin → Settings
   const key = decodeURIComponent(id)
   if (APPLICATION.test(key)) {
     const data = await approvalDetail(key)

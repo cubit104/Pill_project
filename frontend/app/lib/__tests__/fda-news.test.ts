@@ -269,8 +269,10 @@ test('home page: one recall, one new drug and one shortage, and a failing feed i
   const originalFetch = global.fetch
   const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
   let drugsfdaDown = false
+  const asked: string[] = []
   global.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input)
+    asked.push(url)
     if (url.includes('/drug/enforcement.json')) return answer({ results: [recallRow()] })
     if (url.includes('/drug/drugsfda.json')) return drugsfdaDown ? answer({}, 500) : answer({ meta: { results: { total: 1 } }, results: [approvalRow()] })
     if (url.includes('/drug/shortages.json')) return answer({ results: [shortageRow()] })
@@ -283,6 +285,11 @@ test('home page: one recall, one new drug and one shortage, and a failing feed i
     assert.deepEqual(items.map((i) => i.href), ['/fda-news/recall/D-0850-2026', '/fda-news/new-drug/NDA220359', '/fda-news/shortage/pentostatin-injection'])
     drugsfdaDown = true
     assert.deepEqual((await fdaHighlights(now)).map((i) => i.kind), ['recall', 'shortage'])
+    // switched off in Admin → Settings: not shown, and the FDA is not even asked
+    drugsfdaDown = false
+    asked.length = 0
+    assert.deepEqual((await fdaHighlights(now, { recall: false, approval: true, shortage: true })).map((i) => i.kind), ['approval', 'shortage'])
+    assert.ok(!asked.some((url) => url.includes('/drug/enforcement.json') || url.includes('/recalls/rss.xml')))
   } finally {
     global.fetch = originalFetch
   }

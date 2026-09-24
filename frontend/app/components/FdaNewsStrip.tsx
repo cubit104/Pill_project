@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { fdaHighlights } from '../lib/fda-news'
+import { fdaNewsSwitches } from '../lib/fda-news-switches'
 import { FdaNewsCard } from './FdaNews'
 
 // literal class names so Tailwind keeps them
@@ -7,10 +8,11 @@ const COLUMNS = ['', 'md:grid-cols-1', 'md:grid-cols-2', 'md:grid-cols-3']
 
 /**
  * Home page, under the search box: the newest FDA recall, new drug and shortage. Rendered on the server so
- * the text is in the page; hidden when none of the three FDA feeds answered. On phones the cards swipe sideways.
+ * the text is in the page; each card can be switched off in Admin → Settings, and the strip hides when no
+ * card is left. On phones the cards swipe sideways.
  */
 export default async function FdaNewsStrip() {
-  const items = await fdaHighlights()
+  const items = await fdaHighlights(new Date(), await fdaNewsSwitches())
   if (items.length === 0) return null
   return (
     <section aria-labelledby="fda-news-heading" className="mt-7 text-left">

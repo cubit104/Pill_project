@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { recallNotice, type FdaPage } from '../../../../lib/fda-announcements'
+import { fdaNewsSwitches } from '../../../../lib/fda-news-switches'
 import { FDA_RECALLS_PAGE, NOTICE_TAG, plainReason, recallDetail, recallTag, shortProduct, type RecallDetail } from '../../../../lib/fda-news'
 import { classText, prettyDate } from '../../../../lib/recalls'
 import { DetailHeader, ExternalLink, Facts, Section, SourceNote, WhatToDo } from '../../NewsDetail'
@@ -13,6 +14,7 @@ const RECALL_NUMBER = /^[A-Z]-\d{3,5}-\d{4}$/i
 
 /** `undefined` from a feed means the FDA did not answer: throw, so the error page shows and nothing is cached. */
 async function load(id: string) {
+  if (!(await fdaNewsSwitches()).recall) notFound() // switched off in Admin → Settings
   const key = decodeURIComponent(id)
   if (RECALL_NUMBER.test(key)) {
     const data = await recallDetail(key)
