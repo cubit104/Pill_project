@@ -9,7 +9,7 @@
  * Headlines are built from the FDA fields with fixed rules (no guessing), and the detail pages always show
  * the FDA's full wording next to them.
  */
-import { approvalAnnouncements, recallNotices, type FdaAnnouncement, type FdaNotice } from './fda-announcements'
+import { approvalCandidates, firstMatches, readAnnouncement, recallNotices, type FdaAnnouncement, type FdaNotice } from './fda-announcements'
 import type { FdaNewsSwitches } from './fda-news-switches'
 import { OPENFDA, classOf, dateRange, isoDate, type RecallClass } from './recalls'
 import { OPENFDA_SHORTAGES, availabilityOf, isoFromUsDate, shortageQuery, type Availability } from './shortages'
@@ -261,7 +261,7 @@ function newestFirst(items: FdaNewsItem[]): FdaNewsItem[] {
 export async function recallNews(limit = 8, now = new Date()): Promise<FdaNewsItem[] | undefined> {
   const [json, notices] = await Promise.all([
     getJson(`${OPENFDA}?search=${dateRange(now, WINDOW_DAYS)}&sort=report_date:desc&limit=${PAGE}`),
-    recallNotices(),
+    recallNotices(limit), // the newest few are enough: older notices could not make the list
   ])
   if (json === undefined && notices === undefined) return undefined
   const reports = json === undefined ? [] : recallsForNews(json).map(recallItem)
@@ -443,14 +443,19 @@ async function approvedBefore(names: { brand: string; generic: string }, fromIso
  */
 export async function approvalNews(limit = 8, now = new Date()): Promise<FdaNewsItem[] | undefined> {
   const { fromIso } = windowStart(now)
-  const [novel, announcements] = await Promise.all([novelApprovals(now), approvalAnnouncements()])
-  if (novel === undefined && announcements === undefined) return undefined
+  const [novel, candidates] = await Promise.all([novelApprovals(now), approvalCandidates()])
+  if (novel === undefined && candidates === undefined) return undefined
   const known = new Set((novel ?? []).flatMap((a) => nameWords(`${a.brand} ${a.generic}`)))
-  const candidates = (announcements ?? []).filter(
-    (a) => a.item.date >= fromIso && a.names !== null && !nameWords(`${a.names.brand} ${a.names.generic}`).some((w) => known.has(w)),
+  // newest first, a few at a time, until `limit` new drugs are found: an older one could not make the list
+  const fresh = await firstMatches(
+    (candidates ?? []).filter((item) => item.date >= fromIso),
+    async (item) => {
+      const a = await readAnnouncement(item)
+      if (!a?.names || nameWords(`${a.names.brand} ${a.names.generic}`).some((w) => known.has(w))) return null
+      return (await approvedBefore(a.names, fromIso)) === false ? a : null
+    },
+    limit,
   )
-  const before = await Promise.all(candidates.map((a) => approvedBefore(a.names!, fromIso)))
-  const fresh = candidates.filter((_, i) => before[i] === false)
   return newestFirst([...fresh.map(announcementItem), ...(novel ?? []).map(approvalItem)]).slice(0, limit)
 }
 
@@ -609,13 +614,12 @@ export function shortageItem(s: ShortageNews): FdaNewsItem {
   return { kind: 'shortage', href: `/fda-news/shortage/${s.slug}`, date: s.posted, headline: shortageHeadline(s), tag: shortageTag(s) }
 }
 
-/** All current records of one drug (the newest-postings page may hold only some of them). */
-async function shortageByName(name: string): Promise<ShortageNews | null | undefined> {
+/** All current records of the drug whose name makes `slug`, found by searching `name` (the newest-postings page may hold only some). */
+async function shortageBySlug(name: string, slug: string): Promise<ShortageNews | null | undefined> {
   const query = shortageQuery(name)
   if (!query) return null
   const json = await getJson(`${OPENFDA_SHORTAGES}?search=${query}&limit=${PAGE}`)
   if (json === undefined) return undefined
-  const slug = slugify(name)
   return groupShortages(json).find((g) => g.slug === slug) ?? null
 }
 
@@ -623,14 +627,19 @@ export async function shortageNews(limit = 8): Promise<FdaNewsItem[] | undefined
   const json = await getJson(`${OPENFDA_SHORTAGES}?search=status:%22Current%22&sort=initial_posting_date:desc&limit=${PAGE}`)
   if (json === undefined) return undefined
   const newest = groupShortages(json).slice(0, limit)
-  const full = await Promise.all(newest.map((s) => shortageByName(s.name)))
+  const full = await Promise.all(newest.map((s) => shortageBySlug(s.name, s.slug)))
   return newest.map((s, i) => shortageItem(full[i] ?? s))
 }
 
 /** One drug's shortage page, by its slug; `null` = not on the current list, `undefined` = FDA not answering. */
 export async function shortageDetail(slug: string): Promise<ShortageNews | null | undefined> {
   const clean = slugify(slug)
-  return clean ? shortageByName(clean.replace(/-/g, ' ')) : null
+  if (!clean) return null
+  // The slug has lost the name's punctuation; openFDA's search ignores most of it too ("5%" matches "5"), so the
+  // words usually find the drug at once. A name they cannot match (an apostrophe: "Ringer's") is found by its first word.
+  const words = clean.split('-')
+  const found = await shortageBySlug(words.join(' '), clean)
+  return found === null && words.length > 1 ? shortageBySlug(words[0], clean) : found
 }
 
 // ---------------------------------------------------------------- home page

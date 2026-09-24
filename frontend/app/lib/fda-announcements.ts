@@ -36,7 +36,7 @@ export function decodeEntities(value: string): string {
 /** Plain text: tags and entities gone, spaces collapsed; the "?" boxes of badly encoded dashes become dashes. */
 function clean(value: string): string {
   return decodeEntities(value.replace(/<[^>]+>/g, ' '))
-    .replace(/\s*�\s*/g, ' – ')
+    .replace(/\s*\uFFFD\s*/g, ' – ')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -166,36 +166,59 @@ export interface FdaNotice {
 }
 
 /** The newest drug and biologic recall notices on fda.gov (the feed also carries food, supplements, …). */
-export async function recallNotices(): Promise<FdaNotice[] | undefined> {
+/**
+ * Reads `items` a few at a time, in order, until `enough` of them gave a result: the newest items come first,
+ * so the ones after that point could not make the list anyway, and fda.gov is not asked for them.
+ */
+export async function firstMatches<T, R>(items: T[], read: (item: T) => Promise<R | null>, enough: number, batch = 4): Promise<R[]> {
+  const out: R[] = []
+  for (let i = 0; i < items.length && out.length < enough; i += batch) {
+    for (const result of await Promise.all(items.slice(i, i + batch).map(read))) {
+      if (result !== null && out.length < enough) out.push(result)
+    }
+  }
+  return out
+}
+
+function newestFirst(items: RssItem[]): RssItem[] {
+  return [...items].sort((a, b) => b.date.localeCompare(a.date))
+}
+
+/** The newest `limit` drug and biologic recall notices on fda.gov (the feed also carries food, supplements, …). */
+export async function recallNotices(limit = Infinity): Promise<FdaNotice[] | undefined> {
   const xml = await getText(FDA_RSS.recalls, 3600)
   if (typeof xml !== 'string') return xml === null ? [] : undefined
-  const items = parseRss(xml).filter((i) => i.path.startsWith(NOTICE_PATH))
-  const pages = await Promise.all(items.map((i) => page(i.path)))
-  return items.flatMap((item, n) => {
-    const p = pages[n]
-    return p && isDrugOrBiologic(p.productType) ? [{ item, page: p }] : []
-  })
+  const items = newestFirst(parseRss(xml).filter((i) => i.path.startsWith(NOTICE_PATH)))
+  return firstMatches(
+    items,
+    async (item) => {
+      const p = await page(item.path)
+      return p && isDrugOrBiologic(p.productType) ? { item, page: p } : null
+    },
+    limit,
+  )
 }
 
 export interface FdaAnnouncement extends FdaNotice {
   names: { brand: string; generic: string } | null
 }
 
-/** Drug and biologic approval announcements from FDA press releases and the drug center's feed, newest first. */
-export async function approvalAnnouncements(): Promise<FdaAnnouncement[] | undefined> {
+/** Approval announcements in FDA press releases and the drug center's feed, newest first; pages not read yet. */
+export async function approvalCandidates(): Promise<RssItem[] | undefined> {
   const feeds = await Promise.all([getText(FDA_RSS.press, 3600), getText(FDA_RSS.drugs, 3600)])
   if (feeds.every((f) => f === undefined)) return undefined
   const seen = new Set<string>()
   const items = feeds
     .flatMap((xml) => (typeof xml === 'string' ? parseRss(xml) : []))
-    .filter((i) => isApprovalTitle(i.title) && APPROVAL_PATHS.some((p) => i.path.startsWith(p)) && !seen.has(i.slug) && seen.add(i.slug))
-  const pages = await Promise.all(items.map((i) => page(i.path)))
-  return items
-    .flatMap((item, n) => {
-      const p = pages[n]
-      return p && isDrugOrBiologic(p.productType) ? [{ item, page: p, names: approvalNames(p.summary) }] : []
-    })
-    .sort((a, b) => b.item.date.localeCompare(a.item.date))
+    .filter((i) => isApprovalTitle(i.title) && APPROVAL_PATHS.some((p) => i.path.startsWith(p)))
+    .filter((i) => !seen.has(i.slug) && Boolean(seen.add(i.slug)))
+  return newestFirst(items)
+}
+
+/** One candidate's page: the announcement when it is about a drug or biologic, else `null`. */
+export async function readAnnouncement(item: RssItem): Promise<FdaAnnouncement | null> {
+  const p = await page(item.path)
+  return p && isDrugOrBiologic(p.productType) ? { item, page: p, names: approvalNames(p.summary) } : null
 }
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/

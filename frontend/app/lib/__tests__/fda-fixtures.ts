@@ -8,7 +8,7 @@ export const RECALLS_RSS = `<?xml version="1.0" encoding="utf-8"?><rss><channel>
 
 export const noticePage = (type: string, title: string) => `<html><head><title>${title} | FDA</title>
 <meta property="og:title" content="${title}" />
-<meta name="description" content="ROCHESTER, MI� September 18, 2026 �Par Health is voluntarily recalling two lots" />
+<meta name="description" content="ROCHESTER, MI\uFFFD September 18, 2026 \uFFFDPar Health is voluntarily recalling two lots" />
 </head><body><script>var x = "Product Type: Food";</script>
 <time datetime="2026-09-18T19:14:00Z">09/18/2026</time>
 <dl><dt>Company Announcement Date:</dt><dd><time datetime="2026-09-18T19:14:00Z">September 18, 2026</time></dd>

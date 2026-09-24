@@ -16,6 +16,7 @@ import {
   recallsForNews,
   shortFirm,
   shortProduct,
+  shortageDetail,
   shortageHeadline,
   shortageTag,
   slugify,
@@ -290,6 +291,27 @@ test('home page: one recall, one new drug and one shortage, and a failing feed i
     asked.length = 0
     assert.deepEqual((await fdaHighlights(now, { recall: false, approval: true, shortage: true })).map((i) => i.kind), ['approval', 'shortage'])
     assert.ok(!asked.some((url) => url.includes('/drug/enforcement.json') || url.includes('/recalls/rss.xml')))
+  } finally {
+    global.fetch = originalFetch
+  }
+})
+
+test('a shortage page opens even when the name had punctuation the web address lost', async () => {
+  const originalFetch = global.fetch
+  const asked: string[] = []
+  const row = shortageRow({ generic_name: "Lactated Ringer's Injection", company_name: 'Baxter Healthcare' })
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const search = decodeURIComponent(String(input))
+    asked.push(search)
+    // openFDA keeps "ringer's" as one word, so the words from the address miss; the first word alone finds it
+    const hit = search.includes('generic_name:"lactated" ')
+    return new Response(JSON.stringify(hit ? { results: [row] } : {}), { status: hit ? 200 : 404 })
+  }) as typeof fetch
+  try {
+    const s = await shortageDetail('lactated-ringer-s-injection')
+    assert.equal(s?.name, "Lactated Ringer's Injection")
+    assert.equal(asked.length, 2)
+    assert.equal(await shortageDetail('no-such-drug'), null)
   } finally {
     global.fetch = originalFetch
   }

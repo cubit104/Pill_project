@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { approvalNames, isApprovalTitle, isDrugOrBiologic, isoFromWords, parseFdaPage, parseRss } from '../fda-announcements'
+import { approvalNames, firstMatches, isApprovalTitle, isDrugOrBiologic, isoFromWords, parseFdaPage, parseRss } from '../fda-announcements'
 import { RECALLS_RSS, announcementPage, noticePage } from './fda-fixtures'
 
 test('feed items: FDA links only, titles decoded, dates read', () => {
@@ -69,4 +69,20 @@ test('the medicine named in an approval summary, in the FDA’s three wordings',
     generic: 'vusolimogene oderparepvec-wtpg',
   })
   assert.equal(approvalNames('The FDA today expanded treatment options for adult patients with advanced breast cancer.'), null)
+})
+
+test('pages are read a few at a time, and no more once enough are found', async () => {
+  const read: string[] = []
+  const kept = await firstMatches(
+    ['food', 'drug-1', 'drug-2', 'drug-3', 'drug-4', 'food-2'],
+    async (item) => {
+      read.push(item)
+      return item.startsWith('drug') ? item : null
+    },
+    1,
+    2,
+  )
+  assert.deepEqual(kept, ['drug-1'])
+  assert.deepEqual(read, ['food', 'drug-1']) // one batch of two, then stop
+  assert.deepEqual(await firstMatches(['a', 'b', 'c'], async (x) => x, 10, 2), ['a', 'b', 'c']) // fewer than asked: all of them
 })
