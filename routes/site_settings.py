@@ -1,13 +1,17 @@
 """Site feature flags: public read, superuser write.
 
-GET  /api/features               -> {"photo_id_enabled": bool, "photo_id_reader_mode": "original"|"fast"|"accurate"}
+GET  /api/features               -> {"photo_id_enabled": bool, "photo_id_reader_mode": "original"|"fast"|"accurate",
+                                     "fda_news_recalls_enabled": bool, "fda_news_approvals_enabled": bool,
+                                     "fda_news_shortages_enabled": bool}
 GET  /api/admin/features         -> the public flags plus the second-reader settings (superuser)
 PUT  /api/admin/features         -> any subset of: photo_id_enabled, photo_id_reader_mode,
                                     reader_trust_base, ai_reader_mode ("off"|"fallback"|"always"),
-                                    ai_reader_model, ai_reader_daily_cap, iv_card_model
+                                    ai_reader_model, ai_reader_daily_cap, iv_card_model,
+                                    fda_news_recalls_enabled, fda_news_approvals_enabled,
+                                    fda_news_shortages_enabled
 
 Backed by public.site_settings (supabase/migrations/20260903000000_create_site_settings.sql).
-If the table is missing, reads fall back to defaults (feature off) so the
+If the table is missing, reads fall back to the defaults below so the
 site keeps working before the migration runs.
 """
 
@@ -49,10 +53,21 @@ DEFAULTS = {
     # iv_card_model: which Gemini model drafts the IV/injection "at a glance" cards (services/iv_card.py).
     # Whatever is chosen, every answer is checked against the label word for word and a reviewer approves the card.
     "iv_card_model": iv_card.DEFAULT_MODEL,
+    # fda_news_*: the "Latest from the FDA" cards on the website (home page, /fda-news and the item pages), read
+    # live from the FDA. On unless a superuser switches one off, e.g. when an FDA feed starts sending something wrong.
+    "fda_news_recalls_enabled": True,
+    "fda_news_approvals_enabled": True,
+    "fda_news_shortages_enabled": True,
 }
 FLAG_KEYS = tuple(DEFAULTS)
 # What the public site and the app may see; the rest is for the admin only.
-PUBLIC_KEYS = ("photo_id_enabled", "photo_id_reader_mode")
+PUBLIC_KEYS = (
+    "photo_id_enabled",
+    "photo_id_reader_mode",
+    "fda_news_recalls_enabled",
+    "fda_news_approvals_enabled",
+    "fda_news_shortages_enabled",
+)
 
 
 class FeatureUpdate(BaseModel):
@@ -63,6 +78,9 @@ class FeatureUpdate(BaseModel):
     ai_reader_model: str | None = Field(default=None, max_length=60)
     ai_reader_daily_cap: int | None = Field(default=None, ge=0, le=ai_reader.MAX_DAILY_CAP)
     iv_card_model: str | None = Field(default=None, max_length=60)
+    fda_news_recalls_enabled: bool | None = None
+    fda_news_approvals_enabled: bool | None = None
+    fda_news_shortages_enabled: bool | None = None
 
 
 def _coerce(key: str, value):

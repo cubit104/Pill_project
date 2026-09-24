@@ -94,6 +94,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly',
       priority: 0.6,
     },
+    // the item pages under it are noindex (FDA wording as is); the list itself is fresh every day
+    {
+      url: `${SITE_URL}/fda-news`,
+      changeFrequency: 'daily',
+      priority: 0.6,
+    },
   ]
 
   try {
