@@ -1,33 +1,111 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { FDA_RECALLS_PAGE, plainReason, recallDetail, recallTag, shortProduct } from '../../../../lib/fda-news'
+import { recallNotice, type FdaPage } from '../../../../lib/fda-announcements'
+import { FDA_RECALLS_PAGE, NOTICE_TAG, plainReason, recallDetail, recallTag, shortProduct, type RecallDetail } from '../../../../lib/fda-news'
 import { classText, prettyDate } from '../../../../lib/recalls'
 import { DetailHeader, ExternalLink, Facts, Section, SourceNote, WhatToDo } from '../../NewsDetail'
 
 type Params = Promise<{ id: string }>
 
-/** `undefined` from the feed means the FDA did not answer: throw, so the error page shows and nothing is cached. */
+/** FDA recall numbers ("D-0850-2026") come from the weekly enforcement reports; anything else is the slug of a notice on fda.gov. */
+const RECALL_NUMBER = /^[A-Z]-\d{3,5}-\d{4}$/i
+
+/** `undefined` from a feed means the FDA did not answer: throw, so the error page shows and nothing is cached. */
 async function load(id: string) {
-  const data = await recallDetail(decodeURIComponent(id))
-  if (data === undefined) throw new Error('The FDA recall feed did not answer')
-  if (data === null) notFound()
-  return data
+  const key = decodeURIComponent(id)
+  if (RECALL_NUMBER.test(key)) {
+    const data = await recallDetail(key)
+    if (data === undefined) throw new Error('The FDA recall feed did not answer')
+    if (data === null) notFound()
+    return { kind: 'report' as const, ...data }
+  }
+  const notice = await recallNotice(key.toLowerCase())
+  if (notice === undefined) throw new Error('fda.gov did not answer')
+  if (notice === null) notFound()
+  return { kind: 'notice' as const, slug: key.toLowerCase(), ...notice }
 }
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
-  const { recall } = await load((await params).id)
+  const data = await load((await params).id)
+  // FDA wording shown as is: useful to people, not something to rank
+  const robots = { index: false, follow: true }
+  if (data.kind === 'notice') {
+    return {
+      title: data.page.title,
+      description: `Drug recall announced ${prettyDate(data.page.announced || data.page.date)}: ${data.page.reason}`.slice(0, 300),
+      robots,
+      alternates: { canonical: `/fda-news/recall/${data.slug}` },
+    }
+  }
+  const { recall } = data
   return {
     title: recall.headline,
     description: `${recallTag(recall.cls)}. FDA recall ${recall.id} reported ${prettyDate(recall.date)}: ${recall.reason}`.slice(0, 300),
-    // FDA wording shown as is: useful to people, not something to rank
-    robots: { index: false, follow: true },
+    robots,
     alternates: { canonical: `/fda-news/recall/${recall.id}` },
   }
 }
 
 export default async function RecallNewsPage({ params }: { params: Params }) {
-  const { recall, others } = await load((await params).id)
+  const data = await load((await params).id)
+  return data.kind === 'notice' ? <NoticeView page={data.page} url={data.url} /> : <ReportView recall={data.recall} others={data.others} />
+}
+
+function RecallWhatToDo() {
+  return (
+    <WhatToDo>
+      <ul className="list-disc space-y-1 pl-5">
+        <li>Do not stop taking a medicine on your own. Stopping some medicines suddenly is riskier than the recall itself.</li>
+        <li>Check whether the product, strength and lot number match the one you have.</li>
+        <li>If they match, call your pharmacy or prescriber before taking more.</li>
+      </ul>
+    </WhatToDo>
+  )
+}
+
+/** A recall the company announced and the FDA posted; the FDA's own classification follows weeks later. */
+function NoticeView({ page, url }: { page: FdaPage; url: string }) {
+  const plain = plainReason(page.reason)
+  return (
+    <>
+      <DetailHeader kind="recall" headline={page.title} date={page.announced || page.date} tag={NOTICE_TAG} />
+      <div className="mx-auto max-w-4xl px-4 pt-8">
+        <Facts
+          rows={[
+            ['Recalled product', page.product],
+            ['Company', page.company],
+            ['Brand name', page.brand],
+            ['Product type', page.productType],
+            ['Company announcement', page.announced ? prettyDate(page.announced) : ''],
+            ['Posted by the FDA', page.published ? prettyDate(page.published) : ''],
+          ]}
+        />
+
+        <Section title="Why it was recalled">
+          <p>{page.reason || 'See the FDA notice for the reason.'}</p>
+          {plain && <p className="mt-2 text-sm text-slate-600">In plain words: {plain}.</p>}
+        </Section>
+
+        <Section title="Lot numbers">
+          <p>
+            The notice on the FDA website lists the lot numbers, expiry dates and who to contact.{' '}
+            <ExternalLink href={url}>Read the full FDA notice</ExternalLink>
+          </p>
+        </Section>
+
+        <RecallWhatToDo />
+
+        <SourceNote>
+          Source: company recall announcement posted by the FDA{page.published ? ` on ${prettyDate(page.published)}` : ''}. The FDA classifies the
+          recall (Class I, II or III) in a later weekly enforcement report.
+        </SourceNote>
+      </div>
+    </>
+  )
+}
+
+function ReportView({ recall, others }: { recall: RecallDetail; others: RecallDetail[] }) {
   const plain = plainReason(recall.reason)
   const open = /ongoing/i.test(recall.status)
   const drug = recall.generic
@@ -65,13 +143,7 @@ export default async function RecallNewsPage({ params }: { params: Params }) {
           </Section>
         )}
 
-        <WhatToDo>
-          <ul className="list-disc space-y-1 pl-5">
-            <li>Do not stop taking a medicine on your own. Stopping some medicines suddenly is riskier than the recall itself.</li>
-            <li>Check whether the product, strength and lot number match the one you have.</li>
-            <li>If they match, call your pharmacy or prescriber before taking more.</li>
-          </ul>
-        </WhatToDo>
+        <RecallWhatToDo />
 
         {others.length > 0 && (
           <Section title="Also in this recall">

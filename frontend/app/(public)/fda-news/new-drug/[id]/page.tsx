@@ -1,32 +1,91 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { approvalDetail, dailyMedUrl, drugsAtFdaUrl } from '../../../../lib/fda-news'
+import { approvalAnnouncement, approvalNames, type FdaPage } from '../../../../lib/fda-announcements'
+import { approvalDetail, dailyMedUrl, drugsAtFdaUrl, type Approval, type LabelSummary } from '../../../../lib/fda-news'
 import { prettyDate } from '../../../../lib/recalls'
 import { DetailHeader, ExternalLink, Facts, Section, SourceNote, WhatToDo } from '../../NewsDetail'
 
 type Params = Promise<{ id: string }>
 
-/** `undefined` from the feed means the FDA did not answer: throw, so the error page shows and nothing is cached. */
+/** Drugs@FDA application numbers ("NDA220359"); anything else is the slug of an FDA approval announcement. */
+const APPLICATION = /^(NDA|BLA|ANDA)\d+$/i
+
+/** `undefined` from a feed means the FDA did not answer: throw, so the error page shows and nothing is cached. */
 async function load(id: string) {
-  const data = await approvalDetail(decodeURIComponent(id))
-  if (data === undefined) throw new Error('The FDA approvals feed did not answer')
-  if (data === null) notFound()
-  return data
+  const key = decodeURIComponent(id)
+  if (APPLICATION.test(key)) {
+    const data = await approvalDetail(key)
+    if (data === undefined) throw new Error('The FDA approvals feed did not answer')
+    if (data === null) notFound()
+    return { kind: 'application' as const, ...data }
+  }
+  const announcement = await approvalAnnouncement(key.toLowerCase())
+  if (announcement === undefined) throw new Error('fda.gov did not answer')
+  if (announcement === null) notFound()
+  return { kind: 'announcement' as const, slug: key.toLowerCase(), ...announcement }
 }
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
-  const { approval } = await load((await params).id)
+  const data = await load((await params).id)
+  const robots = { index: false, follow: true }
+  if (data.kind === 'announcement') {
+    return { title: data.page.title, description: data.page.summary.slice(0, 300), robots, alternates: { canonical: `/fda-news/new-drug/${data.slug}` } }
+  }
+  const { approval } = data
   const name = approval.brand && approval.generic ? `${approval.brand} (${approval.generic})` : approval.brand || approval.generic
   return {
     title: approval.headline,
     description: `${name} was approved by the FDA on ${prettyDate(approval.date)}. What it is for, its form and the company, from FDA data.`,
-    robots: { index: false, follow: true },
+    robots,
     alternates: { canonical: `/fda-news/new-drug/${approval.application}` },
   }
 }
 
 export default async function NewDrugNewsPage({ params }: { params: Params }) {
-  const { approval, label } = await load((await params).id)
+  const data = await load((await params).id)
+  return data.kind === 'announcement' ? <AnnouncementView page={data.page} url={data.url} /> : <ApplicationView approval={data.approval} label={data.label} />
+}
+
+function NewDrugWhatToDo() {
+  return (
+    <WhatToDo>
+      <p>A newly approved medicine may not be in pharmacies right away. Ask your doctor or pharmacist whether it fits your treatment, and do not change a current medicine on your own.</p>
+    </WhatToDo>
+  )
+}
+
+/** The FDA's own announcement (press release or drug center note), for approvals Drugs@FDA does not list yet or at all. */
+function AnnouncementView({ page, url }: { page: FdaPage; url: string }) {
+  const names = approvalNames(page.summary)
+  return (
+    <>
+      <DetailHeader kind="approval" headline={page.title} date={page.date} tag="Approved by the FDA" />
+      <div className="mx-auto max-w-4xl px-4 pt-8">
+        <Facts
+          rows={[
+            ['Brand name', names?.brand ?? ''],
+            ['Active ingredient', names?.generic ?? ''],
+            ['Product type', page.productType],
+            ['Announced', page.date ? prettyDate(page.date) : ''],
+          ]}
+        />
+
+        <Section title="What the FDA said">
+          <p>{page.summary || 'See the FDA announcement for the details.'}</p>
+          <p className="mt-2 text-sm">
+            <ExternalLink href={url}>Read the full FDA announcement</ExternalLink>
+          </p>
+        </Section>
+
+        <NewDrugWhatToDo />
+
+        <SourceNote>Source: FDA announcement{page.date ? ` of ${prettyDate(page.date)}` : ''} on fda.gov. Drugs@FDA lists new drugs a week or two later.</SourceNote>
+      </div>
+    </>
+  )
+}
+
+function ApplicationView({ approval, label }: { approval: Approval; label: LabelSummary | null }) {
   const setId = label?.setId || approval.setId
   const ingredients = [...new Set(approval.products.map((p) => p.ingredients).filter(Boolean))]
   const forms = [...new Set(approval.products.map((p) => p.form).filter(Boolean))]
@@ -68,9 +127,7 @@ export default async function NewDrugNewsPage({ params }: { params: Params }) {
           </section>
         )}
 
-        <WhatToDo>
-          <p>A newly approved medicine may not be in pharmacies right away. Ask your doctor or pharmacist whether it fits your treatment, and do not change a current medicine on your own.</p>
-        </WhatToDo>
+        <NewDrugWhatToDo />
 
         <p className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm">
           <ExternalLink href={drugsAtFdaUrl(approval.application)}>Approval on Drugs@FDA</ExternalLink>

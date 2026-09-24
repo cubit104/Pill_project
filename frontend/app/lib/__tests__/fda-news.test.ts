@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
+import { RECALLS_RSS, announcementPage, noticePage } from './fda-fixtures'
 import {
+  approvalNews,
   approvalsForNews,
   fdaHighlights,
   formNoun,
@@ -10,6 +12,7 @@ import {
   labelUses,
   parseApproval,
   plainReason,
+  recallNews,
   recallsForNews,
   shortFirm,
   shortProduct,
@@ -195,6 +198,71 @@ test('label text loses its section heading and is cut at a sentence', () => {
   )
   const long = labelUses(`INDICATIONS & USAGE ${'First sentence here. '.repeat(60)}`, 200)
   assert.ok(long.length <= 200 && long.endsWith('.'))
+})
+
+test('same-day FDA notices join the lists: drugs and biologics only, no duplicates, no new uses of old drugs', async () => {
+  const originalFetch = global.fetch
+  const answer = (body: string, status = 200) => new Response(body, { status })
+  const json = (body: unknown) => answer(JSON.stringify(body))
+  const press = (title: string, slug: string, date: string) =>
+    `<item><title>${title}</title><link>http://www.fda.gov/news-events/press-announcements/${slug}</link><pubDate>${date}</pubDate></item>`
+  const pages: Record<string, string> = {
+    '/safety/recalls-market-withdrawals-safety-alerts/par-health-issues-recall': noticePage('Drugs', 'Par Health Issues Voluntary Nationwide Recall'),
+    '/safety/recalls-market-withdrawals-safety-alerts/global-mix-inc-recalls-niwali-tejocote-capsules': noticePage('Dietary Supplements', 'Global Mix Recalls Tejocote'),
+    '/safety/recalls-market-withdrawals-safety-alerts/gf-blends-recalls-flour': noticePage('Food &amp; Beverages', 'GF Blends Recalls Flour'),
+    '/news-events/press-announcements/fayuvi': announcementPage('FDA Approves First Gene Therapy for Sanfilippo Syndrome', 'The FDA today approved Fayuvi (rebisufligene etisparvovec-hopf), the first', 'Biologics'),
+    '/news-events/press-announcements/breast': announcementPage('FDA Grants Accelerated Approval to a New Breast Cancer Treatment', 'The FDA today approved Etcamah (camizestrant), a pill', 'Drugs', '2026-09-04'),
+    '/news-events/press-announcements/keytruda': announcementPage('FDA Approves Keytruda for a New Cancer', 'The FDA today approved Keytruda (pembrolizumab) for adults with', 'Drugs', '2026-09-10'),
+    '/news-events/press-announcements/pump': announcementPage('FDA Approves New Insulin Pump', 'The FDA today approved the Acme Pump (model 2), a device', 'Medical Devices', '2026-09-12'),
+  }
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input))
+    if (url.hostname === 'www.fda.gov') {
+      if (url.pathname.endsWith('/recalls/rss.xml')) return answer(RECALLS_RSS)
+      if (url.pathname.endsWith('/press-releases/rss.xml')) {
+        return answer(`<rss><channel>${[
+          press('FDA Approves First Gene Therapy for Sanfilippo Syndrome', 'fayuvi', 'Thu, 17 Sep 2026 14:30:00 EDT'),
+          press('FDA Approves New Insulin Pump', 'pump', 'Sat, 12 Sep 2026 10:00:00 EDT'),
+          press('FDA Approves Keytruda for a New Cancer', 'keytruda', 'Thu, 10 Sep 2026 10:00:00 EDT'),
+          press('FDA Grants Accelerated Approval to a New Breast Cancer Treatment', 'breast', 'Fri, 04 Sep 2026 10:00:00 EDT'),
+          press('FDA Launches a Pilot Program', 'pilot', 'Tue, 15 Sep 2026 10:00:00 EDT'),
+        ].join('')}</channel></rss>`)
+      }
+      return pages[url.pathname] ? answer(pages[url.pathname]) : answer('', 404)
+    }
+    const search = decodeURIComponent(url.search)
+    if (url.pathname === '/drug/enforcement.json') return json({ results: [recallRow()] })
+    if (url.pathname === '/drug/drugsfda.json') {
+      if (search.includes('submission_class_code')) return json({ meta: { results: { total: 1 } }, results: [approvalRow()] })
+      if (search.includes('pembrolizumab')) {
+        return json({ results: [approvalRow({ application_number: 'BLA125514', submissions: [{ submission_type: 'ORIG', submission_status: 'AP', submission_status_date: '20140904', submission_class_code: 'TYPE 1' }] })] })
+      }
+      return answer('', 404) // not in Drugs@FDA: a new biologic
+    }
+    return answer('', 404)
+  }) as typeof fetch
+  try {
+    const now = new Date(2026, 8, 23)
+    const recalls = await recallNews(10, now)
+    assert.deepEqual(
+      recalls?.map((i) => [i.date, i.tag, i.href]),
+      [
+        ['2026-09-18', 'Company announcement', '/fda-news/recall/par-health-issues-recall'], // the tejocote supplement and the flour are gone
+        ['2026-09-16', 'Class I · Most serious', '/fda-news/recall/D-0850-2026'],
+      ],
+    )
+    const approvals = await approvalNews(10, now)
+    assert.deepEqual(
+      approvals?.map((i) => [i.date, i.headline]),
+      [
+        ['2026-09-17', 'FDA Approves First Gene Therapy for Sanfilippo Syndrome'], // not in Drugs@FDA: kept
+        ['2026-09-04', 'FDA approves Etcamah (camizestrant) tablets'], // the press release about it is dropped; the pump and Keytruda's new use too
+      ],
+    )
+    assert.equal(approvals?.[0].href, '/fda-news/new-drug/fayuvi')
+  } finally {
+    global.fetch = originalFetch
+  }
 })
 
 test('home page: one recall, one new drug and one shortage, and a failing feed is just left out', async () => {

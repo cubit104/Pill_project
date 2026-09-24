@@ -1,13 +1,15 @@
 /**
  * "Latest from the FDA": the newest drug recall, new drug approval and drug shortage, from the free openFDA
- * feeds (no key needed at our volume). The home page shows one of each, /fda-news lists the recent ones,
- * and every item has a short PillSeek page with the FDA's own facts.
+ * feeds (no key needed at our volume) plus fda.gov's same-day notices (lib/fda-announcements.ts). The home
+ * page shows one of each, /fda-news lists the recent ones, and every item has a short PillSeek page with the
+ * FDA's own facts.
  *
  * Everything is fetched on the server and cached a day by Next, the same way lib/recalls.ts and
  * lib/shortages.ts work. A feed that does not answer in time is left out; nothing here throws into a page.
  * Headlines are built from the FDA fields with fixed rules (no guessing), and the detail pages always show
  * the FDA's full wording next to them.
  */
+import { approvalAnnouncements, recallNotices, type FdaAnnouncement, type FdaNotice } from './fda-announcements'
 import { OPENFDA, classOf, dateRange, isoDate, type RecallClass } from './recalls'
 import { OPENFDA_SHORTAGES, availabilityOf, isoFromUsDate, shortageQuery, type Availability } from './shortages'
 
@@ -242,10 +244,27 @@ export function recallItem(r: RecallDetail): FdaNewsItem {
   return { kind: 'recall', href: `/fda-news/recall/${encodeURIComponent(r.id)}`, date: r.date, headline: r.headline, tag: recallTag(r.cls) }
 }
 
+/** Tag of a recall the company announced and the FDA posted the same day; the FDA classifies it weeks later. */
+export const NOTICE_TAG = 'Company announcement'
+
+export function noticeItem(n: FdaNotice): FdaNewsItem {
+  return { kind: 'recall', href: `/fda-news/recall/${n.item.slug}`, date: n.item.date || n.page.published, headline: n.item.title || n.page.title, tag: NOTICE_TAG }
+}
+
+/** Newest first; items of the same day keep their order (a stable sort). */
+function newestFirst(items: FdaNewsItem[]): FdaNewsItem[] {
+  return [...items].sort((a, b) => b.date.localeCompare(a.date))
+}
+
+/** Recalls: the drug and biologic recall notices on fda.gov (same day) and the weekly enforcement reports, newest first. */
 export async function recallNews(limit = 8, now = new Date()): Promise<FdaNewsItem[] | undefined> {
-  const json = await getJson(`${OPENFDA}?search=${dateRange(now, WINDOW_DAYS)}&sort=report_date:desc&limit=${PAGE}`)
-  if (json === undefined) return undefined
-  return recallsForNews(json).slice(0, limit).map(recallItem)
+  const [json, notices] = await Promise.all([
+    getJson(`${OPENFDA}?search=${dateRange(now, WINDOW_DAYS)}&sort=report_date:desc&limit=${PAGE}`),
+    recallNotices(),
+  ])
+  if (json === undefined && notices === undefined) return undefined
+  const reports = json === undefined ? [] : recallsForNews(json).map(recallItem)
+  return newestFirst([...(notices ?? []).map(noticeItem), ...reports]).slice(0, limit)
 }
 
 /** One recall with the other products of the same recall event; `null` = no such recall, `undefined` = FDA not answering. */
@@ -370,8 +389,18 @@ export function approvalItem(a: Approval): FdaNewsItem {
   return { kind: 'approval', href: `/fda-news/new-drug/${encodeURIComponent(a.application)}`, date: a.date, headline: a.headline, tag: 'Approved by the FDA' }
 }
 
-export async function approvalNews(limit = 8, now = new Date()): Promise<FdaNewsItem[] | undefined> {
+export function announcementItem(a: FdaAnnouncement): FdaNewsItem {
+  return { kind: 'approval', href: `/fda-news/new-drug/${a.item.slug}`, date: a.item.date || a.page.date, headline: a.item.title || a.page.title, tag: 'Approved by the FDA' }
+}
+
+function windowStart(now: Date): { from: Date; fromIso: string } {
   const from = new Date(now.getTime() - WINDOW_DAYS * DAY_MS)
+  return { from, fromIso: isoDate(yyyymmdd(from)) }
+}
+
+/** New molecular entities in Drugs@FDA from the last 60 days, newest first. */
+async function novelApprovals(now: Date): Promise<Approval[] | undefined> {
+  const { from, fromIso } = windowStart(now)
   // openFDA matches each condition against any submission, so older drugs with a recent supplement come back too;
   // the exact test (original approval, new molecular entity, inside the window) is done in approvalsForNews.
   const search = `submissions.submission_type:%22ORIG%22+AND+submissions.submission_status:%22AP%22+AND+submissions.submission_class_code:%22TYPE+1%22+AND+submissions.submission_status_date:[${yyyymmdd(from)}+TO+${yyyymmdd(now)}]`
@@ -383,7 +412,45 @@ export async function approvalNews(limit = 8, now = new Date()): Promise<FdaNews
     const skips = Array.from({ length: Math.min(3, Math.ceil(total / PAGE) - 1) }, (_, i) => (i + 1) * PAGE)
     pages.push(...(await Promise.all(skips.map((skip) => getJson(`${OPENFDA_DRUGSFDA}?search=${search}&limit=${PAGE}&skip=${skip}`)))))
   }
-  return approvalsForNews({ results: pages.flatMap(rowsOf) }, isoDate(yyyymmdd(from))).slice(0, limit).map(approvalItem)
+  return approvalsForNews({ results: pages.flatMap(rowsOf) }, fromIso)
+}
+
+/** Name words long enough to tell medicines apart: "Etcamah (camizestrant)" -> ["etcamah", "camizestrant"]. */
+export function nameWords(value: string): string[] {
+  return value.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 5)
+}
+
+/**
+ * True when Drugs@FDA already had this ingredient approved before `fromIso`: the announcement is then a new use
+ * of an old medicine, not a new drug. `undefined` when it cannot be told (the caller then leaves the item out).
+ */
+async function approvedBefore(names: { brand: string; generic: string }, fromIso: string): Promise<boolean | undefined> {
+  const word = nameWords(names.generic)[0] ?? nameWords(names.brand)[0]
+  if (!word) return undefined
+  const query = encodeURIComponent(`products.active_ingredients.name:"${word}" OR openfda.generic_name:"${word}" OR products.brand_name:"${word}"`)
+  const json = await getJson(`${OPENFDA_DRUGSFDA}?search=${query}&limit=20`)
+  if (json === undefined) return undefined
+  return rowsOf(json)
+    .map(parseApproval)
+    .some((a) => a !== null && a.date !== '' && a.date < fromIso)
+}
+
+/**
+ * New drugs: the FDA's same-day approval announcements (gene therapies and other biologics too) and the new
+ * molecular entities in Drugs@FDA, newest first. An announcement is left out when Drugs@FDA already lists the
+ * same medicine (its page there has more facts) and when the medicine was approved long before (a new use).
+ */
+export async function approvalNews(limit = 8, now = new Date()): Promise<FdaNewsItem[] | undefined> {
+  const { fromIso } = windowStart(now)
+  const [novel, announcements] = await Promise.all([novelApprovals(now), approvalAnnouncements()])
+  if (novel === undefined && announcements === undefined) return undefined
+  const known = new Set((novel ?? []).flatMap((a) => nameWords(`${a.brand} ${a.generic}`)))
+  const candidates = (announcements ?? []).filter(
+    (a) => a.item.date >= fromIso && a.names !== null && !nameWords(`${a.names.brand} ${a.names.generic}`).some((w) => known.has(w)),
+  )
+  const before = await Promise.all(candidates.map((a) => approvedBefore(a.names!, fromIso)))
+  const fresh = candidates.filter((_, i) => before[i] === false)
+  return newestFirst([...fresh.map(announcementItem), ...(novel ?? []).map(approvalItem)]).slice(0, limit)
 }
 
 export interface LabelSummary {

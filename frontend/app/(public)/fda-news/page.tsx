@@ -38,14 +38,14 @@ export default async function FdaNewsPage() {
     {
       kind: 'recall',
       title: 'Latest drug recalls',
-      intro: 'Recalls from the FDA’s weekly enforcement reports in the last 60 days, newest first.',
+      intro: 'Drug recalls the FDA posted the day the company announced them, and the FDA’s weekly enforcement reports, newest first.',
       items: recalls,
       more: { href: '/recalls', label: 'Search recalls for any medicine →' },
     },
     {
       kind: 'approval',
       title: 'New drug approvals',
-      intro: 'Medicines with an active ingredient the FDA had never approved before, approved in the last 60 days.',
+      intro: 'Medicines with an active ingredient the FDA had never approved before, gene therapies included, from the last 60 days.',
       items: approvals,
       more: { href: FDA_NOVEL_APPROVALS_PAGE, label: 'FDA list of new drug approvals', external: true },
     },
@@ -106,7 +106,7 @@ export default async function FdaNewsPage() {
         })}
 
         <SourceNote>
-          Source: openFDA (FDA enforcement reports, Drugs@FDA and the FDA drug shortage list), checked daily. Headlines are short
+          Source: FDA recall notices and approval announcements on fda.gov (checked hourly) and openFDA (enforcement reports, Drugs@FDA, the drug shortage list; checked daily). Headlines are short
           summaries; each page shows the FDA’s full wording.
         </SourceNote>
       </div>
