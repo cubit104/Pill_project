@@ -9,6 +9,9 @@ const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000'
 // short, so publishing (or approving a card) in the admin shows on the site within minutes; the label text below is
 // the heavy part and keeps its one-day cache
 const IV_REVALIDATE_SECONDS = 300
+// the A to Z lists: a drug published in the admin shows up within about a minute
+const IV_LIST_REVALIDATE_SECONDS = 60
+const IV_LIST_PAGE = 600 // the most /api/iv returns at once
 const GUIDE_REVALIDATE_SECONDS = 86400
 
 export type CardStatus = 'stated' | 'not_stated' | 'not_applicable'
@@ -103,9 +106,17 @@ export function fetchIvDrug(slug: string): Promise<IvDrug | null> {
   return getJson<IvDrug>(`/api/iv/${encodeURIComponent(slug)}`, IV_REVALIDATE_SECONDS)
 }
 
+/** Every published IV drug, A to Z, page by page (a single page stopped at 600 and cut the list off at S). */
 export async function fetchIvList(): Promise<IvListItem[]> {
-  const data = await getJson<{ results: IvListItem[] }>('/api/iv?per_page=600', IV_REVALIDATE_SECONDS)
-  return data?.results ?? []
+  const first = await getJson<{ results: IvListItem[]; total: number }>(`/api/iv?per_page=${IV_LIST_PAGE}&page=1`, IV_LIST_REVALIDATE_SECONDS)
+  if (!first) return []
+  const pages = Math.ceil((first.total ?? 0) / IV_LIST_PAGE)
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(0, pages - 1) }, (_, i) =>
+      getJson<{ results: IvListItem[] }>(`/api/iv?per_page=${IV_LIST_PAGE}&page=${i + 2}`, IV_LIST_REVALIDATE_SECONDS),
+    ),
+  )
+  return [...first.results, ...rest.flatMap((page) => page?.results ?? [])]
 }
 
 /** True once at least one IV drug is published: until then no menu link, home card or sitemap entry points at /iv. */
@@ -138,7 +149,7 @@ export function isIvPageIndexable(page: {
 }
 
 export function fetchDrugIndex(prefix: string): Promise<DrugIndex | null> {
-  return getJson<DrugIndex>(`/api/drug-index?prefix=${encodeURIComponent(prefix)}`, IV_REVALIDATE_SECONDS)
+  return getJson<DrugIndex>(`/api/drug-index?prefix=${encodeURIComponent(prefix)}`, IV_LIST_REVALIDATE_SECONDS)
 }
 
 export interface IvLabelSections {

@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio as _asyncio
 import logging
 import re
-from time import perf_counter
+from collections import OrderedDict
+from time import monotonic, perf_counter
 from urllib.parse import unquote
 
 import httpx
@@ -15,6 +16,7 @@ from ndc_normalize import normalize_ndc_to_11
 from routes.admin.auth import require_superuser
 from services.pricing_service import (
     DEFAULT_DISCLAIMERS,
+    MAX_RELATED_RXCUIS,
     PricingNotFoundError,
     PricingServiceError,
     pricing_service,
@@ -24,6 +26,36 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 HISTORY_ENDPOINT_TIMEOUT_SECONDS = 8.0
 ALTERNATIVES_ENDPOINT_TIMEOUT_SECONDS = 8.0
+# The strengths of one ingredient are the same for all its pills: worked out once and kept 12 hours (prices
+# change weekly). Without this every price-page visit asked RxNav about each related product again.
+STRENGTHS_CACHE_TTL_SECONDS = 12 * 3600
+STRENGTHS_CACHE_MAX_ITEMS = 300
+STRENGTHS_NDC_LOOKUPS_AT_ONCE = 4
+_strengths_cache: "OrderedDict[str, tuple[float, dict]]" = OrderedDict()
+
+
+def _strengths_for_ndc(base: dict, lookup_ndc: str) -> dict:
+    """An ingredient's cached strengths, marked for the pill being viewed."""
+    return {
+        **base,
+        "ndc": lookup_ndc,
+        "strengths": [{**s, "is_current": s["ndc"] == lookup_ndc} for s in base["strengths"]],
+    }
+
+
+def _strengths_cache_get(ingredient_rxcui: str) -> dict | None:
+    hit = _strengths_cache.get(ingredient_rxcui)
+    if hit is None or monotonic() - hit[0] >= STRENGTHS_CACHE_TTL_SECONDS:
+        return None
+    _strengths_cache.move_to_end(ingredient_rxcui)
+    return hit[1]
+
+
+def _strengths_cache_put(ingredient_rxcui: str, base: dict) -> None:
+    _strengths_cache[ingredient_rxcui] = (monotonic(), base)
+    _strengths_cache.move_to_end(ingredient_rxcui)
+    while len(_strengths_cache) > STRENGTHS_CACHE_MAX_ITEMS:
+        _strengths_cache.popitem(last=False)
 
 
 def _timing_value(result: dict, key: str, fallback: float) -> float:
@@ -642,14 +674,23 @@ async def get_ndc_strengths(ndc: str):
         ingredient_name = ingredient_info["name"].lower()
         ingredient_rxcui = ingredient_info["rxcui"]
 
-        related_rxcuis = await pricing_service._related_product_rxcuis(ingredient_rxcui)
+        cached = _strengths_cache_get(ingredient_rxcui)
+        if cached is not None:
+            return _strengths_for_ndc(cached, lookup_ndc)
+
+        # the same cap the alternatives use, and only a few RxNav lookups at a time for one visit
+        related_rxcuis = (await pricing_service._related_product_rxcuis(ingredient_rxcui))[:MAX_RELATED_RXCUIS]
         if not related_rxcuis:
             return {**empty_response, "ingredient": ingredient_name, "ingredient_rxcui": ingredient_rxcui}
 
-        ndc_lists = await _asyncio.gather(
-            *(pricing_service._ndcs_for_rxcui(r["rxcui"]) for r in related_rxcuis),
-            return_exceptions=True,
-        )
+        at_once = _asyncio.Semaphore(STRENGTHS_NDC_LOOKUPS_AT_ONCE)
+
+        async def _ndcs(rxcui: str) -> list[str]:
+            async with at_once:
+                return await pricing_service._ndcs_for_rxcui(rxcui)
+
+        ndc_lists = await _asyncio.gather(*(_ndcs(r["rxcui"]) for r in related_rxcuis), return_exceptions=True)
+        complete = not any(isinstance(result, BaseException) for result in ndc_lists)
         all_ndcs: list[str] = []
         for result in ndc_lists:
             if isinstance(result, list):
@@ -721,12 +762,15 @@ async def get_ndc_strengths(ndc: str):
 
         strengths.sort(key=_strength_sort_key)
 
-        return {
+        result = {
             "ndc": lookup_ndc,
             "ingredient": ingredient_name,
             "ingredient_rxcui": ingredient_rxcui,
             "strengths": strengths,
         }
+        if complete:  # a list missing some products (an RxNav call failed) is not kept
+            _strengths_cache_put(ingredient_rxcui, result)
+        return _strengths_for_ndc(result, lookup_ndc)
 
     except Exception as exc:
         logger.warning("Strengths endpoint failed for ndc=%s: %s", lookup_ndc, exc)
