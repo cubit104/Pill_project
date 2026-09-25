@@ -110,7 +110,7 @@ export function fetchIvDrug(slug: string): Promise<IvDrug | null> {
 export async function fetchIvList(): Promise<IvListItem[]> {
   const first = await getJson<{ results: IvListItem[]; total: number }>(`/api/iv?per_page=${IV_LIST_PAGE}&page=1`, IV_LIST_REVALIDATE_SECONDS)
   if (!first) return []
-  const pages = Math.min(10, Math.ceil((first.total ?? 0) / IV_LIST_PAGE))
+  const pages = Math.ceil((first.total ?? 0) / IV_LIST_PAGE)
   const rest = await Promise.all(
     Array.from({ length: Math.max(0, pages - 1) }, (_, i) =>
       getJson<{ results: IvListItem[] }>(`/api/iv?per_page=${IV_LIST_PAGE}&page=${i + 2}`, IV_LIST_REVALIDATE_SECONDS),

@@ -41,7 +41,8 @@ export default function DrugNameSearch({ label, placeholder, options }: { label:
     const timer = setTimeout(async () => {
       if (!prefix) return
       try {
-        const res = await fetch(`/api/drug-index?prefix=${encodeURIComponent(prefix)}`)
+        // not from the browser's cache: the index says an hour, but a drug published a minute ago must show
+        const res = await fetch(`/api/drug-index?prefix=${encodeURIComponent(prefix)}`, { cache: 'no-store' })
         const data: DrugIndex | null = res.ok ? await res.json() : null
         const found = indexEntryOptions(data?.entries ?? [])
         byPrefix.current.set(prefix, found)
@@ -116,6 +117,7 @@ export default function DrugNameSearch({ label, placeholder, options }: { label:
           aria-autocomplete="list"
           aria-controls={listId}
           aria-expanded={showList && results.length > 0}
+          aria-activedescendant={showList && results[highlighted] ? `${listId}-option-${highlighted}` : undefined}
           className="w-full rounded-lg border border-slate-300 bg-white py-3 pl-10 pr-4 text-base text-slate-900 placeholder-slate-400 shadow-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-emerald-500"
         />
       </div>
@@ -126,6 +128,7 @@ export default function DrugNameSearch({ label, placeholder, options }: { label:
               {results.map((option, index) => (
                 <li
                   key={`${option.href}-${index}`}
+                  id={`${listId}-option-${index}`}
                   role="option"
                   aria-selected={index === highlighted}
                   onMouseDown={(e) => {

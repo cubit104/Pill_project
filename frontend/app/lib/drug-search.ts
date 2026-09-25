@@ -5,8 +5,10 @@ import { slugifyDrugName } from './slug'
 export interface SearchOption {
   label: string
   href: string
-  /** Brand names or other words that also find it, shown muted after the name. */
+  /** Brand names or other words, shown muted after the name. */
   note?: string
+  /** Words that also find it without being shown (defaults to the note): every brand name, not just those shown. */
+  search?: string
   badge?: string
 }
 
@@ -38,7 +40,7 @@ export function matchOptions(options: SearchOption[], query: string, limit = 8):
   const ranked: Array<[number, SearchOption]> = []
   for (const option of options) {
     const byName = score(plain(option.label), q)
-    const byNote = score(plain(option.note ?? ''), q)
+    const byNote = score(plain(option.search ?? option.note ?? ''), q)
     const rank = byName >= 0 && byName < 2 ? byName : byNote >= 0 && byNote < 2 ? 2 : byName === 2 ? 3 : -1
     if (rank >= 0) ranked.push([rank, option])
   }
@@ -50,7 +52,12 @@ export function matchOptions(options: SearchOption[], query: string, limit = 8):
 
 /** The IV drugs A to Z list, searchable by generic and brand name. */
 export function ivSearchOptions(drugs: IvListItem[]): SearchOption[] {
-  return drugs.map((drug) => ({ label: drug.name, href: `/iv/${drug.slug}`, note: drug.brand_names.slice(0, 3).join(', ') || undefined }))
+  return drugs.map((drug) => ({
+    label: drug.name,
+    href: `/iv/${drug.slug}`,
+    note: drug.brand_names.slice(0, 3).join(', ') || undefined,
+    search: drug.brand_names.join(' ') || undefined,
+  }))
 }
 
 /** The drug index answers by the first one or two letters ("me" for "metformin"); digits go under "0-9". */

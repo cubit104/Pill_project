@@ -22,6 +22,12 @@ test('names starting with what was typed come first, then a word, then a brand, 
   assert.equal(options[0].href, '/iv/vancomycin')
 })
 
+test('every brand name finds the drug, while the dropdown shows only the first three', () => {
+  const [option] = ivSearchOptions([iv('Epinephrine', ['Adrenalin', 'Auvi-Q', 'EpiPen', 'Symjepi'])])
+  assert.equal(option.note, 'Adrenalin, Auvi-Q, EpiPen')
+  assert.deepEqual(matchOptions([option], 'symjepi').map((o) => o.label), ['Epinephrine'])
+})
+
 test('the drug index is asked by its first letters; entries open the same page the A to Z list opens', () => {
   assert.equal(indexPrefix('Metformin'), 'me')
   assert.equal(indexPrefix('m'), 'm')
@@ -55,6 +61,11 @@ test('the IV list is read page by page, so it no longer stops at the 600th drug'
     assert.equal(list.length, 695)
     assert.equal(list[694].name, 'Drug 694')
     assert.deepEqual(asked, ['?per_page=600&page=1', '?per_page=600&page=2'])
+    // no ceiling: a much longer list is read to its end too
+    all.push(...Array.from({ length: 6600 }, (_, i) => iv(`Later ${String(i).padStart(4, '0')}`)))
+    asked.length = 0
+    assert.equal((await fetchIvList()).length, 7295)
+    assert.equal(asked.length, 13)
   } finally {
     global.fetch = originalFetch
   }
