@@ -5,11 +5,14 @@ import json
 import logging
 import os
 import re
+from collections import OrderedDict
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from email.utils import parsedate_to_datetime
-from time import perf_counter, sleep
-from typing import Any, Optional
+from time import monotonic, perf_counter, sleep
+from typing import Any, AsyncIterator, Optional
+from urllib.parse import urlencode
 
 import httpx
 from sqlalchemy import text
@@ -36,6 +39,14 @@ MAX_RELATED_RXCUIS = 40
 MAX_ALTERNATIVE_NDCS = 150
 MAX_EQUIVALENT_NDCS = 50
 ALTERNATIVES_FETCH_CONCURRENCY = 8
+# Calls to the outside sources (NADAC, RxNav) in flight at once, across all requests. More wait in line, and
+# once OUTBOUND_MAX_WAITING are waiting a new call fails at once instead of queueing: a burst of price-page
+# visits used to pile up hundreds of waiting calls (each retried) until the server ran out of memory.
+OUTBOUND_CONCURRENCY = int(os.getenv("PRICING_OUTBOUND_CONCURRENCY", "10"))
+OUTBOUND_MAX_WAITING = int(os.getenv("PRICING_OUTBOUND_MAX_WAITING", "40"))
+# RxNav answers (NDC -> RxCUI, ingredient, related products, NDC lists) rarely change: kept for a day.
+RXNAV_CACHE_TTL_SECONDS = 24 * 3600
+RXNAV_CACHE_MAX_ITEMS = 1000
 # NADAC (National Average Drug Acquisition Cost) Weekly:
 # https://data.medicaid.gov/dataset/99315a95-37ac-4eee-946a-3c523b4c481e
 NADAC_FALLBACK_DATASET_ID = os.getenv(
@@ -50,6 +61,10 @@ class PricingNotFoundError(LookupError):
 
 class PricingServiceError(RuntimeError):
     """Raised when pricing service dependencies fail."""
+
+
+class PricingBusyError(PricingServiceError):
+    """Raised at once, without calling out, when too many outside calls are already waiting."""
 
 
 class NADACPricingService:
@@ -85,6 +100,11 @@ class NADACPricingService:
         self._logged_datasets: set[str] = set()
         self._logged_schema_failures: set[str] = set()
         self._http_client: httpx.AsyncClient | None = None
+        # the limit on outside calls; made per event loop (tests run several loops one after another)
+        self._outbound_sem: asyncio.Semaphore | None = None
+        self._outbound_loop: asyncio.AbstractEventLoop | None = None
+        self._outbound_waiting = 0
+        self._rxnav_cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         retry_delay_raw = os.getenv("DB_POOL_RETRY_DELAY_SECONDS", "0.2")
         try:
             retry_delay = float(retry_delay_raw)
@@ -112,6 +132,27 @@ class NADACPricingService:
                 limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
             )
         return self._http_client
+
+    @asynccontextmanager
+    async def _outbound_slot(self) -> AsyncIterator[None]:
+        """One of the OUTBOUND_CONCURRENCY places for an outside call; fails fast when too many already wait."""
+        loop = asyncio.get_running_loop()
+        if self._outbound_sem is None or self._outbound_loop is not loop:
+            self._outbound_sem = asyncio.Semaphore(OUTBOUND_CONCURRENCY)
+            self._outbound_loop = loop
+            self._outbound_waiting = 0
+        sem = self._outbound_sem
+        if sem.locked() and self._outbound_waiting >= OUTBOUND_MAX_WAITING:
+            raise PricingBusyError("Pricing sources are busy; try again shortly")
+        self._outbound_waiting += 1
+        try:
+            await sem.acquire()
+        finally:
+            self._outbound_waiting -= 1
+        try:
+            yield
+        finally:
+            sem.release()
 
     async def close(self) -> None:
         if self._http_client is not None:
@@ -330,10 +371,11 @@ class NADACPricingService:
         client = await self._ensure_client()
         for attempt in range(3):
             try:
-                if method == "GET":
-                    response = await client.get(url, params=params)
-                else:
-                    response = await client.request(method, url, params=params, json=json_body)
+                async with self._outbound_slot():
+                    if method == "GET":
+                        response = await client.get(url, params=params)
+                    else:
+                        response = await client.request(method, url, params=params, json=json_body)
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as exc:
@@ -345,7 +387,8 @@ class NADACPricingService:
                 await asyncio.sleep(self._retry_delay(attempt, exc.response))
             except httpx.RequestError as exc:
                 last_exc = exc
-                if attempt == 2:
+                # a full connection pool means we are overloaded: retrying would only add to the pile
+                if attempt == 2 or isinstance(exc, httpx.PoolTimeout):
                     break
                 await asyncio.sleep(2**attempt)
         detail = self._format_request_failure(method, url, last_exc)
@@ -2026,8 +2069,19 @@ class NADACPricingService:
         ]
 
     async def _rxnav_json(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
+        """RxNav JSON, remembered for a day (least recently used dropped first) so repeat visits make no calls."""
         url = f"{self.rxnav_base_url.rstrip('/')}{path}"
-        return await self._request_json(url, params=params)
+        key = f"{url}?{urlencode(sorted(params.items()))}" if params else url
+        hit = self._rxnav_cache.get(key)
+        if hit is not None and monotonic() - hit[0] < RXNAV_CACHE_TTL_SECONDS:
+            self._rxnav_cache.move_to_end(key)
+            return hit[1]
+        payload = await self._request_json(url, params=params)
+        self._rxnav_cache[key] = (monotonic(), payload)
+        self._rxnav_cache.move_to_end(key)
+        while len(self._rxnav_cache) > RXNAV_CACHE_MAX_ITEMS:
+            self._rxnav_cache.popitem(last=False)
+        return payload
 
     async def _ndc_to_rxcui(self, ndc_digits: str) -> str | None:
         payload = await self._rxnav_json("/REST/ndcstatus.json", params={"ndc": ndc_digits})
