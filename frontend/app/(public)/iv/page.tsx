@@ -1,5 +1,7 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
+import DrugNameSearch from '../../components/DrugNameSearch'
+import { ivSearchOptions } from '../../lib/drug-search'
 import { fetchIvList, type IvListItem } from '../../lib/iv'
 import { breadcrumbSchema, safeJsonLd } from '../../lib/structured-data'
 
@@ -51,6 +53,10 @@ export default async function IvHubPage() {
             <Link href="/drugs" className="font-medium text-emerald-700 hover:underline">See all drugs A to Z</Link>.
           </p>
         </header>
+
+        {drugs.length > 0 && (
+          <DrugNameSearch label="Search IV drugs" placeholder="Type a drug or brand name, e.g. vancomycin" options={ivSearchOptions(drugs)} />
+        )}
 
         {groups.length > 0 && (
           <nav aria-label="Jump to letter" className="no-print flex flex-wrap gap-1.5">

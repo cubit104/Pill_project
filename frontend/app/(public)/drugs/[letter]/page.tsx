@@ -3,6 +3,8 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { fetchDrugIndex, INDEX_LETTERS, type DrugIndexEntry } from '../../../lib/iv'
 import { slugifyDrugName } from '../../../lib/slug'
+import DrugNameSearch from '../../../components/DrugNameSearch'
+import { displayDrugName } from '../../../lib/drug-search'
 import { breadcrumbSchema, safeJsonLd } from '../../../lib/structured-data'
 import DrugIndexNav from '../DrugIndexNav'
 
@@ -28,18 +30,12 @@ export async function generateMetadata({ params }: { params: PageParams }): Prom
   }
 }
 
-/** Pill names arrive as typed on the label: "VALTREX", "vardenafil". One style reads better in a list. */
-function displayName(name: string): string {
-  if (name !== name.toUpperCase() && name !== name.toLowerCase()) return name
-  return name.toLowerCase().replace(/(^|[\s(/-])([a-z])/g, (_, before: string, letter: string) => before + letter.toUpperCase())
-}
-
 function Entry({ entry }: { entry: DrugIndexEntry }) {
   // a name that only exists as an IV drug opens its IV page; anything with pills opens the drug page
   const href = entry.pill_count > 0 ? `/drug/${slugifyDrugName(entry.name)}` : `/iv/${entry.iv_slug}`
   return (
     <li className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-      <Link href={href} className="font-medium text-sky-700 hover:underline">{displayName(entry.name)}</Link>
+      <Link href={href} className="font-medium text-sky-700 hover:underline">{displayDrugName(entry.name)}</Link>
       {entry.pill_count > 0 && (
         <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">
           {entry.pill_count} {entry.pill_count === 1 ? 'pill' : 'pills'}
@@ -94,6 +90,7 @@ export default async function DrugsLetterPage({ params }: { params: PageParams }
           </p>
         </header>
 
+        <DrugNameSearch label="Search all drugs" placeholder="Type a drug name, e.g. metformin" />
         <DrugIndexNav letters={index.letters} active={letter} />
 
         <section className="rounded-xl border border-emerald-200 bg-white p-6 shadow-sm">

@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { fetchDrugIndex } from '../../lib/iv'
 import { breadcrumbSchema, safeJsonLd } from '../../lib/structured-data'
+import DrugNameSearch from '../../components/DrugNameSearch'
 import DrugIndexNav from './DrugIndexNav'
 
 export const revalidate = 3600
@@ -43,6 +44,7 @@ export default async function DrugsIndexPage() {
           </p>
         </header>
 
+        <DrugNameSearch label="Search all drugs" placeholder="Type a drug name, e.g. metformin" />
         <DrugIndexNav letters={letters} />
 
         <div className="grid gap-4 sm:grid-cols-2">
