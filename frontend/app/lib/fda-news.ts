@@ -9,7 +9,17 @@
  * Headlines are built from the FDA fields with fixed rules (no guessing), and the detail pages always show
  * the FDA's full wording next to them.
  */
-import { approvalCandidates, firstMatches, readAnnouncement, recallNotices, type FdaAnnouncement, type FdaNotice } from './fda-announcements'
+import {
+  approvalCandidates,
+  firstMatches,
+  novelDrugId,
+  novelDrugs,
+  readAnnouncement,
+  recallNotices,
+  type FdaAnnouncement,
+  type FdaNotice,
+  type NovelDrug,
+} from './fda-announcements'
 import type { FdaNewsSwitches } from './fda-news-switches'
 import { OPENFDA, classOf, dateRange, isoDate, type RecallClass } from './recalls'
 import { OPENFDA_SHORTAGES, availabilityOf, isoFromUsDate, shortageQuery, type Availability } from './shortages'
@@ -394,6 +404,11 @@ export function announcementItem(a: FdaAnnouncement): FdaNewsItem {
   return { kind: 'approval', href: `/fda-news/new-drug/${a.item.slug}`, date: a.item.date || a.page.date, headline: a.item.title || a.page.title, tag: 'Approved by the FDA' }
 }
 
+export function novelDrugItem(d: NovelDrug): FdaNewsItem {
+  const name = d.generic && d.generic.toLowerCase() !== d.brand.toLowerCase() ? `${d.brand} (${d.generic})` : d.brand
+  return { kind: 'approval', href: `/fda-news/new-drug/${novelDrugId(d)}`, date: d.date, headline: `FDA approves ${name}`, tag: 'Approved by the FDA' }
+}
+
 function windowStart(now: Date): { from: Date; fromIso: string } {
   const from = new Date(now.getTime() - WINDOW_DAYS * DAY_MS)
   return { from, fromIso: isoDate(yyyymmdd(from)) }
@@ -437,14 +452,16 @@ async function approvedBefore(names: { brand: string; generic: string }, fromIso
 }
 
 /**
- * New drugs: the FDA's same-day approval announcements (gene therapies and other biologics too) and the new
- * molecular entities in Drugs@FDA, newest first. An announcement is left out when Drugs@FDA already lists the
- * same medicine (its page there has more facts) and when the medicine was approved long before (a new use).
+ * New drugs: the FDA's same-day approval announcements (gene therapies and other biologics too), the new
+ * molecular entities in Drugs@FDA, and the drug center's table of the year's new drugs, newest first. The same
+ * medicine is shown once: from Drugs@FDA when it is there (its page has the most facts), else its announcement,
+ * else its table row. An announcement is also left out when the medicine was approved long before (a new use).
  */
 export async function approvalNews(limit = 8, now = new Date()): Promise<FdaNewsItem[] | undefined> {
-  const { fromIso } = windowStart(now)
-  const [novel, candidates] = await Promise.all([novelApprovals(now), approvalCandidates()])
-  if (novel === undefined && candidates === undefined) return undefined
+  const { from, fromIso } = windowStart(now)
+  const years = [...new Set([from.getFullYear(), now.getFullYear()])] // early in a year, last year's table too
+  const [novel, candidates, table] = await Promise.all([novelApprovals(now), approvalCandidates(), novelDrugs(years)])
+  if (novel === undefined && candidates === undefined && table === undefined) return undefined
   const known = new Set((novel ?? []).flatMap((a) => nameWords(`${a.brand} ${a.generic}`)))
   // newest first, a few at a time, until `limit` new drugs are found: an older one could not make the list
   const fresh = await firstMatches(
@@ -456,7 +473,10 @@ export async function approvalNews(limit = 8, now = new Date()): Promise<FdaNews
     },
     limit,
   )
-  return newestFirst([...fresh.map(announcementItem), ...(novel ?? []).map(approvalItem)]).slice(0, limit)
+  for (const a of fresh) for (const w of nameWords(`${a.names?.brand} ${a.names?.generic}`)) known.add(w)
+  // the table lists a new drug the day it is approved; the feeds forget it after 20 newer posts
+  const listed = (table ?? []).filter((d) => d.date >= fromIso && !nameWords(`${d.brand} ${d.generic}`).some((w) => known.has(w)))
+  return newestFirst([...fresh.map(announcementItem), ...(novel ?? []).map(approvalItem), ...listed.map(novelDrugItem)]).slice(0, limit)
 }
 
 export interface LabelSummary {

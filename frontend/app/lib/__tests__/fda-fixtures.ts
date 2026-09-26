@@ -25,3 +25,13 @@ export const announcementPage = (title: string, summary: string, regulated: stri
 <meta property="og:title" content="${title}" /><meta name="description" content="${summary}" /></head><body>
 <time datetime="${date}T18:30:00Z">${date}</time><p>For Immediate Release: …</p>
 <p>Content current as of: 09/17/2026</p><p>Regulated Product(s)</p><ul><li>${regulated}</li></ul><p>Follow FDA</p></body></html>`
+
+/** The drug center's "Novel Drug Approvals for 2026" table, as fda.gov serves it (a row the day each drug is approved). */
+export const NOVEL_TABLE_2026 = `<html><body><table><thead><tr><th>No.</th><th>Drug Name</th><th>Active Ingredient</th><th>Approval Date</th><th>FDA-approved use on approval date*</th></tr></thead><tbody>
+<tr><td>44.</td><td>Atebrioz&nbsp;</td><td>zilurgisertib</td><td>9/25/2026</td><td>To reduce the volume of total new heterotopic ossification in adults and pediatric patients 12 years and older with fibrodysplasia ossificans progressiva</td></tr>
+<tr><td>43.</td><td><a href="/drugs/news-events-human-drugs/juvmo">Juvmo</a></td><td>tavapadon</td><td>9/25/2026</td><td>To treat Parkinson’s disease in adults</td></tr>
+<tr><td>42.</td><td>Lyrfigtu</td><td>lirafugratinib</td><td>9/23/2026</td><td>To treat adults with previously treated cholangiocarcinoma</td></tr>
+<tr><td>30.</td><td>Etcamah</td><td>camizestrant</td><td>9/4/2026</td><td>To treat breast cancer</td></tr>
+<tr><td>12.</td><td>Oldtab</td><td>oldamide</td><td>5/2/2026</td><td>To treat something, long ago</td></tr>
+<tr><td colspan="5">*This information is from the FDA-approved label on the day of approval.</td></tr>
+</tbody></table></body></html>`

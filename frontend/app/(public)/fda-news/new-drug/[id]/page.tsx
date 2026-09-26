@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { approvalAnnouncement, approvalNames, type FdaPage } from '../../../../lib/fda-announcements'
+import { approvalAnnouncement, approvalNames, novelDrug, novelTableUrl, type FdaPage, type NovelDrug } from '../../../../lib/fda-announcements'
 import { fdaNewsSwitches } from '../../../../lib/fda-news-switches'
 import { approvalDetail, dailyMedUrl, drugsAtFdaUrl, type Approval, type LabelSummary } from '../../../../lib/fda-news'
 import { prettyDate } from '../../../../lib/recalls'
@@ -8,8 +8,9 @@ import { DetailHeader, ExternalLink, Facts, Section, SourceNote, WhatToDo } from
 
 type Params = Promise<{ id: string }>
 
-/** Drugs@FDA application numbers ("NDA220359"); anything else is the slug of an FDA approval announcement. */
+/** Drugs@FDA application numbers ("NDA220359"), rows of the FDA's yearly new-drug table ("2026-atebrioz"); anything else is the slug of an FDA approval announcement. */
 const APPLICATION = /^(NDA|BLA|ANDA)\d+$/i
+const NOVEL_TABLE_ROW = /^\d{4}-/
 
 /** `undefined` from a feed means the FDA did not answer: throw, so the error page shows and nothing is cached. */
 async function load(id: string) {
@@ -20,6 +21,12 @@ async function load(id: string) {
     if (data === undefined) throw new Error('The FDA approvals feed did not answer')
     if (data === null) notFound()
     return { kind: 'application' as const, ...data }
+  }
+  if (NOVEL_TABLE_ROW.test(key)) {
+    const drug = await novelDrug(key.toLowerCase())
+    if (drug === undefined) throw new Error('fda.gov did not answer')
+    if (drug === null) notFound()
+    return { kind: 'novel' as const, id: key.toLowerCase(), drug }
   }
   const announcement = await approvalAnnouncement(key.toLowerCase())
   if (announcement === undefined) throw new Error('fda.gov did not answer')
@@ -33,6 +40,15 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   if (data.kind === 'announcement') {
     return { title: data.page.title, description: data.page.summary.slice(0, 300), robots, alternates: { canonical: `/fda-news/new-drug/${data.slug}` } }
   }
+  if (data.kind === 'novel') {
+    const { drug } = data
+    return {
+      title: `FDA approves ${novelName(drug)}`,
+      description: `${novelName(drug)} was approved by the FDA on ${prettyDate(drug.date)}. ${drug.use}`.slice(0, 300),
+      robots,
+      alternates: { canonical: `/fda-news/new-drug/${data.id}` },
+    }
+  }
   const { approval } = data
   const name = approval.brand && approval.generic ? `${approval.brand} (${approval.generic})` : approval.brand || approval.generic
   return {
@@ -45,7 +61,12 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 
 export default async function NewDrugNewsPage({ params }: { params: Params }) {
   const data = await load((await params).id)
+  if (data.kind === 'novel') return <NovelView drug={data.drug} />
   return data.kind === 'announcement' ? <AnnouncementView page={data.page} url={data.url} /> : <ApplicationView approval={data.approval} label={data.label} />
+}
+
+function novelName(drug: NovelDrug): string {
+  return drug.generic && drug.generic.toLowerCase() !== drug.brand.toLowerCase() ? `${drug.brand} (${drug.generic})` : drug.brand
 }
 
 function NewDrugWhatToDo() {
@@ -82,6 +103,39 @@ function AnnouncementView({ page, url }: { page: FdaPage; url: string }) {
         <NewDrugWhatToDo />
 
         <SourceNote>Source: FDA announcement{page.date ? ` of ${prettyDate(page.date)}` : ''} on fda.gov. Drugs@FDA lists new drugs a week or two later.</SourceNote>
+      </div>
+    </>
+  )
+}
+
+/** A row of the FDA's table of the year's new drugs, for the days before Drugs@FDA and the label catch up. */
+function NovelView({ drug }: { drug: NovelDrug }) {
+  const table = novelTableUrl(drug.year)
+  return (
+    <>
+      <DetailHeader kind="approval" headline={`FDA approves ${novelName(drug)}`} date={drug.date} tag="Approved by the FDA" />
+      <div className="mx-auto max-w-4xl px-4 pt-8">
+        <Facts
+          rows={[
+            ['Brand name', drug.brand],
+            ['Active ingredient', drug.generic],
+            ['Approved', prettyDate(drug.date)],
+            ['Type', 'New drug: an active ingredient the FDA had not approved before'],
+          ]}
+        />
+
+        <Section title="What it is for">
+          <p>{drug.use || 'See the FDA list of new drugs for the details.'}</p>
+          <p className="mt-2 text-sm text-slate-600">The FDA-approved use on the day of approval.</p>
+        </Section>
+
+        <NewDrugWhatToDo />
+
+        <p className="mt-8 text-sm">
+          <ExternalLink href={table}>The FDA list of new drugs in {drug.year}</ExternalLink>
+        </p>
+
+        <SourceNote>Source: the FDA&apos;s Novel Drug Approvals for {drug.year} on fda.gov. Drugs@FDA and the full label follow in a week or two.</SourceNote>
       </div>
     </>
   )

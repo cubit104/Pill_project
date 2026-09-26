@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { RECALLS_RSS, announcementPage, noticePage } from './fda-fixtures'
+import { NOVEL_TABLE_2026, RECALLS_RSS, announcementPage, noticePage } from './fda-fixtures'
+import { novelDrug } from '../fda-announcements'
 import {
   approvalNews,
   approvalsForNews,
@@ -312,6 +313,53 @@ test('a shortage page opens even when the name had punctuation the web address l
     assert.equal(s?.name, "Lactated Ringer's Injection")
     assert.equal(asked.length, 2)
     assert.equal(await shortageDetail('no-such-drug'), null)
+  } finally {
+    global.fetch = originalFetch
+  }
+})
+
+test("the FDA's table of new drugs fills in what the feeds forgot and Drugs@FDA has not listed yet", async () => {
+  const originalFetch = global.fetch
+  const answer = (body: string, status = 200) => new Response(body, { status })
+  const json = (body: unknown) => answer(JSON.stringify(body))
+  const feedItem = (title: string, path: string, date: string) =>
+    `<item><title>${title}</title><link>http://www.fda.gov${path}</link><pubDate>${date}</pubDate></item>`
+  const FOP = '/drugs/news-events-human-drugs/fda-approves-third-treatment-fop'
+  const pages: Record<string, string> = {
+    '/drugs/novel-drug-approvals-fda/novel-drug-approvals-2026': NOVEL_TABLE_2026,
+    [FOP]: announcementPage('FDA Approves Third Treatment for Fibrodysplasia Ossificans Progressiva', 'The FDA today approved Atebrioz (zilurgisertib), a kinase inhibitor', 'Drugs', '2026-09-25'),
+    '/news-events/press-announcements/fayuvi': announcementPage('FDA Approves First Gene Therapy for Sanfilippo Syndrome', 'The FDA today approved Fayuvi (rebisufligene etisparvovec-hopf), the first', 'Biologics'),
+  }
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input))
+    if (url.hostname === 'www.fda.gov') {
+      if (url.pathname.endsWith('/press-releases/rss.xml')) {
+        return answer(`<rss><channel>${feedItem('FDA Approves First Gene Therapy for Sanfilippo Syndrome', '/news-events/press-announcements/fayuvi', 'Thu, 17 Sep 2026 14:30:00 EDT')}</channel></rss>`)
+      }
+      if (url.pathname.endsWith('/drugs/rss.xml')) {
+        return answer(`<rss><channel>${feedItem('FDA Approves Third Treatment for Fibrodysplasia Ossificans Progressiva', FOP, 'Fri, 25 Sep 2026 14:46:15 EDT')}</channel></rss>`)
+      }
+      return pages[url.pathname] ? answer(pages[url.pathname]) : answer('', 404)
+    }
+    if (url.pathname === '/drug/drugsfda.json') {
+      // Drugs@FDA is a week behind: it has Etcamah, none of the newer ones
+      if (decodeURIComponent(url.search).includes('submission_class_code')) return json({ meta: { results: { total: 1 } }, results: [approvalRow()] })
+      return answer('', 404)
+    }
+    return answer('', 404)
+  }) as typeof fetch
+  try {
+    const approvals = await approvalNews(10, new Date(2026, 8, 26))
+    assert.deepEqual(approvals?.map((i) => [i.date, i.headline, i.href]), [
+      ['2026-09-25', 'FDA Approves Third Treatment for Fibrodysplasia Ossificans Progressiva', `/fda-news/new-drug/fda-approves-third-treatment-fop`], // not its table row too
+      ['2026-09-25', 'FDA approves Juvmo (tavapadon)', '/fda-news/new-drug/2026-juvmo'],
+      ['2026-09-23', 'FDA approves Lyrfigtu (lirafugratinib)', '/fda-news/new-drug/2026-lyrfigtu'],
+      ['2026-09-17', 'FDA Approves First Gene Therapy for Sanfilippo Syndrome', '/fda-news/new-drug/fayuvi'],
+      ['2026-09-04', 'FDA approves Etcamah (camizestrant) tablets', '/fda-news/new-drug/NDA220359'], // Drugs@FDA's page, not the table row
+    ]) // Oldtab, approved in May, is outside the 60 days
+    assert.equal((await novelDrug('2026-juvmo'))?.generic, 'tavapadon')
+    assert.equal(await novelDrug('2026-nothing'), null)
+    assert.equal(await novelDrug('not-a-row'), null)
   } finally {
     global.fetch = originalFetch
   }
