@@ -15,6 +15,7 @@ import database  # noqa: E402
 import main as app_module  # noqa: E402
 from routes.admin import draft_review  # noqa: E402
 from routes.admin.auth import get_admin_user  # noqa: E402
+from routes.admin.field_schema import FIELD_SCHEMA  # noqa: E402
 from services.draft_checks import pronunciation_problem  # noqa: E402
 
 SUPER = {"id": "u-1", "email": "owner@test.com", "role": "superuser"}
@@ -94,8 +95,13 @@ class _Conn:
         result = MagicMock()
         pills = self.state["pills"]
         one, many = None, []
-        if s.startswith("select p.*"):  # the queue
-            many = [{**p, "flag_missing": None, "flag_at": None} for p in pills.values() if not p["published"]]
+        if s.startswith("select p.id::text as pill_id"):  # the queue: filled/empty markers, not the rows
+            many = [
+                {"pill_id": p["id"], "name": p["medicine_name"], "strength": p["spl_strength"], "imprint": p["splimprint"],
+                 "rxcui_value": p["rxcui"], "has_image": p["has_image"], "flag_missing": None, "flag_at": None,
+                 **{f["key"]: ("x" if str(p.get(f["key"]) or "").strip() else None) for f in FIELD_SCHEMA}}
+                for p in pills.values() if not p["published"]
+            ]  # fmt: skip
         elif s.startswith("select * from pillfinder where id = any"):  # grid cards
             many = [p for i, p in pills.items() if i in params["ids"]]
         elif s.startswith("select * from pillfinder"):
@@ -162,8 +168,10 @@ def test_the_queue_lists_unpublished_pills_with_the_editors_score_and_used_for()
                      "missing": [], "score": first["score"], "used_for": True}  # fmt: skip
     assert second["used_for"] is False
     assert 0 < first["score"] < second["score"] <= 100  # brand names filled in: one more field of the editor's score
-    sql = next(s for s, _ in state["log"] if s.startswith("select p.*"))
+    sql = next(s for s, _ in state["log"] if s.startswith("select p.id::text as pill_id"))
     assert "published = false" in sql and "deleted_at is null" in sql and "order by lower(coalesce(p.medicine_name" in sql
+    # only whether each scored field is filled comes back, never the long label texts themselves
+    assert "p.*" not in sql and "case when btrim(coalesce(p.spl_inactive_ing::text, '')) = '' then null else 'x' end" in sql
 
 
 def test_grid_cards_come_in_the_order_asked_with_photo_score_used_for_and_pronunciation():

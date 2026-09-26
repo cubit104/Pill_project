@@ -33,7 +33,7 @@ from sqlalchemy import text
 import database
 from routes.admin import pills as admin_pills
 from routes.admin.auth import log_audit, require_role
-from routes.admin.field_schema import compute_completeness, validate_pill
+from routes.admin.field_schema import FIELD_SCHEMA, compute_completeness, validate_pill
 from services.draft_checks import pronunciation_problem
 from services.drug_indications import fetch_indications_from_openfda, truncate_indication, upsert_from_medlineplus
 from services.drug_pronunciation import get_pronunciation_lookup_keys, pill_pronunciation_key, pill_pronunciations
@@ -56,6 +56,11 @@ _PILL_FIELDS = (
     "image_filename",
 )
 _LABEL_HEADING = re.compile(r"^\s*(?:\d+(?:\.\d+)?\s*)?indications?\s*(?:and|&)\s*usage\s*", re.IGNORECASE)
+# The queue's score only needs to know which scored fields are filled, not what they hold (some are long label
+# texts): 'x' when filled, NULL when empty, which compute_completeness() counts the same as the real values.
+_FILLED = ", ".join(
+    f"CASE WHEN btrim(coalesce(p.{f['key']}::text, '')) = '' THEN NULL ELSE 'x' END AS {f['key']}" for f in FIELD_SCHEMA
+)
 
 
 def _db():
@@ -182,18 +187,19 @@ def review_queue(admin: dict = Depends(require_role(*REVIEWERS))):
     with _db().connect() as conn:
         rows = conn.execute(
             text(
-                "SELECT p.*, f.missing AS flag_missing, f.flagged_at AS flag_at "
+                "SELECT p.id::text AS pill_id, p.medicine_name AS name, p.spl_strength AS strength, p.splimprint AS imprint, "
+                f"p.rxcui::text AS rxcui_value, p.has_image, {_FILLED}, f.missing AS flag_missing, f.flagged_at AS flag_at "
                 "FROM pillfinder p LEFT JOIN pill_review_flags f ON f.pill_id = p.id "
                 "WHERE p.published = false AND p.deleted_at IS NULL "
                 "ORDER BY lower(coalesce(p.medicine_name, '')), p.spl_strength NULLS LAST, p.splimprint NULLS LAST, p.id"
             )
         ).mappings().fetchall()
-        used_for = _with_used_for(conn, [r["rxcui"] for r in rows])
+        used_for = _with_used_for(conn, [r["rxcui_value"] for r in rows])
     items = [
         {
-            "id": str(r["id"]), "medicine_name": r["medicine_name"], "strength": r["spl_strength"],
-            "imprint": r["splimprint"], "flagged": r["flag_at"] is not None, "missing": list(r["flag_missing"] or []),
-            "score": compute_completeness(dict(r))["score"], "used_for": str(r["rxcui"] or "") in used_for,
+            "id": r["pill_id"], "medicine_name": r["name"], "strength": r["strength"],
+            "imprint": r["imprint"], "flagged": r["flag_at"] is not None, "missing": list(r["flag_missing"] or []),
+            "score": compute_completeness(dict(r))["score"], "used_for": (r["rxcui_value"] or "") in used_for,
         }  # fmt: skip
         for r in rows
     ]
