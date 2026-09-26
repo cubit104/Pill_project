@@ -172,6 +172,12 @@ function DraftsListInner() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Drafts</h1>
+        <Link
+          href="/admin/drafts/review"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700"
+        >
+          <Eye className="w-4 h-4" /> Review one by one
+        </Link>
       </div>
 
       <div className="flex gap-2 flex-wrap">
