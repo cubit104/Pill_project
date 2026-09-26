@@ -392,3 +392,24 @@ export function drugSchema(pill: PillDetail, slug: string) {
     drugClass: pill.pharma_class ?? undefined,
   })
 }
+
+/**
+ * An FDA news page (new drug, recall, shortage) as a news article, so it can show as a fresh result. PillSeek
+ * writes the page; `isBasedOn` points at the FDA source it is built from.
+ */
+export function newsArticleSchema(opts: { headline: string; path: string; datePublished: string; description: string; source: string }) {
+  const url = `${SITE_URL}${opts.path}`
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'NewsArticle',
+    headline: opts.headline.length > 110 ? `${opts.headline.slice(0, 109).replace(/\s+\S*$/, '')}…` : opts.headline,
+    description: opts.description,
+    datePublished: opts.datePublished,
+    dateModified: opts.datePublished,
+    url,
+    mainEntityOfPage: url,
+    isBasedOn: opts.source,
+    author: { '@type': 'Organization', name: SITE_NAME, url: SITE_URL },
+    publisher: { '@type': 'Organization', name: SITE_NAME, url: SITE_URL, logo: { '@type': 'ImageObject', url: `${SITE_URL}/icon.png` } },
+  }
+}

@@ -139,6 +139,7 @@ from routes.admin import reviewers as admin_reviewers  # noqa: E402
 from routes.admin import members as admin_members  # noqa: E402
 from routes.admin import captures as admin_captures  # noqa: E402
 from routes.admin import review_flags as admin_review_flags  # noqa: E402
+from routes.admin import draft_review as admin_draft_review  # noqa: E402
 from routes.admin import iv_drugs as admin_iv_drugs  # noqa: E402
 from routes.admin import iv_manage as admin_iv_manage  # noqa: E402
 from routes.admin import iv_bulk as admin_iv_bulk  # noqa: E402
@@ -187,6 +188,7 @@ app.include_router(admin_reviewers.router)
 app.include_router(admin_members.router)
 app.include_router(admin_captures.router)
 app.include_router(admin_review_flags.router)
+app.include_router(admin_draft_review.router)
 app.include_router(admin_iv_drugs.router)
 app.include_router(admin_iv_manage.router)
 app.include_router(admin_iv_bulk.router)

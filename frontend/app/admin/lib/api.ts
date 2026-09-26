@@ -134,4 +134,22 @@ export const adminApi = {
   getIvDraftStatus: () => apiFetch('/api/admin/iv/cards/draft-status'),
   setIvPublished: (id: string, published: boolean) =>
     apiFetch(`/api/admin/iv/drugs/${id}/published`, { method: 'PUT', body: JSON.stringify({ published }) }),
+  // Drafts -> Review one by one (routes/admin/draft_review.py)
+  getReviewQueue: () => apiFetch('/api/admin/draft-review/queue'),
+  getReviewItem: (id: string) => apiFetch(`/api/admin/draft-review/${id}`),
+  getReviewCards: (ids: string[]) => apiFetch(`/api/admin/draft-review/cards?ids=${ids.map(encodeURIComponent).join(',')}`),
+  publishReviewed: (id: string, updatedAt: string | null) =>
+    apiFetch(`/api/admin/draft-review/${id}/publish`, { method: 'POST', body: JSON.stringify({ updated_at: updatedAt }) }),
+  indicationFromMedlinePlus: (id: string) =>
+    apiFetch(`/api/admin/draft-review/${id}/indication/medlineplus`, { method: 'POST' }),
+  indicationFromLabel: (id: string) => apiFetch(`/api/admin/draft-review/${id}/indication/label`),
+  reviewPronunciation: (id: string, pronunciationText: string) =>
+    apiFetch(`/api/admin/draft-review/${id}/pronunciation`, {
+      method: 'POST',
+      body: JSON.stringify({ pronunciation_text: pronunciationText }),
+    }),
+  saveIndication: (id: string, plainText: string) =>
+    apiFetch(`/api/admin/pills/${id}/indication`, { method: 'PUT', body: JSON.stringify({ plain_text: plainText }) }),
+  setReviewFlags: (id: string, missing: string[], note: string | null) =>
+    apiFetch(`/api/admin/pills/${id}/review-flags`, { method: 'PUT', body: JSON.stringify({ missing, note }) }),
 }

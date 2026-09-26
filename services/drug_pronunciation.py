@@ -51,16 +51,7 @@ def get_pronunciation_lookup_keys(
 
     All returned values target ``drug_pronunciations.drug_name_lower``.
     """
-    candidates: list[str] = []
-    seen: set[str] = set()
-
-    def _add(name: str | None) -> None:
-        if not name:
-            return
-        n = name.strip().lower()
-        if n and n not in seen:
-            seen.add(n)
-            candidates.append(n)
+    generic_name, brand_names = None, None
 
     # --- Strategy 1: resolve clean names via rxcui → drug_synonyms ---
     if rxcui:
@@ -80,11 +71,7 @@ def get_pronunciation_lookup_keys(
                     {"rxcui": rxcui_clean},
                 ).fetchone()
                 if syn_row:
-                    # generic_name first (highest confidence)
-                    _add(syn_row[0])
-                    # then each brand name
-                    for brand in syn_row[1] or []:
-                        _add(brand)
+                    generic_name, brand_names = syn_row[0], syn_row[1]
             except SQLAlchemyError as exc:
                 err_msg = str(exc).lower()
                 if (
@@ -98,6 +85,27 @@ def get_pronunciation_lookup_keys(
                     logger.warning(
                         "drug_synonyms lookup failed for rxcui=%s: %s", rxcui, exc
                     )
+
+    return _candidate_keys(generic_name, brand_names, drug_name)
+
+
+def _candidate_keys(generic_name: str | None, brand_names, drug_name: str | None) -> list[str]:
+    """get_pronunciation_lookup_keys() once the RxCUI's generic and brand names are known (none: no mapping)."""
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _add(name: str | None) -> None:
+        if not name:
+            return
+        n = name.strip().lower()
+        if n and n not in seen:
+            seen.add(n)
+            candidates.append(n)
+
+    # generic_name first (highest confidence), then each brand name
+    _add(generic_name)
+    for brand in brand_names or []:
+        _add(brand)
 
     # --- Strategy 2: normalized variants of drug_name ---
     if drug_name:
@@ -170,6 +178,126 @@ def get_pronunciation(
             return None
 
     return None
+
+
+# RxNorm term types of a branded product: the pill page treats these pills as brand pills (routes/details.py).
+_BRAND_TTYS = ("SBD", "BPCK")
+
+
+def _is_brand_product(conn, rxcui: str | None) -> bool:
+    rxcui_clean = str(rxcui or "").strip()
+    if not rxcui_clean:
+        return False
+    try:
+        row = conn.execute(
+            text("SELECT product_tty FROM rxcui_to_ingredient WHERE product_rxcui = :rxcui LIMIT 1"),
+            {"rxcui": rxcui_clean},
+        ).fetchone()
+    except SQLAlchemyError as exc:
+        logger.warning("product type lookup failed for rxcui=%s: %s", rxcui, exc)
+        return False
+    return bool(row) and row[0] in _BRAND_TTYS
+
+
+def pill_pronunciation_key(conn, medicine_name: str | None, rxcui: str | None = None) -> str | None:
+    """The drug_pronunciations row that holds a pill's own "pronounced as".
+
+    A brand pill's is under its own name, the one the pill page shows beside a brand name. Filing it under
+    the first lookup key (the generic) put brand sounds on every generic page: "ZES-tril" for lisinopril.
+    Any other pill's is under the first lookup key, as before.
+    """
+    own = (medicine_name or "").strip().lower()
+    if own and _is_brand_product(conn, rxcui):
+        return own
+    keys = get_pronunciation_lookup_keys(conn, medicine_name, rxcui=rxcui)
+    return keys[0] if keys else None
+
+
+def find_pill_pronunciation(
+    conn,
+    medicine_name: str | None,
+    rxcui: str | None = None,
+    include_meta: bool = False,
+) -> dict[str, str | None] | None:
+    """A pill's "pronounced as" for the admin: a brand pill's own row first, then get_pronunciation()."""
+    own = (medicine_name or "").strip().lower()
+    if own and _is_brand_product(conn, rxcui):
+        try:
+            row = conn.execute(
+                text(
+                    "SELECT pronunciation_text, audio_url, source FROM drug_pronunciations "
+                    "WHERE drug_name_lower = :drug_name_lower LIMIT 1"
+                ),
+                {"drug_name_lower": own},
+            ).fetchone()
+        except SQLAlchemyError as exc:
+            logger.warning("drug_pronunciations lookup failed for %r: %s", own, exc)
+            row = None
+        if row:
+            payload = {
+                "pronunciation_text": row[0].strip() if row[0] else None,
+                "audio_url": str(row[1]).strip() if row[1] else None,
+            }
+            if include_meta:
+                payload["source"] = row[2] if row[2] else None
+                payload["drug_name_matched"] = own
+            return payload
+    return get_pronunciation(conn, medicine_name, rxcui=rxcui, include_meta=include_meta)
+
+
+def pill_pronunciations(conn, pills: list[tuple[str | None, str | None]]) -> list[dict]:
+    """pill_pronunciation_key() and find_pill_pronunciation(include_meta=True) for many (medicine_name, rxcui)
+    pills in two queries, for the drafts grid (a query per pill each is slow from a server far from the database).
+    One {"key": ..., "found": {...} | None} per pill, in the order given."""
+    rxcuis = sorted({str(rxcui).strip() for _, rxcui in pills if rxcui and str(rxcui).strip()})
+    products: dict[str, tuple] = {}
+    if rxcuis:
+        rows = conn.execute(
+            text(
+                "SELECT r.product_rxcui, r.product_tty, s.generic_name, s.brand_names FROM rxcui_to_ingredient r "
+                "LEFT JOIN drug_synonyms s ON s.ingredient_rxcui = r.ingredient_rxcui WHERE r.product_rxcui = ANY(:rxcuis)"
+            ),
+            {"rxcuis": rxcuis},
+        ).fetchall()
+        for product_rxcui, tty, generic_name, brand_names in rows:
+            products.setdefault(str(product_rxcui), (tty, generic_name, brand_names))
+
+    plans = []  # per pill: its own key, and the keys looked at in order
+    for medicine_name, rxcui in pills:
+        tty, generic_name, brand_names = products.get(str(rxcui or "").strip(), (None, None, None))
+        keys = _candidate_keys(generic_name, brand_names, medicine_name)
+        own = (medicine_name or "").strip().lower()
+        if own and tty in _BRAND_TTYS:
+            plans.append((own, [own] + keys))
+        else:
+            plans.append((keys[0] if keys else None, keys))
+
+    wanted = sorted({key for _, looked_at in plans for key in looked_at})
+    saved: dict[str, tuple] = {}
+    if wanted:
+        rows = conn.execute(
+            text(
+                "SELECT drug_name_lower, pronunciation_text, audio_url, source FROM drug_pronunciations "
+                "WHERE drug_name_lower = ANY(:keys)"
+            ),
+            {"keys": wanted},
+        ).fetchall()
+        saved = {row[0]: (row[1], row[2], row[3]) for row in rows}
+
+    out = []
+    for key, looked_at in plans:
+        hit = next((k for k in looked_at if k in saved), None)
+        found = None
+        if hit:
+            said, audio_url, source = saved[hit]
+            found = {
+                "pronunciation_text": said.strip() if said else None,
+                "audio_url": str(audio_url).strip() if audio_url else None,
+                "source": source if source else None,
+                "drug_name_matched": hit,
+            }
+        out.append({"key": key, "found": found})
+    return out
 
 
 def fetch_pronunciation_from_medlineplus(rxcui: str) -> dict | None:

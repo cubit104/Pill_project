@@ -21,7 +21,7 @@ from services.synonym_resolver import ensure_synonym_mapping
 from routes.admin.auth import get_admin_user, log_audit, require_superuser, CRITICAL_FIELDS
 from routes.admin.indexnow import can_submit_pill_slug_to_indexnow, submit_pill_slug_to_indexnow
 from routes.admin.field_schema import validate_pill, compute_completeness, compute_seo_score
-from services.drug_pronunciation import get_pronunciation, get_pronunciation_lookup_keys
+from services.drug_pronunciation import find_pill_pronunciation, pill_pronunciation_key
 from utils import get_image_url, generate_slug
 
 logger = logging.getLogger(__name__)
@@ -1364,7 +1364,7 @@ def get_pill_pronunciation(pill_id: str, admin: dict = Depends(get_admin_user)):
             medicine_name = pill_row[0]
             rxcui = pill_row[1]
 
-            payload = get_pronunciation(
+            payload = find_pill_pronunciation(
                 conn,
                 medicine_name,
                 rxcui=rxcui,
@@ -1394,7 +1394,10 @@ def update_pill_pronunciation(
     body: PronunciationUpdate,
     admin: dict = Depends(get_admin_user),
 ):
-    """Upsert pronunciation_text with source='manual' (any admin role: reviewer, editor, superuser)."""
+    """Upsert pronunciation_text with source='manual' (any admin role: reviewer, editor, superuser).
+
+    Saved under the pill's own key (pill_pronunciation_key): a brand pill's own name, else the generic.
+    """
     if admin["role"] not in ("superuser", "editor", "reviewer"):
         raise HTTPException(status_code=403, detail="Requires reviewer role or higher")
 
@@ -1416,17 +1419,12 @@ def update_pill_pronunciation(
                     status_code=400,
                     detail="This pill has no medicine name — cannot save pronunciation",
                 )
-            lookup_keys = get_pronunciation_lookup_keys(
-                conn,
-                medicine_name,
-                rxcui=rxcui,
-            )
-            if not lookup_keys:
+            drug_name_lower = pill_pronunciation_key(conn, medicine_name, rxcui=rxcui)
+            if not drug_name_lower:
                 raise HTTPException(
                     status_code=400,
                     detail="Could not determine a pronunciation lookup key for this pill",
                 )
-            drug_name_lower = lookup_keys[0]
 
             conn.execute(
                 text(

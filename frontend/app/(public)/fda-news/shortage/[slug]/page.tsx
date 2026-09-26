@@ -3,9 +3,10 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { shortageDetail, shortageHeadline, shortageMakers, shortageTag } from '../../../../lib/fda-news'
 import { fdaNewsSwitches } from '../../../../lib/fda-news-switches'
+import { pillSeekLinks } from '../../../../lib/pillseek-links'
 import { prettyDate } from '../../../../lib/recalls'
 import { FDA_SHORTAGE_PAGE, type Availability } from '../../../../lib/shortages'
-import { DetailHeader, ExternalLink, Facts, Section, SourceNote, WhatToDo } from '../../NewsDetail'
+import { DetailHeader, ExternalLink, Facts, NewsJsonLd, PillSeekLinks, Section, SourceNote, WhatToDo } from '../../NewsDetail'
 
 type Params = Promise<{ slug: string }>
 
@@ -25,12 +26,16 @@ async function load(slug: string) {
   return data
 }
 
+function describe(shortage: { name: string }): string {
+  return `${shortage.name} is on the FDA drug shortage list. Which products and makers are affected, and what the makers report, from FDA data.`
+}
+
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const shortage = await load((await params).slug)
   return {
     title: shortageHeadline(shortage),
-    description: `${shortage.name} is on the FDA drug shortage list. Which products and makers are affected, and what the makers report, from FDA data.`,
-    robots: { index: false, follow: true },
+    description: describe(shortage),
+    robots: { index: true, follow: true },
     alternates: { canonical: `/fda-news/shortage/${shortage.slug}` },
   }
 }
@@ -39,9 +44,17 @@ export default async function ShortageNewsPage({ params }: { params: Params }) {
   const shortage = await load((await params).slug)
   const { makers, short } = shortageMakers(shortage)
   const firstWord = shortage.name.split(/[\s,]+/)[0]
+  const links = await pillSeekLinks([shortage.name])
 
   return (
     <>
+      <NewsJsonLd
+        headline={shortageHeadline(shortage)}
+        path={`/fda-news/shortage/${shortage.slug}`}
+        date={shortage.updated || shortage.posted}
+        description={describe(shortage)}
+        source={FDA_SHORTAGE_PAGE}
+      />
       <DetailHeader kind="shortage" headline={shortageHeadline(shortage)} date={shortage.posted} tag={shortageTag(shortage)} />
       <div className="mx-auto max-w-4xl px-4 pt-8">
         <Facts
@@ -72,6 +85,8 @@ export default async function ShortageNewsPage({ params }: { params: Params }) {
             ))}
           </ul>
         </Section>
+
+        <PillSeekLinks links={links} />
 
         <WhatToDo>
           <ul className="list-disc space-y-1 pl-5">
