@@ -4,8 +4,9 @@ import { notFound } from 'next/navigation'
 import { recallNotice, type FdaPage } from '../../../../lib/fda-announcements'
 import { fdaNewsSwitches } from '../../../../lib/fda-news-switches'
 import { FDA_RECALLS_PAGE, NOTICE_TAG, plainReason, recallDetail, recallTag, shortProduct, type RecallDetail } from '../../../../lib/fda-news'
+import { pillSeekLinks, type PillSeekLink } from '../../../../lib/pillseek-links'
 import { classText, prettyDate } from '../../../../lib/recalls'
-import { DetailHeader, ExternalLink, Facts, Section, SourceNote, WhatToDo } from '../../NewsDetail'
+import { DetailHeader, ExternalLink, Facts, NewsJsonLd, PillSeekLinks, Section, SourceNote, WhatToDo } from '../../NewsDetail'
 
 type Params = Promise<{ id: string }>
 
@@ -28,30 +29,50 @@ async function load(id: string) {
   return { kind: 'notice' as const, slug: key.toLowerCase(), ...notice }
 }
 
-export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
-  const data = await load((await params).id)
-  // FDA wording shown as is: useful to people, not something to rank
-  const robots = { index: false, follow: true }
+type Loaded = Awaited<ReturnType<typeof load>>
+
+/** The page in a few words (search result, news markup), its address and its FDA source. */
+function summaryOf(data: Loaded): { headline: string; description: string; date: string; path: string; source: string } {
   if (data.kind === 'notice') {
     return {
-      title: data.page.title,
-      description: `Drug recall announced ${prettyDate(data.page.announced || data.page.date)}: ${data.page.reason}`.slice(0, 300),
-      robots,
-      alternates: { canonical: `/fda-news/recall/${data.slug}` },
+      headline: data.page.title,
+      description: `Drug recall announced ${prettyDate(data.page.announced || data.page.date)}: ${data.page.reason}`,
+      date: data.page.announced || data.page.date,
+      path: `/fda-news/recall/${data.slug}`,
+      source: data.url,
     }
   }
   const { recall } = data
   return {
-    title: recall.headline,
-    description: `${recallTag(recall.cls)}. FDA recall ${recall.id} reported ${prettyDate(recall.date)}: ${recall.reason}`.slice(0, 300),
-    robots,
-    alternates: { canonical: `/fda-news/recall/${recall.id}` },
+    headline: recall.headline,
+    description: `${recallTag(recall.cls)}. FDA recall ${recall.id} reported ${prettyDate(recall.date)}: ${recall.reason}`,
+    date: recall.date,
+    path: `/fda-news/recall/${recall.id}`,
+    source: FDA_RECALLS_PAGE,
+  }
+}
+
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  const summary = summaryOf(await load((await params).id))
+  return {
+    title: summary.headline,
+    description: summary.description.slice(0, 300),
+    robots: { index: true, follow: true },
+    alternates: { canonical: summary.path },
   }
 }
 
 export default async function RecallNewsPage({ params }: { params: Params }) {
   const data = await load((await params).id)
-  return data.kind === 'notice' ? <NoticeView page={data.page} url={data.url} /> : <ReportView recall={data.recall} others={data.others} />
+  const summary = summaryOf(data)
+  // the recalled medicine's own pages on PillSeek, by the names the FDA gives it
+  const links = await pillSeekLinks(data.kind === 'notice' ? [data.page.brand, data.page.product] : [data.recall.generic, data.recall.product])
+  return (
+    <>
+      <NewsJsonLd headline={summary.headline} path={summary.path} date={summary.date} description={summary.description} source={summary.source} />
+      {data.kind === 'notice' ? <NoticeView page={data.page} url={data.url} links={links} /> : <ReportView recall={data.recall} others={data.others} links={links} />}
+    </>
+  )
 }
 
 function RecallWhatToDo() {
@@ -67,7 +88,7 @@ function RecallWhatToDo() {
 }
 
 /** A recall the company announced and the FDA posted; the FDA's own classification follows weeks later. */
-function NoticeView({ page, url }: { page: FdaPage; url: string }) {
+function NoticeView({ page, url, links }: { page: FdaPage; url: string; links: PillSeekLink[] }) {
   const plain = plainReason(page.reason)
   return (
     <>
@@ -96,6 +117,7 @@ function NoticeView({ page, url }: { page: FdaPage; url: string }) {
           </p>
         </Section>
 
+        <PillSeekLinks links={links} />
         <RecallWhatToDo />
 
         <SourceNote>
@@ -107,7 +129,7 @@ function NoticeView({ page, url }: { page: FdaPage; url: string }) {
   )
 }
 
-function ReportView({ recall, others }: { recall: RecallDetail; others: RecallDetail[] }) {
+function ReportView({ recall, others, links }: { recall: RecallDetail; others: RecallDetail[]; links: PillSeekLink[] }) {
   const plain = plainReason(recall.reason)
   const open = /ongoing/i.test(recall.status)
   const drug = recall.generic
@@ -145,6 +167,7 @@ function ReportView({ recall, others }: { recall: RecallDetail; others: RecallDe
           </Section>
         )}
 
+        <PillSeekLinks links={links} />
         <RecallWhatToDo />
 
         {others.length > 0 && (

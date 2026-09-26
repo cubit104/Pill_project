@@ -80,10 +80,22 @@ export function parseRss(xml: string): RssItem[] {
   return out
 }
 
+/** One piece of an FDA article, in order: a heading ("Effectiveness") or a paragraph. */
+export interface ArticleBlock {
+  kind: 'heading' | 'paragraph'
+  text: string
+}
+
 export interface FdaPage {
   title: string
   /** The FDA's own one-paragraph summary (the page's description). */
   summary: string
+  /**
+   * The article's text as the FDA wrote it (announcements are public domain), without the site's menus, the
+   * "FDA News Release" label, the press contacts or the agency's closing paragraph. On a recall notice it is the
+   * company's text: not shown.
+   */
+  body: ArticleBlock[]
   /** ISO date the page was published. */
   date: string
   /** What the page is about, as the FDA files it: "Drugs", "Biologics", "Food & Beverages", … */
@@ -109,6 +121,7 @@ export function parseFdaPage(html: string): FdaPage {
     // the page title is whole; og:title is cut at 70 characters on some FDA pages
     title: clean(/<title>([\s\S]*?)<\/title>/.exec(html)?.[1] ?? '').replace(/\s*\|\s*FDA$/, '') || meta('og:title'),
     summary: meta('description') || meta('og:description'),
+    body: articleBody(html),
     date: time,
     productType: noticeType || regulated,
     company: after(/Company Name:\s*(.+?)\s+Brand Name:/),
@@ -118,6 +131,24 @@ export function parseFdaPage(html: string): FdaPage {
     announced: isoFromWords(after(/Company Announcement Date:\s*([A-Za-z]+ \d{1,2}, \d{4})/)),
     published: isoFromWords(after(/FDA Publish Date:\s*([A-Za-z]+ \d{1,2}, \d{4})/)),
   }
+}
+
+const MAX_BLOCKS = 40
+const SKIPPED = /^(FDA News Release|More Press Announcements|Related Information|Related Links)$/i
+/** Where an FDA press release's own text ends: "###", then the press contacts and the agency's boilerplate. */
+const ENDS = /^(###|(Media|Consumer|Inquiries):|The FDA, an agency within)/i
+
+/** The headings and paragraphs of the page's article, in order (see FdaPage.body). */
+export function articleBody(html: string): ArticleBlock[] {
+  const article = /<article\b[\s\S]*?<\/article>/i.exec(html)?.[0] ?? /<main\b[\s\S]*?<\/main>/i.exec(html)?.[0] ?? ''
+  const blocks: ArticleBlock[] = []
+  for (const m of article.matchAll(/<(h2|h3|p)\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
+    const text = clean(m[2])
+    if (!text || SKIPPED.test(text)) continue
+    if (ENDS.test(text) || blocks.length >= MAX_BLOCKS) break
+    blocks.push({ kind: m[1].toLowerCase() === 'p' ? 'paragraph' : 'heading', text })
+  }
+  return blocks
 }
 
 export function isDrugOrBiologic(productType: string): boolean {

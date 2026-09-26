@@ -6,12 +6,16 @@ import { novelDrug } from '../fda-announcements'
 import {
   approvalNews,
   approvalsForNews,
+  commonSideEffects,
   fdaHighlights,
+  fdaNewsPages,
   formNoun,
   genericName,
   groupShortages,
+  labelByName,
   labelUses,
   parseApproval,
+  parseLabel,
   plainReason,
   recallNews,
   recallsForNews,
@@ -360,6 +364,62 @@ test("the FDA's table of new drugs fills in what the feeds forgot and Drugs@FDA 
     assert.equal((await novelDrug('2026-juvmo'))?.generic, 'tavapadon')
     assert.equal(await novelDrug('2026-nothing'), null)
     assert.equal(await novelDrug('not-a-row'), null)
+  } finally {
+    global.fetch = originalFetch
+  }
+})
+
+test("a label's most common side effects, its boxed warning's words, and a label found by name", async () => {
+  assert.equal(
+    commonSideEffects('6 ADVERSE REACTIONS The most common adverse reactions (≥ 20%), including laboratory abnormalities, with ETCAMAH were decreased neutrophils and fatigue [see Warnings (5.1)]. The following reactions are described elsewhere.'),
+    'The most common adverse reactions (≥ 20%), including laboratory abnormalities, with ETCAMAH were decreased neutrophils and fatigue.',
+  )
+  // "2.5%" does not end the sentence
+  assert.equal(commonSideEffects('Other text. Most common adverse reactions (incidence ≥ 2.5%) are headache and nausea. More.'), 'Most common adverse reactions (incidence ≥ 2.5%) are headache and nausea.')
+  assert.equal(commonSideEffects('6 ADVERSE REACTIONS Clinical trial experience is described below.'), '')
+
+  const label = parseLabel({
+    // the label's pointers to its other sections ("( 5.1 , 7.1 )") go; "(≥10%)" stays
+    results: [{ set_id: 'abc', indications_and_usage: ['1 INDICATIONS AND USAGE X is indicated for Y.'], boxed_warning: ['WARNING: RISK OF Z ( 5.1 , 7.1 ). Monitor patients.'], adverse_reactions: ['Most common adverse reactions (≥10%) are rash ( 6.1 ).'] }],
+  })
+  assert.deepEqual(label, { uses: 'X is indicated for Y.', boxedWarning: true, boxedText: 'WARNING: RISK OF Z. Monitor patients.', sideEffects: 'Most common adverse reactions (≥10%) are rash.', setId: 'abc' })
+
+  const originalFetch = global.fetch
+  const asked: string[] = []
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = decodeURIComponent(String(input))
+    asked.push(url)
+    if (url.includes('generic_name:"tavapadon"')) return new Response(JSON.stringify({ results: [{ set_id: 'juv', indications_and_usage: ['Juvmo is indicated for Parkinson disease.'] }] }), { status: 200 })
+    return new Response('{}', { status: 404 })
+  }) as typeof fetch
+  try {
+    assert.equal((await labelByName('Juvmo', 'tavapadon'))?.setId, 'juv') // not yet under its brand name: found by the generic
+    assert.ok(asked[0].includes('brand_name:"Juvmo"'))
+    assert.equal(await labelByName('Newdrug', 'newmab'), null) // not published yet
+  } finally {
+    global.fetch = originalFetch
+  }
+})
+
+test('the sitemap lists the FDA news pages of the kinds switched on', async () => {
+  const originalFetch = global.fetch
+  const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.includes('/drug/enforcement.json')) return answer({ results: [recallRow()] })
+    if (url.includes('/drug/drugsfda.json')) return answer({ meta: { results: { total: 1 } }, results: [approvalRow()] })
+    if (url.includes('/drug/shortages.json')) return answer({ results: [shortageRow()] })
+    return answer({}, 404)
+  }) as typeof fetch
+  try {
+    const now = new Date(2026, 8, 23)
+    assert.deepEqual((await fdaNewsPages({ recall: true, approval: true, shortage: true }, now)).map((p) => p.href), [
+      '/fda-news/recall/D-0850-2026',
+      '/fda-news/new-drug/NDA220359',
+      '/fda-news/shortage/pentostatin-injection',
+    ])
+    // a kind switched off in Admin → Settings has no pages, so none are listed
+    assert.deepEqual((await fdaNewsPages({ recall: false, approval: true, shortage: false }, now)).map((p) => p.href), ['/fda-news/new-drug/NDA220359'])
   } finally {
     global.fetch = originalFetch
   }

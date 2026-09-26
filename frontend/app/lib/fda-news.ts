@@ -483,7 +483,30 @@ export interface LabelSummary {
   /** The label's "Indications and usage" text, without its heading. */
   uses: string
   boxedWarning: boolean
+  /** The boxed warning's own words, shortened ('' when there is none). */
+  boxedText: string
+  /** The label's sentence on the most common side effects ('' when it has none). */
+  sideEffects: string
   setId: string
+}
+
+/** Label text without its pointers to other sections: "death ( 5.1 , 5.2 , 7.1 )." -> "death."; "(≥ 20%)" stays. */
+function withoutSectionNumbers(value: string): string {
+  return value.replace(/\s*\(\s*\d+(?:\.\d+)*(?:\s*,\s*\d+(?:\.\d+)*)*\s*\)/g, '').replace(/\s+([.,;:])/g, '$1')
+}
+
+/** Sentences of label text: a period, a space and a capital; "2.5%" and "(≥ 20%)" do not end one. */
+function sentences(value: string): string[] {
+  return value.split(/(?<=\.)\s+(?=[A-Z(])/)
+}
+
+/**
+ * "6 ADVERSE REACTIONS The most common adverse reactions (≥ 20%), including … were decreased neutrophils, … and
+ * fatigue. The following …" -> the sentence about the most common ones, as the label words it.
+ */
+export function commonSideEffects(raw: string): string {
+  const value = withoutSectionNumbers(text(raw).replace(/^\d*\s*ADVERSE REACTIONS\s*/i, '').replace(/\s*\[see [^\]]*\]/gi, ''))
+  return sentences(value).find((s) => /\bmost common(ly reported)?\b[^.]*\b(adverse reactions|side effects)\b/i.test(s))?.slice(0, 600) ?? ''
 }
 
 /**
@@ -508,11 +531,28 @@ export function parseLabel(json: unknown): LabelSummary | null {
   const row = rowsOf(json)[0]
   if (!row) return null
   const openfda = (row.openfda ?? {}) as Record<string, unknown>
+  const boxed = withoutSectionNumbers(text(list(row.boxed_warning).join(' ')))
   return {
     uses: labelUses(list(row.indications_and_usage).join(' ')),
-    boxedWarning: list(row.boxed_warning).length > 0,
+    boxedWarning: boxed !== '',
+    boxedText: boxed.length > 500 ? `${boxed.slice(0, 500).replace(/\s+\S*$/, '')}…` : boxed,
+    sideEffects: commonSideEffects(list(row.adverse_reactions).join(' ')),
     setId: text(row.set_id) || list(openfda.spl_set_id)[0] || '',
   }
+}
+
+/**
+ * The label of a new drug known only by its names (an announcement or a row of the FDA's table): by brand name,
+ * else by generic name. `null` until the FDA publishes it (often a week or two after approval).
+ */
+export async function labelByName(brand: string, generic: string): Promise<LabelSummary | null> {
+  for (const [field, name] of [['brand_name', brand], ['generic_name', generic]] as const) {
+    if (!name) continue
+    const json = await getJson(`${OPENFDA_LABEL}?search=openfda.${field}:%22${encodeURIComponent(name)}%22&sort=effective_time:desc&limit=1`)
+    const label = json ? parseLabel(json) : null
+    if (label) return label
+  }
+  return null
 }
 
 /** One approval and its label (when the FDA has published it); `null` = not an approved application, `undefined` = FDA not answering. */
@@ -632,6 +672,26 @@ export function shortageTag(s: ShortageNews): string {
 
 export function shortageItem(s: ShortageNews): FdaNewsItem {
   return { kind: 'shortage', href: `/fda-news/shortage/${s.slug}`, date: s.posted, headline: shortageHeadline(s), tag: shortageTag(s) }
+}
+
+const SITEMAP_LIMIT = 50
+
+/**
+ * The FDA news pages for the sitemap: the recalls and new drugs of the last 60 days and the newest drugs on the
+ * shortage list, of the kinds switched on. A feed that does not answer adds nothing (the sitemap is rebuilt daily).
+ */
+export async function fdaNewsPages(on: FdaNewsSwitches, now = new Date()): Promise<Array<{ href: string; date: string }>> {
+  const [recalls, approvals, shortages] = await Promise.all([
+    on.recall ? recallNews(SITEMAP_LIMIT, now) : undefined,
+    on.approval ? approvalNews(SITEMAP_LIMIT, now) : undefined,
+    // the list alone (one request): the page of each drug gathers all its records when it is opened
+    on.shortage
+      ? getJson(`${OPENFDA_SHORTAGES}?search=status:%22Current%22&sort=initial_posting_date:desc&limit=${PAGE}`).then((json) =>
+          json === undefined ? undefined : groupShortages(json).slice(0, SITEMAP_LIMIT).map(shortageItem),
+        )
+      : undefined,
+  ])
+  return [...(recalls ?? []), ...(approvals ?? []), ...(shortages ?? [])].map(({ href, date }) => ({ href, date }))
 }
 
 /** All current records of the drug whose name makes `slug`, found by searching `name` (the newest-postings page may hold only some). */

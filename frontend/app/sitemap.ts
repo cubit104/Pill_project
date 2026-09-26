@@ -1,4 +1,6 @@
 import type { MetadataRoute } from 'next'
+import { fdaNewsPages } from './lib/fda-news'
+import { fdaNewsSwitches } from './lib/fda-news-switches'
 import { INDEX_LETTERS, isIvPageIndexable } from './lib/iv'
 import { slugifyDrugName } from './lib/slug'
 import { slugifyUrl } from './lib/url-utils'
@@ -94,13 +96,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly',
       priority: 0.6,
     },
-    // the item pages under it are noindex (FDA wording as is); the list itself is fresh every day
+    // the list is fresh every day; its recall, new drug and shortage pages follow below
     {
       url: `${SITE_URL}/fda-news`,
       changeFrequency: 'daily',
       priority: 0.6,
     },
   ]
+
+  // FDA news pages: indexed, found here within a day of the FDA posting them (they need no backend)
+  const fdaPages: MetadataRoute.Sitemap = (await fdaNewsPages(await fdaNewsSwitches()).catch(() => [])).map((page) => ({
+    url: `${SITE_URL}${page.href}`,
+    lastModified: page.date ? new Date(`${page.date}T12:00:00Z`) : undefined,
+    changeFrequency: 'weekly' as const,
+    priority: 0.5,
+  }))
 
   try {
     const [slugs, classes, drugSlugs, drugPriceSlugs, conditionPayload, colorSlugs, shapeSlugs, ivSlugs, drugIndex] = await Promise.all([
@@ -218,6 +228,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       ...shapePages,
       ...drugIndexPages,
       ...ivPages,
+      ...fdaPages,
     ]
 
     const deduped = new Map<string, MetadataRoute.Sitemap[number]>()
@@ -228,6 +239,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     return Array.from(deduped.values())
   } catch (err) {
     console.error('[sitemap] Failed to fetch data from backend:', err)
-    return staticPages
+    return [...staticPages, ...fdaPages]
   }
 }

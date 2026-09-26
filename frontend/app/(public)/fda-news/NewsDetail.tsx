@@ -1,7 +1,10 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { FDA_NEWS_LOOK, FdaNewsIcon } from '../../components/FdaNews'
+import type { ArticleBlock } from '../../lib/fda-announcements'
 import type { FdaNewsKind } from '../../lib/fda-news'
+import type { PillSeekLink } from '../../lib/pillseek-links'
+import { newsArticleSchema, safeJsonLd } from '../../lib/structured-data'
 import { prettyDate } from '../../lib/recalls'
 
 /** Shared parts of the three FDA news pages (recall, new drug, shortage). */
@@ -80,4 +83,47 @@ export function SourceNote({ children }: { children: ReactNode }) {
       {children} Informational only and not medical advice; confirm with your pharmacist or prescriber.
     </p>
   )
+}
+
+/** The FDA's article as it wrote it (announcements are public domain): its headings and paragraphs. */
+export function ArticleText({ blocks }: { blocks: ArticleBlock[] }) {
+  return (
+    <div className="space-y-3">
+      {blocks.map((b, i) =>
+        b.kind === 'heading' ? (
+          <h3 key={i} className="pt-2 text-base font-bold text-slate-900">
+            {b.text}
+          </h3>
+        ) : (
+          <p key={i}>{b.text}</p>
+        ),
+      )}
+    </div>
+  )
+}
+
+/** PillSeek's own pages for the medicine on this FDA news page: its pills and its IV guide. */
+export function PillSeekLinks({ links }: { links: PillSeekLink[] }) {
+  if (links.length === 0) return null
+  return (
+    <section className="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-bold text-slate-900">On PillSeek</h2>
+      <ul className="mt-2 space-y-1.5 text-sm">
+        {links.map((l) => (
+          <li key={l.href}>
+            <Link href={l.href} className="font-semibold text-emerald-700 hover:text-emerald-800">
+              {l.label} →
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/** The page as a news article for search engines (see newsArticleSchema). */
+export function NewsJsonLd(props: { headline: string; path: string; date: string; description: string; source: string }) {
+  if (!props.date) return null
+  const schema = newsArticleSchema({ headline: props.headline, path: props.path, datePublished: props.date, description: props.description, source: props.source })
+  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(schema) }} />
 }

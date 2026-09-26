@@ -35,3 +35,24 @@ export const NOVEL_TABLE_2026 = `<html><body><table><thead><tr><th>No.</th><th>D
 <tr><td>12.</td><td>Oldtab</td><td>oldamide</td><td>5/2/2026</td><td>To treat something, long ago</td></tr>
 <tr><td colspan="5">*This information is from the FDA-approved label on the day of approval.</td></tr>
 </tbody></table></body></html>`
+
+/** An FDA press release as fda.gov serves it: a label, a subtitle, the text, then contacts and the agency's closing words. */
+export const PRESS_RELEASE_PAGE = `<html><head><title>FDA Approves First Gene Therapy | FDA</title></head><body>
+<nav><ul><li><p>Press Announcements</p></li></ul></nav><main><article>
+<p>FDA News Release</p><h1>FDA Approves First Gene Therapy for Sanfilippo Syndrome</h1>
+<p>Innovative gene therapy offers a new option for children</p><p><a href="/news-events/newsroom/press-announcements">More Press Announcements</a></p>
+<p>The U.S. Food and Drug Administration today approved <a href="/x">Fayuvi</a> (rebisufligene etisparvovec-hopf), the first treatment.</p>
+<p>“For families, this is hope,” said the director.&nbsp;</p>
+<h2>Safety</h2><p>The most common side effects were fever and vomiting.</p>
+<p>###</p><p>Media: FDA Request for Comment 202-690-6343</p><p>Consumer: 888-INFO-FDA</p>
+<p>The FDA, an agency within the U.S. Department of Health and Human Services, protects the public health.</p>
+<ul><li>Content current as of: 09/17/2026</li><li>Regulated Product(s) Biologics</li></ul>
+</article></main></body></html>`
+
+/** A drug center approval note: headed sections, no press release trimmings. */
+export const DRUG_CENTER_NOTE_PAGE = `<html><body><main><article>
+<ul><li>Notable Approvals</li></ul>
+<h2>Action</h2><p>The FDA has approved Atebrioz (zilurgisertib) tablets to reduce new heterotopic ossification.</p>
+<h2>Disease or Condition</h2><p>Fibrodysplasia ossificans progressiva is a rare genetic disease.</p>
+<ul><li>Content current as of: 09/25/2026</li></ul>
+</article></main></body></html>`
