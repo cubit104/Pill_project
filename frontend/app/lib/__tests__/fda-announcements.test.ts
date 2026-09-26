@@ -1,8 +1,20 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { approvalNames, firstMatches, isApprovalTitle, isDrugOrBiologic, isoFromWords, parseFdaPage, parseRss } from '../fda-announcements'
-import { RECALLS_RSS, announcementPage, noticePage } from './fda-fixtures'
+import {
+  APPROVAL_PATHS,
+  approvalNames,
+  articleBody,
+  firstMatches,
+  isApprovalTitle,
+  isDrugOrBiologic,
+  isoFromWords,
+  novelDrugId,
+  parseFdaPage,
+  parseNovelTable,
+  parseRss,
+} from '../fda-announcements'
+import { DRUG_CENTER_NOTE_PAGE, NOVEL_TABLE_2026, PRESS_RELEASE_PAGE, RECALLS_RSS, announcementPage, noticePage } from './fda-fixtures'
 
 test('feed items: FDA links only, titles decoded, dates read', () => {
   const items = parseRss(RECALLS_RSS)
@@ -85,4 +97,39 @@ test('pages are read a few at a time, and no more once enough are found', async 
   assert.deepEqual(kept, ['drug-1'])
   assert.deepEqual(read, ['food', 'drug-1']) // one batch of two, then stop
   assert.deepEqual(await firstMatches(['a', 'b', 'c'], async (x) => x, 10, 2), ['a', 'b', 'c']) // fewer than asked: all of them
+})
+
+test("the FDA's table of the year's new drugs: every row with a name and a date, nothing else", () => {
+  const drugs = parseNovelTable(NOVEL_TABLE_2026, 2026)
+  assert.deepEqual(drugs.map((d) => [d.brand, d.generic, d.date]), [
+    ['Atebrioz', 'zilurgisertib', '2026-09-25'], // the page's &nbsp; after the name is gone
+    ['Juvmo', 'tavapadon', '2026-09-25'], // a linked name reads the same
+    ['Lyrfigtu', 'lirafugratinib', '2026-09-23'],
+    ['Etcamah', 'camizestrant', '2026-09-04'],
+    ['Oldtab', 'oldamide', '2026-05-02'],
+  ]) // the header row and the footnote row are not drugs
+  assert.equal(drugs[1].use, 'To treat Parkinson’s disease in adults')
+  assert.equal(novelDrugId(drugs[0]), '2026-atebrioz')
+  assert.deepEqual(parseNovelTable('<html>no table today</html>', 2026), [])
+})
+
+test("approval notes posted in the drug center's news are read too", () => {
+  assert.ok(APPROVAL_PATHS.some((p) => '/drugs/news-events-human-drugs/fda-approves-third-treatment-fop'.startsWith(p)))
+})
+
+test("the FDA's article in full: its text and headings, not the site's menus, labels, contacts or closing words", () => {
+  assert.deepEqual(articleBody(PRESS_RELEASE_PAGE), [
+    { kind: 'paragraph', text: 'Innovative gene therapy offers a new option for children' },
+    { kind: 'paragraph', text: 'The U.S. Food and Drug Administration today approved Fayuvi (rebisufligene etisparvovec-hopf), the first treatment.' },
+    { kind: 'paragraph', text: '“For families, this is hope,” said the director.' },
+    { kind: 'heading', text: 'Safety' },
+    { kind: 'paragraph', text: 'The most common side effects were fever and vomiting.' },
+  ]) // "FDA News Release", "More Press Announcements", everything from "###" on, and the menus are gone
+  assert.deepEqual(articleBody(DRUG_CENTER_NOTE_PAGE).map((b) => `${b.kind}: ${b.text.slice(0, 20)}`), [
+    'heading: Action',
+    'paragraph: The FDA has approved',
+    'heading: Disease or Condition',
+    'paragraph: Fibrodysplasia ossif',
+  ])
+  assert.deepEqual(articleBody('<html><p>no article on this page</p></html>'), [])
 })

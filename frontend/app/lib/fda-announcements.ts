@@ -1,13 +1,15 @@
 /**
  * Same-day FDA news from fda.gov itself (its RSS feeds and notice pages; public domain), for the days before
  * the openFDA data files catch up: company recall notices (the weekly enforcement reports list them weeks
- * later) and approval announcements (gene therapies and other biologics are not in Drugs@FDA at all).
+ * later), approval announcements (gene therapies and other biologics are not in Drugs@FDA at all), and the drug
+ * center's yearly table of new drugs (a row the day each is approved).
  *
  * Only drugs and biologics are kept. Every FDA page prints what it is about ("Product Type: Drugs" on a
  * recall notice, "Regulated Product(s) Biologics" on an announcement), so food, supplements, devices,
  * cosmetics and animal products are dropped on the FDA's own word, not on guesses from the title.
  * Feeds are re-read hourly, pages daily. Nothing here throws: `undefined` means fda.gov did not answer.
  */
+import { isoFromUsDate } from './shortages'
 
 export const FDA_SITE = 'https://www.fda.gov'
 export const FDA_RSS = {
@@ -16,8 +18,13 @@ export const FDA_RSS = {
   drugs: `${FDA_SITE}/about-fda/contact-fda/stay-informed/rss-feeds/drugs/rss.xml`,
 }
 export const NOTICE_PATH = '/safety/recalls-market-withdrawals-safety-alerts/'
-/** Where approval announcements live: FDA press releases, and the drug center's approval notes. */
-export const APPROVAL_PATHS = ['/news-events/press-announcements/', '/drugs/resources-information-approved-drugs/']
+/** Where approval announcements live: FDA press releases, and the drug center's approval notes and news. */
+export const APPROVAL_PATHS = ['/news-events/press-announcements/', '/drugs/resources-information-approved-drugs/', '/drugs/news-events-human-drugs/']
+/**
+ * The drug center's table of the year's new drugs ("Novel Drug Approvals for 2026"): a row the day each one is
+ * approved, and rows never drop off it, unlike the feeds (20 items) and Drugs@FDA (a week or two behind).
+ */
+export const NOVEL_TABLE_PATH = '/drugs/novel-drug-approvals-fda/novel-drug-approvals-'
 const USER_AGENT = 'PillSeek/1.0 (+https://pillseek.com)'
 const TIMEOUT_MS = 4000
 
@@ -73,10 +80,22 @@ export function parseRss(xml: string): RssItem[] {
   return out
 }
 
+/** One piece of an FDA article, in order: a heading ("Effectiveness") or a paragraph. */
+export interface ArticleBlock {
+  kind: 'heading' | 'paragraph'
+  text: string
+}
+
 export interface FdaPage {
   title: string
   /** The FDA's own one-paragraph summary (the page's description). */
   summary: string
+  /**
+   * The article's text as the FDA wrote it (announcements are public domain), without the site's menus, the
+   * "FDA News Release" label, the press contacts or the agency's closing paragraph. On a recall notice it is the
+   * company's text: not shown.
+   */
+  body: ArticleBlock[]
   /** ISO date the page was published. */
   date: string
   /** What the page is about, as the FDA files it: "Drugs", "Biologics", "Food & Beverages", … */
@@ -102,6 +121,7 @@ export function parseFdaPage(html: string): FdaPage {
     // the page title is whole; og:title is cut at 70 characters on some FDA pages
     title: clean(/<title>([\s\S]*?)<\/title>/.exec(html)?.[1] ?? '').replace(/\s*\|\s*FDA$/, '') || meta('og:title'),
     summary: meta('description') || meta('og:description'),
+    body: articleBody(html),
     date: time,
     productType: noticeType || regulated,
     company: after(/Company Name:\s*(.+?)\s+Brand Name:/),
@@ -111,6 +131,24 @@ export function parseFdaPage(html: string): FdaPage {
     announced: isoFromWords(after(/Company Announcement Date:\s*([A-Za-z]+ \d{1,2}, \d{4})/)),
     published: isoFromWords(after(/FDA Publish Date:\s*([A-Za-z]+ \d{1,2}, \d{4})/)),
   }
+}
+
+const MAX_BLOCKS = 40
+const SKIPPED = /^(FDA News Release|More Press Announcements|Related Information|Related Links)$/i
+/** Where an FDA press release's own text ends: "###", then the press contacts and the agency's boilerplate. */
+const ENDS = /^(###|(Media|Consumer|Inquiries):|The FDA, an agency within)/i
+
+/** The headings and paragraphs of the page's article, in order (see FdaPage.body). */
+export function articleBody(html: string): ArticleBlock[] {
+  const article = /<article\b[\s\S]*?<\/article>/i.exec(html)?.[0] ?? /<main\b[\s\S]*?<\/main>/i.exec(html)?.[0] ?? ''
+  const blocks: ArticleBlock[] = []
+  for (const m of article.matchAll(/<(h2|h3|p)\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
+    const text = clean(m[2])
+    if (!text || SKIPPED.test(text)) continue
+    if (ENDS.test(text) || blocks.length >= MAX_BLOCKS) break
+    blocks.push({ kind: m[1].toLowerCase() === 'p' ? 'paragraph' : 'heading', text })
+  }
+  return blocks
 }
 
 export function isDrugOrBiologic(productType: string): boolean {
@@ -222,6 +260,53 @@ export async function readAnnouncement(item: RssItem): Promise<FdaAnnouncement |
 }
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+export interface NovelDrug {
+  brand: string
+  generic: string
+  /** ISO approval date. */
+  date: string
+  /** The table's "FDA-approved use on approval date". */
+  use: string
+  year: number
+}
+
+/** The rows of a "Novel Drug Approvals for 2026" page: No. | Drug Name | Active Ingredient | Approval Date | Use. */
+export function parseNovelTable(html: string, year: number): NovelDrug[] {
+  const drugs: NovelDrug[] = []
+  for (const row of html.match(/<tr[\s\S]*?<\/tr>/gi) ?? []) {
+    const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => clean(m[1]))
+    const date = isoFromUsDate(/\d{1,2}\/\d{1,2}\/\d{4}/.exec(cells[3] ?? '')?.[0])
+    if (cells.length >= 5 && cells[1] && date) drugs.push({ brand: cells[1], generic: cells[2], date, use: cells[4], year })
+  }
+  return drugs
+}
+
+/** A table row's PillSeek id: "2026-atebrioz". */
+export function novelDrugId(drug: NovelDrug): string {
+  return `${drug.year}-${drug.brand.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`
+}
+
+export function novelTableUrl(year: number): string {
+  return `${FDA_SITE}${NOVEL_TABLE_PATH}${year}`
+}
+
+/** The new drugs in these years' tables; `undefined` when fda.gov answered for none of them. */
+export async function novelDrugs(years: number[]): Promise<NovelDrug[] | undefined> {
+  const pages = await Promise.all(years.map((year) => getText(novelTableUrl(year), 3600)))
+  if (pages.every((html) => html === undefined)) return undefined
+  return pages.flatMap((html, i) => (typeof html === 'string' ? parseNovelTable(html, years[i]) : []))
+}
+
+/** One new drug of a year's table by its id ("2026-atebrioz"); `null` = no such drug, `undefined` = fda.gov not answering. */
+export async function novelDrug(id: string): Promise<NovelDrug | null | undefined> {
+  const m = /^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*$/.exec(id)
+  if (!m) return null
+  const year = Number(m[1])
+  const html = await getText(novelTableUrl(year), 3600)
+  if (typeof html !== 'string') return html
+  return parseNovelTable(html, year).find((drug) => novelDrugId(drug) === id) ?? null
+}
 
 /** One drug or biologic recall notice by its fda.gov slug; `null` = no such notice (or not a drug), `undefined` = fda.gov not answering. */
 export async function recallNotice(slug: string): Promise<{ page: FdaPage; url: string } | null | undefined> {

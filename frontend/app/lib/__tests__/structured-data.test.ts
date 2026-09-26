@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import type { PillDetail } from '../../types'
-import { imageObjectSchema, drugSchema } from '../structured-data'
+import { imageObjectSchema, drugSchema, newsArticleSchema } from '../structured-data'
 
 const basePill: PillDetail = {
   drug_name: 'Aspirin',
@@ -139,4 +139,15 @@ test('drugSchema omits undefined optional fields', () => {
   assert.equal(schema.manufacturer, undefined)
   assert.equal(schema.prescriptionStatus, undefined)
   assert.equal(schema.drugClass, undefined)
+})
+
+test('an FDA news page as a news article: headline cut for search results, dates, PillSeek as author, FDA source', () => {
+  const long = `FDA approves ${'a very long drug name '.repeat(8)}`
+  const schema = newsArticleSchema({ headline: long, path: '/fda-news/new-drug/2026-juvmo', datePublished: '2026-09-25', description: 'Juvmo was approved.', source: 'https://www.fda.gov/x' })
+  assert.equal(schema['@type'], 'NewsArticle')
+  assert.ok(schema.headline.length <= 110 && schema.headline.endsWith('…'))
+  assert.equal(schema.datePublished, '2026-09-25')
+  assert.equal(schema.url, 'https://pillseek.com/fda-news/new-drug/2026-juvmo')
+  assert.equal(schema.isBasedOn, 'https://www.fda.gov/x')
+  assert.equal(schema.author.name, 'PillSeek')
 })
