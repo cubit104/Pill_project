@@ -4,22 +4,22 @@ export const dynamic = 'force-dynamic'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Flag, Loader2, Pencil, RefreshCw, Upload, Volume2 } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Flag, LayoutGrid, Pencil, RefreshCw, Upload, Volume2 } from 'lucide-react'
 import { adminApi } from '../../lib/api'
+import ZoomImage from '../../components/ZoomImage'
 import { MISSING_OPTIONS, missingLabel } from '../../lib/reviewFlags'
 import { useUserRole } from '../../lib/useUserRole'
 import {
   nextIndex,
-  photoCheck,
   pronunciationCheck,
   publishBlockers,
   publishWarnings,
   reviewKey,
+  scoreCheck,
   sourceLabel,
   suggestedFlags,
   type Check,
   type Indication,
-  type PhotoRead,
   type Pronunciation,
   type QueueItem,
   type ReviewItem,
@@ -42,19 +42,18 @@ function pillLabel(q: { medicine_name: string | null; strength?: string | null; 
   return [q.medicine_name, q.strength ?? q.spl_strength].filter(Boolean).join(' ') || 'Unnamed pill'
 }
 
-function Badge({ check, busy }: { check: Check; busy?: boolean }) {
+function Badge({ check }: { check: Check }) {
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm font-medium ${TONE[check.tone]}`}>
-      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span aria-hidden="true">{MARK[check.tone]}</span>}
+      <span aria-hidden="true">{MARK[check.tone]}</span>
       {check.text}
     </span>
   )
 }
 
-/** The photo, big, zooming 2.5x under the mouse so an imprint can be read off it. */
+/** The photo, big, zooming under the mouse so the imprint can be read off it. */
 function PhotoPanel({ photos, alt }: { photos: string[]; alt: string }) {
   const [active, setActive] = useState(0)
-  const [lens, setLens] = useState<{ x: number; y: number } | null>(null)
   useEffect(() => setActive(0), [photos])
   const src = photos[active]
   if (!src) {
@@ -62,21 +61,7 @@ function PhotoPanel({ photos, alt }: { photos: string[]; alt: string }) {
   }
   return (
     <div className="space-y-2">
-      <div
-        className="relative cursor-zoom-in overflow-hidden rounded-lg border border-gray-200 bg-gray-100"
-        onMouseMove={(e) => {
-          const r = e.currentTarget.getBoundingClientRect()
-          setLens({ x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 })
-        }}
-        onMouseLeave={() => setLens(null)}
-      >
-        <img
-          src={src}
-          alt={alt}
-          className="h-[50vh] w-full object-contain lg:h-[62vh]"
-          style={lens ? { transform: 'scale(2.5)', transformOrigin: `${lens.x}% ${lens.y}%` } : undefined}
-        />
-      </div>
+      <ZoomImage src={src} alt={alt} className="h-[50vh] lg:h-[62vh]" />
       <div className="flex items-center gap-3 text-xs text-gray-500">
         <span>Hover to zoom</span>
         <a href={src} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-indigo-600 hover:underline">
@@ -301,9 +286,6 @@ function ReviewInner() {
   const [done, setDone] = useState<Map<string, 'published' | 'flagged'>>(() => new Map())
   const [item, setItem] = useState<ReviewItem | null>(null)
   const [itemError, setItemError] = useState('')
-  const [read, setRead] = useState<PhotoRead | null>(null)
-  const [reading, setReading] = useState(false)
-  const [readError, setReadError] = useState('')
   const [armed, setArmed] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<(Check & { pillId?: string }) | null>(null)
@@ -312,9 +294,8 @@ function ReviewInner() {
   const [flagNote, setFlagNote] = useState('')
   const [reloads, setReloads] = useState(0)
 
-  // One request per pill and per photo read, shared by the pill on screen and the next one being fetched ahead.
+  // One request per pill, shared by the pill on screen and the next one being fetched ahead.
   const details = useRef(new Map<string, Promise<ReviewItem>>())
-  const reads = useRef(new Map<string, Promise<PhotoRead | null>>())
 
   const doneIds = useMemo(() => new Set(done.keys()), [done])
   const current = queue && index >= 0 ? queue[index] : null
@@ -328,18 +309,6 @@ function ReviewInner() {
       p = adminApi.getReviewItem(id) as Promise<ReviewItem>
       details.current.set(id, p)
       p.catch(() => details.current.delete(id))
-    }
-    return p
-  }, [])
-
-  const readPhoto = useCallback((id: string, it: ReviewItem): Promise<PhotoRead | null> => {
-    if (it.photo_read) return Promise.resolve(it.photo_read)
-    if (it.photos.length === 0) return Promise.resolve(null)
-    let p = reads.current.get(id)
-    if (!p) {
-      p = adminApi.readReviewPhoto(id) as Promise<PhotoRead>
-      reads.current.set(id, p)
-      p.catch(() => reads.current.delete(id))
     }
     return p
   }, [])
@@ -363,7 +332,7 @@ function ReviewInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // the pill on screen: its details, then its photo read (free when already read)
+  // the pill on screen
   useEffect(() => {
     if (!currentId) {
       setItem(null)
@@ -371,43 +340,27 @@ function ReviewInner() {
     }
     let alive = true
     setItemError('')
-    setReadError('')
     loadItem(currentId)
-      .then((it) => {
-        if (!alive) return
-        setItem(it)
-        setRead(it.photo_read)
-        setReading(!it.photo_read && it.photos.length > 0)
-        readPhoto(currentId, it)
-          .then((r) => alive && setRead(r))
-          .catch((e) => alive && setReadError(message(e)))
-          .finally(() => alive && setReading(false))
-      })
+      .then((it) => alive && setItem(it))
       .catch((e) => alive && setItemError(message(e)))
     return () => {
       alive = false
     }
-  }, [currentId, reloads, loadItem, readPhoto])
+  }, [currentId, reloads, loadItem])
 
   // a new pill: nothing of the last one may stay on screen (or be published by a quick P)
   useEffect(() => {
     setItem(null)
-    setRead(null)
-    setReading(false)
     setArmed(null)
     setFlagOpen(false)
   }, [currentId])
 
-  // fetch (and read) the next pill while this one is looked at
+  // fetch the next pill while this one is looked at
   useEffect(() => {
     if (!queue || index < 0 || !item) return
     const n = nextIndex(queue, index, 1, skipFlagged, doneIds)
-    if (n < 0) return
-    const id = queue[n].id
-    loadItem(id)
-      .then((it) => readPhoto(id, it))
-      .catch(() => undefined)
-  }, [item, queue, index, skipFlagged, doneIds, loadItem, readPhoto])
+    if (n >= 0) loadItem(queue[n].id).catch(() => undefined)
+  }, [item, queue, index, skipFlagged, doneIds, loadItem])
 
   // back from the editor tab: show what was changed there
   useEffect(() => {
@@ -459,7 +412,7 @@ function ReviewInner() {
       setNotice({ tone: 'bad', text: `Cannot publish: ${blockers.join('; ')}` })
       return
     }
-    const warnings = publishWarnings(item, read)
+    const warnings = publishWarnings(item)
     if (warnings.length && armed !== current.id) {
       setArmed(current.id)
       setNotice({ tone: 'warn', text: `${warnings.join('; ')}. Press P again to publish anyway.`, pillId: current.id })
@@ -479,7 +432,7 @@ function ReviewInner() {
   const openFlag = () => {
     const item = shown
     if (!item) return
-    setFlagSel(suggestedFlags(item, read))
+    setFlagSel(suggestedFlags(item))
     setFlagNote(item.flags?.note ?? '')
     setFlagOpen(true)
   }
@@ -540,7 +493,6 @@ function ReviewInner() {
   if (!queue) return <div className="p-4 text-gray-500">Loading the drafts…</div>
 
   const pill = shown?.pill
-  const photo = shown ? photoCheck(read, shown.pill.splimprint) : null
   const blockers = shown ? publishBlockers(shown) : []
 
   return (
@@ -550,6 +502,9 @@ function ReviewInner() {
           <ArrowLeft className="h-4 w-4" /> Drafts
         </Link>
         <h1 className="text-2xl font-bold text-gray-900">Review drafts</h1>
+        <Link href="/admin/drafts/grid" className="inline-flex items-center gap-1 text-sm text-indigo-700 hover:underline">
+          <LayoutGrid className="h-4 w-4" /> Grid
+        </Link>
         <span className="text-sm text-gray-600">
           {current ? `${index + 1} of ${queue.length}` : `${queue.length} drafts`} · {left} left
           {done.size > 0 && ` · ${published} published, ${flagged} flagged`}
@@ -610,16 +565,8 @@ function ReviewInner() {
               <div className="mt-1 text-sm text-gray-600">
                 {[pill.splcolor_text, pill.splshape_text, pill.splsize && `${pill.splsize} mm`].filter(Boolean).join(' · ')}
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {photo && <Badge check={reading && !read ? { tone: 'none', text: 'Reading the photo…' } : photo} busy={reading && !read} />}
-                {readError && (
-                  <span className="text-xs text-red-700">
-                    {readError}{' '}
-                    <button type="button" className="underline" onClick={() => setReloads((n) => n + 1)}>
-                      Retry
-                    </button>
-                  </span>
-                )}
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-600">
+                Editor score <Badge check={scoreCheck(shown.score)} />
               </div>
             </div>
 

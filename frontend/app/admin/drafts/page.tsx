@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '../lib/supabase'
 import { missingLabel } from '../lib/reviewFlags'
-import { CheckCircle, XCircle, Send, Pencil, Upload, Trash2, Eye, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { CheckCircle, XCircle, Send, Pencil, Upload, Trash2, Eye, LayoutGrid, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 
 interface Draft {
   id: string
@@ -177,6 +177,12 @@ function DraftsListInner() {
           className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700"
         >
           <Eye className="w-4 h-4" /> Review one by one
+        </Link>
+        <Link
+          href="/admin/drafts/grid"
+          className="inline-flex items-center gap-1.5 rounded-md border border-indigo-300 bg-white px-3 py-1.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-50"
+        >
+          <LayoutGrid className="w-4 h-4" /> Grid
         </Link>
       </div>
 

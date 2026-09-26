@@ -1,4 +1,7 @@
-/** Admin -> Drafts -> Review one by one: what the page says about a draft pill, and what the keys do. */
+/** Admin -> Drafts -> "Review one by one" and "Grid": what the pages say about a draft pill, and what the keys do. */
+
+/** The editor's completeness score a draft is published at: brand names and RxCUI Alt are empty on drafts. */
+export const READY_SCORE = 92
 
 export interface QueueItem {
   id: string
@@ -7,16 +10,10 @@ export interface QueueItem {
   imprint: string | null
   flagged: boolean
   missing: string[]
-}
-
-export type Verdict = 'match' | 'close' | 'partial' | 'mismatch' | 'unreadable' | 'no_imprint'
-
-/** What the AI reader read on the pill's photo, against the imprint typed for it. */
-export interface PhotoRead {
-  verdict: Verdict
-  read: string
-  confidence: 'high' | 'medium' | 'low'
-  model: string
+  /** The pill editor's completeness score, 0 to 100. */
+  score: number
+  /** Whether "what it's used for" is filled: publishing waits for it. */
+  used_for: boolean
 }
 
 export interface ReviewPill {
@@ -51,8 +48,10 @@ export interface Indication {
 export interface Pronunciation {
   text: string | null
   source: string | null
-  /** The drug name it is saved under ("lisinopril" for a Lisinopril 10 mg pill). */
+  /** The name it is kept under: a brand pill's own ("zestril"), else the generic ("lisinopril"). */
   key: string | null
+  /** Where the text shown came from, when not `key`: a brand pill without its own shows the generic's. */
+  shown_from: string | null
   audio_url: string | null
   /** missing: none saved; odd: notes pasted in; other_name: it spells out another name (usually the brand). */
   problem: 'missing' | 'odd' | 'other_name' | null
@@ -63,11 +62,29 @@ export interface Pronunciation {
 export interface ReviewItem {
   pill: ReviewPill
   photos: string[]
+  score: number
   warnings: { field: string; message: string }[]
   indication: Indication | null
   pronunciation: Pronunciation
   flags: { missing: string[]; note: string | null; flagged_by: string | null; flagged_at: string | null } | null
-  photo_read: PhotoRead | null
+}
+
+/** One pill in the grid. */
+export interface Card {
+  id: string
+  medicine_name: string | null
+  strength: string | null
+  imprint: string | null
+  color: string | null
+  shape: string | null
+  size: string | null
+  rxcui: string | null
+  photo: string | null
+  score: number
+  used_for: boolean
+  pronunciation: Pronunciation
+  published: boolean
+  updated_at: string | null
 }
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'none'
@@ -77,24 +94,9 @@ export interface Check {
   text: string
 }
 
-/** The photo check in words: "Photo reads M L / 10" (ok), "Photo reads L484, not M L 10" (bad). */
-export function photoCheck(read: PhotoRead | null, imprint: string | null): Check {
-  if (!read) return { tone: 'none', text: 'Photo not read yet' }
-  const typed = (imprint ?? '').trim()
-  switch (read.verdict) {
-    case 'match':
-      return { tone: 'ok', text: `Photo reads ${read.read}` }
-    case 'close':
-      return { tone: 'warn', text: `Photo reads ${read.read}: nearly the same, look closely` }
-    case 'partial':
-      return { tone: 'warn', text: `Photo reads ${read.read}: only part of ${typed}` }
-    case 'mismatch':
-      return { tone: 'bad', text: `Photo reads ${read.read}, not ${typed}. Wrong photo?` }
-    case 'no_imprint':
-      return { tone: 'bad', text: `Photo reads ${read.read}, but no imprint is typed` }
-    default:
-      return { tone: 'warn', text: 'No imprint could be read on the photo' }
-  }
+/** The editor's score in words: green at the score drafts are published at. */
+export function scoreCheck(score: number): Check {
+  return { tone: score >= READY_SCORE ? 'ok' : 'warn', text: `${score}%` }
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -112,7 +114,10 @@ export function sourceLabel(source: string | null): string {
 export function pronunciationCheck(p: Pronunciation): Check {
   if (!p.text) return { tone: 'warn', text: 'No pronunciation saved' }
   if (p.checked_by) return { tone: 'ok', text: `Checked by ${p.checked_by}` }
-  if (p.problem === 'other_name') return { tone: 'bad', text: `Does not sound like "${p.key}": another name's pronunciation?` }
+  if (p.problem === 'other_name') {
+    const theirs = p.shown_from && p.shown_from !== p.key ? `: this is ${p.shown_from}'s, ${p.key} has none of its own` : ": another name's pronunciation?"
+    return { tone: 'bad', text: `Does not sound like "${p.key}"${theirs}` }
+  }
   if (p.problem === 'odd') return { tone: 'bad', text: 'Has notes pasted in with it' }
   if (p.source === 'medlineplus') return { tone: 'ok', text: 'From MedlinePlus (NIH)' }
   return { tone: 'warn', text: `${sourceLabel(p.source)}, not checked yet` }
@@ -126,21 +131,30 @@ export function publishBlockers(item: ReviewItem): string[] {
   return []
 }
 
-/** Why P needs a second press: the photo does not plainly show the typed imprint. */
-export function publishWarnings(item: ReviewItem, read: PhotoRead | null): string[] {
-  if (item.photos.length === 0) return ['This pill has no photo']
-  if (!read) return ['The photo has not been read']
-  if (read.verdict !== 'match') return [photoCheck(read, item.pill.splimprint).text]
-  return []
+/** Why P needs a second press: there is no photo to check the imprint against. */
+export function publishWarnings(item: ReviewItem): string[] {
+  return item.photos.length === 0 ? ['This pill has no photo'] : []
 }
 
-/** What F ticks before the publisher adjusts it, from what the checks found. */
-export function suggestedFlags(item: ReviewItem, read: PhotoRead | null): string[] {
+/** What F ticks before the publisher adjusts it: what the team was told before, a missing photo or "used for". */
+export function suggestedFlags(item: ReviewItem): string[] {
   const tick = new Set(item.flags?.missing ?? [])
-  if (item.photos.length === 0 || read?.verdict === 'mismatch' || read?.verdict === 'no_imprint') tick.add('images')
-  if (read && ['close', 'partial', 'mismatch', 'no_imprint'].includes(read.verdict)) tick.add('imprint')
+  if (item.photos.length === 0) tick.add('images')
   if (!item.indication) tick.add('meds_use')
   return ['images', 'meds_use', 'imprint', 'other'].filter((key) => tick.has(key))
+}
+
+/** Grid: ready to publish with the rest, as the publisher does now: at the usual score, "used for" filled. */
+export function isReady(item: Pick<QueueItem, 'score' | 'used_for' | 'flagged'>): boolean {
+  return item.score >= READY_SCORE && item.used_for && !item.flagged
+}
+
+/** Grid: why a card cannot be ticked, or null when it can. The server refuses the same. */
+export function tickBlocker(card: Pick<Card, 'published' | 'rxcui' | 'used_for'>): string | null {
+  if (card.published) return 'Already published'
+  if (!card.rxcui) return 'No RxCUI: fix it in the editor'
+  if (!card.used_for) return '"What it\'s used for" is empty'
+  return null
 }
 
 export type ReviewKey = 'publish' | 'flag' | 'next' | 'prev' | 'edit'

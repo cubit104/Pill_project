@@ -1,50 +1,42 @@
-"""Draft review queue (Admin -> Drafts -> Review one by one).
+"""Draft review (Admin -> Drafts -> "Review one by one" and "Grid").
 
-The publisher goes through the unpublished pills one at a time: the photo next to the imprint typed for it,
-what the photo actually reads, "used for" and "pronounced as", then publishes it or flags it back to the team.
+The publisher goes through the unpublished pills with each photo next to the imprint typed for it, "used for"
+and "pronounced as", and publishes them (one by one, or several ticked in the grid) or flags them back.
 
-GET  /api/admin/draft-review/queue                             unpublished pills in review order (drug, strength, imprint)
-GET  /api/admin/draft-review/{pill_id}                         one pill: photos, fields, checks, any photo read already made
-POST /api/admin/draft-review/{pill_id}/read-photo              the AI reader reads the photo; compared with the typed imprint
+GET  /api/admin/draft-review/queue                             unpublished pills in review order, with score and "used for"
+GET  /api/admin/draft-review/cards?ids=a,b,...                 up to 50 pills for the grid
+GET  /api/admin/draft-review/{pill_id}                         one pill: photos, fields, "used for", "pronounced as"
 POST /api/admin/draft-review/{pill_id}/indication/medlineplus  fill "used for" from MedlinePlus (NIH), credited to it
 GET  /api/admin/draft-review/{pill_id}/indication/label        the FDA label's "indications" text, to edit before saving
 POST /api/admin/draft-review/{pill_id}/pronunciation           {pronunciation_text}: confirm "pronounced as", or save a fix
 POST /api/admin/draft-review/{pill_id}/publish                 {updated_at}: publish; refused while "used for" is empty
 
-Flags go through /api/admin/pills/{id}/review-flags and a typed "used for" through /api/admin/pills/{id}/indication,
-as in the pill editor. Publishing runs the editor's own "Save & publish" (routes/admin/pills.update_pill), so meta
-text, IndexNow and the Drafts list behave exactly the same.
-
-A photo read costs about 0.2 cents (Gemini, GEMINI_API_KEY). Reads are kept in memory per pill and photo, so opening
-a pill again costs nothing, and at most REVIEW_READS_PER_DAY are made a day. "Pronounced as" confirmations are
-audit_log rows (action pronunciation_checked, the text in diff), so no table was added for them.
+The score is the pill editor's completeness score (routes/admin/field_schema.compute_completeness). Flags go
+through /api/admin/pills/{id}/review-flags and a typed "used for" through /api/admin/pills/{id}/indication, as in
+the pill editor. Publishing runs the editor's own "Save & publish" (routes/admin/pills.update_pill), so meta text,
+IndexNow and the Drafts list behave exactly the same; the grid publishes its selection pill by pill through it.
+"Pronounced as" confirmations are audit_log rows (action pronunciation_checked, the text in diff), so no table
+was added for them.
 """
 from __future__ import annotations
 
 import json
 import logging
 import re
-import threading
 import uuid
-from collections import OrderedDict
-from datetime import date
 from typing import Optional
 
-import requests
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 import database
 from routes.admin import pills as admin_pills
 from routes.admin.auth import log_audit, require_role
-from routes.admin.field_schema import validate_pill
-from routes.identify_feedback import _bounded_jpeg
-from routes.site_settings import read_flags
-from services import ai_reader
-from services.draft_checks import compare_imprint, pronunciation_problem
+from routes.admin.field_schema import compute_completeness, validate_pill
+from services.draft_checks import pronunciation_problem
 from services.drug_indications import fetch_indications_from_openfda, truncate_indication, upsert_from_medlineplus
-from services.drug_pronunciation import get_pronunciation, get_pronunciation_lookup_keys
+from services.drug_pronunciation import get_pronunciation_lookup_keys, pill_pronunciation_key, pill_pronunciations
 from services.medlineplus import fetch_by_rxcui
 from utils import IMAGE_BASE, split_image_filenames
 
@@ -54,10 +46,7 @@ router = APIRouter(prefix="/api/admin/draft-review", tags=["admin-draft-review"]
 REVIEWERS = ("superuser", "editor", "reviewer")
 # Publishing is approving, as on the Drafts list (approve_drafts in the admin's permission matrix).
 PUBLISHERS = ("superuser", "editor")
-# The whole queue read twice over is about 1,200 reads (~$2.40); this caps a runaway loop, not normal use.
-REVIEW_READS_PER_DAY = 1500
-READ_CACHE_MAX = 3000
-PHOTO_TIMEOUT_S = 15
+CARDS_MAX = 50
 LABEL_TEXT_LIMIT = 600
 LABEL_NAMES_TRIED = 2
 
@@ -67,10 +56,6 @@ _PILL_FIELDS = (
     "image_filename",
 )
 _LABEL_HEADING = re.compile(r"^\s*(?:\d+(?:\.\d+)?\s*)?indications?\s*(?:and|&)\s*usage\s*", re.IGNORECASE)
-
-_lock = threading.Lock()
-_reads: OrderedDict[tuple[str, str, str], dict] = OrderedDict()
-_spent: dict[date, int] = {}
 
 
 def _db():
@@ -83,70 +68,18 @@ def _iso(value) -> Optional[str]:
     return value.isoformat() if value is not None and hasattr(value, "isoformat") else value
 
 
-def _photo_names(image_filename) -> list[str]:
-    return split_image_filenames(image_filename or "")
+def _photos(image_filename) -> list[str]:
+    return [f"{IMAGE_BASE}/{name}" for name in split_image_filenames(image_filename or "")]
 
 
-# ---- photo reads: remembered per pill + photo + model, and capped per day ---------------------------------------
-
-def _remembered(key: tuple[str, str, str]) -> Optional[dict]:
-    with _lock:
-        found = _reads.get(key)
-        if found is not None:
-            _reads.move_to_end(key)
-        return found
-
-
-def _remember(key: tuple[str, str, str], value: dict) -> None:
-    with _lock:
-        _reads[key] = value
-        _reads.move_to_end(key)
-        while len(_reads) > READ_CACHE_MAX:
-            _reads.popitem(last=False)
-
-
-def _spend_one() -> bool:
-    """Count one paid read against today's allowance; False when it is used up."""
-    today = date.today()
-    with _lock:
-        for day in [d for d in _spent if d != today]:
-            del _spent[day]
-        if _spent.get(today, 0) >= REVIEW_READS_PER_DAY:
-            return False
-        _spent[today] = _spent.get(today, 0) + 1
-        return True
-
-
-def _read_key(pill_id: str, image_filename) -> Optional[tuple[str, str, str]]:
-    names = _photo_names(image_filename)
-    if not names:
-        return None
-    model = read_flags().get("ai_reader_model") or ai_reader.DEFAULT_MODEL
-    return (pill_id, names[0], model)
-
-
-def _photo_read(read: dict, imprint) -> dict:
-    return {**compare_imprint(imprint or "", read["side_reads"]), "confidence": read["confidence"], "model": read["model"]}
-
-
-def _photo_jpeg(name: str) -> bytes:
-    """The pill's photo as a JPEG the model accepts (drafts are mostly AVIF, which it does not)."""
-    try:
-        r = requests.get(
-            f"{IMAGE_BASE}/{name}", timeout=PHOTO_TIMEOUT_S, headers={"User-Agent": "PillSeek/1.0 (+https://pillseek.com)"}
-        )
-        r.raise_for_status()
-        jpeg = _bounded_jpeg(r.content)
-    except Exception as e:
-        logger.warning("draft review: cannot fetch photo %s: %s", name, e)
-        jpeg = None
-    if not jpeg:
-        from PIL import features
-
-        if name.lower().endswith(".avif") and not features.check("avif"):
-            raise HTTPException(status_code=503, detail="This server cannot read AVIF photos: it needs pillow 11.3 or newer")
-        raise HTTPException(status_code=502, detail="Could not load this pill's photo")
-    return jpeg
+def _pill(conn, pill_id: uuid.UUID, columns: str):
+    row = conn.execute(
+        text(f"SELECT {columns} FROM pillfinder WHERE id = CAST(:id AS uuid) AND deleted_at IS NULL LIMIT 1"),
+        {"id": str(pill_id)},
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Pill not found")
+    return row
 
 
 # ---- "used for" and "pronounced as" -----------------------------------------------------------------------------
@@ -163,34 +96,62 @@ def _indication(conn, rxcui) -> Optional[dict]:
     return {"text": row[0], "source": row[1], "source_url": row[2]}
 
 
-def _last_check(conn, key: str) -> Optional[tuple]:
-    return conn.execute(
+def _with_used_for(conn, rxcuis) -> set[str]:
+    """The RxCUIs among these that have a "used for" text."""
+    wanted = sorted({str(r) for r in rxcuis if r})
+    if not wanted:
+        return set()
+    rows = conn.execute(
+        text("SELECT rxcui FROM drug_indications WHERE rxcui = ANY(:rxcuis) AND btrim(coalesce(plain_text, '')) <> ''"),
+        {"rxcuis": wanted},
+    ).fetchall()
+    return {str(r[0]) for r in rows}
+
+
+def _last_checks(conn, keys) -> dict[str, tuple]:
+    """The latest confirmation of each of these names: (by, at, the text confirmed)."""
+    wanted = sorted({k for k in keys if k})
+    if not wanted:
+        return {}
+    rows = conn.execute(
         text(
-            "SELECT actor_email, occurred_at, diff->>'pronunciation_text' FROM audit_log "
-            "WHERE entity_type = 'drug_pronunciation' AND entity_id = :key AND action = 'pronunciation_checked' "
-            "ORDER BY occurred_at DESC LIMIT 1"
+            "SELECT DISTINCT ON (entity_id) entity_id, actor_email, occurred_at, diff->>'pronunciation_text' "
+            "FROM audit_log WHERE entity_type = 'drug_pronunciation' AND action = 'pronunciation_checked' "
+            "AND entity_id = ANY(:keys) ORDER BY entity_id, occurred_at DESC"
         ),
-        {"key": key},
-    ).fetchone()
+        {"keys": wanted},
+    ).fetchall()
+    return {row[0]: (row[1], row[2], row[3]) for row in rows}
+
+
+def _pronunciations(conn, pills: list[tuple]) -> list[dict]:
+    """For each (medicine_name, rxcui): what "pronounced as" the pill shows, the name it is kept under (a brand
+    pill's own, else the generic), whether it sounds like that name, and who last confirmed this exact text there."""
+    resolved = pill_pronunciations(conn, pills)
+    checks = _last_checks(conn, [r["key"] for r in resolved])
+    out = []
+    for (medicine_name, _), r in zip(pills, resolved):
+        key, found = r["key"], r["found"] or {}
+        said = found.get("pronunciation_text")
+        shown_from = found.get("drug_name_matched")
+        checked = checks.get(key) if key and said and shown_from == key else None
+        confirmed = bool(checked and (checked[2] or "").strip() == said)
+        out.append({
+            "text": said,
+            "source": found.get("source"),
+            "key": key,
+            # when not the key, the text is another name's (a brand pill without its own shows the generic's)
+            "shown_from": shown_from,
+            "audio_url": found.get("audio_url"),
+            "problem": pronunciation_problem(key or medicine_name, said),
+            "checked_by": checked[0] if confirmed else None,
+            "checked_at": _iso(checked[1]) if confirmed else None,
+        })
+    return out
 
 
 def _pronunciation(conn, medicine_name, rxcui) -> dict:
-    """What "pronounced as" the editor shows for this pill, where it came from, whether it sounds like the name
-    it is saved under, and who last confirmed this exact text."""
-    found = get_pronunciation(conn, medicine_name, rxcui=rxcui, include_meta=True) or {}
-    said = found.get("pronunciation_text")
-    key = found.get("drug_name_matched")
-    checked = _last_check(conn, key) if key and said else None
-    confirmed = bool(checked and (checked[2] or "").strip() == said)
-    return {
-        "text": said,
-        "source": found.get("source"),
-        "key": key,
-        "audio_url": found.get("audio_url"),
-        "problem": pronunciation_problem(key or medicine_name, said),
-        "checked_by": checked[0] if confirmed else None,
-        "checked_at": _iso(checked[1]) if confirmed else None,
-    }
+    return _pronunciations(conn, [(medicine_name, rxcui)])[0]
 
 
 def _record_check(conn, admin: dict, key: str, said: str, request: Request) -> None:
@@ -212,39 +173,61 @@ def _record_check(conn, admin: dict, key: str, said: str, request: Request) -> N
     )
 
 
-def _pill(conn, pill_id: uuid.UUID, columns: str):
-    row = conn.execute(
-        text(f"SELECT {columns} FROM pillfinder WHERE id = CAST(:id AS uuid) AND deleted_at IS NULL LIMIT 1"),
-        {"id": str(pill_id)},
-    ).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Pill not found")
-    return row
-
-
 # ---- endpoints ----------------------------------------------------------------------------------------------------
 
 @router.get("/queue")
 def review_queue(admin: dict = Depends(require_role(*REVIEWERS))):
-    """Every unpublished pill in review order. Pills of one drug come together: they share "used for" and
-    "pronounced as", so those are checked once."""
+    """Every unpublished pill in review order, with the editor's completeness score and whether it has a "used
+    for" text. Pills of one drug come together: they share "used for" and "pronounced as"."""
     with _db().connect() as conn:
         rows = conn.execute(
             text(
-                "SELECT p.id::text, p.medicine_name, p.spl_strength, p.splimprint, f.missing, f.flagged_at "
+                "SELECT p.*, f.missing AS flag_missing, f.flagged_at AS flag_at "
                 "FROM pillfinder p LEFT JOIN pill_review_flags f ON f.pill_id = p.id "
                 "WHERE p.published = false AND p.deleted_at IS NULL "
                 "ORDER BY lower(coalesce(p.medicine_name, '')), p.spl_strength NULLS LAST, p.splimprint NULLS LAST, p.id"
             )
-        ).fetchall()
+        ).mappings().fetchall()
+        used_for = _with_used_for(conn, [r["rxcui"] for r in rows])
     items = [
         {
-            "id": r[0], "medicine_name": r[1], "strength": r[2], "imprint": r[3],
-            "flagged": r[5] is not None, "missing": list(r[4] or []),
+            "id": str(r["id"]), "medicine_name": r["medicine_name"], "strength": r["spl_strength"],
+            "imprint": r["splimprint"], "flagged": r["flag_at"] is not None, "missing": list(r["flag_missing"] or []),
+            "score": compute_completeness(dict(r))["score"], "used_for": str(r["rxcui"] or "") in used_for,
         }  # fmt: skip
         for r in rows
     ]
     return {"items": items, "total": len(items)}
+
+
+@router.get("/cards")
+def review_cards(
+    ids: str = Query(..., description="comma-separated pill ids"), admin: dict = Depends(require_role(*REVIEWERS))
+):
+    """Up to CARDS_MAX pills for the grid: photo, imprint, score, "used for" and "pronounced as"."""
+    try:
+        wanted = [str(uuid.UUID(part.strip())) for part in ids.split(",") if part.strip()]
+    except ValueError:
+        raise HTTPException(status_code=422, detail="ids must be pill ids")
+    if len(wanted) > CARDS_MAX:
+        raise HTTPException(status_code=422, detail=f"At most {CARDS_MAX} pills at a time")
+    cards: dict[str, dict] = {}
+    with _db().connect() as conn:
+        rows = conn.execute(
+            text("SELECT * FROM pillfinder WHERE id = ANY(CAST(:ids AS uuid[])) AND deleted_at IS NULL"),
+            {"ids": wanted},
+        ).mappings().fetchall()
+        used_for = _with_used_for(conn, [r["rxcui"] for r in rows])
+        said = _pronunciations(conn, [(r["medicine_name"], r["rxcui"]) for r in rows])
+        for r, pronunciation in zip(rows, said):
+            cards[str(r["id"])] = {
+                "id": str(r["id"]), "medicine_name": r["medicine_name"], "strength": r["spl_strength"],
+                "imprint": r["splimprint"], "color": r["splcolor_text"], "shape": r["splshape_text"],
+                "size": r["splsize"], "rxcui": r["rxcui"], "photo": next(iter(_photos(r["image_filename"])), None),
+                "score": compute_completeness(dict(r))["score"], "used_for": str(r["rxcui"] or "") in used_for,
+                "pronunciation": pronunciation, "published": bool(r["published"]), "updated_at": _iso(r["updated_at"]),
+            }  # fmt: skip
+    return {"cards": [cards[i] for i in wanted if i in cards]}
 
 
 @router.get("/{pill_id}")
@@ -258,8 +241,6 @@ def review_item(pill_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWER
             text("SELECT missing, note, flagged_by, flagged_at FROM pill_review_flags WHERE pill_id = CAST(:id AS uuid)"),
             {"id": str(pill_id)},
         ).fetchone()
-    key = _read_key(str(pill_id), pill.get("image_filename"))
-    read = _remembered(key) if key else None
     return {
         "pill": {
             "id": str(pill_id),
@@ -267,7 +248,8 @@ def review_item(pill_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWER
             "published": bool(pill.get("published")),
             "updated_at": _iso(pill.get("updated_at")),
         },
-        "photos": [f"{IMAGE_BASE}/{name}" for name in _photo_names(pill.get("image_filename"))],
+        "photos": _photos(pill.get("image_filename")),
+        "score": compute_completeness(pill)["score"],
         # what the editor's "Save & publish" would warn about
         "warnings": validate_pill(pill, strict=True),
         "indication": indication,
@@ -277,30 +259,7 @@ def review_item(pill_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWER
             if flags
             else None
         ),
-        "photo_read": _photo_read(read, pill.get("splimprint")) if read else None,
     }
-
-
-@router.post("/{pill_id}/read-photo")
-def read_photo(pill_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWERS))):
-    """Have the AI reader read the pill's first photo and compare it with the imprint typed for it."""
-    with _db().connect() as conn:
-        imprint, image_filename = _pill(conn, pill_id, "splimprint, image_filename")
-    key = _read_key(str(pill_id), image_filename)
-    if key is None:
-        raise HTTPException(status_code=409, detail="This pill has no photo")
-    read = _remembered(key)
-    if read is None:
-        if not ai_reader.api_key():
-            raise HTTPException(status_code=503, detail="The AI reader is off on this server (no GEMINI_API_KEY)")
-        if not _spend_one():
-            raise HTTPException(status_code=429, detail=f"Today's {REVIEW_READS_PER_DAY} photo reads are used up")
-        result = ai_reader.read_catalog_photo(_photo_jpeg(key[1]), key[2])
-        if result is None:
-            raise HTTPException(status_code=502, detail="The AI reader did not answer; try again")
-        read = {"side_reads": result["side_reads"], "confidence": result["confidence"], "model": key[2]}
-        _remember(key, read)
-    return _photo_read(read, imprint)
 
 
 @router.post("/{pill_id}/indication/medlineplus")
@@ -356,21 +315,23 @@ class PronunciationReview(BaseModel):
 def review_pronunciation(
     request: Request, pill_id: uuid.UUID, body: PronunciationReview, admin: dict = Depends(require_role(*REVIEWERS))
 ):
-    """The text shown is right (confirm), or here is the right one (fix). Either way it is marked checked, and
-    the next pill of the same drug shows it as checked."""
+    """This "pronounced as" is right for the pill: confirm it, or save a fix. Either way it is kept under the
+    pill's own name (pill_pronunciation_key: a brand pill's own, else the generic) and marked checked, so the
+    next pill of it shows it checked."""
     said = body.pronunciation_text.strip()
     if not said:
         raise HTTPException(status_code=422, detail="Pronunciation is empty")
     with _db().begin() as conn:
         medicine_name, rxcui = _pill(conn, pill_id, "medicine_name, rxcui")
-        current = get_pronunciation(conn, medicine_name, rxcui=rxcui, include_meta=True) or {}
-        changed = not (current.get("drug_name_matched") and current.get("pronunciation_text") == said)
+        key = pill_pronunciation_key(conn, medicine_name, rxcui=rxcui)
+        if not key:
+            raise HTTPException(status_code=400, detail="This pill has no drug name to save a pronunciation under")
+        row = conn.execute(
+            text("SELECT pronunciation_text FROM drug_pronunciations WHERE drug_name_lower = :key"), {"key": key}
+        ).fetchone()
+        before = (row[0] or "").strip() if row else None
+        changed = before != said
         if changed:
-            # saved where the editor's "Pronunciation" box saves it: the pill's first lookup key
-            keys = get_pronunciation_lookup_keys(conn, medicine_name, rxcui=rxcui)
-            if not keys:
-                raise HTTPException(status_code=400, detail="This pill has no drug name to save a pronunciation under")
-            key = keys[0]
             own_name = (medicine_name or "").strip()
             conn.execute(
                 text(
@@ -388,13 +349,12 @@ def review_pronunciation(
                 action="update_pronunciation",
                 entity_type="drug_pronunciation",
                 entity_id=key,
-                diff={"before": current.get("pronunciation_text"), "after": said},
+                diff={"before": before, "after": said},
                 metadata={"via": "draft_review"},
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get("user-agent"),
             )
         else:
-            key = current["drug_name_matched"]
             conn.execute(
                 text("UPDATE drug_pronunciations SET needs_review = false WHERE drug_name_lower = :key"), {"key": key}
             )

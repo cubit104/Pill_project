@@ -2,21 +2,24 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  isReady,
   nextIndex,
-  photoCheck,
   pronunciationCheck,
   publishBlockers,
   publishWarnings,
+  READY_SCORE,
   reviewKey,
+  scoreCheck,
   suggestedFlags,
-  type PhotoRead,
+  tickBlocker,
   type Pronunciation,
   type QueueItem,
   type ReviewItem,
 } from '../draftReview'
 
 const said = (over: Partial<Pronunciation> = {}): Pronunciation => ({
-  text: 'lye-SIN-oh-pril', source: 'manual', key: 'lisinopril', audio_url: null, problem: null, checked_by: null, checked_at: null, ...over,
+  text: 'lye-SIN-oh-pril', source: 'manual', key: 'lisinopril', shown_from: 'lisinopril', audio_url: null, problem: null,
+  checked_by: null, checked_at: null, ...over,
 })
 
 const item = (over: Partial<ReviewItem> = {}, pill: Partial<ReviewItem['pill']> = {}): ReviewItem => ({
@@ -27,50 +30,61 @@ const item = (over: Partial<ReviewItem> = {}, pill: Partial<ReviewItem['pill']> 
     updated_at: '2026-09-25T09:00:00+00:00', ...pill,
   },
   photos: ['https://img/p1/a.avif'],
+  score: 92,
   warnings: [],
   indication: { text: 'Lisinopril is used to treat high blood pressure.', source: 'medlineplus', source_url: null },
   pronunciation: said(),
   flags: null,
-  photo_read: null,
   ...over,
 })
 
-const read = (verdict: PhotoRead['verdict'], text = 'M L / 10'): PhotoRead => ({ verdict, read: text, confidence: 'high', model: 'm' })
+const q = (id: string, over: Partial<QueueItem> = {}): QueueItem => ({
+  id, medicine_name: id, strength: null, imprint: null, flagged: false, missing: [], score: 92, used_for: true, ...over,
+})
 
-test('the photo check says what the photo reads against what was typed', () => {
-  assert.deepEqual(photoCheck(read('match'), 'M L 10'), { tone: 'ok', text: 'Photo reads M L / 10' })
-  assert.equal(photoCheck(read('mismatch', 'L484'), 'M L 10').tone, 'bad')
-  assert.match(photoCheck(read('mismatch', 'L484'), 'M L 10').text, /L484, not M L 10/)
-  assert.equal(photoCheck(read('partial', '10'), 'M L 10').tone, 'warn')
-  assert.equal(photoCheck(read('unreadable', ''), 'M L 10').tone, 'warn')
-  assert.equal(photoCheck(null, 'M L 10').tone, 'none')
+test('the editor score is green from the score drafts are published at', () => {
+  assert.equal(READY_SCORE, 92)
+  assert.deepEqual(scoreCheck(92), { tone: 'ok', text: '92%' })
+  assert.equal(scoreCheck(88).tone, 'warn')
 })
 
 test('pronounced as: checked beats everything, a wrong-sounding one is red, a missing one never blocks', () => {
   assert.equal(pronunciationCheck(said({ checked_by: 'owner@test.com', problem: 'other_name' })).tone, 'ok')
   assert.match(pronunciationCheck(said({ text: 'ZES-tril', problem: 'other_name' })).text, /does not sound like "lisinopril"/i)
+  // a brand pill without its own shows the generic's, and says so
+  const brand = pronunciationCheck(said({ key: 'zestril', shown_from: 'lisinopril', problem: 'other_name' }))
+  assert.equal(brand.tone, 'bad')
+  assert.match(brand.text, /this is lisinopril's, zestril has none of its own/)
   assert.equal(pronunciationCheck(said({ source: 'medlineplus' })).tone, 'ok')
   assert.equal(pronunciationCheck(said()).tone, 'warn') // typed by the team, not checked yet
   assert.deepEqual(pronunciationCheck(said({ text: null, problem: 'missing' })), { tone: 'warn', text: 'No pronunciation saved' })
   assert.deepEqual(publishBlockers(item({ pronunciation: said({ text: null, problem: 'missing' }) })), [])
 })
 
-test('an empty "used for" blocks publishing; a doubtful photo only asks for a second press', () => {
+test('an empty "used for" blocks publishing; a pill without a photo asks for a second press', () => {
   assert.deepEqual(publishBlockers(item()), [])
   assert.deepEqual(publishBlockers(item({ indication: null })), ['"What it\'s used for" is empty'])
   assert.match(publishBlockers(item({ indication: null }, { rxcui: null }))[0], /No RxCUI/)
   assert.deepEqual(publishBlockers(item({}, { published: true })), ['Already published'])
-  assert.deepEqual(publishWarnings(item(), read('match')), [])
-  assert.equal(publishWarnings(item(), read('mismatch', 'L484')).length, 1)
-  assert.deepEqual(publishWarnings(item(), null), ['The photo has not been read'])
-  assert.deepEqual(publishWarnings(item({ photos: [] }), null), ['This pill has no photo'])
+  assert.deepEqual(publishWarnings(item()), [])
+  assert.deepEqual(publishWarnings(item({ photos: [] })), ['This pill has no photo'])
 })
 
-test('F comes pre-ticked from what the checks found, keeping what the team was already told', () => {
-  assert.deepEqual(suggestedFlags(item(), read('match')), [])
-  assert.deepEqual(suggestedFlags(item(), read('mismatch', 'L484')), ['images', 'imprint'])
-  assert.deepEqual(suggestedFlags(item({ indication: null }), read('partial', '10')), ['meds_use', 'imprint'])
-  assert.deepEqual(suggestedFlags(item({ photos: [], flags: { missing: ['other'], note: null, flagged_by: null, flagged_at: null } }), null), ['images', 'other'])
+test('F comes pre-ticked with a missing photo or "used for", keeping what the team was already told', () => {
+  assert.deepEqual(suggestedFlags(item()), [])
+  assert.deepEqual(suggestedFlags(item({ indication: null })), ['meds_use'])
+  assert.deepEqual(suggestedFlags(item({ photos: [], flags: { missing: ['other'], note: null, flagged_by: null, flagged_at: null } })), ['images', 'other'])
+})
+
+test('grid: ready means the usual score, "used for" filled and not flagged; only those with "used for" can be ticked', () => {
+  assert.equal(isReady(q('a')), true)
+  assert.equal(isReady(q('a', { score: 91 })), false)
+  assert.equal(isReady(q('a', { used_for: false })), false)
+  assert.equal(isReady(q('a', { flagged: true })), false)
+  assert.equal(tickBlocker({ published: false, rxcui: '1', used_for: true }), null)
+  assert.equal(tickBlocker({ published: false, rxcui: '1', used_for: false }), '"What it\'s used for" is empty')
+  assert.match(tickBlocker({ published: false, rxcui: null, used_for: false }) ?? '', /No RxCUI/)
+  assert.equal(tickBlocker({ published: true, rxcui: '1', used_for: true }), 'Already published')
 })
 
 test('the keys work anywhere but in a text box, and never with Ctrl held', () => {
@@ -87,8 +101,7 @@ test('the keys work anywhere but in a text box, and never with Ctrl held', () =>
 })
 
 test('moving through the queue skips what is done and, when asked, what was flagged back', () => {
-  const q = (id: string, flagged = false): QueueItem => ({ id, medicine_name: id, strength: null, imprint: null, flagged, missing: [] })
-  const queue = [q('a'), q('b', true), q('c'), q('d')]
+  const queue = [q('a'), q('b', { flagged: true }), q('c'), q('d')]
   assert.equal(nextIndex(queue, -1, 1, true, new Set()), 0)
   assert.equal(nextIndex(queue, 0, 1, true, new Set()), 2) // b is flagged
   assert.equal(nextIndex(queue, 0, 1, false, new Set()), 1)

@@ -53,19 +53,6 @@ PROMPT = (
     "Reply with JSON only: {\"side1\":\"...\",\"side2\":\"...\",\"confidence\":\"high|medium|low\"}"
 )
 
-# Admin -> Drafts -> Review: the catalogue photo a draft pill will be published with (one image; one face,
-# both faces side by side, or a capsule), read to check it shows the imprint typed for the pill.
-CATALOG_PROMPT = (
-    "You are a pill imprint reader. The image is a product photo of ONE kind of pill: one face, both faces side "
-    "by side, or a capsule. Transcribe the imprint (embossed, debossed or printed letters, numbers, symbols) "
-    "exactly as marked, uppercase, tokens separated by single spaces (for example \"C 73\", \"93 318\", \"S10\"). "
-    "side1 is the first face shown (left or top), side2 the other face when the photo shows two; a capsule's "
-    "printing all goes in side1. If a face is blank, only a score line, a logo without letters, or unreadable, "
-    "use an empty string. Do NOT name the drug and do not use knowledge of common pills to correct what you see; "
-    "report only what is visible. "
-    "Reply with JSON only: {\"side1\":\"...\",\"side2\":\"...\",\"confidence\":\"high|medium|low\"}"
-)
-
 _TOKEN_OK = re.compile(r"[^A-Z0-9./&+\-]")
 
 
@@ -138,28 +125,15 @@ def calls_last_day() -> int:
 def read(photos: list[bytes], model: str, daily_cap: int) -> Optional[dict]:
     """Ask the second reader. Returns parse_reply()'s dict, or None when it is off-limits
     (no key, cap reached) or the call failed. Never raises: identification must not break."""
-    if not api_key() or not photos:
+    key = api_key()
+    if not key or not photos:
         return None
+    if model not in MODELS:
+        model = DEFAULT_MODEL
     if calls_last_day() >= max(0, daily_cap):
         logger.warning("second reader: daily cap of %s reached, not calling", daily_cap)
         return None
-    return _ask(PROMPT, photos, model)
-
-
-def read_catalog_photo(photo: bytes, model: str) -> Optional[dict]:
-    """Read the imprint on a draft pill's catalogue photo (JPEG bytes). Same reply as read(). No daily cap
-    here: the review screen (routes/admin/draft_review.py) keeps its own. Never raises."""
-    if not api_key() or not photo:
-        return None
-    return _ask(CATALOG_PROMPT, [photo], model)
-
-
-def _ask(prompt: str, photos: list[bytes], model: str) -> Optional[dict]:
-    """One call to the model with the prompt and up to two JPEG photos; parse_reply()'s dict, or None."""
-    key = api_key()
-    if model not in MODELS:
-        model = DEFAULT_MODEL
-    parts: list[dict] = [{"text": prompt}]
+    parts: list[dict] = [{"text": PROMPT}]
     for raw in photos[:2]:
         parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(raw).decode()}})
     body = {

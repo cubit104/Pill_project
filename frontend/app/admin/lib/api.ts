@@ -137,7 +137,7 @@ export const adminApi = {
   // Drafts -> Review one by one (routes/admin/draft_review.py)
   getReviewQueue: () => apiFetch('/api/admin/draft-review/queue'),
   getReviewItem: (id: string) => apiFetch(`/api/admin/draft-review/${id}`),
-  readReviewPhoto: (id: string) => apiFetch(`/api/admin/draft-review/${id}/read-photo`, { method: 'POST' }),
+  getReviewCards: (ids: string[]) => apiFetch(`/api/admin/draft-review/cards?ids=${ids.map(encodeURIComponent).join(',')}`),
   publishReviewed: (id: string, updatedAt: string | null) =>
     apiFetch(`/api/admin/draft-review/${id}/publish`, { method: 'POST', body: JSON.stringify({ updated_at: updatedAt }) }),
   indicationFromMedlinePlus: (id: string) =>
