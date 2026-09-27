@@ -17,6 +17,9 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
+from log_redaction import install_secret_redaction  # noqa: E402
+
+install_secret_redaction()
 logger = logging.getLogger(__name__)
 
 # Current directory
