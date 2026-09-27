@@ -98,9 +98,10 @@ function shrinkForUpload(file: File): Promise<File> {
   })
 }
 
-// Image files from a drag-and-drop. HEIC often arrives with no type on Windows, so then the name decides.
+// Image files from a drag-and-drop; a file with no type (Windows) is judged by its name. Not HEIC by name:
+// Chrome cannot decode it for shrinkForUpload, and the server has no HEIF reader.
 function droppedImages(files: FileList): File[] {
-  return Array.from(files).filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(f.name))
+  return Array.from(files).filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name))
 }
 
 // ---- Component -------------------------------------------------------------
@@ -284,7 +285,7 @@ export default function IdentifyClient() {
     if (matching) return
     const [first, second] = droppedImages(e.dataTransfer.files)
     if (!first) {
-      setError('Drop a photo file (JPG, PNG or HEIC) from your computer.')
+      setError('Drop a photo file (JPG or PNG) from your computer.')
       return
     }
     void handlePhoto(side, first)
