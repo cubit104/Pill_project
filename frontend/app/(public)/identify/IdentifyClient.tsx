@@ -98,6 +98,11 @@ function shrinkForUpload(file: File): Promise<File> {
   })
 }
 
+// Image files from a drag-and-drop. HEIC often arrives with no type on Windows, so then the name decides.
+function droppedImages(files: FileList): File[] {
+  return Array.from(files).filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(f.name))
+}
+
 // ---- Component -------------------------------------------------------------
 
 export default function IdentifyClient() {
@@ -120,9 +125,24 @@ export default function IdentifyClient() {
   const [camera, setCamera] = useState<SideKey | null>(null)
   const [cameraSupported, setCameraSupported] = useState(true)
   const [cameraNote, setCameraNote] = useState<string | null>(null)
+  // The side a photo is being dragged over (desktop): its tile lights up.
+  const [dragSide, setDragSide] = useState<SideKey | null>(null)
   const nextSideTimer = useRef<number | null>(null)
   useEffect(() => () => {
     if (nextSideTimer.current) window.clearTimeout(nextSideTimer.current)
+  }, [])
+
+  // A photo dropped beside the tiles would make the browser open it and leave the page.
+  useEffect(() => {
+    const keepPage = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault()
+    }
+    window.addEventListener('dragover', keepPage)
+    window.addEventListener('drop', keepPage)
+    return () => {
+      window.removeEventListener('dragover', keepPage)
+      window.removeEventListener('drop', keepPage)
+    }
   }, [])
   const [feedbackSent, setFeedbackSent] = useState<'up' | 'down' | null>(null)
 
@@ -257,6 +277,22 @@ export default function IdentifyClient() {
     }
   }
 
+  // A photo dragged from the desktop onto a side goes the same way as "upload a photo".
+  const onDropPhotos = (side: SideKey, e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    setDragSide(null)
+    if (matching) return
+    const [first, second] = droppedImages(e.dataTransfer.files)
+    if (!first) {
+      setError('Drop a photo file (JPG, PNG or HEIC) from your computer.')
+      return
+    }
+    void handlePhoto(side, first)
+    // Two photos dropped together: the second is the other side, when that side is still empty.
+    const other: SideKey = side === 'front' ? 'back' : 'front'
+    if (second && !photoFilesRef.current[other] && !previewsRef.current[other]) void handlePhoto(other, second)
+  }
+
   const openCamera = (side: SideKey) => {
     if (typeof window !== 'undefined' && !window.isSecureContext) {
       setCameraSupported(false)
@@ -374,13 +410,30 @@ export default function IdentifyClient() {
               </div>
               <p className="mt-3 font-medium text-slate-700">{side === 'front' ? 'Side 1' : 'Side 2 (flip it)'}</p>
               <p className="text-xs text-slate-500">Tap to use your camera</p>
+              <p className="hidden text-xs text-slate-500 [@media(pointer:fine)]:block">or drop a photo here</p>
             </div>
           )
           const tileClass = `relative w-full border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-colors ${
-            previews[side] ? 'border-emerald-400 bg-emerald-50/40' : 'border-emerald-300 hover:bg-emerald-50'
+            dragSide === side
+              ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-300'
+              : previews[side]
+                ? 'border-emerald-400 bg-emerald-50/40'
+                : 'border-emerald-300 hover:bg-emerald-50'
           }`
           return (
-            <div key={side}>
+            <div
+              key={side}
+              onDragOver={(e) => {
+                if (matching || !e.dataTransfer.types.includes('Files')) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'copy'
+                if (dragSide !== side) setDragSide(side)
+              }}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragSide(null)
+              }}
+              onDrop={(e) => onDropPhotos(side, e)}
+            >
               {cameraSupported ? (
                 <button type="button" className={tileClass} disabled={matching} onClick={() => openCamera(side)}>
                   {tile}
