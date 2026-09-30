@@ -38,6 +38,7 @@ from routes.admin.iv_drugs import EDITORS, REVIEWERS, _actor, _engine, _get, _ro
 from routes.admin.pills import _sanitize
 from services import iv_card
 from services.iv_drugs_import import USER_AGENT, _resolve_ingredient, ingredient_identity, slugify
+from services.guide_runner import GuideBusyError, run_guide_build
 from services.medication_guide import GuideInternalError, GuideNotFoundError, GuideValidationError, build_guide
 from services.openfda_client import OpenFDAUpstreamError
 
@@ -276,12 +277,19 @@ def label_status(drug_id: uuid.UUID, admin: dict = Depends(require_role(*REVIEWE
 
 
 @router.post("/drugs/{drug_id}/label/refetch")
-async def refetch_label(drug_id: uuid.UUID, admin: dict = Depends(require_role(*EDITORS))):
-    """Download the label again from DailyMed into the shared cache (the same call the pill tool makes)."""
+def refetch_label(drug_id: uuid.UUID, admin: dict = Depends(require_role(*EDITORS))):
+    """Download the label again from DailyMed into the shared cache (the same call the pill tool makes).
+
+    The build blocks (database, DailyMed), so it runs on a worker thread (services.guide_runner).
+    """
     with _engine().connect() as conn:
         setid = _get(conn, drug_id)._mapping["spl_set_id"]
     try:
-        await build_guide(spl_set_id=setid, force_refresh=True, include_professional=True, include_medguide=True, include_boxed_warning=True)
+        run_guide_build(lambda: build_guide(
+            spl_set_id=setid, force_refresh=True, include_professional=True, include_medguide=True, include_boxed_warning=True
+        ))
+    except GuideBusyError as exc:
+        raise HTTPException(status_code=503, detail="Busy loading FDA labels; try again in a moment.") from exc
     except (GuideNotFoundError, GuideValidationError) as exc:
         raise HTTPException(status_code=404, detail="DailyMed has no content for this label.") from exc
     except OpenFDAUpstreamError as exc:

@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import database
+from services.guide_runner import GuideBusyError, busy_response, run_guide_build
 from services.medication_guide import (
     GuideInternalError,
     GuideNotFoundError,
@@ -1013,8 +1014,11 @@ async def _resolve_dosage_guide_data(pill_info: Dict[str, Any]) -> Dict[str, Any
 
 
 @router.get("/api/pill/{slug}/dosage")
-async def get_pill_dosage_by_slug(slug: str):
-    """Get dosage content for a pill slug using medication_guide resolver parity."""
+def get_pill_dosage_by_slug(slug: str):
+    """Get dosage content for a pill slug using medication_guide resolver parity.
+
+    A plain `def` route: the label build blocks, so it runs on a worker thread (services.guide_runner).
+    """
     if not database.db_engine:
         if not database.connect_to_database():
             raise HTTPException(status_code=500, detail="Database connection not available")
@@ -1072,7 +1076,7 @@ async def get_pill_dosage_by_slug(slug: str):
             pill_columns = pill_result.keys()
             pill_info = dict(zip(pill_columns, pill_row))
 
-        guide_data = await _resolve_dosage_guide_data(pill_info)
+        guide_data = run_guide_build(lambda: _resolve_dosage_guide_data(pill_info))
         dosage_value = guide_data.get("dosage_administration") or guide_data.get("dosage")
         dosage_administration = dosage_value.strip() if isinstance(dosage_value, str) else dosage_value
         if isinstance(dosage_administration, str) and not dosage_administration:
@@ -1097,6 +1101,8 @@ async def get_pill_dosage_by_slug(slug: str):
             "source_url": guide_data.get("source_url"),
             "fetched_at": _to_iso(guide_data.get("fetched_at")),
         }, headers={"Cache-Control": CACHE_CONTROL_HEADER})
+    except GuideBusyError:
+        return busy_response()
     except GuideNotFoundError:
         return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
     except OpenFDAUpstreamError:
@@ -1115,8 +1121,11 @@ async def get_pill_dosage_by_slug(slug: str):
 
 
 @router.get("/api/pill/{slug}/adverse-reactions")
-async def get_pill_adverse_reactions_by_slug(slug: str):
-    """Get adverse reactions content for a pill slug using medication_guide resolver parity."""
+def get_pill_adverse_reactions_by_slug(slug: str):
+    """Get adverse reactions content for a pill slug using medication_guide resolver parity.
+
+    A plain `def` route: the label build blocks, so it runs on a worker thread (services.guide_runner).
+    """
     if not database.db_engine:
         if not database.connect_to_database():
             raise HTTPException(status_code=500, detail="Database connection not available")
@@ -1168,7 +1177,7 @@ async def get_pill_adverse_reactions_by_slug(slug: str):
             pill_columns = pill_result.keys()
             pill_info = dict(zip(pill_columns, pill_row))
 
-        guide_data = await _resolve_dosage_guide_data(pill_info)
+        guide_data = run_guide_build(lambda: _resolve_dosage_guide_data(pill_info))
         adverse_html = guide_data.get("adverse_reactions") or guide_data.get("side_effects")
         adverse_reactions = adverse_html.strip() if isinstance(adverse_html, str) else adverse_html
         if isinstance(adverse_reactions, str) and not adverse_reactions:
@@ -1187,6 +1196,8 @@ async def get_pill_adverse_reactions_by_slug(slug: str):
             "source_url": guide_data.get("source_url"),
             "fetched_at": _to_iso(guide_data.get("fetched_at")),
         }, headers={"Cache-Control": CACHE_CONTROL_HEADER})
+    except GuideBusyError:
+        return busy_response()
     except GuideNotFoundError:
         return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
     except OpenFDAUpstreamError:
