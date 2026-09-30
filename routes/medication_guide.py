@@ -1,4 +1,8 @@
-"""Medication guide API endpoints."""
+"""Medication guide API endpoints.
+
+The guide routes are plain `def` routes: building a label blocks (database, DailyMed), so it runs on a
+worker thread through services.guide_runner, never on the event loop. See that module.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
 from routes.admin.auth import require_superuser
+from services.guide_runner import GuideBusyError, busy_response, run_guide_build
 from services.medication_guide import GuideInternalError, GuideNotFoundError, GuideValidationError, build_guide
 from services.openfda_client import OpenFDAUpstreamError
 from services.rxnorm_client import RxNormClient
@@ -20,7 +25,7 @@ CACHE_CONTROL_HEADER = "public, max-age=3600, stale-while-revalidate=86400"
 
 
 @router.get("/api/drugs/{rxcui}/guide")
-async def get_guide_by_rxcui(
+def get_guide_by_rxcui(
     rxcui: str,
     include_professional: bool = Query(False),
     include_medguide: bool = Query(False),
@@ -28,13 +33,17 @@ async def get_guide_by_rxcui(
 ):
     """Return medication guide for one RxCUI."""
     try:
-        payload = await build_guide(
-            rxcui=rxcui,
-            include_professional=include_professional,
-            include_medguide=include_medguide,
-            include_boxed_warning=include_boxed_warning,
+        payload = run_guide_build(
+            lambda: build_guide(
+                rxcui=rxcui,
+                include_professional=include_professional,
+                include_medguide=include_medguide,
+                include_boxed_warning=include_boxed_warning,
+            )
         )
         return JSONResponse(content=payload, headers={"Cache-Control": CACHE_CONTROL_HEADER})
+    except GuideBusyError:
+        return busy_response()
     except GuideNotFoundError:
         return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
     except OpenFDAUpstreamError:
@@ -45,7 +54,7 @@ async def get_guide_by_rxcui(
 
 
 @router.get("/api/drugs/by-ndc/{ndc}/guide")
-async def get_guide_by_ndc(
+def get_guide_by_ndc(
     ndc: str,
     include_professional: bool = Query(False),
     include_medguide: bool = Query(False),
@@ -53,13 +62,17 @@ async def get_guide_by_ndc(
 ):
     """Return medication guide for one NDC."""
     try:
-        payload = await build_guide(
-            ndc=ndc,
-            include_professional=include_professional,
-            include_medguide=include_medguide,
-            include_boxed_warning=include_boxed_warning,
+        payload = run_guide_build(
+            lambda: build_guide(
+                ndc=ndc,
+                include_professional=include_professional,
+                include_medguide=include_medguide,
+                include_boxed_warning=include_boxed_warning,
+            )
         )
         return JSONResponse(content=payload, headers={"Cache-Control": CACHE_CONTROL_HEADER})
+    except GuideBusyError:
+        return busy_response()
     except GuideValidationError:
         return JSONResponse(status_code=400, content={"error": "Invalid NDC format"})
     except GuideNotFoundError:
@@ -72,7 +85,7 @@ async def get_guide_by_ndc(
 
 
 @router.get("/api/drugs/by-setid/{spl_set_id}/guide")
-async def get_guide_by_setid(
+def get_guide_by_setid(
     spl_set_id: str,
     include_professional: bool = Query(False),
     include_medguide: bool = Query(False),
@@ -80,13 +93,17 @@ async def get_guide_by_setid(
 ):
     """Return medication guide for one DailyMed SPL Set ID."""
     try:
-        payload = await build_guide(
-            spl_set_id=spl_set_id,
-            include_professional=include_professional,
-            include_medguide=include_medguide,
-            include_boxed_warning=include_boxed_warning,
+        payload = run_guide_build(
+            lambda: build_guide(
+                spl_set_id=spl_set_id,
+                include_professional=include_professional,
+                include_medguide=include_medguide,
+                include_boxed_warning=include_boxed_warning,
+            )
         )
         return JSONResponse(content=payload, headers={"Cache-Control": CACHE_CONTROL_HEADER})
+    except GuideBusyError:
+        return busy_response()
     except GuideNotFoundError:
         return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
     except OpenFDAUpstreamError:
@@ -112,10 +129,12 @@ async def search_drugs(
 
 
 @router.post("/api/admin/drugs/{rxcui}/guide/refresh")
-async def refresh_guide(rxcui: str, _admin=Depends(require_superuser)):
+def refresh_guide(rxcui: str, _admin=Depends(require_superuser)):
     """Force refresh a medication guide row regardless of cache age."""
     try:
-        return await build_guide(rxcui=rxcui, force_refresh=True)
+        return run_guide_build(lambda: build_guide(rxcui=rxcui, force_refresh=True))
+    except GuideBusyError:
+        return busy_response()
     except GuideNotFoundError:
         return JSONResponse(status_code=404, content={"error": "No FDA label found for this drug"})
     except OpenFDAUpstreamError:
