@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import database
 from ndc_normalize import normalize_ndc_to_11
 from routes.admin.auth import get_admin_user, log_audit, require_superuser
+from services.guide_runner import GuideBusyError, run_guide_build
 from services.medication_guide import (
     DAILYMED_SPLS_LOOKUP_URL,
     GuideInternalError,
@@ -468,7 +469,7 @@ async def lookup_spl_set_id(
 
 
 @router.post("/{pill_id}/refetch")
-async def refetch_guide_content(
+def refetch_guide_content(
     pill_id: str,
     payload: RefetchPayload,
     request: Request,
@@ -483,32 +484,33 @@ async def refetch_guide_content(
             if not spl_set_id:
                 raise HTTPException(status_code=400, detail="spl_set_id is required before refetch")
 
+        # The label build blocks (database, DailyMed): on a worker thread, never on the event loop.
         if payload.target == "all":
-            await build_guide(
+            run_guide_build(lambda: build_guide(
                 spl_set_id=spl_set_id,
                 force_refresh=True,
                 include_professional=True,
                 include_medguide=True,
                 include_boxed_warning=True,
-            )
+            ))
         elif payload.target == "professional":
-            await build_guide(
+            run_guide_build(lambda: build_guide(
                 spl_set_id=spl_set_id,
                 force_refresh=True,
                 include_professional=True,
-            )
+            ))
         elif payload.target == "medguide":
-            await build_guide(
+            run_guide_build(lambda: build_guide(
                 spl_set_id=spl_set_id,
                 force_refresh=True,
                 include_medguide=True,
-            )
+            ))
         elif payload.target in {"dosage", "side_effects"}:
-            await build_guide(
+            run_guide_build(lambda: build_guide(
                 spl_set_id=spl_set_id,
                 force_refresh=True,
                 include_professional=True,
-            )
+            ))
 
         with database.db_engine.begin() as conn:
             log_audit(
@@ -530,6 +532,8 @@ async def refetch_guide_content(
             pill = _find_pill(conn, pill_id)
             guide_row = _find_guide_row(conn, pill)
         return _build_status_payload(pill, guide_row)
+    except GuideBusyError:
+        raise HTTPException(status_code=503, detail="Busy loading FDA labels; try again in a moment")
     except (GuideNotFoundError, GuideValidationError):
         raise HTTPException(status_code=404, detail="Medication guide source not found")
     except OpenFDAUpstreamError:

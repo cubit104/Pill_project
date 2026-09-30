@@ -51,9 +51,8 @@ def test_a_blocking_label_build_leaves_the_event_loop_free():
     assert ticks >= 8  # the loop kept serving the whole time
 
 
-def test_busy_when_every_slot_is_taken(monkeypatch):
+def test_busy_at_once_when_every_slot_is_taken(monkeypatch):
     monkeypatch.setattr(guide_runner, "_slots", threading.BoundedSemaphore(1))
-    monkeypatch.setattr(guide_runner, "SLOT_WAIT_SECONDS", 0.1)
     started, release = threading.Event(), threading.Event()
 
     async def slow_build():
@@ -65,8 +64,10 @@ def test_busy_when_every_slot_is_taken(monkeypatch):
     holder.start()
     assert started.wait(2)
     made = []
+    t = time.monotonic()
     with pytest.raises(guide_runner.GuideBusyError):
         guide_runner.run_guide_build(lambda: made.append("built"))
+    assert time.monotonic() - t < 0.1  # refused at once: no worker thread sits waiting for a slot
     release.set()
     holder.join(2)
     assert made == []  # a refused build is never even started
@@ -124,3 +125,25 @@ def test_dosage_route_is_a_plain_function_that_builds_off_the_loop(monkeypatch):
     body = json.loads(response.body)
     assert body["dosage_administration"] == "Take one tablet daily."
     assert body["spl_set_id"] == "set-1"
+
+
+def test_admin_refetch_routes_build_off_the_loop_and_say_busy(monkeypatch):
+    from fastapi import HTTPException
+
+    from routes.admin import guide as admin_guide
+    from routes.admin import iv_manage
+
+    assert not asyncio.iscoroutinefunction(admin_guide.refetch_guide_content)
+    assert not asyncio.iscoroutinefunction(iv_manage.refetch_label)
+
+    engine = MagicMock()
+    monkeypatch.setattr(iv_manage, "_engine", lambda: engine)
+    monkeypatch.setattr(iv_manage, "_get", lambda conn, drug_id: MagicMock(_mapping={"spl_set_id": "set-9"}))
+
+    def always_busy(make_build):
+        raise guide_runner.GuideBusyError("busy")
+
+    monkeypatch.setattr(iv_manage, "run_guide_build", always_busy)
+    with pytest.raises(HTTPException) as refused:
+        iv_manage.refetch_label("7f0c1a7e-0000-4000-8000-000000000001", admin={"id": "a", "email": "a@x"})
+    assert refused.value.status_code == 503
